@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebX Graph</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            width: 100%;
+            background: #000000;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        #toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px;
+            background: #000000;
+            border-bottom: 2px solid #00ff00;
+        }
+
+        #toolbar button, #toolbar select {
+            padding: 8px 12px;
+            font-size: 14px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(145deg, #1a1a1a, #000000);
+            color: #00ff00;
+            cursor: pointer;
+            text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 255, 0, 0.1);
+        }
+
+        #toolbar button:hover, #toolbar button:focus {
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 255, 0, 0.2);
+        }
+
+        #toolbar button.active {
+            background: linear-gradient(145deg, #00ff00, #00cc00);
+            color: #000000;
+            text-shadow: none;
+            box-shadow: 0 4px 8px rgba(0, 255, 0, 0.3);
+        }
+
+        #toolbar select {
+            background: linear-gradient(145deg, #1a1a1a, #000000);
+            padding-right: 25px;
+            appearance: none;
+        }
+
+        #colorPicker {
+            width: 40px;
+            height: 30px;
+            padding: 0;
+            border: none;
+            border-radius: 25px;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        #canvas {
+            flex: 1;
+            width: 100%;
+            background: #000000;
+            border: 1px solid #00ff00;
+            touch-action: none;
+        }
+
+        #footer {
+            position: fixed;
+            bottom: 5px;
+            left: 5px;
+            color: #00ff00;
+            font-size: 12px;
+            text-shadow: 0 0 5px #00ff00;
+        }
+
+        #nftCode {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00ff00;
+            padding: 15px;
+            color: #00ff00;
+            font-size: 14px;
+            text-shadow: 0 0 5px #00ff00;
+            display: none;
+            text-align: center;
+            max-width: 90%;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+
+        @media (min-width: 768px) {
+            #toolbar {
+                gap: 10px;
+                padding: 15px;
+            }
+            #toolbar button, #toolbar select {
+                padding: 10px 15px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button id="pencil" class="active">Pencil</button>
+        <button id="eraser">Eraser</button>
+        <button id="line">Line</button>
+        <button id="rect">Rectangle</button>
+        <button id="circle">Circle</button>
+        <button id="triangle">Triangle</button>
+        <button id="star">Star</button>
+        <select id="size">
+            <option value="2">Small</option>
+            <option value="5" selected>Medium</option>
+            <option value="10">Large</option>
+        </select>
+        <input type="color" id="colorPicker" value="#00ff00">
+        <button id="autoGenerate">Auto Generate</button>
+        <button id="mintNFT">Mint NFT</button>
+        <button id="invert">Invert</button>
+        <button id="clear">Clear</button>
+    </div>
+    <canvas id="canvas"></canvas>
+    <div id="footer">© WebX 2025</div>
+    <div id="nftCode"></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const toolbar = document.getElementById('toolbar');
+        const nftCodeDiv = document.getElementById('nftCode');
+        let painting = false;
+        let startX, startY;
+        let tool = 'pencil';
+        let isInverted = false;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - toolbar.offsetHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Tool selection
+        toolbar.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON' && 
+                !['clear', 'invert', 'autoGenerate', 'mintNFT'].includes(e.target.id)) {
+                document.querySelectorAll('#toolbar button').forEach(btn => btn.classList.remove('active'));
+                e.target.classList.add('active');
+                tool = e.target.id;
+            }
+        });
+
+        function getSettings() {
+            return {
+                color: document.getElementById('colorPicker').value,
+                size: parseInt(document.getElementById('size').value)
+            };
+        }
+
+        // Mouse events for desktop
+        canvas.addEventListener('mousedown', startPaintingMouse);
+        canvas.addEventListener('mousemove', paintMouse);
+        canvas.addEventListener('mouseup', stopPaintingMouse);
+        canvas.addEventListener('mouseleave', stopPaintingMouse);
+
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', startPaintingTouch);
+        canvas.addEventListener('touchmove', paintTouch);
+        canvas.addEventListener('touchend', stopPaintingTouch);
+
+        function startPaintingMouse(e) {
+            painting = true;
+            startX = e.clientX;
+            startY = e.clientY - toolbar.offsetHeight;
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+        }
+
+        function startPaintingTouch(e) {
+            e.preventDefault();
+            painting = true;
+            const touch = e.touches[0];
+            startX = touch.clientX;
+            startY = touch.clientY - toolbar.offsetHeight;
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+        }
+
+        function paintMouse(e) {
+            if (!painting) return;
+            const x = e.clientX;
+            const y = e.clientY - toolbar.offsetHeight;
+            draw(x, y);
+        }
+
+        function paintTouch(e) {
+            if (!painting) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const x = touch.clientX;
+            const y = touch.clientY - toolbar.offsetHeight;
+            draw(x, y);
+        }
+
+        function draw(x, y) {
+            const { color, size } = getSettings();
+            ctx.strokeStyle = tool === 'eraser' ? '#000000' : color;
+            ctx.lineWidth = size;
+            ctx.lineCap = 'round';
+
+            if (tool === 'pencil' || tool === 'eraser') {
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+        }
+
+        function stopPaintingMouse(e) {
+            if (!painting) return;
+            painting = false;
+            drawShape(e.clientX, e.clientY - toolbar.offsetHeight);
+        }
+
+        function stopPaintingTouch(e) {
+            if (!painting) return;
+            painting = false;
+            const touch = e.changedTouches[0];
+            drawShape(touch.clientX, touch.clientY - toolbar.offsetHeight);
+        }
+
+        function drawShape(endX, endY) {
+            const { color, size } = getSettings();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = size;
+
+            if (tool === 'line') {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+            } else if (tool === 'rect') {
+                ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+            } else if (tool === 'circle') {
+                const radius = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+                ctx.beginPath();
+                ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (tool === 'triangle') {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                ctx.lineTo(startX * 2 - endX, endY);
+                ctx.closePath();
+                ctx.stroke();
+            } else if (tool === 'star') {
+                drawStar(startX, startY, 5, Math.abs(endX - startX), Math.abs(endX - startX) / 2);
+            }
+        }
+
+        function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+            let rot = Math.PI / 2 * 3;
+            let x = cx;
+            let y = cy;
+            const step = Math.PI / spikes;
+
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - outerRadius);
+            for (let i = 0; i < spikes; i++) {
+                x = cx + Math.cos(rot) * outerRadius;
+                y = cy + Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+                x = cx + Math.cos(rot) * innerRadius;
+                y = cy + Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            ctx.lineTo(cx, cy - outerRadius);
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        // Auto Generate, Mint NFT, Invert, Clear functions remain the same
+        document.getElementById('autoGenerate').addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const { color } = getSettings();
+            for (let i = 0; i < 5; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const size = Math.random() * 50 + 20;
+                const shape = Math.floor(Math.random() * 4);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                switch (shape) {
+                    case 0: ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.stroke(); break;
+                    case 1: ctx.strokeRect(x - size / 2, y - size / 2, size, size); break;
+                    case 2: ctx.beginPath(); ctx.moveTo(x, y - size); ctx.lineTo(x + size, y + size); ctx.lineTo(x - size, y + size); ctx.closePath(); ctx.stroke(); break;
+                    case 3: drawStar(x, y, 5, size, size / 2); break;
+                }
+            }
+            ctx.font = '30px Arial';
+            ctx.fillStyle = color;
+            ctx.fillText('WebX', Math.random() * (canvas.width - 50), Math.random() * (canvas.height - 30));
+        });
+
+        document.getElementById('mintNFT').addEventListener('click', () => {
+            const imageData = canvas.toDataURL('image/png');
+            const nftCode = `WEBX-${Math.random().toString(36).substr(2, 9).toUpperCase()}-${Date.now()}`;
+            nftCodeDiv.innerHTML = `NFT Minted!<br>Your NFT Code: ${nftCode}<br>(Simulated for display only)<br>Tap to dismiss`;
+            nftCodeDiv.style.display = 'block';
+            nftCodeDiv.addEventListener('click', () => nftCodeDiv.style.display = 'none');
+        });
+
+        document.getElementById('invert').addEventListener('click', () => {
+            isInverted = !isInverted;
+            ctx.globalCompositeOperation = 'difference';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.globalCompositeOperation = 'source-over';
+        });
+
+        document.getElementById('clear').addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            isInverted = false;
+        });
+    </script>
+</body>
+</html>
