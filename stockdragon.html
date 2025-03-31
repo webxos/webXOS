@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockDragon - Retro RPG Financial Quest</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000; font-family: 'Press Start 2P', cursive; color: #00ff00;
+            overflow: hidden; display: flex; justify-content: center; align-items: center;
+            height: 100vh; perspective: 1000px;
+        }
+        .game-container {
+            width: 90vw; max-width: 800px; height: 90vh; position: relative;
+            transform-style: preserve-3d; transform: rotateX(15deg) translateZ(-100px);
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJElEQVQIW2P8//8/AwMDAwPdxfX19f8fHx8f/////wcGBgYAxt8D8d4S+AAAAABJRU5ErkJggg==') repeat;
+            border: 4px solid #ff00ff; box-shadow: 0 0 20px #ff00ff, inset 0 0 20px #00ffff;
+        }
+        .title { text-align: center; padding: 20px; color: #ff00ff; text-shadow: 2px 2px 0 #00ff00, -2px -2px 0 #00ffff; font-size: 24px; transform: translateZ(50px); }
+        .console { height: 60%; margin: 20px; padding: 15px; background: rgba(0, 0, 0, 0.8); border: 2px dashed #00ff00; overflow-y: auto; font-size: 12px; line-height: 1.5; transform: translateZ(30px); box-shadow: 0 0 10px #00ff00; }
+        .input-area { position: absolute; bottom: 20px; width: calc(100% - 40px); margin: 0 20px; display: flex; transform: translateZ(40px); }
+        #commandInput { flex-grow: 1; padding: 10px; background: #000; border: 2px solid #00ffff; color: #00ff00; font-family: 'Press Start 2P', cursive; font-size: 12px; box-shadow: 0 0 5px #00ffff; }
+        button { padding: 10px 20px; background: #ff00ff; color: #00ff00; border: 2px solid #00ffff; font-family: 'Press Start 2P', cursive; font-size: 12px; cursor: pointer; box-shadow: 0 0 5px #ff00ff; }
+        button:hover { background: #00ffff; color: #ff00ff; }
+        .game-container::before { content: ''; position: absolute; top: -20px; left: -20px; right: -20px; bottom: -20px; background: radial-gradient(circle, rgba(0, 255, 0, 0.2), transparent); transform: translateZ(-50px); }
+        @media (max-width: 768px) { .game-container { width: 95vw; height: 95vh; } .title { font-size: 18px; padding: 10px; } .console { font-size: 10px; margin: 10px; } #commandInput, button { font-size: 10px; padding: 8px; } }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="title">StockDragon: Financial Quest</div>
+        <div id="console" class="console">
+            Welcome to StockDragon!
+            Enter a ticker (e.g., $AAPL, $BTC) to begin your real-time quest...
+        </div>
+        <div class="input-area">
+            <input id="commandInput" placeholder="$TICKER">
+            <button onclick="processCommand()">Analyze</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script>
+        class StockDragon {
+            constructor() {
+                this.model = this.createModel();
+                this.console = document.getElementById('console');
+                this.ticker = null;
+                this.trainingData = { xs: [], ys: [] }; // Store for incremental training
+                this.startRealTimeUpdates();
+            }
+
+            createModel() {
+                const model = tf.sequential();
+                model.add(tf.layers.dense({ units: 128, inputShape: [5], activation: 'relu' }));
+                model.add(tf.layers.dropout({ rate: 0.2 }));
+                model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
+                model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
+                model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
+                return model;
+            }
+
+            // Simulate real-time data fetch (replace with actual API in production)
+            async fetchRealTimeData(ticker) {
+                return {
+                    price: Math.random() * 1000 + 500,
+                    volume: Math.random() * 1000000,
+                    marketCap: Math.random() * 1000000000,
+                    recentChange: (Math.random() - 0.5) * 0.1,
+                    sentiment: Math.random()
+                };
+            }
+
+            async trainModel(data) {
+                const xs = tf.tensor2d([[data.price, data.volume, data.marketCap, data.recentChange, data.sentiment]]);
+                const ys = tf.tensor2d([[data.recentChange > 0 ? 1 : 0, data.volume > 500000 ? 1 : 0, data.sentiment > 0.5 ? 1 : 0, 0.9]]); // Simplified target
+                await this.model.fit(xs, ys, { epochs: 1, batchSize: 1 });
+                this.trainingData.xs.push([data.price, data.volume, data.marketCap, data.recentChange, data.sentiment]);
+                this.trainingData.ys.push([data.recentChange > 0 ? 1 : 0, data.volume > 500000 ? 1 : 0, data.sentiment > 0.5 ? 1 : 0, 0.9]);
+                if (this.trainingData.xs.length > 100) { // Limit memory usage
+                    this.trainingData.xs.shift();
+                    this.trainingData.ys.shift();
+                }
+            }
+
+            async analyzeTicker(ticker, realTimeData) {
+                await this.trainModel(realTimeData);
+                const input = [realTimeData.price, realTimeData.volume, realTimeData.marketCap, realTimeData.recentChange, realTimeData.sentiment];
+                const tensor = tf.tensor2d([input]);
+                const prediction = await this.model.predict(tensor).data();
+                const [trend, volatility, sentiment, confidence] = prediction;
+
+                const trendText = trend > 0.5 ? "Going Up" : "Going Down";
+                const volatilityText = volatility > 0.5 ? "Shaky" : "Stable";
+                const sentimentText = sentiment > 0.5 ? "Happy" : "Worried";
+                const confidenceText = (confidence * 100).toFixed(0) + "% Sure";
+
+                return {
+                    ticker: ticker.toUpperCase(),
+                    trend: trendText,
+                    volatility: volatilityText,
+                    sentiment: sentimentText,
+                    confidence: confidenceText,
+                    price: realTimeData.price.toFixed(2),
+                    timestamp: new Date().toLocaleString()
+                };
+            }
+
+            displayResult(result) {
+                const output = `
+>>> QUEST: ${result.ticker} <<<
+Date: ${result.timestamp}
+----------------------------------------
+| Price: $${result.price}
+| Move: ${result.trend} (Will it rise or fall?)
+| Ride: ${result.volatility} (Smooth or bumpy?)
+| Mood: ${result.sentiment} (How investors feel?)
+| Trust: ${result.confidence} (How sure are we?)
+----------------------------------------
+`;
+                this.console.textContent += output;
+                this.console.scrollTop = this.console.scrollHeight;
+            }
+
+            startRealTimeUpdates() {
+                setInterval(async () => {
+                    if (this.ticker) {
+                        const data = await this.fetchRealTimeData(this.ticker);
+                        const result = await this.analyzeTicker(this.ticker, data);
+                        this.displayResult(result);
+                    }
+                }, 5000); // Update every 5 seconds
+            }
+        }
+
+        const dragon = new StockDragon();
+
+        async function processCommand() {
+            const input = document.getElementById('commandInput').value.trim();
+            if (input.startsWith('$')) {
+                const ticker = input.slice(1);
+                dragon.ticker = ticker;
+                const data = await dragon.fetchRealTimeData(ticker);
+                const result = await dragon.analyzeTicker(ticker, data);
+                dragon.displayResult(result);
+                document.getElementById('commandInput').value = '';
+            } else {
+                dragon.console.textContent += `>>> ERROR: Invalid command! Use $TICKER (e.g., $AAPL)\n`;
+                dragon.console.scrollTop = dragon.console.scrollHeight;
+            }
+        }
+
+        document.getElementById('commandInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') processCommand();
+        });
+    </script>
+</body>
+</html>
