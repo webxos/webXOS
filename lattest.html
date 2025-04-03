@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-Agent Latency Tester</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #000;
+            color: #0f0; /* Neon green text */
+        }
+        #networkCanvas {
+            border: 1px solid #0f0; /* Neon green border */
+            max-width: 100%;
+            height: auto;
+            background-color: #000; /* Black canvas */
+        }
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #0f0; /* Neon green border */
+            border-radius: 4px;
+            background-color: #0f0; /* Neon green background */
+            color: #000; /* Black text on buttons */
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00cc00; /* Slightly darker neon green on hover */
+        }
+        #historyPopup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #222;
+            border: 2px solid #0f0; /* Neon green border */
+            padding: 20px;
+            max-width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+            color: #0f0; /* Neon green text */
+            z-index: 1000;
+        }
+        #historyPopup button {
+            margin-top: 10px;
+            width: 100%;
+        }
+        #overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+        }
+        @media (max-width: 600px) {
+            #controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="networkCanvas"></canvas>
+    <div id="controls">
+        <button id="testBtn">Run Latency Test</button>
+        <button id="resetBtn">Reset</button>
+    </div>
+    <div id="overlay"></div>
+    <div id="historyPopup">
+        <h2 id="popupTitle">Agent History</h2>
+        <ul id="historyList"></ul>
+        <button id="closeHistoryPopup">Close</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        const agents = [];
+        const numAgents = 8;
+        const radius = 20;
+        let averageLatency = 0;
+
+        // Responsive canvas sizing
+        function resizeCanvas() {
+            canvas.width = Math.min(800, window.innerWidth - 20);
+            canvas.height = Math.min(600, window.innerHeight * 0.6);
+            initializeAgents();
+            drawNetwork();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initialize agents
+        function initializeAgents() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const spread = Math.min(canvas.width, canvas.height) * 0.35;
+
+            agents.length = 0;
+            for (let i = 0; i < numAgents; i++) {
+                const angle = (2 * Math.PI / numAgents) * i;
+                agents.push({
+                    x: centerX + spread * Math.cos(angle),
+                    y: centerY + spread * Math.sin(angle),
+                    active: false,
+                    latency: '',
+                    history: [] // Individual history for each agent
+                });
+            }
+        }
+
+        // Draw network
+        function drawNetwork() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw connections between agents
+            ctx.strokeStyle = '#0f0'; /* Neon green connections */
+            ctx.lineWidth = 1;
+            for (let i = 0; i < numAgents; i++) {
+                for (let j = i + 1; j < numAgents; j++) {
+                    ctx.beginPath();
+                    ctx.moveTo(agents[i].x, agents[i].y);
+                    ctx.lineTo(agents[j].x, agents[j].y);
+                    ctx.stroke();
+                }
+            }
+
+            // Draw agents
+            agents.forEach((agent, index) => {
+                ctx.beginPath();
+                ctx.arc(agent.x, agent.y, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = agent.active ? '#00cc00' : '#0f0'; /* Darker neon green active, neon green inactive */
+                ctx.fill();
+                ctx.strokeStyle = '#0f0'; /* Neon green border */
+                ctx.stroke();
+                ctx.fillStyle = '#000'; /* Black text for contrast */
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`A${index + 1}`, agent.x, agent.y - 5); // A1 to A8
+                if (agent.latency) {
+                    ctx.fillText(`${agent.latency} ms`, agent.x, agent.y + 15);
+                }
+            });
+
+            // Draw average latency in the center
+            if (averageLatency > 0) {
+                ctx.fillStyle = '#0f0';
+                ctx.font = '16px Arial';
+                ctx.fillText(`Avg: ${averageLatency.toFixed(2)} ms`, canvas.width / 2, canvas.height / 2);
+            }
+        }
+
+        // Click handler for agents
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            agents.forEach((agent, index) => {
+                const dx = clickX - agent.x;
+                const dy = clickY - agent.y;
+                if (Math.sqrt(dx * dx + dy * dy) < radius) {
+                    showAgentHistory(index);
+                }
+            });
+        });
+
+        // Measure real-time latency
+        async function measureLatency() {
+            try {
+                const startTime = performance.now();
+                // Fetch the current page with no caching to measure latency
+                await fetch(window.location.href, {
+                    method: 'HEAD', // Use HEAD to minimize data transfer
+                    cache: 'no-store', // Avoid caching
+                    mode: 'no-cors' // Avoid CORS issues (note: this limits response access)
+                });
+                const endTime = performance.now();
+                return endTime - startTime;
+            } catch (error) {
+                console.error('Latency measurement failed:', error);
+                return 0; // Return 0 if the request fails
+            }
+        }
+
+        // Control functions
+        window.resetNetwork = function() {
+            averageLatency = 0;
+            initializeAgents();
+            drawNetwork();
+        };
+
+        window.testLatency = async function() {
+            let currentAgent = 0;
+            const timestamp = new Date().toLocaleString();
+            const latencyResults = [];
+
+            async function processAgent() {
+                if (currentAgent < numAgents) {
+                    agents[currentAgent].active = true;
+                    drawNetwork();
+
+                    // Measure real-time latency
+                    const latency = await measureLatency();
+                    if (latency === 0) {
+                        agents[currentAgent].latency = 'Error';
+                        agents[currentAgent].history.push({ 
+                            latency: 'Error', 
+                            time: timestamp 
+                        });
+                    } else {
+                        latencyResults.push(latency);
+                        agents[currentAgent].latency = latency.toFixed(2);
+                        agents[currentAgent].history.push({ 
+                            latency: latency.toFixed(2), 
+                            time: timestamp 
+                        });
+                    }
+                    drawNetwork();
+
+                    setTimeout(() => {
+                        agents[currentAgent].active = false;
+                        currentAgent++;
+                        processAgent();
+                    }, 500);
+                } else {
+                    // Calculate and display average
+                    if (latencyResults.length > 0) {
+                        averageLatency = latencyResults.reduce((a, b) => a + b, 0) / latencyResults.length;
+                    } else {
+                        averageLatency = 0;
+                    }
+                    setTimeout(() => {
+                        agents.forEach(agent => {
+                            agent.latency = '';
+                            agent.active = false;
+                        });
+                        drawNetwork();
+                    }, 500);
+                }
+            }
+
+            processAgent();
+        };
+
+        // History popup handling
+        function showAgentHistory(agentIndex) {
+            const agent = agents[agentIndex];
+            const list = document.getElementById('historyList');
+            list.innerHTML = '';
+            document.getElementById('popupTitle').textContent = `Agent A${agentIndex + 1} History`;
+
+            if (agent.history.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No latency tests yet';
+                list.appendChild(li);
+            } else {
+                agent.history.forEach(entry => {
+                    const li = document.createElement('li');
+                    li.textContent = `Latency: ${entry.latency} ms - ${entry.time}`;
+                    list.appendChild(li);
+                });
+            }
+
+            document.getElementById('historyPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        function closeHistoryPopup() {
+            document.getElementById('historyPopup').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        // Attach event listeners
+        document.getElementById('testBtn').addEventListener('click', testLatency);
+        document.getElementById('resetBtn').addEventListener('click', resetNetwork);
+        document.getElementById('closeHistoryPopup').addEventListener('click', closeHistoryPopup);
+
+        // Initialize
+        resizeCanvas();
+    </script>
+</body>
+</html>
