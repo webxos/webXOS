@@ -85,6 +85,7 @@
     <div id="controls">
         <button id="testBtn">Run Latency Test</button>
         <button id="resetBtn">Reset</button>
+        <button id="toggleAutoScanBtn">Toggle Auto Scan</button>
     </div>
     <div id="overlay"></div>
     <div id="historyPopup">
@@ -100,6 +101,7 @@
         const numAgents = 8;
         const radius = 20;
         let averageLatency = 0;
+        let isAutoScanRunning = false;
 
         // Responsive canvas sizing
         function resizeCanvas() {
@@ -263,6 +265,71 @@
             processAgent();
         };
 
+        // Auto scan function
+        async function autoScan() {
+            let currentAgent = 0;
+            const timestamp = new Date().toLocaleString();
+            const latencyResults = [];
+
+            async function processAgent() {
+                if (currentAgent < numAgents) {
+                    agents[currentAgent].active = true;
+                    drawNetwork();
+
+                    const latency = await measureLatency();
+                    if (latency === 0) {
+                        agents[currentAgent].latency = 'Error';
+                        agents[currentAgent].history.push({ 
+                            latency: 'Error', 
+                            time: timestamp 
+                        });
+                    } else {
+                        latencyResults.push(latency);
+                        agents[currentAgent].latency = latency.toFixed(2);
+                        agents[currentAgent].history.push({ 
+                            latency: latency.toFixed(2), 
+                            time: timestamp 
+                        });
+                    }
+                    drawNetwork();
+
+                    setTimeout(() => {
+                        agents[currentAgent].active = false;
+                        currentAgent++;
+                        processAgent();
+                    }, 500);
+                } else {
+                    if (latencyResults.length > 0) {
+                        averageLatency = latencyResults.reduce((a, b) => a + b, 0) / latencyResults.length;
+                    } else {
+                        averageLatency = 0;
+                    }
+                    setTimeout(() => {
+                        agents.forEach(agent => {
+                            agent.latency = '';
+                            agent.active = false;
+                        });
+                        drawNetwork();
+                    }, 500);
+                }
+            }
+
+            processAgent();
+        }
+
+        // Toggle auto scan
+        window.toggleAutoScan = function() {
+            if (isAutoScanRunning) {
+                clearInterval(autoScanInterval);
+                isAutoScanRunning = false;
+                document.getElementById('toggleAutoScanBtn').textContent = 'Toggle Auto Scan';
+            } else {
+                isAutoScanRunning = true;
+                document.getElementById('toggleAutoScanBtn').textContent = 'Stop Auto Scan';
+                autoScanInterval = setInterval(autoScan, 5000); // Run every 5 seconds
+            }
+        };
+
         // History popup handling
         function showAgentHistory(agentIndex) {
             const agent = agents[agentIndex];
@@ -294,6 +361,7 @@
         // Attach event listeners
         document.getElementById('testBtn').addEventListener('click', testLatency);
         document.getElementById('resetBtn').addEventListener('click', resetNetwork);
+        document.getElementById('toggleAutoScanBtn').addEventListener('click', toggleAutoScan);
         document.getElementById('closeHistoryPopup').addEventListener('click', closeHistoryPopup);
 
         // Initialize
