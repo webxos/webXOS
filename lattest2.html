@@ -59,16 +59,6 @@
             max-width: 100%;
             height: auto;
         }
-        #graphPopup table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        #graphPopup th, #graphPopup td {
-            border: 1px solid #0f0;
-            padding: 5px;
-            text-align: left;
-        }
         #overlay {
             display: none;
             position: fixed;
@@ -105,18 +95,8 @@
         <button id="closeHistoryPopup">Close</button>
     </div>
     <div id="graphPopup">
-        <h2>Latency Graph and Details</h2>
+        <h2>Average Latency Graph</h2>
         <canvas id="latencyChartPopup"></canvas>
-        <table id="agentDetails">
-            <thead>
-                <tr>
-                    <th>Agent</th>
-                    <th>Latest Latency (ms)</th>
-                    <th>Average Latency (ms)</th>
-                </tr>
-            </thead>
-            <tbody id="agentDetailsBody"></tbody>
-        </table>
         <button id="closeGraphPopup">Close</button>
     </div>
 
@@ -129,8 +109,7 @@
         const radius = 20;
         let averageLatency = 0;
         let isAutoScanRunning = false;
-        let latencyData = []; // Array to store overall latency values
-        let agentLatencyHistory = Array(numAgents).fill().map(() => []); // Array to store individual agent latency history
+        let averageLatencyHistory = []; // Array to store average latency over time
 
         // Responsive canvas sizing
         function resizeCanvas() {
@@ -236,8 +215,7 @@
         // Control functions
         window.resetNetwork = function() {
             averageLatency = 0;
-            latencyData = [];
-            agentLatencyHistory = Array(numAgents).fill().map(() => []);
+            averageLatencyHistory = [];
             initializeAgents();
             drawNetwork();
             updateGraphPopup();
@@ -257,12 +235,10 @@
                     if (latency === 0) {
                         agents[currentAgent].latency = 'Error';
                         agents[currentAgent].history.push({ latency: 'Error', time: timestamp });
-                        agentLatencyHistory[currentAgent].push(0);
                     } else {
                         latencyResults.push(latency);
                         agents[currentAgent].latency = latency.toFixed(2);
                         agents[currentAgent].history.push({ latency: latency.toFixed(2), time: timestamp });
-                        agentLatencyHistory[currentAgent].push(latency);
                     }
                     drawNetwork();
 
@@ -274,6 +250,8 @@
                 } else {
                     if (latencyResults.length > 0) {
                         averageLatency = latencyResults.reduce((a, b) => a + b, 0) / latencyResults.length;
+                        averageLatencyHistory.push(averageLatency);
+                        if (averageLatencyHistory.length > 50) averageLatencyHistory.shift();
                     } else {
                         averageLatency = 0;
                     }
@@ -306,17 +284,10 @@
                     if (latency === 0) {
                         agents[currentAgent].latency = 'Error';
                         agents[currentAgent].history.push({ latency: 'Error', time: timestamp });
-                        agentLatencyHistory[currentAgent].push(0);
                     } else {
                         latencyResults.push(latency);
                         agents[currentAgent].latency = latency.toFixed(2);
                         agents[currentAgent].history.push({ latency: latency.toFixed(2), time: timestamp });
-                        agentLatencyHistory[currentAgent].push(latency);
-                        latencyData.push(latency);
-                        if (latencyData.length > 50) {
-                            latencyData.shift();
-                            agentLatencyHistory.forEach(history => history.shift());
-                        }
                     }
                     drawNetwork();
 
@@ -328,6 +299,8 @@
                 } else {
                     if (latencyResults.length > 0) {
                         averageLatency = latencyResults.reduce((a, b) => a + b, 0) / latencyResults.length;
+                        averageLatencyHistory.push(averageLatency);
+                        if (averageLatencyHistory.length > 50) averageLatencyHistory.shift();
                     } else {
                         averageLatency = 0;
                     }
@@ -405,21 +378,13 @@
             data: {
                 labels: [],
                 datasets: [{
-                    label: 'Overall Latency',
+                    label: 'Average Latency',
                     data: [],
                     borderColor: '#0f0',
                     backgroundColor: 'rgba(0, 255, 0, 0.1)',
                     fill: true,
                     tension: 0.4
-                }, ...Array.from({ length: numAgents }, (_, i) => ({
-                    label: `Agent A${i + 1}`,
-                    data: [],
-                    borderColor: `hsl(${i * 360 / numAgents}, 100%, 50%)`,
-                    backgroundColor: `rgba(${i * 255 / numAgents}, 255, ${255 - i * 255 / numAgents}, 0.1)`,
-                    fill: true,
-                    tension: 0.4,
-                    hidden: true // Initially hidden, can be toggled
-                }))]
+                }]
             },
             options: {
                 responsive: true,
@@ -459,30 +424,10 @@
 
         // Update graph popup with data
         function updateGraphPopup() {
-            const labels = Array.from({ length: Math.max(latencyData.length, ...agentLatencyHistory.map(h => h.length)) }, (_, i) => i + 1);
+            const labels = Array.from({ length: averageLatencyHistory.length }, (_, i) => i + 1);
             latencyChartPopup.data.labels = labels;
-
-            latencyChartPopup.data.datasets[0].data = latencyData;
-            for (let i = 0; i < numAgents; i++) {
-                latencyChartPopup.data.datasets[i + 1].data = agentLatencyHistory[i].slice(0, latencyData.length);
-            }
-
+            latencyChartPopup.data.datasets[0].data = averageLatencyHistory;
             latencyChartPopup.update();
-
-            // Update agent details table
-            const tbody = document.getElementById('agentDetailsBody');
-            tbody.innerHTML = '';
-            agents.forEach((agent, index) => {
-                const latestLatency = agentLatencyHistory[index].length > 0 ? agentLatencyHistory[index][agentLatencyHistory[index].length - 1].toFixed(2) : 'N/A';
-                const avgLatency = agentLatencyHistory[index].length > 0 ? (agentLatencyHistory[index].reduce((a, b) => a + b, 0) / agentLatencyHistory[index].length).toFixed(2) : 'N/A';
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>Agent A${index + 1}</td>
-                    <td>${latestLatency}</td>
-                    <td>${avgLatency}</td>
-                `;
-                tbody.appendChild(row);
-            });
         }
 
         // Attach event listeners
