@@ -40,7 +40,7 @@
         button:hover {
             background-color: #00cc00; /* Slightly darker neon green on hover */
         }
-        #historyPopup {
+        #historyPopup, #graphPopup {
             display: none;
             position: fixed;
             top: 50%;
@@ -49,15 +49,25 @@
             background-color: #222;
             border: 2px solid #0f0; /* Neon green border */
             padding: 20px;
-            max-width: 80%;
-            max-height: 80%;
+            max-width: 90%;
+            max-height: 90%;
             overflow-y: auto;
             color: #0f0; /* Neon green text */
             z-index: 1000;
         }
-        #historyPopup button {
-            margin-top: 10px;
+        #graphPopup canvas {
+            max-width: 100%;
+            height: auto;
+        }
+        #graphPopup table {
             width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        #graphPopup th, #graphPopup td {
+            border: 1px solid #0f0;
+            padding: 5px;
+            text-align: left;
         }
         #overlay {
             display: none;
@@ -68,12 +78,6 @@
             height: 100%;
             background: rgba(0, 0, 0, 0.7);
             z-index: 999;
-        }
-        #latencyChart {
-            margin-top: 20px;
-            width: 100%;
-            max-width: 800px;
-            height: 200px;
         }
         @media (max-width: 600px) {
             #controls {
@@ -92,6 +96,7 @@
         <button id="testBtn">Run Latency Test</button>
         <button id="resetBtn">Reset</button>
         <button id="toggleAutoScanBtn">Toggle Auto Scan</button>
+        <button id="showGraphBtn">Show Graph</button>
     </div>
     <div id="overlay"></div>
     <div id="historyPopup">
@@ -99,7 +104,21 @@
         <ul id="historyList"></ul>
         <button id="closeHistoryPopup">Close</button>
     </div>
-    <canvas id="latencyChart"></canvas>
+    <div id="graphPopup">
+        <h2>Latency Graph and Details</h2>
+        <canvas id="latencyChartPopup"></canvas>
+        <table id="agentDetails">
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Latest Latency (ms)</th>
+                    <th>Average Latency (ms)</th>
+                </tr>
+            </thead>
+            <tbody id="agentDetailsBody"></tbody>
+        </table>
+        <button id="closeGraphPopup">Close</button>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
@@ -110,7 +129,8 @@
         const radius = 20;
         let averageLatency = 0;
         let isAutoScanRunning = false;
-        let latencyData = []; // Array to store latency values for the graph
+        let latencyData = []; // Array to store overall latency values
+        let agentLatencyHistory = Array(numAgents).fill().map(() => []); // Array to store individual agent latency history
 
         // Responsive canvas sizing
         function resizeCanvas() {
@@ -216,10 +236,11 @@
         // Control functions
         window.resetNetwork = function() {
             averageLatency = 0;
-            latencyData = []; // Reset latency data for graph
+            latencyData = [];
+            agentLatencyHistory = Array(numAgents).fill().map(() => []);
             initializeAgents();
             drawNetwork();
-            updateChart();
+            updateGraphPopup();
         };
 
         window.testLatency = async function() {
@@ -236,10 +257,12 @@
                     if (latency === 0) {
                         agents[currentAgent].latency = 'Error';
                         agents[currentAgent].history.push({ latency: 'Error', time: timestamp });
+                        agentLatencyHistory[currentAgent].push(0);
                     } else {
                         latencyResults.push(latency);
                         agents[currentAgent].latency = latency.toFixed(2);
                         agents[currentAgent].history.push({ latency: latency.toFixed(2), time: timestamp });
+                        agentLatencyHistory[currentAgent].push(latency);
                     }
                     drawNetwork();
 
@@ -261,6 +284,7 @@
                         });
                         drawNetwork();
                     }, 500);
+                    updateGraphPopup();
                 }
             }
 
@@ -282,13 +306,17 @@
                     if (latency === 0) {
                         agents[currentAgent].latency = 'Error';
                         agents[currentAgent].history.push({ latency: 'Error', time: timestamp });
+                        agentLatencyHistory[currentAgent].push(0);
                     } else {
                         latencyResults.push(latency);
                         agents[currentAgent].latency = latency.toFixed(2);
                         agents[currentAgent].history.push({ latency: latency.toFixed(2), time: timestamp });
-                        latencyData.push(latency); // Add latency to graph data
-                        if (latencyData.length > 50) latencyData.shift(); // Limit to last 50 data points
-                        updateChart();
+                        agentLatencyHistory[currentAgent].push(latency);
+                        latencyData.push(latency);
+                        if (latencyData.length > 50) {
+                            latencyData.shift();
+                            agentLatencyHistory.forEach(history => history.shift());
+                        }
                     }
                     drawNetwork();
 
@@ -310,6 +338,7 @@
                         });
                         drawNetwork();
                     }, 500);
+                    updateGraphPopup();
                 }
             }
 
@@ -357,26 +386,54 @@
             document.getElementById('overlay').style.display = 'none';
         }
 
-        // Chart.js setup
-        const ctxChart = document.getElementById('latencyChart').getContext('2d');
-        const latencyChart = new Chart(ctxChart, {
+        // Graph popup handling
+        function showGraphPopup() {
+            document.getElementById('graphPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+            updateGraphPopup();
+        }
+
+        function closeGraphPopup() {
+            document.getElementById('graphPopup').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        // Chart.js setup for popup
+        const ctxChartPopup = document.getElementById('latencyChartPopup').getContext('2d');
+        const latencyChartPopup = new Chart(ctxChartPopup, {
             type: 'line',
             data: {
                 labels: [],
                 datasets: [{
-                    label: 'Latency (ms)',
+                    label: 'Overall Latency',
                     data: [],
                     borderColor: '#0f0',
                     backgroundColor: 'rgba(0, 255, 0, 0.1)',
                     fill: true,
-                    tension: 0.4 // Adds a smooth curve effect
-                }]
+                    tension: 0.4
+                }, ...Array.from({ length: numAgents }, (_, i) => ({
+                    label: `Agent A${i + 1}`,
+                    data: [],
+                    borderColor: `hsl(${i * 360 / numAgents}, 100%, 50%)`,
+                    backgroundColor: `rgba(${i * 255 / numAgents}, 255, ${255 - i * 255 / numAgents}, 0.1)`,
+                    fill: true,
+                    tension: 0.4,
+                    hidden: true // Initially hidden, can be toggled
+                }))]
             },
             options: {
                 responsive: true,
                 scales: {
                     x: {
-                        display: false
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Test Number',
+                            color: '#0f0'
+                        },
+                        ticks: {
+                            color: '#0f0'
+                        }
                     },
                     y: {
                         beginAtZero: true,
@@ -400,18 +457,41 @@
             }
         });
 
-        // Update chart with new data
-        function updateChart() {
-            latencyChart.data.labels = latencyData.map((_, index) => index);
-            latencyChart.data.datasets[0].data = latencyData;
-            latencyChart.update();
+        // Update graph popup with data
+        function updateGraphPopup() {
+            const labels = Array.from({ length: Math.max(latencyData.length, ...agentLatencyHistory.map(h => h.length)) }, (_, i) => i + 1);
+            latencyChartPopup.data.labels = labels;
+
+            latencyChartPopup.data.datasets[0].data = latencyData;
+            for (let i = 0; i < numAgents; i++) {
+                latencyChartPopup.data.datasets[i + 1].data = agentLatencyHistory[i].slice(0, latencyData.length);
+            }
+
+            latencyChartPopup.update();
+
+            // Update agent details table
+            const tbody = document.getElementById('agentDetailsBody');
+            tbody.innerHTML = '';
+            agents.forEach((agent, index) => {
+                const latestLatency = agentLatencyHistory[index].length > 0 ? agentLatencyHistory[index][agentLatencyHistory[index].length - 1].toFixed(2) : 'N/A';
+                const avgLatency = agentLatencyHistory[index].length > 0 ? (agentLatencyHistory[index].reduce((a, b) => a + b, 0) / agentLatencyHistory[index].length).toFixed(2) : 'N/A';
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>Agent A${index + 1}</td>
+                    <td>${latestLatency}</td>
+                    <td>${avgLatency}</td>
+                `;
+                tbody.appendChild(row);
+            });
         }
 
         // Attach event listeners
         document.getElementById('testBtn').addEventListener('click', testLatency);
         document.getElementById('resetBtn').addEventListener('click', resetNetwork);
         document.getElementById('toggleAutoScanBtn').addEventListener('click', toggleAutoScan);
+        document.getElementById('showGraphBtn').addEventListener('click', showGraphPopup);
         document.getElementById('closeHistoryPopup').addEventListener('click', closeHistoryPopup);
+        document.getElementById('closeGraphPopup').addEventListener('click', closeGraphPopup);
 
         // Initialize
         resizeCanvas();
