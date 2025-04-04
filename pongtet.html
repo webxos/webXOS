@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Pong</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: black;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #gameTitle {
+            color: white;
+            text-shadow: 0 0 10px white;
+            font-size: 24px;
+            text-align: center;
+            width: 100%;
+            padding: 10px 0;
+            z-index: 11;
+        }
+        #gameCanvas {
+            border: 1px solid white;
+            width: 100%;
+            max-width: 400px;
+            height: auto;
+            aspect-ratio: 4 / 5;
+            margin: 0 auto;
+            display: block;
+            position: relative;
+        }
+        #startMenu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            text-align: center;
+            border-radius: 10px;
+            z-index: 10;
+            width: 80%;
+            max-width: 300px;
+            font-size: 14px;
+        }
+        #startMenu h1 {
+            margin: 5px 0;
+            font-size: 20px;
+        }
+        #startMenu p {
+            margin: 3px 0;
+        }
+        #startButton {
+            padding: 5px 10px;
+            font-size: 14px;
+            cursor: pointer;
+            background: white;
+            border: none;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+        .controls {
+            display: flex;
+            gap: 40px;
+            z-index: 10;
+        }
+        .arrow {
+            width: 80px;
+            height: 80px;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 36px;
+            cursor: pointer;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        #timer {
+            color: white;
+            font-size: 16px;
+            z-index: 10;
+            margin-top: 10px;
+        }
+        @media (min-width: 801px) {
+            #gameCanvas {
+                max-width: 600px;
+            }
+            #gameTitle {
+                font-size: 32px;
+            }
+            #timer {
+                margin-top: 20px;
+            }
+            .controls {
+                margin-top: 0; /* Remove top margin to move controls to bottom */
+                position: absolute; /* Position absolutely at the bottom */
+                bottom: 20px; /* Distance from the bottom */
+                width: 100%; /* Full width to center */
+                justify-content: center; /* Center the buttons horizontally */
+            }
+            #startMenu {
+                width: 60%; /* Adjust start menu width for desktop */
+                max-width: 400px;
+                font-size: 16px;
+            }
+            #startMenu h1 {
+                font-size: 24px;
+            }
+            #startButton {
+                padding: 8px 15px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div id="gameTitle">Advanced Pong</div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="startMenu">
+            <h1>Advanced Pong</h1>
+            <p>Use ← and → arrows to move</p>
+            <p>New ball every 10s</p>
+            <p>Obstacles every 20s</p>
+            <p>Survive as long as you can!</p>
+            <p>© 2025 WebXOS</p>
+            <button id="startButton">Start Game</button>
+        </div>
+        <div id="timer">Time: 0s</div>
+        <div class="controls">
+            <div class="arrow" id="leftArrow">←</div>
+            <div class="arrow" id="rightArrow">→</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startMenu = document.getElementById('startMenu');
+        const startButton = document.getElementById('startButton');
+        const leftArrow = document.getElementById('leftArrow');
+        const rightArrow = document.getElementById('rightArrow');
+        const timerDisplay = document.getElementById('timer');
+
+        // Set initial canvas size
+        canvas.width = Math.min(window.innerWidth * 0.9, 400);
+        canvas.height = canvas.width * 1.25;
+
+        const paddleWidth = 80;
+        const paddleHeight = 10;
+        const ballRadius = 5;
+        let playerX = canvas.width / 2 - paddleWidth / 2;
+        let computerX = canvas.width / 2 - paddleWidth / 2;
+        const paddleSpeed = 8;
+
+        let balls = [];
+        let obstacles = [];
+        let gameRunning = false;
+        let lastBallTime = 0;
+        let lastObstacleTime = 0;
+        let leftPressed = false;
+        let rightPressed = false;
+        let startTime = 0;
+        let elapsedTime = 0;
+
+        const emojis = ['💀', '👾', '🌟', '⚡', '🦇'];
+
+        function resizeCanvas() {
+            const maxWidth = window.innerWidth > 800 ? 600 : 400;
+            canvas.width = Math.min(window.innerWidth * 0.9, maxWidth);
+            canvas.height = canvas.width * 1.25;
+            playerX = canvas.width / 2 - paddleWidth / 2;
+            computerX = canvas.width / 2 - paddleWidth / 2;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function initBall() {
+            return {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                dx: (Math.random() - 0.5) * 4,
+                dy: Math.random() > 0.5 ? -3 : 3
+            };
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'white';
+            ctx.fillRect(playerX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight);
+            ctx.fillRect(computerX, 10, paddleWidth, paddleHeight);
+
+            balls.forEach(ball => {
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+                ctx.fillStyle = 'white';
+                ctx.fill();
+                ctx.closePath();
+            });
+
+            obstacles.forEach(obstacle => {
+                ctx.font = '20px Arial';
+                ctx.fillStyle = 'white';
+                ctx.fillText(obstacle.emoji, obstacle.x, obstacle.y);
+            });
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+            timerDisplay.textContent = `Time: ${elapsedTime}s`;
+
+            if (balls.length > 0) {
+                let closestBall = balls.reduce((prev, curr) => 
+                    Math.abs(curr.y - 10) < Math.abs(prev.y - 10) ? curr : prev
+                );
+                let targetX = closestBall.x - paddleWidth / 2;
+                computerX += (targetX - computerX) * 0.1;
+                computerX = Math.max(0, Math.min(canvas.width - paddleWidth, computerX));
+            }
+
+            if (leftPressed) playerX = Math.max(0, playerX - paddleSpeed);
+            if (rightPressed) playerX = Math.min(canvas.width - paddleWidth, playerX + paddleSpeed);
+
+            for (let i = balls.length - 1; i >= 0; i--) {
+                let ball = balls[i];
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+
+                if (ball.x + ballRadius > canvas.width || ball.x - ballRadius < 0) {
+                    ball.dx = -ball.dx;
+                }
+
+                if (ball.y + ballRadius > canvas.height - paddleHeight - 20 &&
+                    ball.y < canvas.height - 20 &&
+                    ball.x > playerX && ball.x < playerX + paddleWidth) {
+                    ball.dy = -Math.abs(ball.dy);
+                    ball.y = canvas.height - paddleHeight - 20 - ballRadius;
+                }
+
+                if (ball.y - ballRadius < 10 + paddleHeight &&
+                    ball.y > 10 &&
+                    ball.x > computerX && ball.x < computerX + paddleWidth) {
+                    ball.dy = Math.abs(ball.dy);
+                    ball.y = 10 + paddleHeight + ballRadius;
+                }
+
+                obstacles.forEach(obstacle => {
+                    if (Math.abs(ball.x - obstacle.x) < 20 && Math.abs(ball.y - obstacle.y) < 20) {
+                        ball.dx = -ball.dx;
+                        ball.dy = -ball.dy;
+                    }
+                });
+
+                if (ball.y < 0) {
+                    balls.splice(i, 1);
+                } else if (ball.y > canvas.height) {
+                    gameRunning = false;
+                    balls = [];
+                    showGameOver();
+                    return;
+                }
+            }
+
+            if (Date.now() - lastBallTime > 10000 && balls.length < 5) {
+                balls.push(initBall());
+                lastBallTime = Date.now();
+            }
+
+            if (Date.now() - lastObstacleTime > 20000 && obstacles.length < 5) {
+                obstacles.push({
+                    x: Math.random() * (canvas.width - 20),
+                    y: Math.random() * (canvas.height - 100) + 50,
+                    emoji: emojis[Math.floor(Math.random() * emojis.length)]
+                });
+                lastObstacleTime = Date.now();
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            if (gameRunning) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function showGameOver() {
+            startMenu.style.display = 'block';
+            const nftNumber = `NFT #${elapsedTime.toString().padStart(6, '0')}`;
+            startMenu.innerHTML = `
+                <h1>Game Over</h1>
+                <p>Time: ${elapsedTime}s</p>
+                <p>${nftNumber}</p>
+                <p>Click to Restart</p>
+                <p>© 2025 WebXOS</p>
+                <button id="startButton">Restart</button>
+            `;
+            document.getElementById('startButton').addEventListener('click', initGame);
+        }
+
+        function initGame() {
+            balls = [initBall()];
+            obstacles = [];
+            playerX = canvas.width / 2 - paddleWidth / 2;
+            computerX = canvas.width / 2 - paddleWidth / 2;
+            startTime = Date.now();
+            elapsedTime = 0;
+            lastBallTime = Date.now();
+            lastObstacleTime = Date.now();
+            gameRunning = true;
+            startMenu.style.display = 'none';
+            timerDisplay.style.display = 'block';
+            gameLoop();
+        }
+
+        // Event Listeners
+        startButton.addEventListener('click', initGame);
+
+        leftArrow.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            leftPressed = true;
+        });
+        leftArrow.addEventListener('touchend', () => leftPressed = false);
+        rightArrow.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            rightPressed = true;
+        });
+        rightArrow.addEventListener('touchend', () => rightPressed = false);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') leftPressed = true;
+            if (e.key === 'ArrowRight') rightPressed = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') leftPressed = false;
+            if (e.key === 'ArrowRight') rightPressed = false;
+        });
+
+        // Initial setup
+        timerDisplay.style.display = 'none';
+    </script>
+</body>
+</html>
