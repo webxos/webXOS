@@ -286,14 +286,27 @@
             }
         }
 
+        function formatTimestamp(date) {
+            return date.toLocaleString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                day: 'numeric',
+                month: 'numeric',
+                year: 'numeric'
+            }).replace(/,/, ' on').replace(/ /g, ' ').trim().replace(' at ', ' on ');
+        }
+
         function generateSerial(strokesHash) {
-            const timestamp = new Date().toISOString(); // Use ISO string for readable timestamp
+            const now = new Date();
+            const timestamp = formatTimestamp(now); // Format as "3:36pm on 4-11-2025"
             const serialNum = String(serialCounter++).padStart(8, '0');
-            const hash = (hashString(`${timestamp}${strokesHash}`) % 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
-            const serial = `CSGN-${serialNum}-${hash} [${timestamp}]`; // Append timestamp in brackets
+            const hash = (hashString(`${now.toISOString()}${strokesHash}`) % 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+            const serial = `CSGN-${serialNum}-${hash}`; // Serial without timestamp
+            const fullSerial = `${serial} [signed on ${timestamp}]`; // Append formatted timestamp
             localStorage.setItem('serialCounter', serialCounter);
-            console.log('Generated serial with timestamp:', serial);
-            return serial;
+            console.log('Generated serial with timestamp:', fullSerial);
+            return fullSerial;
         }
 
         // Core Functions
@@ -315,10 +328,12 @@
             console.log('Original strokes:', strokes);
             const strokesHash = hashString(JSON.stringify(strokes));
             currentSerial = generateSerial(strokesHash);
-            const encryptionKey = `${currentSerial.split(' [')[0]}${new Date().toISOString().split('.')[0]}`; // Use serial without timestamp for key
+            const serialPart = currentSerial.split(' [')[0]; // Extract serial without timestamp
+            const timestampPart = currentSerial.match(/\[signed on (.*)\]/)[1]; // Extract timestamp
+            const encryptionKey = `${serialPart}${new Date().toISOString().split('.')[0]}`;
             const encrypted = `${new Date().toISOString()}|${encryptStrokes(strokes, encryptionKey)}`;
 
-            serialMap.set(currentSerial.split(' [')[0], encrypted); // Store serial without timestamp in map
+            serialMap.set(serialPart, encrypted); // Store only serial part in map
             localStorage.setItem('serialMap', JSON.stringify([...serialMap]));
             console.log('Serial map:', [...serialMap]);
 
@@ -344,8 +359,8 @@
 
         function validateSignature() {
             const serialWithTimestamp = consoleInput.value.trim();
-            if (!serialWithTimestamp || !serialWithTimestamp.match(/CSGN-\d{8}-[0-9A-F]{4} \[.*\]/)) {
-                consoleOutput.textContent = 'Invalid serial format! Use e.g., CSGN-00000001-ABCD [YYYY-MM-DDTHH:mm:ss.sssZ]';
+            if (!serialWithTimestamp || !serialWithTimestamp.match(/CSGN-\d{8}-[0-9A-F]{4} \[signed on .*]/)) {
+                consoleOutput.textContent = 'Invalid serial format! Use e.g., CSGN-00000001-ABCD [signed on 3:36pm on 4-11-2025]';
                 return;
             }
 
@@ -357,7 +372,7 @@
 
             const encrypted = serialMap.get(serial);
             const [timestamp] = encrypted.split('|');
-            const encryptionKey = `${serial}${timestamp.split('.')[0]}`; // Use timestamp from stored data
+            const encryptionKey = `${serial}${timestamp.split('.')[0]}`;
 
             try {
                 const reconstructedStrokes = decryptStrokes(encrypted.split('|')[1], encryptionKey);
@@ -366,7 +381,7 @@
                     return;
                 }
                 drawSignature(reconstructedStrokes);
-                consoleOutput.textContent = `Signature authenticated successfully! Timestamp: ${timestamp}`;
+                consoleOutput.textContent = `Signature authenticated successfully! ${serialWithTimestamp}`;
                 currentSerial = serialWithTimestamp; // Keep the full serial with timestamp
             } catch (err) {
                 consoleOutput.textContent = `Authentication failed: ${err.message}`;
