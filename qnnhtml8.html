@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-Agent HTML Page Crafter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #000;
+            color: #00ff00;
+        }
+        #networkCanvas {
+            border: 2px solid #00ff00;
+            max-width: 100%;
+            height: auto;
+            background-color: #111;
+            box-shadow: 0 0 10px #00ff00;
+        }
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        button, input, select, textarea {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #00ff00;
+            border-radius: 4px;
+            background-color: #222;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+        }
+        button {
+            background-color: #00ff00;
+            color: #000;
+            cursor: pointer;
+            box-shadow: 0 2px 5px #00ff00;
+        }
+        button:hover {
+            background-color: #33ff33;
+            box-shadow: 0 2px 8px #33ff33;
+        }
+        input, select, textarea {
+            flex-grow: 1;
+            min-width: 150px;
+            background-color: #111;
+        }
+        textarea {
+            resize: vertical;
+            width: 100%;
+            min-height: 100px;
+        }
+        #agentPopup, #htmlOutputPopup, #helpPopup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #1a1a1a;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            max-width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+            color: #00ff00;
+            z-index: 1000;
+            box-shadow: 0 0 15px #00ff00;
+        }
+        #agentPopup button, #htmlOutputPopup button, #helpPopup button {
+            margin-top: 10px;
+            width: 100%;
+        }
+        #overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 999;
+        }
+        footer.app-footer {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 12px;
+        }
+        @media (max-width: 600px) {
+            #controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            button, input, select, textarea {
+                width: 100%;
+            }
+            #networkCanvas {
+                border-width: 1px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="networkCanvas"></canvas>
+    <div id="controls">
+        <button id="resetBtn">Reset</button>
+        <button id="helpBtn">Help</button>
+        <button id="generateBtn">Generate Page</button>
+    </div>
+    <footer class="app-footer">© 2025 WebXOS</footer>
+    <div id="overlay"></div>
+    <div id="agentPopup">
+        <h2 id="agentTitle">Agent Configuration</h2>
+        <div id="agentContent"></div>
+        <button id="saveAgentBtn">Save</button>
+        <button id="closeAgentPopup">Close</button>
+    </div>
+    <div id="htmlOutputPopup">
+        <h2>Generated HTML</h2>
+        <textarea id="htmlOutput" readonly></textarea>
+        <button id="copyHtmlBtn">Copy to Clipboard</button>
+        <button id="closeHtmlPopup">Close</button>
+    </div>
+    <div id="helpPopup">
+        <h2>App Description</h2>
+        <p>This app uses 8 agents to collaboratively craft an HTML page:</p>
+        <ul>
+            <li>Agent 1: Select a styled template (Cyber Punk, 80s Arcade, Modern Minimal).</li>
+            <li>Agent 2: Set the page title and copyright notice.</li>
+            <li>Agent 3: Input the first paragraph content.</li>
+            <li>Agent 4: Input the second paragraph content.</li>
+            <li>Agent 5: Input the third paragraph content.</li>
+            <li>Agent 6: Select template-specific font, sizes (title, body, copyright), and colors (background, text, box).</li>
+            <li>Agent 7: Generates SEO meta tags based on content and title.</li>
+            <li>Agent 8: Outputs the final HTML code in a popup, skipping empty fields.</li>
+            <li>Click an agent to configure it. Click "Generate" to create the page.</li>
+            <li>Use "Reset" to start over.</li>
+        </ul>
+        <button id="closeHelpPopup">Close</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        const agents = [];
+        const numAgents = 8;
+        const radius = 20;
+
+        // Agent data storage
+        let agentData = {
+            template: 'cyberpunk',
+            pageTitle: '',
+            copyright: '',
+            paragraph1: '',
+            paragraph2: '',
+            paragraph3: '',
+            fontFamily: 'Arial',
+            titleFontSize: '24px',
+            bodyFontSize: '16px',
+            copyrightFontSize: '12px',
+            bgColor: '#000000',
+            textColor: '#00ff00',
+            boxColor: '#111111',
+            seoMeta: '',
+            htmlStructure: ''
+        };
+
+        // Responsive canvas sizing
+        function resizeCanvas() {
+            canvas.width = Math.min(800, window.innerWidth - 20);
+            canvas.height = Math.min(600, window.innerHeight * 0.6);
+            initializeAgents();
+            drawNetwork();
+            console.log('Canvas resized:', canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initialize agents
+        function initializeAgents() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const spread = Math.min(canvas.width, canvas.height) * 0.35;
+            agents.length = 0;
+            for (let i = 0; i < numAgents; i++) {
+                const angle = (2 * Math.PI / numAgents) * i;
+                agents.push({
+                    x: centerX + spread * Math.cos(angle),
+                    y: centerY + spread * Math.sin(angle),
+                    active: false,
+                    status: ''
+                });
+            }
+            console.log('Agents initialized:', agents.length);
+        }
+
+        // Draw network
+        function drawNetwork() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < numAgents; i++) {
+                for (let j = i + 1; j < numAgents; j++) {
+                    ctx.beginPath();
+                    ctx.moveTo(agents[i].x, agents[i].y);
+                    ctx.lineTo(agents[j].x, agents[j].y);
+                    ctx.stroke();
+                }
+            }
+            agents.forEach((agent, index) => {
+                ctx.beginPath();
+                ctx.arc(agent.x, agent.y, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = agent.active ? '#33ff33' : '#00ff00';
+                ctx.fill();
+                ctx.strokeStyle = '#00ff00';
+                ctx.stroke();
+                ctx.fillStyle = '#000';
+                ctx.font = '14px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`A${index + 1}`, agent.x, agent.y - 5);
+                if (agent.status) {
+                    ctx.fillText(agent.status, agent.x, agent.y + 15);
+                }
+            });
+            console.log('Network drawn with', agents.length, 'agents');
+        }
+
+        // Agent popup handling
+        function showAgentPopup(agentIndex) {
+            const agentContent = document.getElementById('agentContent');
+            document.getElementById('agentTitle').textContent = `Agent A${agentIndex + 1} Configuration`;
+            agentContent.innerHTML = '';
+
+            switch (agentIndex) {
+                case 0: // Agent 1: Template
+                    agentContent.innerHTML = `
+                        <label for="templateSelect">Select Page Template:</label>
+                        <select id="templateSelect">
+                            <option value="cyberpunk" ${agentData.template === 'cyberpunk' ? 'selected' : ''}>Cyber Punk Glow</option>
+                            <option value="arcade" ${agentData.template === 'arcade' ? 'selected' : ''}>80s Arcade</option>
+                            <option value="minimal" ${agentData.template === 'minimal' ? 'selected' : ''}>Modern Minimal</option>
+                        </select>
+                    `;
+                    break;
+                case 1: // Agent 2: Page title, copyright
+                    agentContent.innerHTML = `
+                        <label for="pageTitle">Page Title:</label>
+                        <input id="pageTitle" type="text" value="${agentData.pageTitle}">
+                        <label for="copyright">Copyright Notice:</label>
+                        <input id="copyright" type="text" value="${agentData.copyright}">
+                    `;
+                    break;
+                case 2: // Agent 3: Paragraph 1
+                    agentContent.innerHTML = `
+                        <label for="paragraph1">First Paragraph:</label>
+                        <textarea id="paragraph1">${agentData.paragraph1}</textarea>
+                    `;
+                    break;
+                case 3: // Agent 4: Paragraph 2
+                    agentContent.innerHTML = `
+                        <label for="paragraph2">Second Paragraph:</label>
+                        <textarea id="paragraph2">${agentData.paragraph2}</textarea>
+                    `;
+                    break;
+                case 4: // Agent 5: Paragraph 3
+                    agentContent.innerHTML = `
+                        <label for="paragraph3">Third Paragraph:</label>
+                        <textarea id="paragraph3">${agentData.paragraph3}</textarea>
+                    `;
+                    break;
+                case 5: // Agent 6: Fonts, sizes, colors
+                    const fontOptions = {
+                        cyberpunk: [
+                            { value: 'Arial', name: 'Arial' },
+                            { value: 'Fira Mono', name: 'Fira Mono' },
+                            { value: 'Orbitron', name: 'Orbitron' },
+                            { value: 'Rajdhani', name: 'Rajdhani' },
+                            { value: 'Share Tech Mono', name: 'Share Tech Mono' }
+                        ],
+                        arcade: [
+                            { value: 'Arial', name: 'Arial' },
+                            { value: 'Press Start 2P', name: 'Press Start 2P' },
+                            { value: 'VT323', name: 'VT323' },
+                            { value: 'Pixelify Sans', name: 'Pixelify Sans' },
+                            { value: 'Arcade Classic', name: 'Arcade Classic' }
+                        ],
+                        minimal: [
+                            { value: 'Arial', name: 'Arial' },
+                            { value: 'Roboto', name: 'Roboto' },
+                            { value: 'Open Sans', name: 'Open Sans' },
+                            { value: 'Lato', name: 'Lato' },
+                            { value: 'Montserrat', name: 'Montserrat' }
+                        ]
+                    };
+                    const selectedFonts = fontOptions[agentData.template] || fontOptions.cyberpunk;
+                    agentContent.innerHTML = `
+                        <label for="fontFamily">Font Family:</label>
+                        <select id="fontFamily">
+                            ${selectedFonts.map(font => `<option value="${font.value}" ${agentData.fontFamily === font.value ? 'selected' : ''}>${font.name}</option>`).join('')}
+                        </select>
+                        <label for="titleFontSize">Title Font Size:</label>
+                        <select id="titleFontSize">
+                            <option value="12px" ${agentData.titleFontSize === '12px' ? 'selected' : ''}>12px</option>
+                            <option value="14px" ${agentData.titleFontSize === '14px' ? 'selected' : ''}>14px</option>
+                            <option value="16px" ${agentData.titleFontSize === '16px' ? 'selected' : ''}>16px</option>
+                            <option value="18px" ${agentData.titleFontSize === '18px' ? 'selected' : ''}>18px</option>
+                            <option value="20px" ${agentData.titleFontSize === '20px' ? 'selected' : ''}>20px</option>
+                            <option value="22px" ${agentData.titleFontSize === '22px' ? 'selected' : ''}>22px</option>
+                            <option value="24px" ${agentData.titleFontSize === '24px' ? 'selected' : ''}>24px</option>
+                            <option value="28px" ${agentData.titleFontSize === '28px' ? 'selected' : ''}>28px</option>
+                            <option value="32px" ${agentData.titleFontSize === '32px' ? 'selected' : ''}>32px</option>
+                        </select>
+                        <label for="bodyFontSize">Body Font Size:</label>
+                        <select id="bodyFontSize">
+                            <option value="12px" ${agentData.bodyFontSize === '12px' ? 'selected' : ''}>12px</option>
+                            <option value="14px" ${agentData.bodyFontSize === '14px' ? 'selected' : ''}>14px</option>
+                            <option value="16px" ${agentData.bodyFontSize === '16px' ? 'selected' : ''}>16px</option>
+                            <option value="18px" ${agentData.bodyFontSize === '18px' ? 'selected' : ''}>18px</option>
+                            <option value="20px" ${agentData.bodyFontSize === '20px' ? 'selected' : ''}>20px</option>
+                            <option value="22px" ${agentData.bodyFontSize === '22px' ? 'selected' : ''}>22px</option>
+                            <option value="24px" ${agentData.bodyFontSize === '24px' ? 'selected' : ''}>24px</option>
+                            <option value="28px" ${agentData.bodyFontSize === '28px' ? 'selected' : ''}>28px</option>
+                            <option value="32px" ${agentData.bodyFontSize === '32px' ? 'selected' : ''}>32px</option>
+                        </select>
+                        <label for="copyrightFontSize">Copyright Font Size:</label>
+                        <select id="copyrightFontSize">
+                            <option value="12px" ${agentData.copyrightFontSize === '12px' ? 'selected' : ''}>12px</option>
+                            <option value="14px" ${agentData.copyrightFontSize === '14px' ? 'selected' : ''}>14px</option>
+                            <option value="16px" ${agentData.copyrightFontSize === '16px' ? 'selected' : ''}>16px</option>
+                            <option value="18px" ${agentData.copyrightFontSize === '18px' ? 'selected' : ''}>18px</option>
+                            <option value="20px" ${agentData.copyrightFontSize === '20px' ? 'selected' : ''}>20px</option>
+                            <option value="22px" ${agentData.copyrightFontSize === '22px' ? 'selected' : ''}>22px</option>
+                            <option value="24px" ${agentData.copyrightFontSize === '24px' ? 'selected' : ''}>24px</option>
+                            <option value="28px" ${agentData.copyrightFontSize === '28px' ? 'selected' : ''}>28px</option>
+                            <option value="32px" ${agentData.copyrightFontSize === '32px' ? 'selected' : ''}>32px</option>
+                        </select>
+                        <label for="bgColor">Background Color:</label>
+                        <select id="bgColor">
+                            <option value="#000000" ${agentData.bgColor === '#000000' ? 'selected' : ''}>Black</option>
+                            <option value="#1a1a1a" ${agentData.bgColor === '#1a1a1a' ? 'selected' : ''}>Dark Gray</option>
+                            <option value="#111111" ${agentData.bgColor === '#111111' ? 'selected' : ''}>Charcoal</option>
+                            <option value="#ffffff" ${agentData.bgColor === '#ffffff' ? 'selected' : ''}>White</option>
+                            <option value="#00ff00" ${agentData.bgColor === '#00ff00' ? 'selected' : ''}>Neon Green</option>
+                            <option value="#ff0099" ${agentData.bgColor === '#ff0099' ? 'selected' : ''}>Neon Pink</option>
+                            <option value="#00f0ff" ${agentData.bgColor === '#00f0ff' ? 'selected' : ''}>Cyber Blue</option>
+                            <option value="#ffff00" ${agentData.bgColor === '#ffff00' ? 'selected' : ''}>Cyber Yellow</option>
+                            <option value="#ff6600" ${agentData.bgColor === '#ff6600' ? 'selected' : ''}>Toxic Orange</option>
+                            <option value="#cc00ff" ${agentData.bgColor === '#cc00ff' ? 'selected' : ''}>Neon Purple</option>
+                            <option value="#ff00ff" ${agentData.bgColor === '#ff00ff' ? 'selected' : ''}>Magenta</option>
+                            <option value="#00cc00" ${agentData.bgColor === '#00cc00' ? 'selected' : ''}>Lime</option>
+                            <option value="#008080" ${agentData.bgColor === '#008080' ? 'selected' : ''}>Teal</option>
+                            <option value="#dc143c" ${agentData.bgColor === '#dc143c' ? 'selected' : ''}>Crimson</option>
+                            <option value="#ffbf00" ${agentData.bgColor === '#ffbf00' ? 'selected' : ''}>Amber</option>
+                            <option value="#ee82ee" ${agentData.bgColor === '#ee82ee' ? 'selected' : ''}>Violet</option>
+                            <option value="#87ceeb" ${agentData.bgColor === '#87ceeb' ? 'selected' : ''}>Sky Blue</option>
+                            <option value="#ff4040" ${agentData.bgColor === '#ff4040' ? 'selected' : ''}>Coral</option>
+                            <option value="#98fb98" ${agentData.bgColor === '#98fb98' ? 'selected' : ''}>Mint</option>
+                            <option value="#4b0082" ${agentData.bgColor === '#4b0082' ? 'selected' : ''}>Indigo</option>
+                        </select>
+                        <label for="textColor">Text Color:</label>
+                        <select id="textColor">
+                            <option value="#ffffff" ${agentData.textColor === '#ffffff' ? 'selected' : ''}>White</option>
+                            <option value="#000000" ${agentData.textColor === '#000000' ? 'selected' : ''}>Black</option>
+                            <option value="#00ff00" ${agentData.textColor === '#00ff00' ? 'selected' : ''}>Neon Green</option>
+                            <option value="#ff0099" ${agentData.textColor === '#ff0099' ? 'selected' : ''}>Neon Pink</option>
+                            <option value="#00f0ff" ${agentData.textColor === '#00f0ff' ? 'selected' : ''}>Cyber Blue</option>
+                            <option value="#ffff00" ${agentData.textColor === '#ffff00' ? 'selected' : ''}>Cyber Yellow</option>
+                            <option value="#ff6600" ${agentData.textColor === '#ff6600' ? 'selected' : ''}>Toxic Orange</option>
+                            <option value="#cc00ff" ${agentData.textColor === '#cc00ff' ? 'selected' : ''}>Neon Purple</option>
+                            <option value="#ff00ff" ${agentData.textColor === '#ff00ff' ? 'selected' : ''}>Magenta</option>
+                            <option value="#00cc00" ${agentData.textColor === '#00cc00' ? 'selected' : ''}>Lime</option>
+                            <option value="#008080" ${agentData.textColor === '#008080' ? 'selected' : ''}>Teal</option>
+                            <option value="#dc143c" ${agentData.textColor === '#dc143c' ? 'selected' : ''}>Crimson</option>
+                            <option value="#ffbf00" ${agentData.textColor === '#ffbf00' ? 'selected' : ''}>Amber</option>
+                            <option value="#ee82ee" ${agentData.textColor === '#ee82ee' ? 'selected' : ''}>Violet</option>
+                            <option value="#87ceeb" ${agentData.textColor === '#87ceeb' ? 'selected' : ''}>Sky Blue</option>
+                            <option value="#ff4040" ${agentData.textColor === '#ff4040' ? 'selected' : ''}>Coral</option>
+                            <option value="#98fb98" ${agentData.textColor === '#98fb98' ? 'selected' : ''}>Mint</option>
+                            <option value="#4b0082" ${agentData.textColor === '#4b0082' ? 'selected' : ''}>Indigo</option>
+                            <option value="#1a1a1a" ${agentData.textColor === '#1a1a1a' ? 'selected' : ''}>Dark Gray</option>
+                            <option value="#111111" ${agentData.textColor === '#111111' ? 'selected' : ''}>Charcoal</option>
+                        </select>
+                        <label for="boxColor">Box Color:</label>
+                        <select id="boxColor">
+                            <option value="#111111" ${agentData.boxColor === '#111111' ? 'selected' : ''}>Charcoal</option>
+                            <option value="#000000" ${agentData.boxColor === '#000000' ? 'selected' : ''}>Black</option>
+                            <option value="#1a1a1a" ${agentData.boxColor === '#1a1a1a' ? 'selected' : ''}>Dark Gray</option>
+                            <option value="#ffffff" ${agentData.boxColor === '#ffffff' ? 'selected' : ''}>White</option>
+                            <option value="#00ff00" ${agentData.boxColor === '#00ff00' ? 'selected' : ''}>Neon Green</option>
+                            <option value="#ff0099" ${agentData.boxColor === '#ff0099' ? 'selected' : ''}>Neon Pink</option>
+                            <option value="#00f0ff" ${agentData.boxColor === '#00f0ff' ? 'selected' : ''}>Cyber Blue</option>
+                            <option value="#ffff00" ${agentData.boxColor === '#ffff00' ? 'selected' : ''}>Cyber Yellow</option>
+                            <option value="#ff6600" ${agentData.boxColor === '#ff6600' ? 'selected' : ''}>Toxic Orange</option>
+                            <option value="#cc00ff" ${agentData.boxColor === '#cc00ff' ? 'selected' : ''}>Neon Purple</option>
+                            <option value="#ff00ff" ${agentData.boxColor === '#ff00ff' ? 'selected' : ''}>Magenta</option>
+                            <option value="#00cc00" ${agentData.boxColor === '#00cc00' ? 'selected' : ''}>Lime</option>
+                            <option value="#008080" ${agentData.boxColor === '#008080' ? 'selected' : ''}>Teal</option>
+                            <option value="#dc143c" ${agentData.boxColor === '#dc143c' ? 'selected' : ''}>Crimson</option>
+                            <option value="#ffbf00" ${agentData.boxColor === '#ffbf00' ? 'selected' : ''}>Amber</option>
+                            <option value="#ee82ee" ${agentData.boxColor === '#ee82ee' ? 'selected' : ''}>Violet</option>
+                            <option value="#87ceeb" ${agentData.boxColor === '#87ceeb' ? 'selected' : ''}>Sky Blue</option>
+                            <option value="#ff4040" ${agentData.boxColor === '#ff4040' ? 'selected' : ''}>Coral</option>
+                            <option value="#98fb98" ${agentData.boxColor === '#98fb98' ? 'selected' : ''}>Mint</option>
+                            <option value="#4b0082" ${agentData.boxColor === '#4b0082' ? 'selected' : ''}>Indigo</option>
+                        </select>
+                    `;
+                    break;
+                case 6: // Agent 7: SEO (auto-generated)
+                    agentContent.innerHTML = `<p>Agent A7 generates SEO meta tags automatically based on content.</p>`;
+                    break;
+                case 7: // Agent 8: Generate (auto)
+                    agentContent.innerHTML = `<p>Agent A8 generates the final HTML automatically, skipping empty fields.</p>`;
+                    break;
+            }
+
+            document.getElementById('saveAgentBtn').style.display = agentIndex <= 5 ? 'block' : 'none';
+            document.getElementById('agentPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+            console.log(`Showing popup for Agent ${agentIndex + 1}`);
+        }
+
+        function saveAgentData(agentIndex) {
+            try {
+                switch (agentIndex) {
+                    case 0:
+                        const templateValue = document.getElementById('templateSelect').value;
+                        agentData.template = templateValue || 'cyberpunk';
+                        agents[0].status = agentData.template;
+                        console.log('Agent 1 saved:', agentData.template);
+                        break;
+                    case 1:
+                        agentData.pageTitle = document.getElementById('pageTitle').value.trim();
+                        agentData.copyright = document.getElementById('copyright').value.trim();
+                        agents[1].status = agentData.pageTitle ? 'Titled' : '';
+                        console.log('Agent 2 saved:', { pageTitle: agentData.pageTitle, copyright: agentData.copyright });
+                        break;
+                    case 2:
+                        agentData.paragraph1 = document.getElementById('paragraph1').value.trim();
+                        agents[2].status = agentData.paragraph1 ? 'P1 Set' : '';
+                        console.log('Agent 3 saved:', agentData.paragraph1);
+                        break;
+                    case 3:
+                        agentData.paragraph2 = document.getElementById('paragraph2').value.trim();
+                        agents[3].status = agentData.paragraph2 ? 'P2 Set' : '';
+                        console.log('Agent 4 saved:', agentData.paragraph2);
+                        break;
+                    case 4:
+                        agentData.paragraph3 = document.getElementById('paragraph3').value.trim();
+                        agents[4].status = agentData.paragraph3 ? 'P3 Set' : '';
+                        console.log('Agent 5 saved:', agentData.paragraph3);
+                        break;
+                    case 5:
+                        agentData.fontFamily = document.getElementById('fontFamily').value || 'Arial';
+                        agentData.titleFontSize = document.getElementById('titleFontSize').value || '24px';
+                        agentData.bodyFontSize = document.getElementById('bodyFontSize').value || '16px';
+                        agentData.copyrightFontSize = document.getElementById('copyrightFontSize').value || '12px';
+                        agentData.bgColor = document.getElementById('bgColor').value || '#000000';
+                        agentData.textColor = document.getElementById('textColor').value || '#00ff00';
+                        agentData.boxColor = document.getElementById('boxColor').value || '#111111';
+                        agents[5].status = agentData.fontFamily !== 'Arial' || agentData.titleFontSize !== '24px' || agentData.bodyFontSize !== '16px' || agentData.copyrightFontSize !== '12px' ? 'Styled' : '';
+                        console.log('Agent 6 saved:', {
+                            fontFamily: agentData.fontFamily,
+                            titleFontSize: agentData.titleFontSize,
+                            bodyFontSize: agentData.bodyFontSize,
+                            copyrightFontSize: agentData.copyrightFontSize,
+                            bgColor: agentData.bgColor,
+                            textColor: agentData.textColor,
+                            boxColor: agentData.boxColor
+                        });
+                        break;
+                }
+                drawNetwork();
+                closeAgentPopup();
+            } catch (e) {
+                console.error(`Error saving Agent ${agentIndex + 1}:`, e);
+            }
+        }
+
+        // Generate the page
+        function generatePage() {
+            try {
+                console.log('Generation started with data:', agentData);
+
+                agents.forEach(agent => agent.active = false);
+                console.log('Activating Agent 3: Building structure');
+                agents[2].active = true;
+                drawNetwork();
+                agentData.htmlStructure = buildHtmlStructure();
+                agents[2].status = 'Structured';
+                console.log('Agent 3 completed:', agentData.htmlStructure);
+                agents[2].active = false;
+
+                console.log('Activating Agent 4: Adding paragraph 2');
+                agents[3].active = true;
+                drawNetwork();
+                agentData.htmlStructure = addParagraph2(agentData.htmlStructure);
+                agents[3].status = agentData.paragraph2 ? 'P2 Added' : 'P2 Skipped';
+                console.log('Agent 4 completed:', agentData.htmlStructure);
+                agents[3].active = false;
+
+                console.log('Activating Agent 5: Adding paragraph 3');
+                agents[4].active = true;
+                drawNetwork();
+                agentData.htmlStructure = addParagraph3(agentData.htmlStructure);
+                agents[4].status = agentData.paragraph3 ? 'P3 Added' : 'P3 Skipped';
+                console.log('Agent 5 completed:', agentData.htmlStructure);
+                agents[4].active = false;
+
+                console.log('Activating Agent 6: Applying styles');
+                agents[5].active = true;
+                drawNetwork();
+                agentData.css = applyStyles();
+                agents[5].status = 'Styled';
+                console.log('Agent 6 completed:', agentData.css);
+                agents[5].active = false;
+
+                console.log('Activating Agent 7: Adding SEO');
+                agents[6].active = true;
+                drawNetwork();
+                agentData.seoMeta = generateSeoMeta();
+                agents[6].status = 'SEO Added';
+                console.log('Agent 7 completed:', agentData.seoMeta);
+                agents[6].active = false;
+
+                console.log('Activating Agent 8: Generating final HTML');
+                agents[7].active = true;
+                drawNetwork();
+                showFinalHtml();
+                agents[7].status = 'Generated';
+                console.log('Agent 8 completed');
+                agents[7].active = false;
+
+                drawNetwork();
+                console.log('Generation complete');
+            } catch (e) {
+                console.error('Error generating page:', e);
+            }
+        }
+
+        // Agent 3: Build HTML structure
+        function buildHtmlStructure() {
+            try {
+                const headerContent = agentData.pageTitle ? `<h1>${agentData.pageTitle}</h1>` : '';
+                const mainContent = agentData.paragraph1 ? `<p class="para1">${agentData.paragraph1}</p>` : '';
+                const footerContent = agentData.copyright ? `<footer class="${agentData.template}-footer">${agentData.copyright}</footer>` : '';
+                const templates = {
+                    cyberpunk: `
+                        <header class="cyber-header">${headerContent}</header>
+                        <main class="cyber-main">${mainContent}</main>
+                        ${footerContent}
+                    `,
+                    arcade: `
+                        <header class="arcade-header">${headerContent}</header>
+                        <main class="arcade-main">${mainContent}</main>
+                        ${footerContent}
+                    `,
+                    minimal: `
+                        <header class="minimal-header">${headerContent}</header>
+                        <main class="minimal-main">${mainContent}</main>
+                        ${footerContent}
+                    `
+                };
+                const structure = templates[agentData.template] || templates.cyberpunk;
+                console.log('Agent 3 built structure:', structure);
+                return structure;
+            } catch (e) {
+                console.error('Agent 3 error:', e);
+                return `<header></header><main></main>`;
+            }
+        }
+
+        // Agent 4: Add paragraph 2
+        function addParagraph2(htmlStructure) {
+            try {
+                if (!htmlStructure.includes('</main>')) {
+                    console.warn('Agent 4: No main found, appending main');
+                    htmlStructure += '<main></main>';
+                }
+                if (agentData.paragraph2) {
+                    const para2 = `<p class="para2">${agentData.paragraph2}</p>`;
+                    htmlStructure = htmlStructure.replace('</main>', `${para2}</main>`);
+                    console.log('Agent 4 added paragraph 2:', htmlStructure);
+                } else {
+                    console.log('Agent 4 skipped paragraph 2: empty');
+                }
+                return htmlStructure;
+            } catch (e) {
+                console.error('Agent 4 error:', e);
+                return htmlStructure;
+            }
+        }
+
+        // Agent 5: Add paragraph 3
+        function addParagraph3(htmlStructure) {
+            try {
+                if (!htmlStructure.includes('</main>')) {
+                    console.warn('Agent 5: No main found, appending main');
+                    htmlStructure += '<main></main>';
+                }
+                if (agentData.paragraph3) {
+                    const para3 = `<p class="para3">${agentData.paragraph3}</p>`;
+                    htmlStructure = htmlStructure.replace('</main>', `${para3}</main>`);
+                    console.log('Agent 5 added paragraph 3:', htmlStructure);
+                } else {
+                    console.log('Agent 5 skipped paragraph 3: empty');
+                }
+                return htmlStructure;
+            } catch (e) {
+                console.error('Agent 5 error:', e);
+                return htmlStructure;
+            }
+        }
+
+        // Agent 6: Apply styles
+        function applyStyles() {
+            try {
+                let templateStyles = '';
+                const fontLinks = {
+                    'Fira Mono': 'https://fonts.googleapis.com/css2?family=Fira+Mono&display=swap',
+                    'Orbitron': 'https://fonts.googleapis.com/css2?family=Orbitron&display=swap',
+                    'Rajdhani': 'https://fonts.googleapis.com/css2?family=Rajdhani&display=swap',
+                    'Share Tech Mono': 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap',
+                    'Press Start 2P': 'https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap',
+                    'VT323': 'https://fonts.googleapis.com/css2?family=VT323&display=swap',
+                    'Pixelify Sans': 'https://fonts.googleapis.com/css2?family=Pixelify+Sans&display=swap',
+                    'Arcade Classic': 'https://fonts.googleapis.com/css2?family=Arcade+Classic&display=swap',
+                    'Roboto': 'https://fonts.googleapis.com/css2?family=Roboto&display=swap',
+                    'Open Sans': 'https://fonts.googleapis.com/css2?family=Open+Sans&display=swap',
+                    'Lato': 'https://fonts.googleapis.com/css2?family=Lato&display=swap',
+                    'Montserrat': 'https://fonts.googleapis.com/css2?family=Montserrat&display=swap'
+                };
+                switch (agentData.template) {
+                    case 'cyberpunk':
+                        templateStyles = `
+                            body {
+                                font-family: ${agentData.fontFamily}, monospace;
+                                margin: 0;
+                                padding: 20px;
+                                background-color: ${agentData.bgColor};
+                                color: ${agentData.textColor};
+                            }
+                            .cyber-header {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.pageTitle ? '15px' : '0'};
+                                border-bottom: ${agentData.pageTitle ? `2px solid ${agentData.textColor}` : 'none'};
+                                box-shadow: ${agentData.pageTitle ? `0 0 5px ${agentData.textColor}` : 'none'};
+                            }
+                            .cyber-header h1 {
+                                font-size: ${agentData.titleFontSize};
+                                margin: 0;
+                                text-align: center;
+                            }
+                            .cyber-main {
+                                margin: 20px 0;
+                                padding: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? '15px' : '0'};
+                                background: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? agentData.boxColor : 'transparent'};
+                                border: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? `1px solid ${agentData.textColor}` : 'none'};
+                                box-shadow: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? `0 0 5px ${agentData.textColor}` : 'none'};
+                            }
+                            .cyber-main p {
+                                font-size: ${agentData.bodyFontSize};
+                                line-height: 1.6;
+                                text-align: center;
+                            }
+                            .cyber-footer {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.copyright ? '10px' : '0'};
+                                border-top: ${agentData.copyright ? `2px solid ${agentData.textColor}` : 'none'};
+                                box-shadow: ${agentData.copyright ? `0 0 5px ${agentData.textColor}` : 'none'};
+                                font-size: ${agentData.copyrightFontSize};
+                                text-align: center;
+                            }
+                        `;
+                        break;
+                    case 'arcade':
+                        templateStyles = `
+                            body {
+                                font-family: ${agentData.fontFamily}, cursive;
+                                margin: 0;
+                                padding: 20px;
+                                background-color: ${agentData.bgColor};
+                                color: ${agentData.textColor};
+                                background-image: linear-gradient(0deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(255, 255, 255, .05) 25%, rgba(255, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .05) 75%, rgba(255, 255, 255, .05) 76%, transparent 77%, transparent);
+                                background-size: 50px 50px;
+                            }
+                            .arcade-header {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.pageTitle ? '15px' : '0'};
+                                border: ${agentData.pageTitle ? `4px double ${agentData.textColor}` : 'none'};
+                                text-transform: uppercase;
+                            }
+                            .arcade-header h1 {
+                                font-size: ${agentData.titleFontSize};
+                                margin: 0;
+                                text-align: center;
+                            }
+                            .arcade-main {
+                                margin: 20px 0;
+                                padding: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? '15px' : '0'};
+                                background: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? agentData.boxColor : 'transparent'};
+                                border: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? `2px solid ${agentData.textColor}` : 'none'};
+                            }
+                            .arcade-main p {
+                                font-size: ${agentData.bodyFontSize};
+                                line-height: 1.6;
+                                text-shadow: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? `0 0 3px ${agentData.textColor}` : 'none'};
+                                text-align: center;
+                            }
+                            .arcade-footer {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.copyright ? '10px' : '0'};
+                                border: ${agentData.copyright ? `4px double ${agentData.textColor}` : 'none'};
+                                font-size: ${agentData.copyrightFontSize};
+                                text-align: center;
+                            }
+                        `;
+                        break;
+                    case 'minimal':
+                        templateStyles = `
+                            body {
+                                font-family: ${agentData.fontFamily}, sans-serif;
+                                margin: 0;
+                                padding: 20px;
+                                background-color: ${agentData.bgColor};
+                                color: ${agentData.textColor};
+                            }
+                            .minimal-header {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.pageTitle ? '15px' : '0'};
+                                border-bottom: ${agentData.pageTitle ? `1px solid ${agentData.textColor}` : 'none'};
+                            }
+                            .minimal-header h1 {
+                                font-size: ${agentData.titleFontSize};
+                                margin: 0;
+                                text-align: center;
+                            }
+                            .minimal-main {
+                                margin: 20px 0;
+                                padding: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? '15px' : '0'};
+                                max-width: 800px;
+                                margin-left: auto;
+                                margin-right: auto;
+                                background: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? agentData.boxColor : 'transparent'};
+                            }
+                            .minimal-main p {
+                                font-size: ${agentData.bodyFontSize};
+                                line-height: 1.8;
+                                text-align: center;
+                            }
+                            .minimal-footer {
+                                background: ${agentData.boxColor};
+                                padding: ${agentData.copyright ? '10px' : '0'};
+                                border-top: ${agentData.copyright ? `1px solid ${agentData.textColor}` : 'none'};
+                                font-size: ${agentData.copyrightFontSize};
+                                text-align: center;
+                            }
+                        `;
+                        break;
+                }
+                const css = `
+                    <style>
+                        ${templateStyles}
+                        @media (max-width: 768px) {
+                            body { padding: 10px; }
+                            .cyber-header, .arcade-header, .minimal-header,
+                            .cyber-footer, .arcade-footer, .minimal-footer {
+                                padding: ${agentData.pageTitle || agentData.copyright ? '8px' : '0'};
+                            }
+                            .cyber-main, .arcade-main, .minimal-main {
+                                margin: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? '10px 0' : '0'};
+                                padding: ${(agentData.paragraph1 || agentData.paragraph2 || agentData.paragraph3) ? '10px' : '0'};
+                            }
+                            .cyber-header h1, .arcade-header h1, .minimal-header h1 {
+                                font-size: calc(${agentData.titleFontSize} * 0.8);
+                                text-align: center;
+                            }
+                            .cyber-main p, .arcade-main p, .minimal-main p {
+                                font-size: calc(${agentData.bodyFontSize} * 0.9);
+                                text-align: center;
+                            }
+                            .cyber-footer, .arcade-footer, .minimal-footer {
+                                font-size: calc(${agentData.copyrightFontSize} * 0.9);
+                                text-align: center;
+                            }
+                        }
+                        @media (max-width: 480px) {
+                            .cyber-header h1, .arcade-header h1, .minimal-header h1 {
+                                font-size: calc(${agentData.titleFontSize} * 0.6);
+                                text-align: center;
+                            }
+                            .cyber-main p, .arcade-main p, .minimal-main p {
+                                font-size: calc(${agentData.bodyFontSize} * 0.8);
+                                text-align: center;
+                            }
+                            .cyber-footer, .arcade-footer, .minimal-footer {
+                                font-size: calc(${agentData.copyrightFontSize} * 0.8);
+                                text-align: center;
+                            }
+                        }
+                    </style>
+                `;
+                agentData.fontLink = fontLinks[agentData.fontFamily] || '';
+                console.log('Agent 6 applied styles:', css);
+                return css;
+            } catch (e) {
+                console.error('Agent 6 error:', e);
+                return '<style>body{font-family:Arial,sans-serif;}</style>';
+            }
+        }
+
+        // Agent 7: Generate SEO meta tags
+        function generateSeoMeta() {
+            try {
+                const content = [agentData.paragraph1, agentData.paragraph2, agentData.paragraph3]
+                    .filter(p => p)
+                    .join(' ')
+                    .replace(/<[^>]+>/g, '');
+                const title = agentData.pageTitle || 'Untitled Page';
+                const description = content ? content.substring(0, 160) : 'Page created with WebXOS';
+                const keywords = content ? content.split(' ').slice(0, 10).join(', ') : 'webxos, page, generator';
+                const author = agentData.copyright ? agentData.copyright.replace(/© \d{4} /, '') : '';
+                const image = 'https://example.com/placeholder.jpg';
+                let meta = `
+                    <meta name="description" content="${description}">
+                    <meta name="keywords" content="${keywords}">
+                    <meta name="robots" content="index, follow">
+                    <meta property="og:title" content="${title}">
+                    <meta property="og:description" content="${description}">
+                    <meta property="og:type" content="website">
+                    <meta property="og:image" content="${image}">
+                    <meta name="twitter:card" content="summary_large_image">
+                    <meta name="twitter:title" content="${title}">
+                    <meta name="twitter:description" content="${description}">
+                    <meta name="twitter:image" content="${image}">
+                    <title>${title}</title>
+                `;
+                if (author) {
+                    meta += `<meta name="author" content="${author}">`;
+                }
+                console.log('Agent 7 SEO meta generated:', meta);
+                return meta;
+            } catch (e) {
+                console.error('Agent 7 error:', e);
+                return '<title>Untitled Page</title>';
+            }
+        }
+
+        // Agent 8: Show final HTML
+        function showFinalHtml() {
+            try {
+                const fullHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${agentData.seoMeta}
+    ${agentData.fontLink ? `<link href="${agentData.fontLink}" rel="stylesheet">` : ''}
+    ${agentData.css}
+</head>
+<body>
+    ${agentData.htmlStructure}
+</body>
+</html>`;
+                document.getElementById('htmlOutput').value = fullHtml;
+                document.getElementById('htmlOutputPopup').style.display = 'block';
+                document.getElementById('overlay').style.display = 'block';
+                console.log('Agent 8 HTML displayed:', fullHtml);
+            } catch (e) {
+                console.error('Agent 8 error:', e);
+            }
+        }
+
+        // Click handler for agents
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            agents.forEach((agent, index) => {
+                const dx = clickX - agent.x;
+                const dy = clickY - agent.y;
+                if (Math.sqrt(dx * dx + dy * dy) < radius) {
+                    showAgentPopup(index);
+                }
+            });
+            console.log('Canvas clicked:', clickX, clickY);
+        });
+
+        // Popup handling
+        function closeAgentPopup() {
+            document.getElementById('agentPopup').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            console.log('Agent popup closed');
+        }
+
+        function closeHtmlPopup() {
+            document.getElementById('htmlOutputPopup').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            console.log('HTML popup closed');
+        }
+
+        function closeHelpPopup() {
+            document.getElementById('helpPopup').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            console.log('Help popup closed');
+        }
+
+        // Copy HTML to clipboard
+        function copyToClipboard() {
+            const htmlOutput = document.getElementById('htmlOutput');
+            htmlOutput.select();
+            document.execCommand('copy');
+            alert('HTML copied to clipboard!');
+            console.log('HTML copied to clipboard');
+        }
+
+        // Reset network
+        function resetNetwork() {
+            agentData = {
+                template: 'cyberpunk',
+                pageTitle: '',
+                copyright: '',
+                paragraph1: '',
+                paragraph2: '',
+                paragraph3: '',
+                fontFamily: 'Arial',
+                titleFontSize: '24px',
+                bodyFontSize: '16px',
+                copyrightFontSize: '12px',
+                bgColor: '#000000',
+                textColor: '#00ff00',
+                boxColor: '#111111',
+                seoMeta: '',
+                htmlStructure: ''
+            };
+            initializeAgents();
+            drawNetwork();
+            console.log('Network reset');
+        }
+
+        // Event listeners
+        document.getElementById('resetBtn').addEventListener('click', resetNetwork);
+        document.getElementById('helpBtn').addEventListener('click', () => {
+            document.getElementById('helpPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+            console.log('Help button clicked');
+        });
+        document.getElementById('generateBtn').addEventListener('click', generatePage);
+        document.getElementById('saveAgentBtn').addEventListener('click', () => {
+            const agentIndex = parseInt(document.getElementById('agentTitle').textContent.match(/\d+/)[0]) - 1;
+            saveAgentData(agentIndex);
+        });
+        document.getElementById('closeAgentPopup').addEventListener('click', closeAgentPopup);
+        document.getElementById('closeHtmlPopup').addEventListener('click', closeHtmlPopup);
+        document.getElementById('closeHelpPopup').addEventListener('click', closeHelpPopup);
+        document.getElementById('copyHtmlBtn').addEventListener('click', copyToClipboard);
+
+        // Initialize
+        console.log('App initializing');
+        resizeCanvas();
+    </script>
+</body>
+</html>
