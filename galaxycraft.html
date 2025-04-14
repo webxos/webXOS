@@ -45,12 +45,15 @@
     button {
       background: #4a90e2;
       border: none;
-      padding: 8px 16px;
+      padding: 10px 20px;
       color: white;
       border-radius: 20px;
       cursor: pointer;
-      font-size: 14px;
-      transition: transform 0.2s;
+      font-size: 16px;
+      transition: transform 0.2s, background 0.2s;
+    }
+    button:hover {
+      background: #357abd;
     }
     button.active {
       background: #ff4444;
@@ -66,8 +69,8 @@
       background: rgba(0, 0, 0, 0.8);
       padding: 10px;
       border-radius: 10px;
-      font-size: 12px;
-      max-width: 80%;
+      font-size: 14px;
+      max-width: 90%;
       text-align: center;
       opacity: 0;
       transition: opacity 0.5s;
@@ -82,7 +85,7 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
-      opacity: 0.3;
+      opacity: 0.4;
     }
     .hud::before {
       content: '';
@@ -102,13 +105,27 @@
       left: 50%;
       transform: translate(-50%, -50%);
       color: #4a90e2;
-      font-size: 20px;
+      font-size: 24px;
+    }
+    .throttle-indicator {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #4a90e2;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .throttle-indicator.active {
+      opacity: 1;
     }
   </style>
 </head>
 <body>
   <div id="cosmicCanvas">
     <div class="hud"></div>
+    <div id="throttleIndicator" class="throttle-indicator"></div>
   </div>
   <div class="controls">
     <div class="control-item">
@@ -139,9 +156,9 @@
         // Scene setup
         if (!window.THREE) throw new Error('Three.js not loaded');
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+        const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 5000);
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Cap pixel ratio for performance
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 1);
         const canvas = document.getElementById('cosmicCanvas');
@@ -149,45 +166,37 @@
         canvas.appendChild(renderer.domElement);
 
         camera.position.set(0, 0, 0);
+        const frustum = new THREE.Frustum();
+        const cameraMatrix = new THREE.Matrix4();
 
         // Shared resources
         const sharedMaterials = {
           glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-          starfield: new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })
+          star: new THREE.MeshBasicMaterial({ color: 0xaaaaaa })
         };
         const sharedGeometries = {
-          comet: new THREE.SphereGeometry(2, 6, 6),
-          star: new THREE.SphereGeometry(8, 8, 8),
-          planet: new THREE.SphereGeometry(2, 6, 6),
-          galaxyStar: new THREE.SphereGeometry(1, 6, 6),
-          projectile: new THREE.SphereGeometry(5, 6, 6)
+          comet: new THREE.SphereGeometry(2, 4, 4),
+          star: new THREE.SphereGeometry(8, 6, 6),
+          planet: new THREE.SphereGeometry(2, 4, 4),
+          galaxyStar: new THREE.SphereGeometry(1, 4, 4),
+          projectile: new THREE.SphereGeometry(5, 4, 4)
         };
 
-        // Starfield with points for better performance
-        const starCount = 500; // Reduced from 1000
-        const starfieldGeometry = new THREE.BufferGeometry();
-        const starPositions = new Float32Array(starCount * 3);
-        for (let i = 0; i < starCount * 3; i += 3) {
-          starPositions[i] = (Math.random() - 0.5) * 4000;
-          starPositions[i + 1] = (Math.random() - 0.5) * 4000;
-          starPositions[i + 2] = (Math.random() - 0.5) * 4000;
-        }
-        starfieldGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const starfield = new THREE.Points(starfieldGeometry, sharedMaterials.starfield);
-        scene.add(starfield);
-
-        // Entity limits
-        const maxEntities = {
-          comets: 50, // Reduced from 100
-          systems: 25, // Reduced from 50
-          galaxies: 10, // Reduced from 20
-          projectiles: 25 // Reduced from 50
-        };
-        let entities = { comets: [], systems: [], galaxies: [], projectiles: [] };
+        // Entities
+        let comets = [];
+        let systems = [];
+        let galaxies = [];
+        let projectiles = [];
+        let cometInstances = null;
+        let projectileInstances = null;
+        let cometCount = 0;
+        let projectileCount = 0;
         let throttle = 0;
         let rotation = { pitch: 0, yaw: 0 };
+        let rotationVelocity = { pitch: 0, yaw: 0 };
         let velocity = new THREE.Vector3(0, 0, 0);
         let lastTime = performance.now();
+        let entityCount = 0;
 
         // Keyboard controls
         const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
@@ -201,8 +210,17 @@
           if (e.key in keys) keys[e.key] = false;
         });
 
-        // Object pool for projectiles
+        // Object pools
+        const cometPool = [];
         const projectilePool = [];
+        function getCometFromPool() {
+          if (cometPool.length > 0) {
+            const comet = cometPool.pop();
+            comet.visible = true;
+            return comet;
+          }
+          return new THREE.Mesh(sharedGeometries.comet, sharedMaterials.glow);
+        }
         function getProjectileFromPool() {
           if (projectilePool.length > 0) {
             const projectile = projectilePool.pop();
@@ -214,26 +232,25 @@
 
         // Simulated data
         const trainingData = {
-          comets: Array(50).fill().map(() => ({
+          comets: Array(100).fill().map(() => ({
             semiMajorAxis: Math.random() * 50 + 20,
             eccentricity: Math.random() * 0.8,
             velocity: Math.random() * 3 + 1
           })),
-          systems: Array(25).fill().map(() => ({
-            planets: Math.floor(Math.random() * 4) + 1,
+          systems: Array(50).fill().map(() => ({
+            planets: Math.floor(Math.random() * 3) + 1,
             orbitalRadius: Math.random() * 30 + 10
           })),
-          galaxies: Array(10).fill().map(() => ({
-            radius: Math.random() * 150 + 50,
+          galaxies: Array(20).fill().map(() => ({
+            radius: Math.random() * 100 + 50,
             type: ['spiral', 'elliptical'][Math.floor(Math.random() * 2)]
           }))
         };
 
         // Add entities
         function addComet() {
-          if (entities.comets.length >= maxEntities.comets) return;
           const params = trainingData.comets[Math.floor(Math.random() * trainingData.comets.length)];
-          const comet = new THREE.Mesh(sharedGeometries.comet, sharedMaterials.glow);
+          const comet = getCometFromPool();
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
           const offset = new THREE.Vector3(
             (Math.random() - 0.5) * 10,
@@ -248,17 +265,32 @@
             velocity: params.velocity,
             angle: Math.random() * Math.PI * 2,
             origin: comet.position.clone(),
-            created: Date.now()
+            created: Date.now(),
+            instanceId: cometCount
           };
           scene.add(comet);
-          entities.comets.push(comet);
+          comets.push(comet);
+          cometCount++;
+          entityCount++;
+          updateCometInstances();
+          if (entityCount > 500) showPrompt(6);
+        }
+
+        function updateCometInstances() {
+          if (cometInstances) scene.remove(cometInstances);
+          cometInstances = new THREE.InstancedMesh(sharedGeometries.comet, sharedMaterials.glow, cometCount);
+          const matrix = new THREE.Matrix4();
+          comets.forEach((comet, i) => {
+            matrix.setPosition(comet.position);
+            cometInstances.setMatrixAt(i, matrix);
+          });
+          scene.add(cometInstances);
         }
 
         function addPlanetarySystem() {
-          if (entities.systems.length >= maxEntities.systems) return;
           const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
           const systemGroup = new THREE.Group();
-          const star = new THREE.Mesh(sharedGeometries.star, sharedMaterials.glow);
+          const star = new THREE.Mesh(sharedGeometries.star, sharedMaterials.star);
           star.userData = { type: 'star' };
           systemGroup.add(star);
           for (let i = 0; i < params.planets; i++) {
@@ -282,14 +314,15 @@
           systemGroup.position.copy(camera.position).add(forward.multiplyScalar(200)).add(offset);
           systemGroup.userData = { created: Date.now() };
           scene.add(systemGroup);
-          entities.systems.push(systemGroup);
+          systems.push(systemGroup);
+          entityCount += 1 + params.planets;
+          if (entityCount > 500) showPrompt(6);
         }
 
         function addGalaxy() {
-          if (entities.galaxies.length >= maxEntities.galaxies) return;
           const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
           const galaxyGroup = new THREE.Group();
-          const starCount = params.type === 'spiral' ? 20 : 10; // Reduced star counts
+          const starCount = params.type === 'spiral' ? 10 : 5;
           for (let i = 0; i < starCount; i++) {
             const star = new THREE.Mesh(sharedGeometries.galaxyStar, sharedMaterials.glow);
             const r = Math.random() * params.radius;
@@ -312,36 +345,66 @@
           galaxyGroup.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
           galaxyGroup.userData = { radius: params.radius, created: Date.now() };
           scene.add(galaxyGroup);
-          entities.galaxies.push(galaxyGroup);
+          galaxies.push(galaxyGroup);
+          entityCount += starCount;
+          if (entityCount > 500) showPrompt(6);
         }
 
         function shoot() {
-          if (entities.projectiles.length >= maxEntities.projectiles) return;
           const projectile = getProjectileFromPool();
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
           projectile.position.copy(camera.position).add(forward.multiplyScalar(10));
           projectile.userData = {
             type: 'projectile',
             velocity: forward.multiplyScalar(20),
-            remove: false
+            remove: false,
+            instanceId: projectileCount
           };
           scene.add(projectile);
-          entities.projectiles.push(projectile);
+          projectiles.push(projectile);
+          projectileCount++;
+          updateProjectileInstances();
+        }
+
+        function updateProjectileInstances() {
+          if (projectileInstances) scene.remove(projectileInstances);
+          projectileInstances = new THREE.InstancedMesh(sharedGeometries.projectile, sharedMaterials.glow, projectileCount);
+          const matrix = new THREE.Matrix4();
+          projectiles.forEach((projectile, i) => {
+            matrix.setPosition(projectile.position);
+            projectileInstances.setMatrixAt(i, matrix);
+          });
+          scene.add(projectileInstances);
         }
 
         function reset() {
-          entities.comets.forEach(comet => scene.remove(comet));
-          entities.comets = [];
-          entities.systems.forEach(system => scene.remove(system));
-          entities.systems = [];
-          entities.galaxies.forEach(galaxy => scene.remove(galaxy));
-          entities.galaxies = [];
-          entities.projectiles.forEach(projectile => {
-            projectile.visible = false;
-            scene.remove(projectile);
-            projectilePool.push(projectile);
+          comets.forEach(comet => {
+            comet.visible = false;
+            cometPool.push(comet);
+            scene.remove(comet);
           });
-          entities.projectiles = [];
+          comets = [];
+          systems.forEach(system => scene.remove(system));
+          systems = [];
+          galaxies.forEach(galaxy => scene.remove(galaxy));
+          galaxies = [];
+          projectiles.forEach(projectile => {
+            projectile.visible = false;
+            projectilePool.push(projectile);
+            scene.remove(projectile);
+          });
+          projectiles = [];
+          if (cometInstances) {
+            scene.remove(cometInstances);
+            cometInstances = null;
+          }
+          if (projectileInstances) {
+            scene.remove(projectileInstances);
+            projectileInstances = null;
+          }
+          cometCount = 0;
+          projectileCount = 0;
+          entityCount = 0;
         }
 
         // Viewing controls
@@ -349,9 +412,8 @@
         let previousMousePosition = { x: 0, y: 0 };
 
         function updateRotation(deltaX, deltaY) {
-          rotation.yaw -= deltaX * 0.002; // Reduced sensitivity
-          rotation.pitch -= deltaY * 0.002;
-          rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch)); // Clamp pitch
+          rotationVelocity.yaw -= deltaX * 0.01;
+          rotationVelocity.pitch -= deltaY * 0.01;
         }
 
         renderer.domElement.addEventListener('mousedown', e => {
@@ -394,11 +456,17 @@
           lastTime = now;
 
           // Keyboard rotation
-          if (keys.ArrowLeft) rotation.yaw += 0.02;
-          if (keys.ArrowRight) rotation.yaw -= 0.02;
-          if (keys.ArrowUp) rotation.pitch -= 0.02;
-          if (keys.ArrowDown) rotation.pitch += 0.02;
+          if (keys.ArrowLeft) rotationVelocity.yaw += 0.05;
+          if (keys.ArrowRight) rotationVelocity.yaw -= 0.05;
+          if (keys.ArrowUp) rotationVelocity.pitch -= 0.05;
+          if (keys.ArrowDown) rotationVelocity.pitch += 0.05;
+
+          // Apply rotation with momentum
+          rotation.pitch += rotationVelocity.pitch * deltaTime;
+          rotation.yaw += rotationVelocity.yaw * deltaTime;
           rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+          rotationVelocity.pitch *= 0.95;
+          rotationVelocity.yaw *= 0.95;
 
           camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
 
@@ -406,8 +474,18 @@
           velocity.copy(forward.multiplyScalar(throttle));
           camera.position.add(velocity.clone().multiplyScalar(deltaTime));
 
+          // Update frustum
+          cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+          frustum.setFromProjectionMatrix(cameraMatrix);
+
           // Update entities
-          entities.comets.forEach(comet => {
+          const matrix = new THREE.Matrix4();
+          comets.forEach((comet, i) => {
+            if (!frustum.containsPoint(comet.position)) {
+              comet.visible = false;
+              return;
+            }
+            comet.visible = true;
             comet.userData.angle += comet.userData.velocity * 0.01 * deltaTime * 60;
             const r = comet.userData.semiMajorAxis * (1 - comet.userData.eccentricity ** 2) /
                       (1 + comet.userData.eccentricity * Math.cos(comet.userData.angle));
@@ -418,9 +496,13 @@
             );
             comet.position.copy(comet.userData.origin).add(relativePos);
             comet.userData.origin.copy(comet.position);
+            matrix.setPosition(comet.position);
+            cometInstances.setMatrixAt(i, matrix);
           });
+          if (cometInstances) cometInstances.instanceMatrix.needsUpdate = true;
 
-          entities.systems.forEach(system => {
+          systems.forEach(system => {
+            if (!frustum.containsPoint(system.position)) return;
             system.children.forEach(child => {
               if (child.userData.orbitalRadius) {
                 child.userData.angle += child.userData.velocity * 0.01 * deltaTime * 60;
@@ -433,7 +515,8 @@
             });
           });
 
-          entities.galaxies.forEach(galaxy => {
+          galaxies.forEach(galaxy => {
+            if (!frustum.containsPoint(galaxy.position)) return;
             galaxy.children.forEach(star => {
               star.userData.angle += star.userData.velocity * 0.001 * deltaTime * 60;
               const r = star.position.length();
@@ -447,38 +530,38 @@
 
           // Process projectiles
           let projectilesToRemove = [];
-          entities.projectiles.forEach((projectile, pIndex) => {
+          projectiles.forEach((projectile, pIndex) => {
             if (projectile.userData.remove) return;
 
             projectile.position.add(projectile.userData.velocity.clone().multiplyScalar(deltaTime));
-            if (projectile.position.length() > 2000) { // Reduced range
+            if (projectile.position.length() > 2000) {
               projectile.userData.remove = true;
               projectilesToRemove.push(pIndex);
               return;
             }
+            matrix.setPosition(projectile.position);
+            projectileInstances.setMatrixAt(pIndex, matrix);
+
+            if (!frustum.containsPoint(projectile.position)) return;
 
             let hits = [];
             const now = Date.now();
-            const relativePos = projectile.position.clone().sub(velocity.clone().multiplyScalar(deltaTime));
+            const relativePos = projectile.position.clone();
 
-            entities.comets.forEach((comet, index) => {
+            comets.forEach((comet, index) => {
+              if (!comet.visible) return;
               const age = (now - comet.userData.created) / 1000;
-              const worldPos = comet.position;
-              const distToCamera = camera.position.distanceTo(worldPos);
-              if (distToCamera > 1000) return; // Reduced range
-              const distance = relativePos.distanceTo(worldPos);
+              const distance = relativePos.distanceTo(comet.position);
               if (distance < 20) {
-                hits.push({ type: 'comet', obj: comet, index, age, distance });
+                hits.push({ type: 'comet', obj: comet, index, age });
               }
             });
 
-            entities.systems.forEach((system, index) => {
+            systems.forEach((system, index) => {
+              if (!frustum.containsPoint(system.position)) return;
               const age = (now - system.userData.created) / 1000;
-              const systemPos = system.position;
-              const distToCamera = camera.position.distanceTo(systemPos);
-              if (distToCamera > 1000) return;
-              if (relativePos.distanceTo(systemPos) < 40) {
-                hits.push({ type: 'system', obj: system, index, age, distance: relativePos.distanceTo(systemPos) });
+              if (relativePos.distanceTo(system.position) < 40) {
+                hits.push({ type: 'system', obj: system, index, age });
                 return;
               }
               for (let child of system.children) {
@@ -488,21 +571,18 @@
                   const distance = relativePos.distanceTo(worldPos);
                   const threshold = child.userData.type === 'star' ? 30 : 25;
                   if (distance < threshold) {
-                    hits.push({ type: 'system', obj: system, index, age, distance });
+                    hits.push({ type: 'system', obj: system, index, age });
                     break;
                   }
                 }
               }
             });
 
-            entities.galaxies.forEach((galaxy, index) => {
+            galaxies.forEach((galaxy, index) => {
+              if (!frustum.containsPoint(galaxy.position)) return;
               const age = (now - galaxy.userData.created) / 1000;
-              const galaxyPos = galaxy.position;
-              const distToCamera = camera.position.distanceTo(galaxyPos);
-              const bounds = galaxy.userData.radius + 20;
-              if (distToCamera > 1000 || distToCamera > bounds) return;
-              if (relativePos.distanceTo(galaxyPos) < 40) {
-                hits.push({ type: 'galaxy', obj: galaxy, index, age, distance: relativePos.distanceTo(galaxyPos) });
+              if (relativePos.distanceTo(galaxy.position) < 40) {
+                hits.push({ type: 'galaxy', obj: galaxy, index, age });
                 return;
               }
               for (let star of galaxy.children) {
@@ -510,7 +590,7 @@
                 star.getWorldPosition(worldPos);
                 const distance = relativePos.distanceTo(worldPos);
                 if (distance < 20) {
-                  hits.push({ type: 'galaxy', obj: galaxy, index, age, distance });
+                  hits.push({ type: 'galaxy', obj: galaxy, index, age });
                   break;
                 }
               }
@@ -520,23 +600,36 @@
               hits.sort((a, b) => a.age - b.age);
               for (let hit of hits) {
                 scene.remove(hit.obj);
-                if (hit.type === 'comet') entities.comets.splice(hit.index, 1);
-                else if (hit.type === 'system') entities.systems.splice(hit.index, 1);
-                else if (hit.type === 'galaxy') entities.galaxies.splice(hit.index, 1);
+                if (hit.type === 'comet') {
+                  comets.splice(hit.index, 1);
+                  cometPool.push(hit.obj);
+                  cometCount--;
+                  entityCount--;
+                  updateCometInstances();
+                } else if (hit.type === 'system') {
+                  systems.splice(hit.index, 1);
+                  entityCount -= hit.obj.children.length;
+                } else if (hit.type === 'galaxy') {
+                  galaxies.splice(hit.index, 1);
+                  entityCount -= hit.obj.children.length;
+                }
               }
               projectile.userData.remove = true;
               projectilesToRemove.push(pIndex);
             }
           });
 
+          if (projectileInstances) projectileInstances.instanceMatrix.needsUpdate = true;
+
           projectilesToRemove.sort((a, b) => b - a);
           projectilesToRemove.forEach(idx => {
-            const projectile = entities.projectiles[idx];
+            const projectile = projectiles[idx];
             projectile.visible = false;
-            projectile.userData.velocity = null;
-            scene.remove(projectile);
             projectilePool.push(projectile);
-            entities.projectiles.splice(idx, 1);
+            scene.remove(projectile);
+            projectiles.splice(idx, 1);
+            projectileCount--;
+            updateProjectileInstances();
           });
 
           renderer.render(scene, camera);
@@ -550,15 +643,18 @@
           const addGalaxyBtn = document.getElementById('addGalaxy');
           const shootBtn = document.getElementById('shootBtn');
           const resetBtn = document.getElementById('resetBtn');
+          const throttleIndicator = document.getElementById('throttleIndicator');
           const prompt = document.getElementById('prompt');
 
-          if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !prompt) {
+          if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !prompt || !throttleIndicator) {
             throw new Error('One or more control elements not found');
           }
 
           throttleBtn.addEventListener('click', () => {
-            throttle = throttle === 0 ? 100 : 0; // Increased for smoother movement
+            throttle = throttle === 0 ? 150 : 0;
             throttleBtn.classList.toggle('active', throttle > 0);
+            throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
+            throttleIndicator.classList.toggle('active', throttle > 0);
             showPrompt(0);
           });
 
@@ -588,12 +684,13 @@
           });
 
           const prompts = [
-            "Full Throttle engaged! Cruise the stars!",
-            "Comets streak in orbits ahead.",
-            "Systems spawn stars with planets.",
-            "Galaxies fill space with stars.",
-            "Blast every object and watch shots vanish!",
-            "Reset clears all your creations."
+            "Full Throttle engaged! Cruise the cosmos!",
+            "Comet added to your galaxy.",
+            "Planetary system created ahead.",
+            "Galaxy spawned with stars.",
+            "Projectile fired!",
+            "Galaxy reset to blank slate.",
+            "Warning: Adding more may slow performance!"
           ];
 
           function showPrompt(index) {
@@ -608,7 +705,6 @@
         // Initialize
         try {
           animate();
-          addComet();
         } catch (e) {
           console.error('Initialization error:', e);
         }
