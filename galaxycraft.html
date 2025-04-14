@@ -42,10 +42,6 @@
       min-width: 80px;
       text-align: center;
     }
-    input[type="range"] {
-      width: 100%;
-      accent-color: #4a90e2;
-    }
     button {
       background: #4a90e2;
       border: none;
@@ -119,10 +115,6 @@
       <button id="throttleBtn">Full Throttle</button>
     </div>
     <div class="control-item">
-      <label>Scale</label>
-      <input type="range" id="scale" min="0.1" max="2" step="0.1" value="1">
-    </div>
-    <div class="control-item">
       <button id="addComet">Add Comet</button>
     </div>
     <div class="control-item">
@@ -147,8 +139,9 @@
         // Scene setup
         if (!window.THREE) throw new Error('Three.js not loaded');
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Cap pixel ratio for performance
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 1);
         const canvas = document.getElementById('cosmicCanvas');
@@ -157,46 +150,56 @@
 
         camera.position.set(0, 0, 0);
 
-        // Shared resources for memory optimization
+        // Shared resources
         const sharedMaterials = {
-          glow: new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 1, transparent: false }),
-          starfield: new THREE.PointsMaterial({ color: 0xffffff, size: 1 })
+          glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+          starfield: new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })
         };
         const sharedGeometries = {
-          comet: new THREE.SphereGeometry(2, 8, 8),
-          star: new THREE.SphereGeometry(8, 16, 16),
-          planet: new THREE.SphereGeometry(2, 8, 8),
-          galaxyStar: new THREE.SphereGeometry(1, 8, 8),
-          projectile: new THREE.SphereGeometry(5, 8, 8)
+          comet: new THREE.SphereGeometry(2, 6, 6),
+          star: new THREE.SphereGeometry(8, 8, 8),
+          planet: new THREE.SphereGeometry(2, 6, 6),
+          galaxyStar: new THREE.SphereGeometry(1, 6, 6),
+          projectile: new THREE.SphereGeometry(5, 6, 6)
         };
 
-        // Starfield with instanced mesh
-        const starCount = 1000;
-        const starfield = new THREE.InstancedMesh(sharedGeometries.galaxyStar, sharedMaterials.starfield, starCount);
-        const matrix = new THREE.Matrix4();
-        for (let i = 0; i < starCount; i++) {
-          matrix.setPosition(
-            (Math.random() - 0.5) * 5000,
-            (Math.random() - 0.5) * 5000,
-            (Math.random() - 0.5) * 5000
-          );
-          starfield.setMatrixAt(i, matrix);
+        // Starfield with points for better performance
+        const starCount = 500; // Reduced from 1000
+        const starfieldGeometry = new THREE.BufferGeometry();
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount * 3; i += 3) {
+          starPositions[i] = (Math.random() - 0.5) * 4000;
+          starPositions[i + 1] = (Math.random() - 0.5) * 4000;
+          starPositions[i + 2] = (Math.random() - 0.5) * 4000;
         }
+        starfieldGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starfield = new THREE.Points(starfieldGeometry, sharedMaterials.starfield);
         scene.add(starfield);
 
         // Entity limits
         const maxEntities = {
-          comets: 100,
-          systems: 50,
-          galaxies: 20,
-          projectiles: 50
+          comets: 50, // Reduced from 100
+          systems: 25, // Reduced from 50
+          galaxies: 10, // Reduced from 20
+          projectiles: 25 // Reduced from 50
         };
         let entities = { comets: [], systems: [], galaxies: [], projectiles: [] };
         let throttle = 0;
-        let scale = 1;
         let rotation = { pitch: 0, yaw: 0 };
         let velocity = new THREE.Vector3(0, 0, 0);
         let lastTime = performance.now();
+
+        // Keyboard controls
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        window.addEventListener('keydown', e => {
+          if (e.key in keys) {
+            keys[e.key] = true;
+            e.preventDefault();
+          }
+        });
+        window.addEventListener('keyup', e => {
+          if (e.key in keys) keys[e.key] = false;
+        });
 
         // Object pool for projectiles
         const projectilePool = [];
@@ -211,17 +214,17 @@
 
         // Simulated data
         const trainingData = {
-          comets: Array(100).fill().map(() => ({
+          comets: Array(50).fill().map(() => ({
             semiMajorAxis: Math.random() * 50 + 20,
             eccentricity: Math.random() * 0.8,
             velocity: Math.random() * 3 + 1
           })),
-          systems: Array(50).fill().map(() => ({
-            planets: Math.floor(Math.random() * 5) + 1,
+          systems: Array(25).fill().map(() => ({
+            planets: Math.floor(Math.random() * 4) + 1,
             orbitalRadius: Math.random() * 30 + 10
           })),
-          galaxies: Array(20).fill().map(() => ({
-            radius: Math.random() * 200 + 100,
+          galaxies: Array(10).fill().map(() => ({
+            radius: Math.random() * 150 + 50,
             type: ['spiral', 'elliptical'][Math.floor(Math.random() * 2)]
           }))
         };
@@ -265,7 +268,7 @@
             planet.userData = {
               type: 'planet',
               orbitalRadius,
-              velocity: Math.sqrt(1 / orbitalRadius) * scale,
+              velocity: Math.sqrt(1 / orbitalRadius),
               angle: Math.random() * Math.PI * 2
             };
             systemGroup.add(planet);
@@ -286,7 +289,7 @@
           if (entities.galaxies.length >= maxEntities.galaxies) return;
           const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
           const galaxyGroup = new THREE.Group();
-          const starCount = params.type === 'spiral' ? 30 : 15;
+          const starCount = params.type === 'spiral' ? 20 : 10; // Reduced star counts
           for (let i = 0; i < starCount; i++) {
             const star = new THREE.Mesh(sharedGeometries.galaxyStar, sharedMaterials.glow);
             const r = Math.random() * params.radius;
@@ -297,7 +300,7 @@
               r * Math.sin(phi) * Math.sin(theta),
               r * Math.cos(phi)
             );
-            star.userData = { type: 'star', velocity: Math.sqrt(1 / r) * scale, angle: theta };
+            star.userData = { type: 'star', velocity: Math.sqrt(1 / r), angle: theta };
             galaxyGroup.add(star);
           }
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -346,8 +349,9 @@
         let previousMousePosition = { x: 0, y: 0 };
 
         function updateRotation(deltaX, deltaY) {
-          rotation.yaw -= deltaX * 0.005;
-          rotation.pitch -= deltaY * 0.005;
+          rotation.yaw -= deltaX * 0.002; // Reduced sensitivity
+          rotation.pitch -= deltaY * 0.002;
+          rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch)); // Clamp pitch
         }
 
         renderer.domElement.addEventListener('mousedown', e => {
@@ -389,15 +393,22 @@
           const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
           lastTime = now;
 
+          // Keyboard rotation
+          if (keys.ArrowLeft) rotation.yaw += 0.02;
+          if (keys.ArrowRight) rotation.yaw -= 0.02;
+          if (keys.ArrowUp) rotation.pitch -= 0.02;
+          if (keys.ArrowDown) rotation.pitch += 0.02;
+          rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+
           camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
 
-          // Throttle fix: Simplified velocity calculation and increased throttle value
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
           velocity.copy(forward.multiplyScalar(throttle));
           camera.position.add(velocity.clone().multiplyScalar(deltaTime));
 
+          // Update entities
           entities.comets.forEach(comet => {
-            comet.userData.angle += comet.userData.velocity * 0.01 * scale * deltaTime * 60;
+            comet.userData.angle += comet.userData.velocity * 0.01 * deltaTime * 60;
             const r = comet.userData.semiMajorAxis * (1 - comet.userData.eccentricity ** 2) /
                       (1 + comet.userData.eccentricity * Math.cos(comet.userData.angle));
             const relativePos = new THREE.Vector3(
@@ -440,7 +451,7 @@
             if (projectile.userData.remove) return;
 
             projectile.position.add(projectile.userData.velocity.clone().multiplyScalar(deltaTime));
-            if (projectile.position.length() > 5000) {
+            if (projectile.position.length() > 2000) { // Reduced range
               projectile.userData.remove = true;
               projectilesToRemove.push(pIndex);
               return;
@@ -450,35 +461,23 @@
             const now = Date.now();
             const relativePos = projectile.position.clone().sub(velocity.clone().multiplyScalar(deltaTime));
 
-            // Check comets
             entities.comets.forEach((comet, index) => {
               const age = (now - comet.userData.created) / 1000;
               const worldPos = comet.position;
               const distToCamera = camera.position.distanceTo(worldPos);
-              if (distToCamera > 1500) return;
-              const cometVel = new THREE.Vector3(
-                Math.cos(comet.userData.angle) * comet.userData.velocity,
-                Math.sin(comet.userData.angle) * comet.userData.velocity,
-                0
-              );
-              const predictedPos = worldPos.clone().add(cometVel.multiplyScalar(deltaTime));
-              const threshold = distToCamera > 500 ? 22.5 : 25;
-              const distance = Math.min(
-                relativePos.distanceTo(worldPos),
-                relativePos.distanceTo(predictedPos)
-              );
-              if (distance < threshold) {
+              if (distToCamera > 1000) return; // Reduced range
+              const distance = relativePos.distanceTo(worldPos);
+              if (distance < 20) {
                 hits.push({ type: 'comet', obj: comet, index, age, distance });
               }
             });
 
-            // Check systems
             entities.systems.forEach((system, index) => {
               const age = (now - system.userData.created) / 1000;
               const systemPos = system.position;
               const distToCamera = camera.position.distanceTo(systemPos);
-              if (distToCamera > 1500) return;
-              if (relativePos.distanceTo(systemPos) < 50) {
+              if (distToCamera > 1000) return;
+              if (relativePos.distanceTo(systemPos) < 40) {
                 hits.push({ type: 'system', obj: system, index, age, distance: relativePos.distanceTo(systemPos) });
                 return;
               }
@@ -486,17 +485,8 @@
                 if (child.userData.type === 'star' || child.userData.type === 'planet') {
                   const worldPos = new THREE.Vector3();
                   child.getWorldPosition(worldPos);
-                  const childVel = child.userData.orbitalRadius ? new THREE.Vector3(
-                    -child.userData.orbitalRadius * Math.sin(child.userData.angle) * child.userData.velocity,
-                    child.userData.orbitalRadius * Math.cos(child.userData.angle) * child.userData.velocity,
-                    0
-                  ) : new THREE.Vector3(0, 0, 0);
-                  const predictedPos = worldPos.clone().add(childVel.multiplyScalar(deltaTime));
-                  const threshold = child.userData.type === 'star' ? (distToCamera > 500 ? 31.5 : 35) : (distToCamera > 500 ? 27 : 30);
-                  const distance = Math.min(
-                    relativePos.distanceTo(worldPos),
-                    relativePos.distanceTo(predictedPos)
-                  );
+                  const distance = relativePos.distanceTo(worldPos);
+                  const threshold = child.userData.type === 'star' ? 30 : 25;
                   if (distance < threshold) {
                     hits.push({ type: 'system', obj: system, index, age, distance });
                     break;
@@ -505,57 +495,40 @@
               }
             });
 
-            // Check galaxies
             entities.galaxies.forEach((galaxy, index) => {
               const age = (now - galaxy.userData.created) / 1000;
               const galaxyPos = galaxy.position;
               const distToCamera = camera.position.distanceTo(galaxyPos);
-              const bounds = galaxy.userData.radius * scale * 1.1 + 25;
-              if (distToCamera > 1500 || distToCamera > bounds) return;
-              if (relativePos.distanceTo(galaxyPos) < 50) {
+              const bounds = galaxy.userData.radius + 20;
+              if (distToCamera > 1000 || distToCamera > bounds) return;
+              if (relativePos.distanceTo(galaxyPos) < 40) {
                 hits.push({ type: 'galaxy', obj: galaxy, index, age, distance: relativePos.distanceTo(galaxyPos) });
                 return;
               }
-              const starThreshold = distToCamera > 500 ? 22.5 : 25;
               for (let star of galaxy.children) {
                 const worldPos = new THREE.Vector3();
                 star.getWorldPosition(worldPos);
-                const starVel = new THREE.Vector3(
-                  -worldPos.x * star.userData.velocity,
-                  -worldPos.y * star.userData.velocity,
-                  0
-                );
-                const predictedPos = worldPos.clone().add(starVel.multiplyScalar(deltaTime));
-                const distance = Math.min(
-                  relativePos.distanceTo(worldPos),
-                  relativePos.distanceTo(predictedPos)
-                );
-                if (distance < starThreshold) {
+                const distance = relativePos.distanceTo(worldPos);
+                if (distance < 20) {
                   hits.push({ type: 'galaxy', obj: galaxy, index, age, distance });
                   break;
                 }
               }
             });
 
-            // Process hits
             if (hits.length > 0) {
               hits.sort((a, b) => a.age - b.age);
               for (let hit of hits) {
                 scene.remove(hit.obj);
-                if (hit.type === 'comet') {
-                  entities.comets.splice(hit.index, 1);
-                } else if (hit.type === 'system') {
-                  entities.systems.splice(hit.index, 1);
-                } else if (hit.type === 'galaxy') {
-                  entities.galaxies.splice(hit.index, 1);
-                }
+                if (hit.type === 'comet') entities.comets.splice(hit.index, 1);
+                else if (hit.type === 'system') entities.systems.splice(hit.index, 1);
+                else if (hit.type === 'galaxy') entities.galaxies.splice(hit.index, 1);
               }
               projectile.userData.remove = true;
               projectilesToRemove.push(pIndex);
             }
           });
 
-          // Remove marked projectiles
           projectilesToRemove.sort((a, b) => b - a);
           projectilesToRemove.forEach(idx => {
             const projectile = entities.projectiles[idx];
@@ -566,14 +539,12 @@
             entities.projectiles.splice(idx, 1);
           });
 
-          renderer.renderLists.dispose();
           renderer.render(scene, camera);
         }
 
         // Controls
         try {
           const throttleBtn = document.getElementById('throttleBtn');
-          const scaleInput = document.getElementById('scale');
           const addCometBtn = document.getElementById('addComet');
           const addSystemBtn = document.getElementById('addSystem');
           const addGalaxyBtn = document.getElementById('addGalaxy');
@@ -581,51 +552,43 @@
           const resetBtn = document.getElementById('resetBtn');
           const prompt = document.getElementById('prompt');
 
-          if (!throttleBtn || !scaleInput || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !prompt) {
+          if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !prompt) {
             throw new Error('One or more control elements not found');
           }
 
-          // Throttle fix: Increased throttle value to 50 for faster movement
           throttleBtn.addEventListener('click', () => {
-            throttle = throttle === 0 ? 50 : 0; // Changed from 2.5 to 50
+            throttle = throttle === 0 ? 100 : 0; // Increased for smoother movement
             throttleBtn.classList.toggle('active', throttle > 0);
             showPrompt(0);
           });
 
-          scaleInput.addEventListener('input', () => {
-            scale = parseFloat(scaleInput.value);
-            showPrompt(1);
-          });
-
           addCometBtn.addEventListener('click', () => {
             addComet();
-            showPrompt(2);
+            showPrompt(1);
           });
 
           addSystemBtn.addEventListener('click', () => {
             addPlanetarySystem();
-            showPrompt(3);
+            showPrompt(2);
           });
 
           addGalaxyBtn.addEventListener('click', () => {
             addGalaxy();
-            showPrompt(4);
+            showPrompt(3);
           });
 
           shootBtn.addEventListener('click', () => {
             shoot();
-            showPrompt(5);
+            showPrompt(4);
           });
 
           resetBtn.addEventListener('click', () => {
             reset();
-            showPrompt(6);
+            showPrompt(5);
           });
 
-          // Prompts
           const prompts = [
-            "Full Throttle engaged! Cruise the stars!", // Updated for better feedback
-            "Scale adjusts new creations’ size.",
+            "Full Throttle engaged! Cruise the stars!",
             "Comets streak in orbits ahead.",
             "Systems spawn stars with planets.",
             "Galaxies fill space with stars.",
@@ -636,7 +599,7 @@
           function showPrompt(index) {
             prompt.textContent = prompts[index];
             prompt.classList.add('active');
-            setTimeout(() => prompt.classList.remove('active'), 3000);
+            setTimeout(() => prompt.classList.remove('active'), 2000);
           }
         } catch (e) {
           console.error('Control setup error:', e);
