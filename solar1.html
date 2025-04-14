@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System Simulation</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        #controls {
+            margin: 5px;
+            text-align: center;
+            width: 100%;
+            max-width: 90vw;
+        }
+        button {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin: 2px;
+            font-size: 10px;
+        }
+        button:hover, button.active {
+            background: #0f0;
+            color: #000;
+        }
+        canvas {
+            border: 1px solid #0f0;
+            max-width: 90vw;
+            max-height: 40vh;
+            width: 100%;
+            height: auto;
+            display: block;
+            margin: 5px auto;
+        }
+        #timeDisplay {
+            margin: 5px;
+            font-size: 12px;
+            text-align: center;
+            width: 100%;
+            max-width: 90vw;
+        }
+        #console {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            height: 50vh;
+            background: #000;
+            border-top: 1px solid #0f0;
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+        }
+        #consoleOutput {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 12px;
+        }
+        #consoleInput {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            font-family: 'Courier New', monospace;
+            width: 100%;
+            padding: 8px;
+            font-size: 16px;
+        }
+        #helpText {
+            padding: 5px;
+            font-size: 10px;
+            color: #0f0;
+            text-align: center;
+        }
+        @media (max-width: 600px) {
+            canvas {
+                max-height: 35vh;
+            }
+            button {
+                font-size: 8px;
+                padding: 3px 5px;
+            }
+            #timeDisplay {
+                font-size: 10px;
+            }
+            #consoleOutput {
+                font-size: 10px;
+            }
+            #consoleInput {
+                font-size: 14px;
+            }
+            #helpText {
+                font-size: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="startSimulation()">Start</button>
+        <button onclick="stopSimulation()">Stop</button>
+        <button onclick="setSpeed(1)" class="speedBtn active">1x</button>
+        <button onclick="setSpeed(100000)" class="speedBtn">100000x</button>
+        <button onclick="setSpeed(1000000)" class="speedBtn">1000000x</button>
+    </div>
+    <canvas id="solarCanvas"></canvas>
+    <div id="timeDisplay">Date: Loading...</div>
+    <div id="console">
+        <div id="consoleOutput"></div>
+        <input id="consoleInput" type="text" placeholder="Enter command...">
+        <div id="helpText">
+            Commands: nogravity, gravity, reverse, reset, <planet> (e.g., earth, pluto), help<br>
+            Planets: sun, mercury, venus, earth, mars, jupiter, saturn, uranus, neptune, pluto<br>
+            Type 'help' for full list.
+        </div>
+    </div>
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('solarCanvas');
+        const ctx = canvas.getContext('2d');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const consoleOutput = document.getElementById('consoleOutput');
+        const consoleInput = document.getElementById('consoleInput');
+        let animationFrameId;
+        let isRunning = false;
+        let speed = 1;
+        let simulatedTime = new Date('2025-04-13').getTime();
+        let lastFrameTime = performance.now();
+        let gravityEnabled = true;
+        let orbitDirection = 1;
+        let planetVelocities = [];
+
+        // Resize canvas
+        function resizeCanvas() {
+            const maxWidth = Math.min(window.innerWidth * 0.9, 800);
+            const maxHeight = Math.min(window.innerHeight * 0.4, 400);
+            canvas.width = maxWidth;
+            canvas.height = maxHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Solar system data
+        const solarSystem = [
+            {
+                name: 'Sun',
+                radius: 10,
+                color: '#ff0',
+                stats: {
+                    mass: '1.989 × 10³⁰ kg',
+                    radius: '696,340 km',
+                    avgTemp: '5,500 °C',
+                    rotation: '25-35 days',
+                    elements: 'H (73.5%), He (24%), others',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Mercury',
+                radius: 2,
+                color: '#aaa',
+                semiMajorAxis: 30,
+                orbitalPeriod: 87.97,
+                orbitalSpeed: 47.87,
+                stats: {
+                    mass: '3.285 × 10²³ kg',
+                    radius: '2,439.7 km',
+                    avgTemp: '167 °C',
+                    rotation: '58.6 days',
+                    elements: 'Silicates, Fe, Ni',
+                    orbitalPeriod: '87.97 days',
+                    speed: '47.87 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Venus',
+                radius: 3,
+                color: '#f90',
+                semiMajorAxis: 50,
+                orbitalPeriod: 224.7,
+                orbitalSpeed: 35.02,
+                stats: {
+                    mass: '4.867 × 10²⁴ kg',
+                    radius: '6,051.8 km',
+                    avgTemp: '464 °C',
+                    rotation: '243 days',
+                    elements: 'Silicates, CO₂ atmosphere',
+                    orbitalPeriod: '224.7 days',
+                    speed: '35.02 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Earth',
+                radius: 4,
+                color: '#00f',
+                semiMajorAxis: 70,
+                orbitalPeriod: 365.25,
+                orbitalSpeed: 29.78,
+                stats: {
+                    mass: '5.972 × 10²⁴ kg',
+                    radius: '6,371 km',
+                    avgTemp: '15 °C',
+                    rotation: '23.93 hours',
+                    elements: 'Silicates, Fe, O, N₂ atmosphere',
+                    orbitalPeriod: '365.25 days',
+                    speed: '29.78 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Mars',
+                radius: 3,
+                color: '#f00',
+                semiMajorAxis: 90,
+                orbitalPeriod: 686.98,
+                orbitalSpeed: 24.13,
+                stats: {
+                    mass: '6.417 × 10²³ kg',
+                    radius: '3,389.5 km',
+                    avgTemp: '-65 °C',
+                    rotation: '24.6 hours',
+                    elements: 'Silicates, Fe oxides, CO₂',
+                    orbitalPeriod: '686.98 days',
+                    speed: '24.13 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Jupiter',
+                radius: 6,
+                color: '#f80',
+                semiMajorAxis: 110,
+                orbitalPeriod: 4332.59,
+                orbitalSpeed: 13.07,
+                stats: {
+                    mass: '1.898 × 10²⁷ kg',
+                    radius: '69,911 km',
+                    avgTemp: '-110 °C',
+                    rotation: '9.93 hours',
+                    elements: 'H (90%), He, CH₄',
+                    orbitalPeriod: '4332.59 days',
+                    speed: '13.07 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Saturn',
+                radius: 5,
+                color: '#ff8',
+                semiMajorAxis: 130,
+                orbitalPeriod: 10759.22,
+                orbitalSpeed: 9.69,
+                stats: {
+                    mass: '5.683 × 10²⁶ kg',
+                    radius: '58,232 km',
+                    avgTemp: '-140 °C',
+                    rotation: '10.7 hours',
+                    elements: 'H, He, NH₃',
+                    orbitalPeriod: '10759.22 days',
+                    speed: '9.69 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Uranus',
+                radius: 4,
+                color: '#0ff',
+                semiMajorAxis: 140,
+                orbitalPeriod: 30688.5,
+                orbitalSpeed: 6.81,
+                stats: {
+                    mass: '8.681 × 10²⁵ kg',
+                    radius: '25,362 km',
+                    avgTemp: '-195 °C',
+                    rotation: '17.2 hours',
+                    elements: 'H, He, H₂O, CH₄',
+                    orbitalPeriod: '30688.5 days',
+                    speed: '6.81 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Neptune',
+                radius: 4,
+                color: '#00f',
+                semiMajorAxis: 150,
+                orbitalPeriod: 59800,
+                orbitalSpeed: 5.43,
+                stats: {
+                    mass: '1.024 × 10²⁶ kg',
+                    radius: '24,622 km',
+                    avgTemp: '-200 °C',
+                    rotation: '16.1 hours',
+                    elements: 'H, He, CH₄, H₂O',
+                    orbitalPeriod: '59800 days',
+                    speed: '5.43 km/s',
+                    age: '~4.6 billion years'
+                }
+            },
+            {
+                name: 'Pluto',
+                radius: 2,
+                color: '#ccc',
+                semiMajorAxis: 180,
+                orbitalPeriod: 90560,
+                orbitalSpeed: 4.74,
+                stats: {
+                    mass: '1.309 × 10²² kg',
+                    radius: '1,188.3 km',
+                    avgTemp: '-225 °C',
+                    rotation: '6.39 days',
+                    elements: 'N₂, CH₄, CO',
+                    orbitalPeriod: '90560 days',
+                    speed: '4.74 km/s',
+                    age: '~4.6 billion years'
+                }
+            }
+        ];
+
+        // Log planets to console
+        console.log('Solar System Planets:');
+        solarSystem.forEach(body => {
+            if (body.name !== 'Sun') {
+                console.log(`${body.name}: Radius=${body.stats.radius}, Mass=${body.stats.mass}, Period=${body.orbitalPeriod} days`);
+            }
+        });
+
+        // Calculate planet position
+        function calculatePosition(body, daysSinceStart) {
+            if (body.name === 'Sun') return { x: canvas.width / 2, y: canvas.height / 2 };
+
+            if (!gravityEnabled && planetVelocities[body.name]) {
+                const { x, y, vx, vy } = planetVelocities[body.name];
+                const dt = (simulatedTime - planetVelocities[body.name].time) / (1000 * 60 * 60 * 24);
+                return { x: x + vx * dt, y: y + vy * dt };
+            }
+
+            const angle = (2 * Math.PI * daysSinceStart * orbitDirection) / body.orbitalPeriod;
+            const x = tf.tensor([body.semiMajorAxis * Math.cos(angle)]);
+            const y = tf.tensor([body.semiMajorAxis * Math.sin(angle)]);
+            return { x: canvas.width / 2 + x.dataSync()[0], y: canvas.height / 2 + y.dataSync()[0] };
+        }
+
+        // Calculate tangential velocity
+        function calculateTangentialVelocity(body, daysSinceStart) {
+            const angle = (2 * Math.PI * daysSinceStart * orbitDirection) / body.orbitalPeriod;
+            const r = body.semiMajorAxis;
+            const omega = (2 * Math.PI) / body.orbitalPeriod;
+            const v = r * omega;
+            return {
+                vx: -v * Math.sin(angle) * orbitDirection,
+                vy: v * Math.cos(angle) * orbitDirection
+            };
+        }
+
+        // Update time display
+        function updateTimeDisplay() {
+            const date = new Date(simulatedTime);
+            timeDisplay.textContent = `Date: ${date.toUTCString()}`;
+        }
+
+        // Draw the solar system
+        async function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const daysSinceStart = (simulatedTime - new Date('2025-04-13').getTime()) / (1000 * 60 * 60 * 24);
+
+            // Draw orbits
+            if (gravityEnabled) {
+                solarSystem.forEach(body => {
+                    if (body.name !== 'Sun') {
+                        ctx.beginPath();
+                        ctx.arc(canvas.width / 2, canvas.height / 2, body.semiMajorAxis, 0, 2 * Math.PI);
+                        ctx.strokeStyle = '#0f0';
+                        ctx.stroke();
+                    }
+                });
+            }
+
+            // Draw bodies
+            for (const body of solarSystem) {
+                const pos = await calculatePosition(body, daysSinceStart);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, body.radius, 0, 2 * Math.PI);
+                ctx.fillStyle = body.color;
+                ctx.fill();
+                ctx.fillStyle = '#0f0';
+                ctx.font = '8px Courier New';
+                ctx.fillText(body.name, pos.x + body.radius + 3, pos.y);
+            }
+        }
+
+        // Animation loop
+        async function animate() {
+            if (!isRunning) return;
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastFrameTime) / 1000;
+            lastFrameTime = currentTime;
+
+            simulatedTime += deltaTime * speed * 1000;
+            await draw();
+            updateTimeDisplay();
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // Start/stop simulation
+        function startSimulation() {
+            if (!isRunning) {
+                isRunning = true;
+                lastFrameTime = performance.now();
+                animate();
+            }
+        }
+
+        function stopSimulation() {
+            isRunning = false;
+            cancelAnimationFrame(animationFrameId);
+        }
+
+        // Set speed
+        function setSpeed(newSpeed) {
+            speed = newSpeed;
+            document.querySelectorAll('.speedBtn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === `${speed}x`);
+            });
+            appendConsole(`Speed set to ${speed}x`);
+        }
+
+        // Reset simulation
+        function resetSimulation() {
+            simulatedTime = new Date('2025-04-13').getTime();
+            gravityEnabled = true;
+            orbitDirection = 1;
+            planetVelocities = [];
+            setSpeed(1);
+            appendConsole('Simulation reset');
+        }
+
+        // Console handling
+        function appendConsole(message) {
+            const p = document.createElement('p');
+            p.textContent = `> ${message}`;
+            consoleOutput.appendChild(p);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+
+        consoleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && consoleInput.value.trim()) {
+                const input = consoleInput.value.toLowerCase().trim();
+                consoleInput.value = '';
+                appendConsole(input);
+
+                const daysSinceStart = (simulatedTime - new Date('2025-04-13').getTime()) / (1000 * 60 * 60 * 24);
+
+                if (input === 'nogravity') {
+                    gravityEnabled = false;
+                    planetVelocities = {};
+                    solarSystem.forEach(body => {
+                        if (body.name !== 'Sun') {
+                            const pos = calculatePosition(body, daysSinceStart);
+                            const vel = calculateTangentialVelocity(body, daysSinceStart);
+                            planetVelocities[body.name] = {
+                                x: pos.x,
+                                y: pos.y,
+                                vx: vel.vx,
+                                vy: vel.vy,
+                                time: simulatedTime
+                            };
+                        }
+                    });
+                    appendConsole('Gravity disabled: planets move freely');
+                } else if (input === 'gravity') {
+                    gravityEnabled = true;
+                    planetVelocities = [];
+                    appendConsole('Gravity restored: planets orbit Sun');
+                } else if (input === 'reverse') {
+                    orbitDirection *= -1;
+                    appendConsole(`Orbits ${orbitDirection === 1 ? 'restored' : 'reversed'}`);
+                } else if (input === 'reset') {
+                    resetSimulation();
+                } else if (input === 'help') {
+                    appendConsole('Commands:');
+                    appendConsole('  nogravity - Planets move freely');
+                    appendConsole('  gravity - Restore orbits');
+                    appendConsole('  reverse - Reverse orbit direction');
+                    appendConsole('  reset - Reset simulation');
+                    appendConsole('  <planet> - Show data (e.g., earth, pluto)');
+                    appendConsole('Planets: sun, mercury, venus, earth, mars, jupiter, saturn, uranus, neptune, pluto');
+                } else {
+                    const body = solarSystem.find(b => b.name.toLowerCase() === input);
+                    if (body) {
+                        appendConsole(`${body.name} Data:`);
+                        appendConsole(`  Elements: ${body.stats.elements}`);
+                        appendConsole(`  Orbital Speed: ${body.stats.speed}`);
+                        appendConsole(`  Orbital Period: ${body.stats.orbitalPeriod}`);
+                        appendConsole(`  Age: ${body.stats.age}`);
+                        appendConsole(`  Mass: ${body.stats.mass}`);
+                        appendConsole(`  Radius: ${body.stats.radius}`);
+                        appendConsole(`  Avg Temp: ${body.stats.avgTemp}`);
+                        appendConsole(`  Rotation: ${body.stats.rotation}`);
+                    } else {
+                        appendConsole('Unknown command or planet. Type "help" for list.');
+                    }
+                }
+            }
+        });
+
+        // Initial setup
+        setSpeed(1);
+        draw();
+        updateTimeDisplay();
+        appendConsole('Simulation ready. Type "help" for commands.');
+    </script>
+</body>
+</html>
