@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Galaxycraft - BETA</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #000; color: #fff; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+    #cosmicCanvas { flex: 1; width: 100%; touch-action: none; position: relative; }
+    .controls {
+      position: fixed; bottom: 0; width: 100%; background: rgba(20, 20, 50, 0.9);
+      padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+      backdrop-filter: blur(5px); z-index: 10;
+    }
+    .control-item { flex: 1; min-width: 80px; text-align: center; }
+    button {
+      background: #4a90e2; border: none; padding: 10px 20px; color: #fff; border-radius: 20px;
+      cursor: pointer; font-size: 16px; transition: transform 0.2s, background 0.2s;
+    }
+    button:hover { background: #357abd; }
+    button.active { background: #ff4444; }
+    button:active { transform: scale(0.95); }
+    .prompt {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8);
+      padding: 10px; border-radius: 10px; font-size: 14px; max-width: 90%; text-align: center;
+      opacity: 0; transition: opacity 0.5s; z-index: 5;
+    }
+    .prompt.active { opacity: 1; }
+    .hud {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+      opacity: 0.4; z-index: 1;
+    }
+    .hud::before {
+      content: ''; position: absolute; top: 10%; left: 10%; right: 10%; bottom: 10%;
+      border: 2px solid rgba(74, 144, 226, 0); border-radius: 20px;
+    }
+    .hud::after {
+      content: '+'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #4a90e2; font-size: 24px;
+    }
+    .throttle-indicator {
+      position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+      color: #4a90e2; font-size: 12px; opacity: 0; transition: opacity 0.3s; z-index: 5;
+    }
+    .throttle-indicator.active { opacity: 1; }
+    .status-overlay {
+      position: absolute; top: 0; width: 100%; background: rgba(0, 0, 0, 0.3);
+      padding: 5px 10px; font-size: 12px; color: #fff; text-shadow: 0 0 2px #000;
+      z-index: 5; pointer-events: none;
+    }
+    .console {
+      position: absolute; bottom: 60px; width: 100%; height: 25%; background: rgba(0, 0, 0, 0.5);
+      display: flex; flex-direction: column; z-index: 5; padding: 5px;
+    }
+    .console-log { flex: 1; overflow-y: auto; font-size: 12px; color: #fff; text-shadow: 0 0 2px #000; padding: 5px; }
+    .console-log p { margin: 2px 0; }
+    .console-input {
+      width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid #4a90e2;
+      color: #fff; padding: 5px; font-size: 12px; outline: none;
+    }
+    .console-input::placeholder { color: #aaa; }
+    .console::-webkit-scrollbar { width: 8px; }
+    .console::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="cosmicCanvas">
+    <div class="hud"></div>
+    <div id="statusOverlay" class="status-overlay"></div>
+    <div id="throttleIndicator" class="throttle-indicator"></div>
+    <div id="console" class="console">
+      <div id="consoleLog" class="console-log"></div>
+      <input id="consoleInput" class="console-input" type="text" placeholder="Type /help for commands..." autocomplete="off">
+    </div>
+  </div>
+  <div class="controls">
+    <div class="control-item"><button id="throttleBtn">Full Throttle</button></div>
+    <div class="control-item"><button id="addComet">Add Comet</button></div>
+    <div class="control-item"><button id="addSystem">Add System</button></div>
+    <div class="control-item"><button id="addGalaxy">Add Galaxy</button></div>
+    <div class="control-item"><button id="addNode">Add Node</button></div>
+    <div class="control-item"><button id="autopilotBtn">Autopilot</button></div>
+    <div class="control-item"><button id="shootBtn">Shoot</button></div>
+    <div class="control-item"><button id="resetBtn">Reset</button></div>
+  </div>
+  <div id="prompt" class="prompt"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    (function() {
+      // Scene setup
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 10000);
+      const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0x000000, 1);
+      document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
+
+      camera.position.set(0, 0, 0);
+      const frustum = new THREE.Frustum();
+      const cameraMatrix = new THREE.Matrix4();
+
+      // Shared resources
+      const materials = {
+        glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        star: new THREE.MeshBasicMaterial({ color: 0xffff99 }),
+        planet: new THREE.MeshBasicMaterial({ color: 0x3399ff }),
+        node: new THREE.MeshBasicMaterial({ color: 0xff33cc }),
+        line: new THREE.LineBasicMaterial({ color: 0x00ff00 })
+      };
+      const geometries = {
+        comet: new THREE.SphereGeometry(5, 8, 8),
+        star: new THREE.SphereGeometry(100, 16, 16),
+        planet: new THREE.SphereGeometry(20, 12, 12),
+        galaxyStar: new THREE.SphereGeometry(10, 8, 8),
+        projectile: new THREE.SphereGeometry(5, 8, 8),
+        node: new THREE.BoxGeometry(10, 10, 10)
+      };
+
+      // Entities and state
+      let comets = [], systems = [], galaxies = [], projectiles = [], nodes = [], nodeLines = [];
+      let cometInstances = null, projectileInstances = null;
+      let cometCount = 0, projectileCount = 0, entityCount = 0;
+      let throttle = 0, autopilotActive = false, currentNodeIndex = 0;
+      let rotation = { pitch: 0, yaw: 0 }, rotationVelocity = { pitch: 0, yaw: 0 };
+      let velocity = new THREE.Vector3(0, 0, 0);
+      let lastTime = performance.now();
+
+      // Constants
+      const G = 100, softening = 10, maxGravityDistance = 2000;
+      const maxLogMessages = 50;
+      const pools = { comet: [], projectile: [], node: [] };
+
+      // DOM elements
+      const elements = {
+        statusOverlay: document.getElementById('statusOverlay'),
+        consoleLog: document.getElementById('consoleLog'),
+        consoleInput: document.getElementById('consoleInput'),
+        throttleBtn: document.getElementById('throttleBtn'),
+        prompt: document.getElementById('prompt'),
+        throttleIndicator: document.getElementById('throttleIndicator')
+      };
+      let logMessages = [];
+
+      // Welcome guide
+      function displayWelcomeGuide() {
+        const guide = [
+          'Welcome to Galaxycraft!',
+          'Quick Start Guide:',
+          '- Use buttons or /commands to add comets, systems, galaxies, or nodes.',
+          '- Click "Full Throttle" or /throttle to move forward.',
+          '- Drag mouse/touch to look around.',
+          '- Place nodes and use /autopilot to navigate.',
+          '- Type /shoot to fire projectiles.',
+          '- Type /reset to clear everything.',
+          '- Try /help for all commands!'
+        ];
+        guide.forEach(msg => addConsoleMessage(msg));
+      }
+
+      function addConsoleMessage(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        logMessages.push(`[${timestamp}] ${message}`);
+        if (logMessages.length > maxLogMessages) logMessages.shift();
+        elements.consoleLog.innerHTML = logMessages.map(msg => `<p>${msg}</p>`).join('');
+        elements.consoleLog.scrollTop = elements.consoleLog.scrollHeight;
+      }
+
+      function updateStatusOverlay() {
+        elements.statusOverlay.textContent = `Entities: ${entityCount} | Throttle: ${throttle} | Autopilot: ${autopilotActive ? 'On' : 'Off'} | Nodes: ${nodes.length}`;
+      }
+
+      // Input handling
+      const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+      window.addEventListener('keydown', e => { if (e.key in keys) { keys[e.key] = true; e.preventDefault(); } });
+      window.addEventListener('keyup', e => { if (e.key in keys) keys[e.key] = false; });
+
+      elements.consoleInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.value) {
+          addConsoleMessage(`> ${e.target.value}`);
+          handleCommand(e.target.value);
+          e.target.value = '';
+        }
+      });
+
+      function handleCommand(input) {
+        const cmd = input.trim().toLowerCase();
+        if (!cmd.startsWith('/')) return addConsoleMessage('Commands must start with "/". Type /help for commands.');
+        const [command, ...args] = cmd.slice(1).split(' ');
+
+        switch (command) {
+          case 'help': addConsoleMessage('Commands: /add comet, /add system, /add galaxy, /add node, /shoot, /reset, /throttle, /autopilot'); break;
+          case 'add':
+            if (args[0] === 'comet') addComet();
+            else if (args[0] === 'system') addPlanetarySystem();
+            else if (args[0] === 'galaxy') addGalaxy();
+            else if (args[0] === 'node') addNode();
+            else addConsoleMessage('Invalid add command. Use: comet, system, galaxy, node');
+            break;
+          case 'shoot': shoot(); break;
+          case 'reset': reset(); break;
+          case 'throttle': if (!autopilotActive) toggleThrottle(); else addConsoleMessage('Cannot toggle throttle during autopilot.'); break;
+          case 'autopilot': toggleAutopilot(); break;
+          default: addConsoleMessage('Unknown command. Type /help for commands.');
+        }
+      }
+
+      // Object pools
+      function getFromPool(type) {
+        const pool = pools[type];
+        if (pool.length) {
+          const obj = pool.pop();
+          obj.visible = true;
+          return obj;
+        }
+        return new THREE.Mesh(geometries[type], materials[type === 'node' ? 'node' : 'glow']);
+      }
+
+      // Simulated data
+      const trainingData = {
+        comets: Array(100).fill().map(() => ({ semiMajorAxis: Math.random() * 50 + 20, eccentricity: Math.random() * 0.8, velocity: Math.random() * 3 + 1 })),
+        systems: Array(50).fill().map(() => ({ planets: Math.floor(Math.random() * 3) + 1, orbitalRadius: Math.random() * 100 + 50 })),
+        galaxies: Array(20).fill().map(() => ({ radius: Math.random() * 300 + 150, type: Math.random() < 0.5 ? 'spiral' : 'elliptical' }))
+      };
+
+      // Entity creation
+      function addComet() {
+        const comet = getFromPool('comet');
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = new THREE.Vector3((Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50);
+        comet.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
+        comet.userData = {
+          type: 'comet', mass: 1, velocity: new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5),
+          created: Date.now(), instanceId: cometCount++
+        };
+        scene.add(comet);
+        comets.push(comet);
+        entityCount++;
+        updateCometInstances();
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(1);
+        addConsoleMessage('Comet added to your galaxy.');
+        updateStatusOverlay();
+      }
+
+      function updateCometInstances() {
+        if (cometInstances) scene.remove(cometInstances);
+        cometInstances = new THREE.InstancedMesh(geometries.comet, materials.glow, cometCount);
+        const matrix = new THREE.Matrix4();
+        comets.forEach((comet, i) => {
+          matrix.setPosition(comet.position);
+          cometInstances.setMatrixAt(i, matrix);
+        });
+        scene.add(cometInstances);
+      }
+
+      function addPlanetarySystem() {
+        const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
+        const systemGroup = new THREE.Group();
+        const star = new THREE.Mesh(geometries.star, materials.star);
+        star.userData = { type: 'star', mass: 1000, velocity: new THREE.Vector3(0, 0, 0) };
+        systemGroup.add(star);
+        for (let i = 0; i < params.planets; i++) {
+          const planet = new THREE.Mesh(geometries.planet, materials.planet);
+          const orbitalRadius = (i + 1) * params.orbitalRadius / params.planets;
+          planet.position.set(orbitalRadius, 0, 0);
+          const v = Math.sqrt(G * star.userData.mass / orbitalRadius);
+          planet.userData = { type: 'planet', mass: 10, velocity: new THREE.Vector3(0, 0, v), orbitalRadius };
+          systemGroup.add(planet);
+        }
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = new THREE.Vector3((Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100);
+        systemGroup.position.copy(camera.position).add(forward.multiplyScalar(1000)).add(offset);
+        systemGroup.userData = { created: Date.now() };
+        scene.add(systemGroup);
+        systems.push(systemGroup);
+        entityCount += 1 + params.planets;
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(2);
+        addConsoleMessage('Planetary system created ahead.');
+        updateStatusOverlay();
+      }
+
+      function addGalaxy() {
+        const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
+        const galaxyGroup = new THREE.Group();
+        const starCount = params.type === 'spiral' ? 10 : 5;
+        for (let i = 0; i < starCount; i++) {
+          const star = new THREE.Mesh(geometries.galaxyStar, materials.glow);
+          const r = Math.random() * params.radius;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = params.type === 'spiral' ? Math.random() * 0.2 : Math.random() * Math.PI;
+          star.position.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+          const v = Math.sqrt(G * 50 / r);
+          const pos = star.position.clone();
+          star.userData = { type: 'star', mass: 50, velocity: new THREE.Vector3(-pos.y, pos.x, 0).normalize().multiplyScalar(v), angle: theta };
+          galaxyGroup.add(star);
+        }
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = new THREE.Vector3((Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200);
+        galaxyGroup.position.copy(camera.position).add(forward.multiplyScalar(2000)).add(offset);
+        galaxyGroup.userData = { radius: params.radius, created: Date.now() };
+        scene.add(galaxyGroup);
+        galaxies.push(galaxyGroup);
+        entityCount += starCount;
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(3);
+        addConsoleMessage('Galaxy spawned with stars.');
+        updateStatusOverlay();
+      }
+
+      function addNode() {
+        const node = getFromPool('node');
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = new THREE.Vector3((Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100);
+        node.position.copy(camera.position).add(forward.multiplyScalar(300)).add(offset);
+        node.userData = { type: 'node', created: Date.now() };
+        scene.add(node);
+        nodes.push(node);
+        entityCount++;
+        if (nodes.length > 1) {
+          const geometry = new THREE.BufferGeometry().setFromPoints([nodes[nodes.length - 2].position, node.position]);
+          const line = new THREE.Line(geometry, materials.line);
+          scene.add(line);
+          nodeLines.push(line);
+        }
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(4);
+        addConsoleMessage('Satellite node deployed.');
+        updateStatusOverlay();
+      }
+
+      function shoot() {
+        const projectile = getFromPool('projectile');
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        projectile.position.copy(camera.position).add(forward.multiplyScalar(10));
+        projectile.userData = { type: 'projectile', velocity: forward.multiplyScalar(20), remove: false, instanceId: projectileCount++ };
+        scene.add(projectile);
+        projectiles.push(projectile);
+        updateProjectileInstances();
+        showPrompt(5);
+        addConsoleMessage('Projectile fired!');
+        updateStatusOverlay();
+      }
+
+      function updateProjectileInstances() {
+        if (projectileInstances) scene.remove(projectileInstances);
+        projectileInstances = new THREE.InstancedMesh(geometries.projectile, materials.glow, projectileCount);
+        const matrix = new THREE.Matrix4();
+        projectiles.forEach((projectile, i) => {
+          matrix.setPosition(projectile.position);
+          projectileInstances.setMatrixAt(i, matrix);
+        });
+        scene.add(projectileInstances);
+      }
+
+      function reset() {
+        comets.forEach(c => { c.visible = false; pools.comet.push(c); scene.remove(c); });
+        comets = [];
+        systems.forEach(s => scene.remove(s));
+        systems = [];
+        galaxies.forEach(g => scene.remove(g));
+        galaxies = [];
+        projectiles.forEach(p => { p.visible = false; pools.projectile.push(p); scene.remove(p); });
+        projectiles = [];
+        nodes.forEach(n => { n.visible = false; pools.node.push(n); scene.remove(n); });
+        nodes = [];
+        nodeLines.forEach(l => scene.remove(l));
+        nodeLines = [];
+        if (cometInstances) scene.remove(cometInstances);
+        cometInstances = null;
+        if (projectileInstances) scene.remove(projectileInstances);
+        projectileInstances = null;
+        cometCount = projectileCount = entityCount = 0;
+        autopilotActive = false;
+        currentNodeIndex = 0;
+        throttle = 0;
+        elements.throttleBtn.classList.remove('active');
+        elements.throttleIndicator.textContent = '';
+        elements.throttleIndicator.classList.remove('active');
+        showPrompt(6);
+        addConsoleMessage('Galaxy reset to blank slate.');
+        updateStatusOverlay();
+      }
+
+      function toggleThrottle() {
+        throttle = throttle ? 0 : 150;
+        elements.throttleBtn.classList.toggle('active', throttle > 0);
+        elements.throttleIndicator.textContent = throttle ? `Thrust: ${throttle}` : '';
+        elements.throttleIndicator.classList.toggle('active', throttle > 0);
+        showPrompt(0);
+        addConsoleMessage(throttle ? 'Manual throttle engaged!' : 'Throttle disengaged.');
+        updateStatusOverlay();
+      }
+
+      function toggleAutopilot() {
+        if (nodes.length < 2) {
+          showPrompt(7);
+          addConsoleMessage('Need at least 2 nodes for autopilot.');
+          return;
+        }
+        autopilotActive = !autopilotActive;
+        document.getElementById('autopilotBtn').classList.toggle('active', autopilotActive);
+        if (autopilotActive) {
+          throttle = 0;
+          elements.throttleBtn.classList.remove('active');
+          elements.throttleIndicator.textContent = '';
+          elements.throttleIndicator.classList.remove('active');
+          currentNodeIndex = 0;
+          showPrompt(9);
+          addConsoleMessage('Autopilot engaged! Navigating nodes.');
+        } else {
+          showPrompt(0);
+          addConsoleMessage('Autopilot disengaged.');
+        }
+        updateStatusOverlay();
+      }
+
+      function updateAutopilot(deltaTime) {
+        if (!autopilotActive || !nodes.length) return;
+        const targetNode = nodes[currentNodeIndex];
+        const direction = targetNode.position.clone().sub(camera.position);
+        const distance = direction.length();
+        if (distance < 50) {
+          currentNodeIndex = (currentNodeIndex + 1) % nodes.length;
+          addConsoleMessage(`Reached node ${currentNodeIndex + 1}. Heading to next node.`);
+        }
+        direction.normalize();
+        velocity.copy(direction.multiplyScalar(150));
+        camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+        camera.lookAt(targetNode.position);
+      }
+
+      // Viewing controls
+      let isDragging = false, prevMouse = { x: 0, y: 0 };
+      function updateRotation(deltaX, deltaY) {
+        if (autopilotActive) return;
+        rotationVelocity.yaw -= deltaX * 0.01;
+        rotationVelocity.pitch -= deltaY * 0.01;
+      }
+
+      renderer.domElement.addEventListener('mousedown', e => {
+        if (autopilotActive) return;
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+      renderer.domElement.addEventListener('mousemove', e => {
+        if (isDragging && !autopilotActive) {
+          updateRotation(e.clientX - prevMouse.x, e.clientY - prevMouse.y);
+          prevMouse = { x: e.clientX, y: e.clientY };
+        }
+      });
+      renderer.domElement.addEventListener('mouseup', () => { isDragging = false; });
+      renderer.domElement.addEventListener('touchstart', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+      renderer.domElement.addEventListener('touchmove', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        updateRotation(e.touches[0].clientX - prevMouse.x, e.touches[0].clientY - prevMouse.y);
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+
+      // Gravity simulation
+      function computeGravity() {
+        const objects = [];
+        comets.forEach(c => objects.push({ obj: c, pos: c.position, mass: c.userData.mass, vel: c.userData.velocity }));
+        systems.forEach(s => s.children.forEach(c => {
+          if (c.userData.type === 'star' || c.userData.type === 'planet') {
+            const pos = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
+            objects.push({ obj: c, pos, mass: c.userData.mass, vel: c.userData.velocity });
+          }
+        }));
+        galaxies.forEach(g => g.children.forEach(s => {
+          const pos = new THREE.Vector3().setFromMatrixPosition(s.matrixWorld);
+          objects.push({ obj: s, pos, mass: s.userData.mass, vel: s.userData.velocity });
+        }));
+
+        objects.forEach((a, i) => {
+          let acc = new THREE.Vector3();
+          for (let j = i + 1; j < objects.length; j++) {
+            const b = objects[j];
+            const delta = b.pos.clone().sub(a.pos);
+            const dist = delta.length();
+            if (dist > maxGravityDistance) continue;
+            const distSq = dist * dist + softening * softening;
+            const forceMag = (G * a.mass * b.mass) / distSq;
+            const force = delta.normalize().multiplyScalar(forceMag);
+            acc.add(force.divideScalar(a.mass));
+            b.vel.sub(force.divideScalar(b.mass).multiplyScalar(0.5));
+          }
+          a.vel.add(acc);
+        });
+      }
+
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        const now = performance.now();
+        const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+
+        if (!autopilotActive) {
+          ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].forEach((k, i) => {
+            if (keys[k]) rotationVelocity[['yaw', 'yaw', 'pitch', 'pitch'][i]] += (i % 2 ? -1 : 1) * 0.05;
+          });
+          rotation.pitch += rotationVelocity.pitch * deltaTime;
+          rotation.yaw += rotationVelocity.yaw * deltaTime;
+          rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+          rotationVelocity.pitch *= 0.95;
+          rotationVelocity.yaw *= 0.95;
+          camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          velocity.copy(forward.multiplyScalar(throttle));
+          camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+        } else {
+          updateAutopilot(deltaTime);
+        }
+
+        computeGravity();
+        cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        frustum.setFromProjectionMatrix(cameraMatrix);
+
+        const matrix = new THREE.Matrix4();
+        comets.forEach((comet, i) => {
+          comet.visible = frustum.containsPoint(comet.position);
+          if (comet.visible) {
+            comet.position.add(comet.userData.velocity.clone().multiplyScalar(deltaTime));
+            matrix.setPosition(comet.position);
+            cometInstances.setMatrixAt(i, matrix);
+          }
+        });
+        if (cometInstances) cometInstances.instanceMatrix.needsUpdate = true;
+
+        systems.forEach(s => {
+          if (!frustum.containsPoint(s.position)) return;
+          s.children.forEach(c => {
+            if (c.userData.mass) {
+              const pos = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld)
+                .add(c.userData.velocity.clone().multiplyScalar(deltaTime));
+              c.position.copy(pos.sub(s.position));
+            }
+          });
+        });
+
+        galaxies.forEach(g => {
+          if (!frustum.containsPoint(g.position)) return;
+          g.children.forEach(s => {
+            const pos = new THREE.Vector3().setFromMatrixPosition(s.matrixWorld)
+              .add(s.userData.velocity.clone().multiplyScalar(deltaTime));
+            s.position.copy(pos.sub(g.position));
+          });
+        });
+
+        nodeLines.forEach((line, i) => {
+          if (i < nodes.length - 1) {
+            line.geometry.setFromPoints([nodes[i].position, nodes[i + 1].position]);
+          }
+        });
+
+        let projectilesToRemove = [];
+        projectiles.forEach((p, i) => {
+          if (p.userData.remove) return;
+          p.position.add(p.userData.velocity.clone().multiplyScalar(deltaTime));
+          if (p.position.length() > 2000) {
+            p.userData.remove = true;
+            projectilesToRemove.push(i);
+            return;
+          }
+          matrix.setPosition(p.position);
+          projectileInstances.setMatrixAt(i, matrix);
+
+          if (!frustum.containsPoint(p.position)) return;
+          let hits = [];
+          const now = Date.now();
+          comets.forEach((c, ci) => {
+            if (!c.visible || relativePos.distanceTo(c.position) >= 20) return;
+            hits.push({ type: 'comet', obj: c, index: ci, age: (now - c.userData.created) / 1000 });
+          });
+          systems.forEach((s, si) => {
+            if (!frustum.containsPoint(s.position)) return;
+            const age = (now - s.userData.created) / 1000;
+            if (relativePos.distanceTo(s.position) < 100) {
+              hits.push({ type: 'system', obj: s, index: si, age });
+              return;
+            }
+            for (let c of s.children) {
+              if (c.userData.type !== 'star' && c.userData.type !== 'planet') continue;
+              const pos = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
+              if (relativePos.distanceTo(pos) < (c.userData.type === 'star' ? 100 : 50)) {
+                hits.push({ type: 'system', obj: s, index: si, age });
+                break;
+              }
+            }
+          });
+          galaxies.forEach((g, gi) => {
+            if (!frustum.containsPoint(g.position)) return;
+            const age = (now - g.userData.created) / 1000;
+            if (relativePos.distanceTo(g.position) < 200) {
+              hits.push({ type: 'galaxy', obj: g, index: gi, age });
+              return;
+            }
+            for (let s of g.children) {
+              const pos = new THREE.Vector3().setFromMatrixPosition(s.matrixWorld);
+              if (relativePos.distanceTo(pos) < 50) {
+                hits.push({ type: 'galaxy', obj: g, index: gi, age });
+                break;
+              }
+            }
+          });
+          nodes.forEach((n, ni) => {
+            if (!frustum.containsPoint(n.position) || relativePos.distanceTo(n.position) >= 20) return;
+            hits.push({ type: 'node', obj: n, index: ni, age: (now - n.userData.created) / 1000 });
+          });
+
+          if (hits.length) {
+            hits.sort((a, b) => a.age - b.age);
+            for (let hit of hits) {
+              scene.remove(hit.obj);
+              if (hit.type === 'comet') {
+                comets.splice(hit.index, 1);
+                pools.comet.push(hit.obj);
+                cometCount--;
+                entityCount--;
+                updateCometInstances();
+                addConsoleMessage('Comet destroyed.');
+              } else if (hit.type === 'system') {
+                systems.splice(hit.index, 1);
+                entityCount -= hit.obj.children.length;
+                addConsoleMessage('Planetary system destroyed.');
+              } else if (hit.type === 'galaxy') {
+                galaxies.splice(hit.index, 1);
+                entityCount -= hit.obj.children.length;
+                addConsoleMessage('Galaxy destroyed.');
+              } else if (hit.type === 'node') {
+                nodes.splice(hit.index, 1);
+                pools.node.push(hit.obj);
+                entityCount--;
+                nodeLines.forEach(l => scene.remove(l));
+                nodeLines = [];
+                for (let i = 0; i < nodes.length - 1; i++) {
+                  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([nodes[i].position, nodes[i + 1].position]), materials.line);
+                  scene.add(line);
+                  nodeLines.push(line);
+                }
+                addConsoleMessage('Node destroyed.');
+              }
+              updateStatusOverlay();
+            }
+            p.userData.remove = true;
+            projectilesToRemove.push(i);
+          }
+        });
+
+        if (projectileInstances) projectileInstances.instanceMatrix.needsUpdate = true;
+        projectilesToRemove.sort((a, b) => b - a).forEach(i => {
+          const p = projectiles[i];
+          p.visible = false;
+          pools.projectile.push(p);
+          scene.remove(p);
+          projectiles.splice(i, 1);
+          projectileCount--;
+          updateProjectileInstances();
+        });
+
+        renderer.render(scene, camera);
+      }
+
+      // Controls setup
+      const prompts = [
+        "Manual throttle engaged!", "Comet added to your galaxy.", "Planetary system created ahead.",
+        "Galaxy spawned with stars.", "Satellite node deployed.", "Projectile fired!",
+        "Galaxy reset to blank slate.", "Need at least 2 nodes for autopilot!",
+        "Warning: Adding more may slow performance!", "Autopilot engaged! Navigating nodes."
+      ];
+
+      function showPrompt(index) {
+        elements.prompt.textContent = prompts[index];
+        elements.prompt.classList.add('active');
+        setTimeout(() => elements.prompt.classList.remove('active'), 2000);
+      }
+
+      ['throttleBtn', 'addComet', 'addSystem', 'addGalaxy', 'addNode', 'autopilotBtn', 'shootBtn', 'resetBtn'].forEach(id => {
+        const btn = document.getElementById(id);
+        btn.addEventListener('click', {
+          throttleBtn: () => !autopilotActive && toggleThrottle(),
+          addComet: addComet,
+          addSystem: addPlanetarySystem,
+          addGalaxy: addGalaxy,
+          addNode: addNode,
+          autopilotBtn: toggleAutopilot,
+          shootBtn: shoot,
+          resetBtn: reset
+        }[id]);
+      });
+
+      // Initialize
+      displayWelcomeGuide();
+      addConsoleMessage('Galaxycraft initialized. Type /help for commands.');
+      updateStatusOverlay();
+      animate();
+
+      // Resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    })();
+  </script>
+</body>
+</html>
