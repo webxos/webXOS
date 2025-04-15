@@ -97,9 +97,9 @@
       left: 10%;
       right: 10%;
       bottom: 10%;
-      border: 2px solid #4a90e2;
+      border: 2px solid rgba(74, 144, 226, 0);
       border-radius: 20px;
-      box-shadow: 0 0 10px #4a90e2;
+      box-shadow: none;
     }
     .hud::after {
       content: '+';
@@ -275,6 +275,11 @@
         let autopilotActive = false;
         let currentNodeIndex = 0;
 
+        // Gravity parameters
+        const G = 100; // Scaled gravitational constant
+        const softening = 10; // Prevent singularities
+        const maxGravityDistance = 2000; // Optimize by ignoring far objects
+
         // Console and status
         const statusOverlay = document.getElementById('statusOverlay');
         const consoleLog = document.getElementById('consoleLog');
@@ -427,11 +432,8 @@
           comet.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
           comet.userData = {
             type: 'comet',
-            semiMajorAxis: params.semiMajorAxis,
-            eccentricity: params.eccentricity,
-            velocity: params.velocity,
-            angle: Math.random() * Math.PI * 2,
-            origin: comet.position.clone(),
+            mass: 1,
+            velocity: new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5),
             created: Date.now(),
             instanceId: cometCount
           };
@@ -461,17 +463,19 @@
           const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
           const systemGroup = new THREE.Group();
           const star = new THREE.Mesh(sharedGeometries.star, sharedMaterials.star);
-          star.userData = { type: 'star' };
+          star.userData = { type: 'star', mass: 1000, velocity: new THREE.Vector3(0, 0, 0) };
           systemGroup.add(star);
           for (let i = 0; i < params.planets; i++) {
             const planet = new THREE.Mesh(sharedGeometries.planet, sharedMaterials.planet);
             const orbitalRadius = (i + 1) * params.orbitalRadius / params.planets;
             planet.position.set(orbitalRadius, 0, 0);
+            // Set initial tangential velocity for stable orbit
+            const v = Math.sqrt(G * star.userData.mass / orbitalRadius);
             planet.userData = {
               type: 'planet',
-              orbitalRadius,
-              velocity: Math.sqrt(1 / orbitalRadius),
-              angle: Math.random() * Math.PI * 2
+              mass: 10,
+              velocity: new THREE.Vector3(0, 0, v),
+              orbitalRadius
             };
             systemGroup.add(planet);
           }
@@ -506,7 +510,16 @@
               r * Math.sin(phi) * Math.sin(theta),
               r * Math.cos(phi)
             );
-            star.userData = { type: 'star', velocity: Math.sqrt(1 / r), angle: theta };
+            // Set initial circular velocity
+            const v = Math.sqrt(G * 50 / r); // Assume central mass equivalent
+            const pos = star.position.clone();
+            const tangent = new THREE.Vector3(-pos.y, pos.x, 0).normalize();
+            star.userData = {
+              type: 'star',
+              mass: 50,
+              velocity: tangent.multiplyScalar(v),
+              angle: theta
+            };
             galaxyGroup.add(star);
           }
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -750,6 +763,43 @@
           previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         });
 
+        // Gravity simulation
+        function computeGravity() {
+          const allObjects = [];
+          comets.forEach(comet => allObjects.push({ obj: comet, pos: comet.position, mass: comet.userData.mass, vel: comet.userData.velocity }));
+          systems.forEach(system => {
+            system.children.forEach(child => {
+              if (child.userData.type === 'star' || child.userData.type === 'planet') {
+                const worldPos = new THREE.Vector3();
+                child.getWorldPosition(worldPos);
+                allObjects.push({ obj: child, pos: worldPos, mass: child.userData.mass, vel: child.userData.velocity });
+              }
+            });
+          });
+          galaxies.forEach(galaxy => {
+            galaxy.children.forEach(star => {
+              const worldPos = new THREE.Vector3();
+              star.getWorldPosition(worldPos);
+              allObjects.push({ obj: star, pos: worldPos, mass: star.userData.mass, vel: star.userData.velocity });
+            });
+          });
+
+          allObjects.forEach((a, i) => {
+            let acc = new THREE.Vector3();
+            for (let j = i + 1; j < allObjects.length; j++) {
+              const b = allObjects[j];
+              const delta = b.pos.clone().sub(a.pos);
+              const distSq = delta.lengthSq() + softening * softening;
+              if (delta.length() > maxGravityDistance) continue;
+              const forceMag = (G * a.mass * b.mass) / distSq;
+              const force = delta.normalize().multiplyScalar(forceMag);
+              acc.add(force.divideScalar(a.mass));
+              b.vel.sub(force.divideScalar(b.mass).multiplyScalar(0.5)); // Half to avoid double-counting
+            }
+            a.vel.add(acc);
+          });
+        }
+
         // Animation loop
         function animate() {
           requestAnimationFrame(animate);
@@ -781,6 +831,9 @@
             updateAutopilot(deltaTime);
           }
 
+          // Apply gravity
+          computeGravity();
+
           cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
           frustum.setFromProjectionMatrix(cameraMatrix);
 
@@ -791,16 +844,7 @@
               return;
             }
             comet.visible = true;
-            comet.userData.angle += comet.userData.velocity * 0.01 * deltaTime * 60;
-            const r = comet.userData.semiMajorAxis * (1 - comet.userData.eccentricity ** 2) /
-                      (1 + comet.userData.eccentricity * Math.cos(comet.userData.angle));
-            const relativePos = new THREE.Vector3(
-              r * Math.cos(comet.userData.angle),
-              r * Math.sin(comet.userData.angle),
-              0
-            );
-            comet.position.copy(comet.userData.origin).add(relativePos);
-            comet.userData.origin.copy(comet.position);
+            comet.position.add(comet.userData.velocity.clone().multiplyScalar(deltaTime));
             matrix.setPosition(comet.position);
             cometInstances.setMatrixAt(i, matrix);
           });
@@ -809,13 +853,12 @@
           systems.forEach(system => {
             if (!frustum.containsPoint(system.position)) return;
             system.children.forEach(child => {
-              if (child.userData.orbitalRadius) {
-                child.userData.angle += child.userData.velocity * 0.01 * deltaTime * 60;
-                child.position.set(
-                  child.userData.orbitalRadius * Math.cos(child.userData.angle),
-                  child.userData.orbitalRadius * Math.sin(child.userData.angle),
-                  0
-                );
+              if (child.userData.mass) {
+                const worldPos = new THREE.Vector3();
+                child.getWorldPosition(worldPos);
+                worldPos.add(child.userData.velocity.clone().multiplyScalar(deltaTime));
+                const localPos = worldPos.sub(system.position);
+                child.position.copy(localPos);
               }
             });
           });
@@ -823,13 +866,11 @@
           galaxies.forEach(galaxy => {
             if (!frustum.containsPoint(galaxy.position)) return;
             galaxy.children.forEach(star => {
-              star.userData.angle += star.userData.velocity * 0.001 * deltaTime * 60;
-              const r = star.position.length();
-              star.position.set(
-                r * Math.cos(star.userData.angle),
-                r * Math.sin(star.userData.angle),
-                star.position.z
-              );
+              const worldPos = new THREE.Vector3();
+              star.getWorldPosition(worldPos);
+              worldPos.add(star.userData.velocity.clone().multiplyScalar(deltaTime));
+              const localPos = worldPos.sub(galaxy.position);
+              star.position.copy(localPos);
             });
           });
 
