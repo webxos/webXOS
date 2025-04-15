@@ -78,35 +78,6 @@
     .prompt.active {
       opacity: 1;
     }
-    .hud {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      opacity: 0.4;
-    }
-    .hud::before {
-      content: '';
-      position: absolute;
-      top: 10%;
-      left: 10%;
-      right: 10%;
-      bottom: 10%;
-      border: 2px solid #4a90e2;
-      border-radius: 20px;
-      box-shadow: 0 0 10px #4a90e2;
-    }
-    .hud::after {
-      content: '+';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #4a90e2;
-      font-size: 24px;
-    }
     .throttle-indicator {
       position: absolute;
       bottom: 80px;
@@ -124,7 +95,6 @@
 </head>
 <body>
   <div id="cosmicCanvas">
-    <div class="hud"></div>
     <div id="throttleIndicator" class="throttle-indicator"></div>
   </div>
   <div class="controls">
@@ -202,9 +172,7 @@
         let entityCount = 0;
         let autopilotActive = false;
         let autopilotTargets = [];
-        let autopilotIndex = 0;
-        let autopilotTimer = 0;
-        let autopilotStartPos = new THREE.Vector3();
+        let autopilotCurrentTarget = null;
 
         // Keyboard controls
         const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
@@ -425,8 +393,7 @@
             autopilotBtn.classList.remove('active');
           }
           autopilotTargets = [];
-          autopilotIndex = 0;
-          autopilotTimer = 0;
+          autopilotCurrentTarget = null;
           showPrompt(5);
         }
 
@@ -474,26 +441,19 @@
           previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         });
 
-        // Autopilot tour logic
+        // Autopilot logic
         function initializeAutopilot() {
           autopilotTargets = [];
           systems.forEach(system => {
             autopilotTargets.push({
               position: system.position.clone(),
-              type: 'system',
-              radius: system.children.reduce((max, child) => {
-                if (child.userData.orbitalRadius) {
-                  return Math.max(max, child.userData.orbitalRadius);
-                }
-                return max;
-              }, 30)
+              type: 'system'
             });
           });
           galaxies.forEach(galaxy => {
             autopilotTargets.push({
               position: galaxy.position.clone(),
-              type: 'galaxy',
-              radius: galaxy.userData.radius || 100
+              type: 'galaxy'
             });
           });
           if (autopilotTargets.length === 0) {
@@ -503,68 +463,72 @@
             showPrompt(7);
             return false;
           }
-          autopilotIndex = 0;
-          autopilotTimer = 0;
-          autopilotStartPos.copy(camera.position);
+          selectNextTarget();
           return true;
+        }
+
+        function selectNextTarget() {
+          if (autopilotTargets.length === 0) {
+            initializeAutopilot();
+            return;
+          }
+          let closestTarget = null;
+          let minDistance = Infinity;
+          const currentPos = camera.position.clone();
+          autopilotTargets.forEach((target, index) => {
+            const distance = currentPos.distanceTo(target.position);
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestTarget = { ...target, index };
+            }
+          });
+          if (closestTarget) {
+            autopilotCurrentTarget = closestTarget;
+            autopilotTargets.splice(closestTarget.index, 1);
+          } else {
+            autopilotCurrentTarget = null;
+          }
         }
 
         function runAutopilot(deltaTime) {
           if (!autopilotActive) return;
 
-          if (autopilotTargets.length === 0) {
+          if (!autopilotCurrentTarget) {
             if (!initializeAutopilot()) return;
+            if (!autopilotCurrentTarget) return;
           }
 
-          const target = autopilotTargets[autopilotIndex];
-          const distanceToTarget = camera.position.distanceTo(target.position);
-          const viewDistance = target.type === 'system' ? target.radius * 2 + 50 : target.radius * 1.5 + 100;
+          const targetPos = autopilotCurrentTarget.position;
+          const direction = targetPos.clone().sub(camera.position);
+          const distance = direction.length();
 
-          // Adjust throttle based on distance
-          if (distanceToTarget > viewDistance + 50) {
-            throttle = Math.min(150, distanceToTarget * 0.5);
-          } else if (distanceToTarget > viewDistance) {
-            throttle = 50;
-          } else {
-            throttle = 0;
-          }
+          // Set throttle
+          throttle = Math.min(150, Math.max(50, distance * 0.5));
 
+          // Update throttle indicator
           const throttleIndicator = document.getElementById('throttleIndicator');
           throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
           throttleIndicator.classList.toggle('active', throttle > 0);
 
-          // Move camera
-          if (distanceToTarget > viewDistance) {
-            const direction = target.position.clone().sub(camera.position).normalize();
-            velocity.copy(direction.multiplyScalar(throttle));
-            camera.position.add(velocity.clone().multiplyScalar(deltaTime));
-          } else {
-            // Orbit effect
-            autopilotTimer += deltaTime;
-            const orbitAngle = autopilotTimer * 0.2;
-            const offset = new THREE.Vector3(
-              Math.cos(orbitAngle) * viewDistance,
-              Math.sin(orbitAngle) * viewDistance * 0.2,
-              0
-            );
-            camera.position.copy(target.position).add(offset);
-          }
+          // Calculate desired rotation to face target
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          direction.normalize();
+          const angleToTarget = forward.angleTo(direction);
+          const axis = new THREE.Vector3().crossVectors(forward, direction).normalize();
+          const quaternionToTarget = new THREE.Quaternion().setFromAxisAngle(axis, angleToTarget);
 
-          // Look at target
-          camera.lookAt(target.position);
+          // Smoothly interpolate rotation
+          const currentQuat = camera.quaternion.clone();
+          currentQuat.slerp(quaternionToTarget, 0.05);
+          camera.quaternion.copy(currentQuat);
 
-          // Stay at target for 5 seconds, then move to next
-          if (distanceToTarget <= viewDistance && autopilotTimer >= 5) {
-            autopilotIndex = (autopilotIndex + 1) % autopilotTargets.length;
-            autopilotTimer = 0;
-            if (autopilotIndex === 0) {
-              // Return to start position
-              autopilotTargets.push({
-                position: autopilotStartPos.clone(),
-                type: 'start',
-                radius: 50
-              });
-            }
+          // Move toward target
+          velocity.copy(direction.multiplyScalar(throttle));
+          camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+
+          // Check if passed through target (within 10 units)
+          if (distance < 10) {
+            selectNextTarget();
           }
         }
 
@@ -579,8 +543,9 @@
           // Run autopilot
           runAutopilot(deltaTime);
 
-          // Keyboard rotation
+          // Manual controls
           if (!autopilotActive) {
+            // Keyboard rotation
             if (keys.ArrowLeft) rotationVelocity.yaw += 0.05;
             if (keys.ArrowRight) rotationVelocity.yaw -= 0.05;
             if (keys.ArrowUp) rotationVelocity.pitch -= 0.05;
@@ -594,10 +559,8 @@
             rotationVelocity.yaw *= 0.95;
 
             camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
-          }
 
-          // Apply velocity if not in autopilot
-          if (!autopilotActive) {
+            // Apply velocity
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             velocity.copy(forward.multiplyScalar(throttle));
             camera.position.add(velocity.clone().multiplyScalar(deltaTime));
@@ -820,17 +783,17 @@
               if (initializeAutopilot()) {
                 throttleBtn.classList.remove('active');
                 throttle = 0;
-                throttleIndicator.textContent = '';
-                throttleIndicator.classList.remove('active');
                 showPrompt(8);
               }
             } else {
               throttle = 0;
+              const throttleIndicator = document.getElementById('throttleIndicator');
               throttleIndicator.textContent = '';
               throttleIndicator.classList.remove('active');
               autopilotTargets = [];
-              autopilotIndex = 0;
-              autopilotTimer = 0;
+              autopilotCurrentTarget = null;
+              rotationVelocity.pitch = 0;
+              rotationVelocity.yaw = 0;
               showPrompt(9);
             }
           });
@@ -843,8 +806,8 @@
             "Projectile fired!",
             "Galaxy reset to blank slate.",
             "Warning: Adding more may slow performance!",
-            "No systems or galaxies to tour. Add some first!",
-            "Autopilot tour engaged! Enjoy the view!",
+            "No systems or galaxies to visit. Add some first!",
+            "Autopilot engaged! Flying to nearest objects...",
             "Autopilot disengaged. Manual control restored."
           ];
 
