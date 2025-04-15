@@ -61,20 +61,6 @@
     button:active {
       transform: scale(0.95);
     }
-    select {
-      background: #4a90e2;
-      border: none;
-      padding: 10px;
-      color: white;
-      border-radius: 20px;
-      font-size: 16px;
-      cursor: pointer;
-      width: 100%;
-      max-width: 150px;
-    }
-    select:hover {
-      background: #357abd;
-    }
     .prompt {
       position: absolute;
       top: 20px;
@@ -163,13 +149,6 @@
     <div class="control-item">
       <button id="autopilotBtn">Autopilot</button>
     </div>
-    <div class="control-item">
-      <select id="constellationSelect">
-        <option value="milkyWay">Milky Way</option>
-        <option value="andromeda">Andromeda</option>
-        <option value="triangulum">Triangulum</option>
-      </select>
-    </div>
   </div>
   <div id="prompt" class="prompt"></div>
 
@@ -222,9 +201,10 @@
         let lastTime = performance.now();
         let entityCount = 0;
         let autopilotActive = false;
-        let autopilotPhase = 0;
+        let autopilotTargets = [];
+        let autopilotIndex = 0;
         let autopilotTimer = 0;
-        let selectedConstellation = 'milkyWay';
+        let autopilotStartPos = new THREE.Vector3();
 
         // Keyboard controls
         const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
@@ -276,111 +256,17 @@
           }))
         };
 
-        // Constellation definitions
-        const constellations = {
-          milkyWay: {
-            phases: [
-              {
-                throttle: 100,
-                duration: 5,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 150, type: 'spiral' } },
-                  { type: 'system', count: 2, params: { planets: 3, orbitalRadius: 20 } }
-                ]
-              },
-              {
-                throttle: 50,
-                duration: 5,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 100, type: 'spiral' } },
-                  { type: 'comet', count: 5 }
-                ]
-              },
-              {
-                throttle: 0,
-                duration: 5,
-                spawn: [
-                  { type: 'system', count: 3, params: { planets: 2, orbitalRadius: 15 } },
-                  { type: 'comet', count: 3 }
-                ]
-              }
-            ]
-          },
-          andromeda: {
-            phases: [
-              {
-                throttle: 120,
-                duration: 4,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 200, type: 'elliptical' } },
-                  { type: 'system', count: 1, params: { planets: 4, orbitalRadius: 25 } }
-                ]
-              },
-              {
-                throttle: 60,
-                duration: 4,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 120, type: 'elliptical' } },
-                  { type: 'comet', count: 4 }
-                ]
-              },
-              {
-                throttle: 0,
-                duration: 4,
-                spawn: [
-                  { type: 'system', count: 2, params: { planets: 3, orbitalRadius: 20 } },
-                  { type: 'comet', count: 2 }
-                ]
-              }
-            ]
-          },
-          triangulum: {
-            phases: [
-              {
-                throttle: 80,
-                duration: 6,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 80, type: 'spiral' } },
-                  { type: 'system', count: 1, params: { planets: 2, orbitalRadius: 15 } }
-                ]
-              },
-              {
-                throttle: 40,
-                duration: 6,
-                spawn: [
-                  { type: 'galaxy', count: 1, params: { radius: 60, type: 'spiral' } },
-                  { type: 'comet', count: 3 }
-                ]
-              },
-              {
-                throttle: 0,
-                duration: 6,
-                spawn: [
-                  { type: 'system', count: 1, params: { planets: 2, orbitalRadius: 10 } },
-                  { type: 'comet', count: 2 }
-                ]
-              }
-            ]
-          }
-        };
-
         // Add entities
-        function addComet(autopilot = false, position = null) {
+        function addComet() {
           const params = trainingData.comets[Math.floor(Math.random() * trainingData.comets.length)];
           const comet = getCometFromPool();
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-          let pos;
-          if (position) {
-            pos = position;
-          } else {
-            const offset = new THREE.Vector3(
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10
-            );
-            pos = camera.position.clone().add(forward.multiplyScalar(100)).add(offset);
-          }
-          comet.position.copy(pos);
+          const offset = new THREE.Vector3(
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10
+          );
+          comet.position.copy(camera.position).add(forward.multiplyScalar(100)).add(offset);
           comet.userData = {
             type: 'comet',
             semiMajorAxis: params.semiMajorAxis,
@@ -396,8 +282,8 @@
           cometCount++;
           entityCount++;
           updateCometInstances();
-          if (entityCount > 500 && !autopilot) showPrompt(6);
-          if (!autopilot) showPrompt(1);
+          if (entityCount > 500) showPrompt(6);
+          showPrompt(1);
         }
 
         function updateCometInstances() {
@@ -411,15 +297,15 @@
           scene.add(cometInstances);
         }
 
-        function addPlanetarySystem(autopilot = false, params = null, position = null) {
-          const systemParams = params || trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
+        function addPlanetarySystem() {
+          const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
           const systemGroup = new THREE.Group();
           const star = new THREE.Mesh(sharedGeometries.star, sharedMaterials.star);
           star.userData = { type: 'star' };
           systemGroup.add(star);
-          for (let i = 0; i < systemParams.planets; i++) {
+          for (let i = 0; i < params.planets; i++) {
             const planet = new THREE.Mesh(sharedGeometries.planet, sharedMaterials.glow);
-            const orbitalRadius = (i + 1) * systemParams.orbitalRadius / systemParams.planets;
+            const orbitalRadius = (i + 1) * params.orbitalRadius / params.planets;
             planet.position.set(orbitalRadius, 0, 0);
             planet.userData = {
               type: 'planet',
@@ -430,35 +316,29 @@
             systemGroup.add(planet);
           }
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-          let pos;
-          if (position) {
-            pos = position;
-          } else {
-            const offset = new THREE.Vector3(
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10
-            );
-            pos = camera.position.clone().add(forward.multiplyScalar(200)).add(offset);
-          }
-          systemGroup.position.copy(pos);
+          const offset = new THREE.Vector3(
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10
+          );
+          systemGroup.position.copy(camera.position).add(forward.multiplyScalar(200)).add(offset);
           systemGroup.userData = { created: Date.now() };
           scene.add(systemGroup);
           systems.push(systemGroup);
-          entityCount += 1 + systemParams.planets;
-          if (entityCount > 500 && !autopilot) showPrompt(6);
-          if (!autopilot) showPrompt(2);
+          entityCount += 1 + params.planets;
+          if (entityCount > 500) showPrompt(6);
+          showPrompt(2);
         }
 
-        function addGalaxy(autopilot = false, params = null, position = null) {
-          const galaxyParams = params || trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
+        function addGalaxy() {
+          const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
           const galaxyGroup = new THREE.Group();
-          const starCount = galaxyParams.type === 'spiral' ? 10 : 5;
+          const starCount = params.type === 'spiral' ? 10 : 5;
           for (let i = 0; i < starCount; i++) {
             const star = new THREE.Mesh(sharedGeometries.galaxyStar, sharedMaterials.glow);
-            const r = Math.random() * galaxyParams.radius;
+            const r = Math.random() * params.radius;
             const theta = Math.random() * Math.PI * 2;
-            const phi = galaxyParams.type === 'spiral' ? Math.random() * 0.2 : Math.random() * Math.PI;
+            const phi = params.type === 'spiral' ? Math.random() * 0.2 : Math.random() * Math.PI;
             star.position.set(
               r * Math.sin(phi) * Math.cos(theta),
               r * Math.sin(phi) * Math.sin(theta),
@@ -468,24 +348,18 @@
             galaxyGroup.add(star);
           }
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-          let pos;
-          if (position) {
-            pos = position;
-          } else {
-            const offset = new THREE.Vector3(
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10,
-              (Math.random() - 0.5) * 10
-            );
-            pos = camera.position.clone().add(forward.multiplyScalar(500)).add(offset);
-          }
-          galaxyGroup.position.copy(pos);
-          galaxyGroup.userData = { radius: galaxyParams.radius, created: Date.now() };
+          const offset = new THREE.Vector3(
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10
+          );
+          galaxyGroup.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
+          galaxyGroup.userData = { radius: params.radius, created: Date.now() };
           scene.add(galaxyGroup);
           galaxies.push(galaxyGroup);
           entityCount += starCount;
-          if (entityCount > 500 && !autopilot) showPrompt(6);
-          if (!autopilot) showPrompt(3);
+          if (entityCount > 500) showPrompt(6);
+          showPrompt(3);
         }
 
         function shoot() {
@@ -545,11 +419,14 @@
           cometCount = 0;
           projectileCount = 0;
           entityCount = 0;
-          autopilotActive = false;
-          autopilotPhase = 0;
+          if (autopilotActive) {
+            autopilotActive = false;
+            const autopilotBtn = document.getElementById('autopilotBtn');
+            autopilotBtn.classList.remove('active');
+          }
+          autopilotTargets = [];
+          autopilotIndex = 0;
           autopilotTimer = 0;
-          const autopilotBtn = document.getElementById('autopilotBtn');
-          autopilotBtn.classList.remove('active');
           showPrompt(5);
         }
 
@@ -597,48 +474,97 @@
           previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         });
 
-        // Autopilot logic
-        function runAutopilot(deltaTime) {
-          if (!autopilotActive) return;
-
-          const constellation = constellations[selectedConstellation];
-          if (autopilotPhase >= constellation.phases.length) {
+        // Autopilot tour logic
+        function initializeAutopilot() {
+          autopilotTargets = [];
+          systems.forEach(system => {
+            autopilotTargets.push({
+              position: system.position.clone(),
+              type: 'system',
+              radius: system.children.reduce((max, child) => {
+                if (child.userData.orbitalRadius) {
+                  return Math.max(max, child.userData.orbitalRadius);
+                }
+                return max;
+              }, 30)
+            });
+          });
+          galaxies.forEach(galaxy => {
+            autopilotTargets.push({
+              position: galaxy.position.clone(),
+              type: 'galaxy',
+              radius: galaxy.userData.radius || 100
+            });
+          });
+          if (autopilotTargets.length === 0) {
             autopilotActive = false;
             const autopilotBtn = document.getElementById('autopilotBtn');
             autopilotBtn.classList.remove('active');
-            throttle = 0;
-            const throttleIndicator = document.getElementById('throttleIndicator');
-            throttleIndicator.textContent = '';
-            throttleIndicator.classList.remove('active');
             showPrompt(7);
-            return;
+            return false;
+          }
+          autopilotIndex = 0;
+          autopilotTimer = 0;
+          autopilotStartPos.copy(camera.position);
+          return true;
+        }
+
+        function runAutopilot(deltaTime) {
+          if (!autopilotActive) return;
+
+          if (autopilotTargets.length === 0) {
+            if (!initializeAutopilot()) return;
           }
 
-          const phase = constellation.phases[autopilotPhase];
-          autopilotTimer += deltaTime;
+          const target = autopilotTargets[autopilotIndex];
+          const distanceToTarget = camera.position.distanceTo(target.position);
+          const viewDistance = target.type === 'system' ? target.radius * 2 + 50 : target.radius * 1.5 + 100;
 
-          throttle = phase.throttle;
+          // Adjust throttle based on distance
+          if (distanceToTarget > viewDistance + 50) {
+            throttle = Math.min(150, distanceToTarget * 0.5);
+          } else if (distanceToTarget > viewDistance) {
+            throttle = 50;
+          } else {
+            throttle = 0;
+          }
+
           const throttleIndicator = document.getElementById('throttleIndicator');
           throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
           throttleIndicator.classList.toggle('active', throttle > 0);
 
-          if (autopilotTimer >= phase.duration) {
-            phase.spawn.forEach(item => {
-              for (let i = 0; i < item.count; i++) {
-                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                const pos = camera.position.clone().add(forward.multiplyScalar(200));
-                if (item.type === 'galaxy') {
-                  addGalaxy(true, item.params, pos);
-                } else if (item.type === 'system') {
-                  addPlanetarySystem(true, item.params, pos);
-                } else if (item.type === 'comet') {
-                  addComet(true, pos);
-                }
-              }
-            });
-            autopilotPhase++;
+          // Move camera
+          if (distanceToTarget > viewDistance) {
+            const direction = target.position.clone().sub(camera.position).normalize();
+            velocity.copy(direction.multiplyScalar(throttle));
+            camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+          } else {
+            // Orbit effect
+            autopilotTimer += deltaTime;
+            const orbitAngle = autopilotTimer * 0.2;
+            const offset = new THREE.Vector3(
+              Math.cos(orbitAngle) * viewDistance,
+              Math.sin(orbitAngle) * viewDistance * 0.2,
+              0
+            );
+            camera.position.copy(target.position).add(offset);
+          }
+
+          // Look at target
+          camera.lookAt(target.position);
+
+          // Stay at target for 5 seconds, then move to next
+          if (distanceToTarget <= viewDistance && autopilotTimer >= 5) {
+            autopilotIndex = (autopilotIndex + 1) % autopilotTargets.length;
             autopilotTimer = 0;
-            showPrompt(8);
+            if (autopilotIndex === 0) {
+              // Return to start position
+              autopilotTargets.push({
+                position: autopilotStartPos.clone(),
+                type: 'start',
+                radius: 50
+              });
+            }
           }
         }
 
@@ -659,20 +585,23 @@
             if (keys.ArrowRight) rotationVelocity.yaw -= 0.05;
             if (keys.ArrowUp) rotationVelocity.pitch -= 0.05;
             if (keys.ArrowDown) rotationVelocity.pitch += 0.05;
+
+            // Apply rotation with momentum
+            rotation.pitch += rotationVelocity.pitch * deltaTime;
+            rotation.yaw += rotationVelocity.yaw * deltaTime;
+            rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+            rotationVelocity.pitch *= 0.95;
+            rotationVelocity.yaw *= 0.95;
+
+            camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
           }
 
-          // Apply rotation with momentum
-          rotation.pitch += rotationVelocity.pitch * deltaTime;
-          rotation.yaw += rotationVelocity.yaw * deltaTime;
-          rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
-          rotationVelocity.pitch *= 0.95;
-          rotationVelocity.yaw *= 0.95;
-
-          camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
-
-          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-          velocity.copy(forward.multiplyScalar(throttle));
-          camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+          // Apply velocity if not in autopilot
+          if (!autopilotActive) {
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            velocity.copy(forward.multiplyScalar(throttle));
+            camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+          }
 
           // Update frustum
           cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -844,11 +773,10 @@
           const shootBtn = document.getElementById('shootBtn');
           const resetBtn = document.getElementById('resetBtn');
           const autopilotBtn = document.getElementById('autopilotBtn');
-          const constellationSelect = document.getElementById('constellationSelect');
           const throttleIndicator = document.getElementById('throttleIndicator');
           const prompt = document.getElementById('prompt');
 
-          if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !autopilotBtn || !constellationSelect || !prompt || !throttleIndicator) {
+          if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !shootBtn || !resetBtn || !autopilotBtn || !prompt || !throttleIndicator) {
             throw new Error('One or more control elements not found');
           }
 
@@ -888,26 +816,22 @@
           autopilotBtn.addEventListener('click', () => {
             autopilotActive = !autopilotActive;
             autopilotBtn.classList.toggle('active', autopilotActive);
-            autopilotPhase = 0;
-            autopilotTimer = 0;
             if (autopilotActive) {
-              throttleBtn.classList.remove('active');
-              showPrompt(9);
+              if (initializeAutopilot()) {
+                throttleBtn.classList.remove('active');
+                throttle = 0;
+                throttleIndicator.textContent = '';
+                throttleIndicator.classList.remove('active');
+                showPrompt(8);
+              }
             } else {
               throttle = 0;
               throttleIndicator.textContent = '';
               throttleIndicator.classList.remove('active');
-              showPrompt(10);
-            }
-          });
-
-          constellationSelect.addEventListener('change', (e) => {
-            selectedConstellation = e.target.value;
-            if (autopilotActive) {
-              autopilotPhase = 0;
+              autopilotTargets = [];
+              autopilotIndex = 0;
               autopilotTimer = 0;
-              reset();
-              showPrompt(11);
+              showPrompt(9);
             }
           });
 
@@ -919,11 +843,9 @@
             "Projectile fired!",
             "Galaxy reset to blank slate.",
             "Warning: Adding more may slow performance!",
-            "Autopilot completed constellation creation!",
-            "Autopilot advancing to next phase...",
-            "Autopilot engaged! Building constellation...",
-            "Autopilot disengaged. Manual control restored.",
-            "Constellation changed. Restarting autopilot..."
+            "No systems or galaxies to tour. Add some first!",
+            "Autopilot tour engaged! Enjoy the view!",
+            "Autopilot disengaged. Manual control restored."
           ];
 
           function showPrompt(index) {
