@@ -234,7 +234,7 @@
 
         // Shared resources
         const sharedMaterials = {
-          glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+          glow: new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true }),
           star: new THREE.MeshBasicMaterial({ color: 0xaaaaaa })
         };
         const sharedGeometries = {
@@ -244,6 +244,36 @@
           galaxyStar: new THREE.SphereGeometry(1, 4, 4),
           projectile: new THREE.SphereGeometry(5, 4, 4)
         };
+
+        // WebXOS logo
+        let webxosLogo = null;
+        function createWebXOSLogo() {
+          const geometry = new THREE.TextGeometry('WebXOS', {
+            font: new THREE.Font({
+              "version": "1.0",
+              "familyName": "Helvetica",
+              "isBold": true,
+              "isItalic": false,
+              "glyphs": {
+                "W": { "ha": 1000, "x_min": 0, "x_max": 900, "y_min": 0, "y_max": 700 },
+                "e": { "ha": 600, "x_min": 0, "x_max": 500, "y_min": 0, "y_max": 500 },
+                "b": { "ha": 600, "x_min": 0, "x_max": 500, "y_min": 0, "y_max": 700 },
+                "X": { "ha": 800, "x_min": 0, "x_max": 700, "y_min": 0, "y_max": 700 },
+                "O": { "ha": 800, "x_min": 0, "x_max": 700, "y_min": 0, "y_max": 700 },
+                "S": { "ha": 600, "x_min": 0, "x_max": 500, "y_min": 0, "y_max": 700 }
+              }
+            }),
+            size: 50,
+            height: 5
+          });
+          webxosLogo = new THREE.Mesh(geometry, sharedMaterials.glow);
+          const axes = [[1000, 0, 0], [-1000, 0, 0], [0, 1000, 0], [0, -1000, 0], [0, 0, 1000], [0, 0, -1000]];
+          webxosLogo.position.set(...axes[Math.floor(Math.random() * axes.length)]);
+          webxosLogo.userData = { type: 'webxos', created: Date.now() };
+          scene.add(webxosLogo);
+          entityCount++;
+        }
+        createWebXOSLogo();
 
         // Entities
         let comets = [];
@@ -259,7 +289,7 @@
         let rotationVelocity = { pitch: 0, yaw: 0 };
         let velocity = new THREE.Vector3(0, 0, 0);
         let lastTime = performance.now();
-        let entityCount = 0;
+        let entityCount = 1; // Start with logo
         let autopilotActive = false;
         let autopilotTargets = [];
         let autopilotCurrentTarget = null;
@@ -268,10 +298,10 @@
         let autopilotPhase = 'approach';
 
         // Physics constants
-        const G = 0.1; // Gravitational constant (scaled)
-        const DAMPING = 0.99; // Velocity damping
-        const DISTANCE_CUTOFF = 2000; // Skip gravity for distant pairs
-        const FIXED_DT = 1 / 30; // Fixed physics time step
+        const G = 0.1;
+        const DAMPING = 0.99;
+        const DISTANCE_CUTOFF = 2000;
+        const FIXED_DT = 1 / 30;
 
         // Keyboard controls
         const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
@@ -343,7 +373,7 @@
             origin: comet.position.clone(),
             created: Date.now(),
             instanceId: cometCount,
-            mass: 0.1 * (4/3 * Math.PI * 2**3) // Density 0.1, radius 2
+            mass: 0.1 * (4/3 * Math.PI * 2**3)
           };
           scene.add(comet);
           comets.push(comet);
@@ -395,7 +425,7 @@
           systemGroup.userData = {
             created: Date.now(),
             velocity: new THREE.Vector3((Math.random() - 0.5) * 1, (Math.random() - 0.5) * 1, (Math.random() - 0.5) * 1),
-            mass: 1 * (4/3 * Math.PI * 8**3 + params.planets * 4/3 * Math.PI * 2**3), // Density 1, star radius 8, planets radius 2
+            mass: 1 * (4/3 * Math.PI * 8**3 + params.planets * 4/3 * Math.PI * 2**3),
             maxRadius
           };
           scene.add(systemGroup);
@@ -428,12 +458,12 @@
             (Math.random() - 0.5) * 10,
             (Math.random() - 0.5) * 10
           );
-          galaxyGroup.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
+          systemGroup.position.copy(camera.position).add(forward.multiplyScalar(500)).add(offset);
           galaxyGroup.userData = {
             radius: params.radius,
             created: Date.now(),
             velocity: new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5),
-            mass: 10 * starCount * (4/3 * Math.PI * 1**3) // Density 10, star radius 1
+            mass: 10 * starCount * (4/3 * Math.PI * 1**3)
           };
           scene.add(galaxyGroup);
           galaxies.push(galaxyGroup);
@@ -496,6 +526,10 @@
             scene.remove(projectileInstances);
             projectileInstances = null;
           }
+          if (webxosLogo) {
+            scene.remove(webxosLogo);
+            webxosLogo = null;
+          }
           cometCount = 0;
           projectileCount = 0;
           entityCount = 0;
@@ -509,6 +543,7 @@
           autopilotOrbitAngle = 0;
           autopilotOrbitRadius = 0;
           autopilotPhase = 'approach';
+          createWebXOSLogo();
           showPrompt(5);
         }
 
@@ -522,8 +557,8 @@
               if (obj === other || !other.userData.mass) return;
               const direction = other.position.clone().sub(obj.position);
               const distance = direction.length();
-              if (distance < 1) return; // Avoid division by zero
-              if (distance > DISTANCE_CUTOFF) return; // Skip distant pairs
+              if (distance < 1) return;
+              if (distance > DISTANCE_CUTOFF) return;
               const force = (G * obj.userData.mass * other.userData.mass) / (distance * distance);
               direction.normalize();
               acceleration.add(direction.multiplyScalar(force / obj.userData.mass));
@@ -533,7 +568,6 @@
             obj.position.add(obj.userData.velocity.clone().multiplyScalar(deltaTime));
           });
 
-          // Update comet instances
           if (cometInstances) {
             const matrix = new THREE.Matrix4();
             comets.forEach((comet, i) => {
@@ -653,10 +687,10 @@
           const targetPos = autopilotCurrentTarget.position;
           const direction = targetPos.clone().sub(camera.position);
           const distance = direction.length();
-          const orbitDuration = 5;
+          const orbitDuration = 20; // Slower orbit (was 5)
 
           if (autopilotPhase === 'approach') {
-            throttle = Math.min(150, Math.max(50, distance * 0.5));
+            throttle = Math.min(37.5, Math.max(12.5, distance * 0.125)); // 75% slower
             direction.normalize();
             velocity.copy(direction.multiplyScalar(throttle));
             camera.position.add(velocity.clone().multiplyScalar(deltaTime));
@@ -730,7 +764,7 @@
           const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
           lastTime = now;
 
-          // Update physics with fixed time step
+          // Update physics
           let accumulatedTime = 0;
           accumulatedTime += deltaTime;
           while (accumulatedTime >= FIXED_DT) {
@@ -822,6 +856,14 @@
             const now = Date.now();
             const relativePos = projectile.position.clone();
 
+            // Check WebXOS logo
+            if (webxosLogo) {
+              const distance = relativePos.distanceTo(webxosLogo.position);
+              if (distance < 50) {
+                hits.push({ type: 'webxos', obj: webxosLogo, age: (now - webxosLogo.userData.created) / 1000 });
+              }
+            }
+
             comets.forEach((comet, index) => {
               if (!comet.visible) return;
               const age = (now - comet.userData.created) / 1000;
@@ -886,6 +928,9 @@
                 } else if (hit.type === 'galaxy') {
                   galaxies.splice(hit.index, 1);
                   entityCount -= hit.obj.children.length;
+                } else if (hit.type === 'webxos') {
+                  webxosLogo = null;
+                  entityCount--;
                 }
               }
               projectile.userData.remove = true;
@@ -927,7 +972,7 @@
 
           throttleBtn.addEventListener('click', () => {
             if (autopilotActive) return;
-            throttle = throttle === 0 ? 150 : 0;
+            throttle = throttle === 0 ? 37.5 : 0; // 75% slower
             throttleBtn.classList.toggle('active', throttle > 0);
             throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
             throttleIndicator.classList.toggle('active', throttle > 0);
