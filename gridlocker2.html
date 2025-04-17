@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#00ff00">
     <link rel="manifest" href="/manifest.json">
     <title>Grid Locker</title>
+    <!-- Inline CSS for reliability -->
     <style>
-        /* Reset default styles to ensure consistency */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -20,11 +20,11 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            background: #000000; /* Black background for holographic effect */
+            background: #000000;
             font-family: 'Courier New', monospace;
-            color: #00ff00; /* Neon green text */
+            color: #00ff00;
             min-height: 100vh;
-            overflow-x: hidden; /* Prevent horizontal scroll */
+            overflow-x: hidden;
         }
 
         .app-container {
@@ -51,9 +51,8 @@
             position: absolute;
             top: 0;
             left: 20px;
-            transform-style: preserve-3d; /* Ensure 3D transforms work */
+            transform-style: preserve-3d;
             animation: rotateHologram 30s infinite linear;
-            /* Fallback for older browsers */
             -webkit-transform-style: preserve-3d;
             -moz-transform-style: preserve-3d;
         }
@@ -102,11 +101,11 @@
             background: #00ff00;
             border: none;
             cursor: pointer;
-            transition: background 0.3s; /* Smooth hover effect */
+            transition: background 0.3s;
         }
 
         .btn:hover {
-            background: #00cc00; /* Darker green on hover */
+            background: #00cc00;
         }
 
         .console-section {
@@ -121,8 +120,8 @@
         }
 
         .console-section textarea {
-            width: 100%; /* Fixed width issue from 180% */
-            height: 100px; /* Fixed height issue from 1200% */
+            width: 100%;
+            height: 100px;
             padding: 10px;
             background: #000000;
             border: 1px solid #00ff00;
@@ -149,7 +148,7 @@
             font-size: 12px;
             color: #00ff00;
             word-wrap: break-word;
-            white-space: pre-wrap; /* Ensure text wraps correctly */
+            white-space: pre-wrap;
         }
 
         .popup {
@@ -225,13 +224,22 @@
             50% { transform: scale(1.1) translateZ(12px); }
         }
 
-        /* Optimize for reduced motion */
         @media (prefers-reduced-motion: reduce) {
             .hologram, .grid-layer, .grid-plane {
                 animation: none;
             }
         }
+
+        .fallback {
+            background: #000000;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 20px;
+            text-align: center;
+        }
     </style>
+    <!-- Include pako for compression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -260,7 +268,7 @@
 
     <footer>
         © WebXOS 2025<br>
-        Usage: Generate encrypts grid with message and generates 3 codes. Copy saves codes. Execute loads grid and message from codes. Secure PWA.
+        Usage: Generate encrypts and compresses message with unique grid keys. Copy saves codes. Execute loads grid and message. Secure PWA for public use.
     </footer>
 
     <script>
@@ -273,8 +281,10 @@
         let currentSerial = '';
         let currentCode = '';
         let currentValidationCode = '';
-        let inputHistory = [];
-        let sessionKey;
+        let actionHistory = [];
+        let lastAlertTime = 0;
+        let userPassphrase = 'default-passphrase'; // Default for public use
+        let serialCounter = parseInt(localStorage.getItem('serialCounter')) || 1;
 
         // PWA Service Worker
         if ('serviceWorker' in navigator) {
@@ -283,15 +293,6 @@
             }).catch(err => {
                 console.error('Service Worker registration failed:', err);
             });
-        }
-
-        // Initialize Session Key
-        async function initSession() {
-            sessionKey = await crypto.subtle.generateKey(
-                { name: 'AES-GCM', length: 256 },
-                true,
-                ['encrypt', 'decrypt']
-            );
         }
 
         // Input Sanitization
@@ -305,15 +306,16 @@
 
         consoleInput.addEventListener('input', () => {
             consoleInput.value = sanitizeInput(consoleInput.value);
-            monitorInput(consoleInput.value);
         });
 
         executeInput.addEventListener('input', () => {
             executeInput.value = sanitizeInput(executeInput.value);
-            monitorInput(executeInput.value);
         });
 
         function showAlert(message) {
+            const now = Date.now();
+            if (now - lastAlertTime < 5000) return; // 5-second cooldown
+            lastAlertTime = now;
             const modal = document.createElement('div');
             modal.className = 'popup';
             modal.innerHTML = `<h3>Alert</h3><p>${sanitizeInput(message)}</p><button class="btn" onclick="this.parentElement.remove()">OK</button>`;
@@ -321,77 +323,121 @@
             modal.style.display = 'block';
         }
 
+        // Compression/Decompression
+        function compressMessage(message) {
+            try {
+                const enc = new TextEncoder();
+                const compressed = pako.gzip(enc.encode(message));
+                return btoa(String.fromCharCode(...compressed));
+            } catch (err) {
+                showAlert('Compression failed: ' + err.message);
+                return null;
+            }
+        }
+
+        function decompressMessage(compressed) {
+            try {
+                const dec = new Uint8Array(atob(compressed).split('').map(c => c.charCodeAt(0)));
+                const decompressed = pako.ungzip(dec, { to: 'string' });
+                return decompressed;
+            } catch (err) {
+                showAlert('Decompression failed: ' + err.message);
+                return null;
+            }
+        }
+
         // Cryptographic Functions
         async function deriveKey(serial, passphrase, salt) {
-            const enc = new TextEncoder();
-            const keyMaterial = await crypto.subtle.importKey(
-                'raw',
-                enc.encode(passphrase),
-                'PBKDF2',
-                false,
-                ['deriveBits', 'deriveKey']
-            );
-            return crypto.subtle.deriveKey(
-                {
-                    name: 'PBKDF2',
-                    salt: enc.encode(salt),
-                    iterations: 100000,
-                    hash: 'SHA-256'
-                },
-                keyMaterial,
-                { name: 'AES-GCM', length: 256 },
-                true,
-                ['encrypt', 'decrypt']
-            );
+            try {
+                const enc = new TextEncoder();
+                const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    enc.encode(passphrase),
+                    'PBKDF2',
+                    false,
+                    ['deriveBits', 'deriveKey']
+                );
+                return crypto.subtle.deriveKey(
+                    {
+                        name: 'PBKDF2',
+                        salt: enc.encode(salt),
+                        iterations: 100000,
+                        hash: 'SHA-256'
+                    },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    true,
+                    ['encrypt', 'decrypt']
+                );
+            } catch (err) {
+                showAlert('Key derivation failed: ' + err.message);
+                return null;
+            }
         }
 
         async function encryptMessage(message, serial) {
-            const salt = crypto.getRandomValues(new Uint8Array(16));
-            const key = await deriveKey(serial, 'user-passphrase', salt); // Replace with user input
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const enc = new TextEncoder();
-            const encrypted = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv },
-                key,
-                enc.encode(message)
-            );
-            return {
-                salt: btoa(String.fromCharCode(...salt)),
-                iv: btoa(String.fromCharCode(...iv)),
-                encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
-            };
+            try {
+                const compressed = compressMessage(message);
+                if (!compressed) return null;
+                const salt = crypto.getRandomValues(new Uint8Array(16));
+                const key = await deriveKey(serial, userPassphrase, salt);
+                if (!key) return null;
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const enc = new TextEncoder();
+                const encrypted = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    enc.encode(compressed)
+                );
+                return {
+                    salt: btoa(String.fromCharCode(...salt)),
+                    iv: btoa(String.fromCharCode(...iv)),
+                    encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
+                };
+            } catch (err) {
+                showAlert('Encryption failed: ' + err.message);
+                return null;
+            }
         }
 
         async function decryptMessage({ salt, iv, encrypted }, serial) {
             try {
-                const key = await deriveKey(serial, 'user-passphrase', new Uint8Array(atob(salt).split('').map(c => c.charCodeAt(0))));
+                const key = await deriveKey(serial, userPassphrase, new Uint8Array(atob(salt).split('').map(c => c.charCodeAt(0))));
+                if (!key) return null;
                 const dec = await crypto.subtle.decrypt(
                     { name: 'AES-GCM', iv: new Uint8Array(atob(iv).split('').map(c => c.charCodeAt(0))) },
                     key,
                     new Uint8Array(atob(encrypted).split('').map(c => c.charCodeAt(0)))
                 );
-                return new TextDecoder().decode(dec);
+                const compressed = new TextDecoder().decode(dec);
+                return decompressMessage(compressed);
             } catch (err) {
-                showAlert('Decryption failed: Invalid passphrase or data');
-                return '';
+                showAlert('Decryption failed: ' + err.message);
+                return null;
             }
         }
 
+        // Triple-Code Validation
         async function generateValidationCode(serial, code) {
-            const enc = new TextEncoder();
-            const key = await crypto.subtle.importKey(
-                'raw',
-                enc.encode('grid-locker-secret'),
-                { name: 'HMAC', hash: 'SHA-256' },
-                false,
-                ['sign']
-            );
-            const signature = await crypto.subtle.sign(
-                'HMAC',
-                key,
-                enc.encode(`${serial}:${code}`)
-            );
-            return `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
+            try {
+                const enc = new TextEncoder();
+                const key = await crypto.subtle.importKey(
+                    'raw',
+                    enc.encode('grid-locker-secret'),
+                    { name: 'HMAC', hash: 'SHA-256' },
+                    false,
+                    ['sign']
+                );
+                const signature = await crypto.subtle.sign(
+                    'HMAC',
+                    key,
+                    enc.encode(`${serial}:${code}`)
+                );
+                return `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
+            } catch (err) {
+                showAlert('Validation code generation failed: ' + err.message);
+                return null;
+            }
         }
 
         async function verifyValidationCode(serial, code, validationCode) {
@@ -399,72 +445,113 @@
             return expected === validationCode;
         }
 
-        // Offline Storage
+        // Data Obfuscation
+        function obfuscateData(data) {
+            const json = JSON.stringify(data);
+            const enc = new TextEncoder();
+            const bytes = enc.encode(json);
+            const obfuscated = Array.from(bytes).map(b => b ^ 0x55); // Simple XOR obfuscation
+            return btoa(String.fromCharCode(...obfuscated));
+        }
+
+        function deobfuscateData(obfuscated) {
+            const bytes = new Uint8Array(atob(obfuscated).split('').map(c => c.charCodeAt(0)));
+            const deobfuscated = Array.from(bytes).map(b => b ^ 0x55);
+            const dec = new TextDecoder();
+            return JSON.parse(dec.decode(new Uint8Array(deobfuscated)));
+        }
+
+        // Storage Functions
         async function storeSerialMap(serialMap) {
-            const encrypted = await encryptMessage(JSON.stringify([...serialMap]), 'offline-key');
-            localStorage.setItem('serialMap', JSON.stringify(encrypted));
+            try {
+                const encrypted = await encryptMessage(JSON.stringify([...serialMap]), 'storage-key');
+                if (!encrypted) return;
+                localStorage.setItem('serialMap', obfuscateData(encrypted));
+            } catch (err) {
+                showAlert('Storage failed: ' + err.message);
+            }
         }
 
         async function loadSerialMap() {
-            const encrypted = JSON.parse(localStorage.getItem('serialMap') || '{}');
-            if (!encrypted.encrypted) return new Map();
-            const decrypted = await decryptMessage(encrypted, 'offline-key');
-            return new Map(JSON.parse(decrypted));
+            try {
+                const obfuscated = localStorage.getItem('serialMap');
+                if (!obfuscated) return new Map();
+                const encrypted = deobfuscateData(obfuscated);
+                const decrypted = await decryptMessage(encrypted, 'storage-key');
+                if (!decrypted) return new Map();
+                return new Map(JSON.parse(decrypted));
+            } catch (err) {
+                showAlert('Failed to load storage: ' + err.message);
+                return new Map();
+            }
         }
 
         // Grid Generation and Execution
         async function generateGrid() {
-            const message = sanitizeInput(consoleInput.value);
-            let serialMap = await loadSerialMap();
-            let newCode;
-            do {
-                newCode = generateCrypticCode();
-            } while (Array.from(serialMap.values()).some(data => data.code === newCode));
-            const serial = generateSerialNumber(newCode, message);
-            const encryptedMessage = message ? await encryptMessage(message, serial) : '';
-            serialMap.set(serial, { code: newCode, encryptedMessage });
-            await storeSerialMap(serialMap);
-            currentSerial = serial;
-            currentCode = newCode;
-            currentValidationCode = await generateValidationCode(serial, newCode);
-            generateImageFromSeed(newCode, serial, message);
-            consoleOutput.textContent = `${serial}\n${newCode}\n${currentValidationCode}`;
+            monitorAction('generate');
+            try {
+                const message = sanitizeInput(consoleInput.value);
+                let serialMap = await loadSerialMap();
+                let newCode;
+                do {
+                    newCode = generateCrypticCode();
+                } while (Array.from(serialMap.values()).some(data => data.code === newCode));
+                const serial = generateSerialNumber(newCode);
+                const encryptedMessage = message ? await encryptMessage(message, serial) : null;
+                if (message && !encryptedMessage) return;
+                serialMap.set(serial, { code: newCode, encryptedMessage });
+                await storeSerialMap(serialMap);
+                currentSerial = serial;
+                currentCode = newCode;
+                currentValidationCode = await generateValidationCode(serial, newCode);
+                if (!currentValidationCode) return;
+                generateImageFromSeed(newCode, serial, message);
+                consoleOutput.textContent = `${serial}\n${newCode}\n${currentValidationCode}${message ? `\nMessage: ${message}` : ''}`;
+            } catch (err) {
+                showAlert('Grid generation failed: ' + err.message);
+            }
         }
 
         async function executeGrid() {
-            const input = sanitizeInput(executeInput.value);
-            const [serial, code, validationCode] = input.split(',').map(s => s.trim());
-            if (!serial.match(/HOLO-\d{6}-[A-Z0-9]{3}/) || !code.startsWith('Ω-CODE:') || !validationCode.startsWith('VAL-')) {
-                showAlert('Invalid input format! Use: HOLO-XXXXXX-XXX,Ω-CODE:XXXX,VAL-XXXX');
-                return;
-            }
-            if (!(await verifyValidationCode(serial, code, validationCode))) {
-                showAlert('Invalid validation code!');
-                return;
-            }
-            let serialMap = await loadSerialMap();
-            if (serialMap.has(serial)) {
-                const { code: storedCode, encryptedMessage } = serialMap.get(serial);
-                if (storedCode !== code) {
-                    showAlert('Code mismatch!');
+            monitorAction('execute');
+            try {
+                const input = sanitizeInput(executeInput.value);
+                const [serial, code, validationCode] = input.split(',').map(s => s.trim());
+                if (!serial.match(/HOLO-\d{6}-[A-Z0-9]{3}/) || !code.startsWith('Ω-CODE:') || !validationCode.startsWith('VAL-')) {
+                    showAlert('Invalid input format! Use: HOLO-XXXXXX-XXX,Ω-CODE:XXXX,VAL-XXXX');
                     return;
                 }
-                const message = encryptedMessage ? await decryptMessage(encryptedMessage, serial) : '';
-                currentSerial = serial;
-                currentCode = code;
-                currentValidationCode = validationCode;
-                generateImageFromSeed(code, serial, message);
-                consoleOutput.textContent = `${serial}\n${code}\n${validationCode}${message ? `\nMessage: ${message}` : ''}`;
-            } else {
-                serialMap.set(serial, { code, encryptedMessage: '' });
-                await storeSerialMap(serialMap);
-                currentSerial = serial;
-                currentCode = code;
-                currentValidationCode = validationCode;
-                generateImageFromSeed(code, serial);
-                consoleOutput.textContent = `${serial}\n${code}\n${validationCode}`;
+                if (!(await verifyValidationCode(serial, code, validationCode))) {
+                    showAlert('Invalid validation code!');
+                    return;
+                }
+                let serialMap = await loadSerialMap();
+                if (serialMap.has(serial)) {
+                    const { code: storedCode, encryptedMessage } = serialMap.get(serial);
+                    if (storedCode !== code) {
+                        showAlert('Code mismatch!');
+                        return;
+                    }
+                    const message = encryptedMessage ? await decryptMessage(encryptedMessage, serial) : '';
+                    if (encryptedMessage && !message) return;
+                    currentSerial = serial;
+                    currentCode = code;
+                    currentValidationCode = validationCode;
+                    generateImageFromSeed(code, serial, message);
+                    consoleOutput.textContent = `${serial}\n${code}\n${validationCode}${message ? `\nMessage: ${message}` : ''}`;
+                } else {
+                    serialMap.set(serial, { code, encryptedMessage: null });
+                    await storeSerialMap(serialMap);
+                    currentSerial = serial;
+                    currentCode = code;
+                    currentValidationCode = validationCode;
+                    generateImageFromSeed(code, serial);
+                    consoleOutput.textContent = `${serial}\n${code}\n${validationCode}`;
+                }
+                closeExecutePopup();
+            } catch (err) {
+                showAlert('Grid execution failed: ' + err.message);
             }
-            closeExecutePopup();
         }
 
         function generateCrypticCode() {
@@ -476,81 +563,84 @@
             return `Ω-CODE: ${code}`;
         }
 
-        function generateSerialNumber(code, message) {
-            let serialCounter = parseInt(localStorage.getItem('serialCounter')) || 1;
+        function generateSerialNumber(code) {
             let serial;
             do {
                 const paddedNumber = String(serialCounter++).padStart(6, '0');
                 const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
                 serial = `HOLO-${paddedNumber}-${suffix}`;
-            } while (serialMap && serialMap.has(serial));
+            } while (localStorage.getItem('serialMap') && JSON.parse(localStorage.getItem('serialMap') || '{}').hasOwnProperty(serial));
             localStorage.setItem('serialCounter', serialCounter);
             return serial;
         }
 
         function generateImageFromSeed(seed, serial, message = '') {
-            hologram.innerHTML = '';
-            hologram.classList.remove('revealed');
+            try {
+                hologram.innerHTML = '';
+                hologram.classList.remove('revealed');
 
-            const hash = hashCode(seed);
-            const rand = (min, max) => min + (hash % (max - min + 1));
-            const randFloat = (min, max) => min + ((hash % 10000) / 10000) * (max - min);
+                const hash = hashCode(seed);
+                const rand = (min, max) => min + (hash % (max - min + 1));
+                const randFloat = (min, max) => min + ((hash % 10000) / 10000) * (max - min);
 
-            const gridBase = document.createElement('div');
-            gridBase.className = 'grid-base';
-            gridBase.style.opacity = randFloat(0.4, 0.6);
-            hologram.appendChild(gridBase);
+                const gridBase = document.createElement('div');
+                gridBase.className = 'grid-base';
+                gridBase.style.opacity = randFloat(0.4, 0.6);
+                hologram.appendChild(gridBase);
 
-            const layerCount = rand(2, 4);
-            for (let i = 0; i < layerCount; i++) {
-                const layer = document.createElement('div');
-                layer.className = 'grid-layer';
-                const z = randFloat(-60, 60) * (i + 1) / layerCount;
-                layer.style.cssText = `
-                    transform: translateZ(${z}px) rotateY(${randFloat(-12, 12)}deg) rotateX(${randFloat(-12, 12)}deg);
-                    opacity: ${randFloat(0.3, 0.7)};
-                `;
-                hologram.appendChild(layer);
+                const layerCount = rand(2, 4);
+                for (let i = 0; i < layerCount; i++) {
+                    const layer = document.createElement('div');
+                    layer.className = 'grid-layer';
+                    const z = randFloat(-60, 60) * (i + 1) / layerCount;
+                    layer.style.cssText = `
+                        transform: translateZ(${z}px) rotateY(${randFloat(-12, 12)}deg) rotateX(${randFloat(-12, 12)}deg);
+                        opacity: ${randFloat(0.3, 0.7)};
+                    `;
+                    hologram.appendChild(layer);
+                }
+
+                const wireframeCount = rand(1, 2);
+                for (let i = 0; i < wireframeCount; i++) {
+                    const wireframe = document.createElement('div');
+                    wireframe.className = 'grid-wireframe';
+                    const z = randFloat(-50, 50);
+                    const scale = randFloat(0.8, 1.1);
+                    wireframe.style.cssText = `
+                        transform: translateZ(${z}px) scale(${scale}) rotateX(${randFloat(-20, 20)}deg) rotateY(${randFloat(-20, 20)}deg);
+                        opacity: ${randFloat(0.5, 0.9)};
+                    `;
+                    hologram.appendChild(wireframe);
+                }
+
+                const planeCount = rand(2, 3);
+                for (let i = 0; i < planeCount; i++) {
+                    const plane = document.createElement('div');
+                    plane.className = 'grid-plane';
+                    const width = randFloat(40, 100);
+                    const height = randFloat(40, 100);
+                    const left = randFloat(0, 100 - (width / 1.8));
+                    const top = randFloat(0, 100 - (height / 1.8));
+                    const z = randFloat(-80, 80);
+                    plane.style.cssText = `
+                        width: ${width}px;
+                        height: ${height}px;
+                        left: ${left}%;
+                        top: ${top}%;
+                        transform: translateZ(${z}px) rotateX(${randFloat(-35, 35)}deg) rotateY(${randFloat(-35, 35)}deg);
+                    `;
+                    hologram.appendChild(plane);
+                }
+
+                if (message) {
+                    consoleOutput.textContent = `${currentSerial}\n${currentCode}\n${currentValidationCode}\nMessage: ${message}`;
+                }
+                setTimeout(() => {
+                    hologram.classList.add('revealed');
+                }, 100);
+            } catch (err) {
+                showAlert('Grid rendering failed: ' + err.message);
             }
-
-            const wireframeCount = rand(1, 2);
-            for (let i = 0; i < wireframeCount; i++) {
-                const wireframe = document.createElement('div');
-                wireframe.className = 'grid-wireframe';
-                const z = randFloat(-50, 50);
-                const scale = randFloat(0.8, 1.1);
-                wireframe.style.cssText = `
-                    transform: translateZ(${z}px) scale(${scale}) rotateX(${randFloat(-20, 20)}deg) rotateY(${randFloat(-20, 20)}deg);
-                    opacity: ${randFloat(0.5, 0.9)};
-                `;
-                hologram.appendChild(wireframe);
-            }
-
-            const planeCount = rand(2, 3);
-            for (let i = 0; i < planeCount; i++) {
-                const plane = document.createElement('div');
-                plane.className = 'grid-plane';
-                const width = randFloat(40, 100);
-                const height = randFloat(40, 100);
-                const left = randFloat(0, 100 - (width / 1.8));
-                const top = randFloat(0, 100 - (height / 1.8));
-                const z = randFloat(-80, 80);
-                plane.style.cssText = `
-                    width: ${width}px;
-                    height: ${height}px;
-                    left: ${left}%;
-                    top: ${top}%;
-                    transform: translateZ(${z}px) rotateX(${randFloat(-35, 35)}deg) rotateY(${randFloat(-35, 35)}deg);
-                `;
-                hologram.appendChild(plane);
-            }
-
-            if (message) {
-                consoleOutput.textContent = `${currentSerial}\n${currentCode}\n${currentValidationCode}\nMessage: ${message}`;
-            }
-            setTimeout(() => {
-                hologram.classList.add('revealed');
-            }, 100);
         }
 
         function hashCode(str) {
@@ -578,12 +668,14 @@
                 showAlert('Generate or execute a grid first!');
                 return;
             }
-            const code = `${currentSerial}\n${currentCode}\n${currentValidationCode}`;
+            const code = `${currentSerial}\n${currentCode}\n${currentValidationighborhoodCode}`;
             if (code.length > 100) {
                 showAlert('Code too long!');
                 return;
             }
-            navigator.clipboard.writeText(code).then(() => showAlert('Code copied!'));
+            navigator.clipboard.writeText(code).then(() => showAlert('Code copied!')).catch(err => {
+                showAlert('Copy failed: ' + err.message);
+            });
         }
 
         function clearConsole() {
@@ -591,28 +683,33 @@
             consoleOutput.textContent = '';
         }
 
-        function monitorInput(input) {
-            inputHistory.push({ input, timestamp: Date.now() });
-            if (inputHistory.length > 100) inputHistory.shift();
-            if (detectAnomaly(inputHistory)) {
-                showAlert('Suspicious activity detected!');
+        function monitorAction(action) {
+            actionHistory.push({ action, timestamp: Date.now() });
+            if (actionHistory.length > 100) actionHistory.shift();
+            if (detectAnomaly(actionHistory)) {
+                showAlert('Suspicious activity detected! Please slow down.');
             }
         }
 
         function detectAnomaly(history) {
-            const recent = history.slice(-5);
-            return recent.length === 5 && recent[4].timestamp - recent[0].timestamp < 1000;
+            const recent = history.slice(-10);
+            return recent.length === 10 && recent[9].timestamp - recent[0].timestamp < 5000; // 10 actions in 5 seconds
         }
 
         window.addEventListener('load', async () => {
-            await initSession();
-            const initCode = generateCrypticCode();
-            const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
-            currentValidationCode = await generateValidationCode(initSerial, initCode);
-            generateImageFromSeed(initCode, initSerial);
-            consoleOutput.textContent = `${initSerial}\n${initCode}\n${currentValidationCode}`;
-            currentSerial = initSerial;
-            currentCode = initCode;
+            try {
+                const initCode = generateCrypticCode();
+                const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
+                currentValidationCode = await generateValidationCode(initSerial, initCode);
+                if (currentValidationCode) {
+                    generateImageFromSeed(initCode, initSerial);
+                    consoleOutput.textContent = `${initSerial}\n${initCode}\n${currentValidationCode}`;
+                    currentSerial = initSerial;
+                    currentCode = initCode;
+                }
+            } catch (err) {
+                showAlert('Initialization failed: ' + err.message);
+            }
         });
     </script>
 </body>
