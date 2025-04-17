@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Galaxycraft - WebGPU/WebGL Hybrid</title>
+  <title>Galaxycraft - WebGPU/WebGL Hybrid (Fixed)</title>
   <style>
     * {
       margin: 0;
@@ -141,6 +141,17 @@
       z-index: 5;
       pointer-events: none;
     }
+    .debug-overlay {
+      position: absolute;
+      top: 30px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 5px;
+      font-size: 12px;
+      color: #0f0;
+      z-index: 5;
+      pointer-events: none;
+    }
     .console {
       position: absolute;
       bottom: 60px;
@@ -201,6 +212,7 @@
     <canvas id="renderCanvas"></canvas>
     <div class="hud"></div>
     <div id="statusOverlay" class="status-overlay"></div>
+    <div id="debugOverlay" class="debug-overlay"></div>
     <div id="throttleIndicator" class="throttle-indicator"></div>
     <div id="console" class="console">
       <div id="consoleLog" class="console-log"></div>
@@ -222,7 +234,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script>
     window.onload = async () => {
-      let useWebGPU = true;
+      let useWebGPU = true; // Set to false to force WebGL for testing
       let device, context, presentationFormat, particleBuffer, paramsBuffer, computePipeline, computeBindGroup,
           renderPipeline, renderBindGroup, vertexBuffer, instanceBuffer, uniformBuffer;
 
@@ -237,6 +249,7 @@
         presentationFormat = navigator.gpu.getPreferredCanvasFormat();
         context.configure({ device, format: presentationFormat, alphaMode: 'premultiplied' });
         console.log('WebGPU initialized successfully.');
+        addConsoleMessage('WebGPU initialized successfully.');
       } catch (e) {
         console.error('WebGPU initialization failed:', e);
         useWebGPU = false;
@@ -249,6 +262,7 @@
         setTimeout(() => {
           document.querySelector('.error-message')?.remove();
         }, 5000);
+        addConsoleMessage(`WebGPU failed: ${e.message}. Falling back to WebGL.`);
       }
 
       // Common setup
@@ -270,6 +284,7 @@
 
       // Console and status
       const statusOverlay = document.getElementById('statusOverlay');
+      const debugOverlay = document.getElementById('debugOverlay');
       const consoleLog = document.getElementById('consoleLog');
       const consoleInput = document.getElementById('consoleInput');
       const maxLogMessages = 50;
@@ -285,6 +300,10 @@
 
       function updateStatusOverlay() {
         statusOverlay.textContent = `Entities: ${entityCount} | Throttle: ${throttle} | Autopilot: ${autopilotActive ? 'On' : 'Off'} | Nodes: ${instanceData.filter(d => d.active && d.type === 3).length} | Renderer: ${useWebGPU ? 'WebGPU' : 'WebGL'}`;
+      }
+
+      function updateDebugOverlay(cometCount, projectileCount, nodeCount) {
+        debugOverlay.textContent = `Rendered: Comets=${cometCount}, Projectiles=${projectileCount}, Nodes=${nodeCount}`;
       }
 
       // WebGPU-specific setup
@@ -345,17 +364,23 @@
             particles[i].position += particles[i].velocity * params.deltaTime;
           }
         `;
-        const computeModule = device.createShaderModule({ code: computeShaderCode });
-        computePipeline = device.createComputePipeline({
-          compute: { module: computeModule, entryPoint: 'main' }
-        });
-        computeBindGroup = device.createBindGroup({
-          layout: computePipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: particleBuffer } },
-            { binding: 1, resource: { buffer: paramsBuffer } }
-          ]
-        });
+        try {
+          const computeModule = device.createShaderModule({ code: computeShaderCode });
+          computePipeline = device.createComputePipeline({
+            compute: { module: computeModule, entryPoint: 'main' }
+          });
+          computeBindGroup = device.createBindGroup({
+            layout: computePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: particleBuffer } },
+              { binding: 1, resource: { buffer: paramsBuffer } }
+            ]
+          });
+        } catch (e) {
+          console.error('Compute pipeline error:', e);
+          useWebGPU = false;
+          addConsoleMessage('WebGPU compute pipeline failed. Falling back to WebGL.');
+        }
 
         // Vertex and fragment shaders
         const vertexShaderCode = `
@@ -375,7 +400,7 @@
           @vertex
           fn main(input: VertexInput) -> VertexOutput {
             var output: VertexOutput;
-            let worldPos = input.position + input.instancePos;
+            let worldPos = input.position * 2.0 + input.instancePos; // Scale geometry
             output.position = uniforms.projection * uniforms.view * vec4<f32>(worldPos, 1.0);
             let type = f32(input.instancePos.w);
             output.color = select(
@@ -396,96 +421,120 @@
             return color;
           }
         `;
-        const renderModule = device.createShaderModule({ code: vertexShaderCode });
-        const fragmentModule = device.createShaderModule({ code: fragmentShaderCode });
+        try {
+          const renderModule = device.createShaderModule({ code: vertexShaderCode });
+          const fragmentModule = device.createShaderModule({ code: fragmentShaderCode });
 
-        // Sphere geometry
-        const sphereVertices = new Float32Array([
-          0, 0, 5,  5, 0, 0,  0, 5, 0,
-          0, 0, 5,  0, 5, 0,  -5, 0, 0,
-          0, 0, 5,  -5, 0, 0,  0, -5, 0,
-          0, -5, 0,  5, 0, 0,  -5, 0, 0
-        ]);
-        vertexBuffer = device.createBuffer({
-          size: sphereVertices.byteLength,
-          usage: GPUBufferUsage.VERTEX,
-          mappedAtCreation: true
-        });
-        new Float32Array(vertexBuffer.getMappedRange()).set(sphereVertices);
-        vertexBuffer.unmap();
+          // Sphere geometry (larger for visibility)
+          const sphereVertices = new Float32Array([
+            0, 0, 10,  10, 0, 0,  0, 10, 0,
+            0, 0, 10,  0, 10, 0,  -10, 0, 0,
+            0, 0, 10,  -10, 0, 0,  0, -10, 0,
+            0, -10, 0,  10, 0, 0,  -10, 0, 0
+          ]);
+          vertexBuffer = device.createBuffer({
+            size: sphereVertices.byteLength,
+            usage: GPUBufferUsage.VERTEX,
+            mappedAtCreation: true
+          });
+          new Float32Array(vertexBuffer.getMappedRange()).set(sphereVertices);
+          vertexBuffer.unmap();
 
-        // Render pipeline
-        uniformBuffer = device.createBuffer({
-          size: 128,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        instanceBuffer = device.createBuffer({
-          size: maxParticles * 16,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-        });
-        renderPipeline = device.createRenderPipeline({
-          layout: device.createPipelineLayout({
-            bindGroupLayouts: [device.createBindGroupLayout({
-              entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }]
-            })]
-          }),
-          vertex: {
-            module: renderModule,
-            entryPoint: 'main',
-            buffers: [
-              { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
-              { arrayStride: 16, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }] }
-            ]
-          },
-          fragment: {
-            module: fragmentModule,
-            entryPoint: 'main',
-            targets: [{ format: presentationFormat }]
-          },
-          primitive: { topology: 'triangle-list' }
-        });
-        renderBindGroup = device.createBindGroup({
-          layout: renderPipeline.getBindGroupLayout(0),
-          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
-        });
+          // Render pipeline
+          uniformBuffer = device.createBuffer({
+            size: 128,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+          });
+          instanceBuffer = device.createBuffer({
+            size: maxParticles * 16,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+          });
+          renderPipeline = device.createRenderPipeline({
+            layout: device.createPipelineLayout({
+              bindGroupLayouts: [device.createBindGroupLayout({
+                entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }]
+              })]
+            }),
+            vertex: {
+              module: renderModule,
+              entryPoint: 'main',
+              buffers: [
+                { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+                { arrayStride: 16, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }] }
+              ]
+            },
+            fragment: {
+              module: fragmentModule,
+              entryPoint: 'main',
+              targets: [{ format: presentationFormat }]
+            },
+            primitive: { topology: 'triangle-list' }
+          });
+          renderBindGroup = device.createBindGroup({
+            layout: renderPipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
+          });
+        } catch (e) {
+          console.error('Render pipeline error:', e);
+          useWebGPU = false;
+          addConsoleMessage('WebGPU render pipeline failed. Falling back to WebGL.');
+        }
       }
 
       // WebGL-specific setup
       let scene, camera, renderer, cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh, frustum, cameraMatrix;
       if (!useWebGPU) {
-        if (!window.THREE) throw new Error('Three.js not loaded');
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 10000);
-        renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x000000, 1);
-        document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
+        try {
+          if (!window.THREE) throw new Error('Three.js not loaded');
+          scene = new THREE.Scene();
+          camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 20000);
+          renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          renderer.setClearColor(0x000000, 1);
+          document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
 
-        camera.position.set(0, 0, 0);
-        frustum = new THREE.Frustum();
-        cameraMatrix = new THREE.Matrix4();
+          camera.position.set(0, 0, 0);
+          frustum = new THREE.Frustum();
+          cameraMatrix = new THREE.Matrix4();
 
-        const sharedMaterials = {
-          glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-          star: new THREE.MeshBasicMaterial({ color: 0xffff99 }),
-          planet: new THREE.MeshBasicMaterial({ color: 0x3399ff }),
-          node: new THREE.MeshBasicMaterial({ color: 0xff33cc }),
-          line: new THREE.LineBasicMaterial({ color: 0x00ff00 })
-        };
-        const sharedGeometries = {
-          comet: new THREE.SphereGeometry(5, 8, 8),
-          star: new THREE.SphereGeometry(100, 16, 16),
-          planet: new THREE.SphereGeometry(20, 12, 12),
-          galaxyStar: new THREE.SphereGeometry(10, 8, 8),
-          projectile: new THREE.SphereGeometry(5, 8, 8),
-          node: new THREE.BoxGeometry(10, 10, 10)
-        };
+          const sharedMaterials = {
+            glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+            star: new THREE.MeshBasicMaterial({ color: 0xffff99 }),
+            planet: new THREE.MeshBasicMaterial({ color: 0x3399ff }),
+            node: new THREE.MeshBasicMaterial({ color: 0xff33cc }),
+            line: new THREE.LineBasicMaterial({ color: 0x00ff00 })
+          };
+          const sharedGeometries = {
+            comet: new THREE.SphereGeometry(10, 16, 16),
+            projectile: new THREE.SphereGeometry(10, 16, 16),
+            node: new THREE.BoxGeometry(20, 20, 20)
+          };
 
-        cometInstanceMesh = new THREE.InstancedMesh(sharedGeometries.comet, sharedMaterials.glow, maxParticles);
-        projectileInstanceMesh = new THREE.InstancedMesh(sharedGeometries.projectile, sharedMaterials.glow, maxParticles);
-        nodeInstanceMesh = new THREE.InstancedMesh(sharedGeometries.node, sharedMaterials.node, maxParticles);
-        scene.add(cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh);
+          cometInstanceMesh = new THREE.InstancedMesh(sharedGeometries.comet, sharedMaterials.glow, maxParticles);
+          projectileInstanceMesh = new THREE.InstancedMesh(sharedGeometries.projectile, sharedMaterials.glow, maxParticles);
+          nodeInstanceMesh = new THREE.InstancedMesh(sharedGeometries.node, sharedMaterials.node, maxParticles);
+          scene.add(cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh);
+
+          // Fallback point cloud
+          const pointsGeometry = new THREE.BufferGeometry();
+          const pointsPositions = new Float32Array(maxParticles * 3);
+          const pointsColors = new Float32Array(maxParticles * 3);
+          pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointsPositions, 3));
+          pointsGeometry.setAttribute('color', new THREE.BufferAttribute(pointsColors, 3));
+          const pointsMaterial = new THREE.PointsMaterial({ size: 10, vertexColors: true });
+          const pointsMesh = new THREE.Points(pointsGeometry, pointsMaterial);
+          scene.add(pointsMesh);
+        } catch (e) {
+          console.error('WebGL setup error:', e);
+          document.getElementById('cosmicCanvas').innerHTML += `
+            <div class="error-message">
+              WebGL setup failed: ${e.message}<br>
+              Please use a WebGL-compatible browser.
+            </div>
+          `;
+          return;
+        }
       }
 
       // Camera for WebGPU
@@ -496,7 +545,7 @@
         fov: 80,
         aspect: window.innerWidth / window.innerHeight,
         near: 0.1,
-        far: 10000,
+        far: 20000,
         updateMatrices() {
           const fovRad = this.fov * Math.PI / 180;
           const tanHalfFov = Math.tan(fovRad / 2);
@@ -683,32 +732,32 @@
       function addComet() {
         const params = trainingData.comets[Math.floor(Math.random() * trainingData.comets.length)];
         const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        const offset = [ (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50 ];
+        const offset = [ (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20 ];
         const position = useWebGPU
           ? [
-              webGPUCamera.position[0] + forward[0] * 500 + offset[0],
-              webGPUCamera.position[1] + forward[1] * 500 + offset[1],
-              webGPUCamera.position[2] + forward[2] * 500 + offset[2]
+              webGPUCamera.position[0] + forward[0] * 200 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 200 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 200 + offset[2]
             ]
-          : camera.position.clone().add(forward.multiplyScalar(500)).add(new THREE.Vector3(...offset));
+          : camera.position.clone().add(forward.multiplyScalar(200)).add(new THREE.Vector3(...offset));
         addParticle(1, position, [(Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5], 1);
         if (entityCount > 500) showPrompt(8);
         showPrompt(1);
-        addConsoleMessage('Comet added to your galaxy.');
+        addConsoleMessage(`Comet added at [${position.map(v => v.toFixed(2)).join(', ')}]`);
         updateStatusOverlay();
       }
 
       function addSystem() {
         const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
         const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        const offset = [ (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100 ];
+        const offset = [ (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50 ];
         const basePos = useWebGPU
           ? [
-              webGPUCamera.position[0] + forward[0] * 1000 + offset[0],
-              webGPUCamera.position[1] + forward[1] * 1000 + offset[1],
-              webGPUCamera.position[2] + forward[2] * 1000 + offset[2]
+              webGPUCamera.position[0] + forward[0] * 500 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 500 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 500 + offset[2]
             ]
-          : camera.position.clone().add(forward.multiplyScalar(1000)).add(new THREE.Vector3(...offset));
+          : camera.position.clone().add(forward.multiplyScalar(500)).add(new THREE.Vector3(...offset));
         addParticle(1, basePos, [0, 0, 0], 1000);
         for (let i = 0; i < params.planets; i++) {
           const r = (i + 1) * params.orbitalRadius / params.planets;
@@ -718,21 +767,21 @@
         entityCount += 1 + params.planets;
         if (entityCount > 500) showPrompt(8);
         showPrompt(2);
-        addConsoleMessage('Planetary system created ahead.');
+        addConsoleMessage(`System added at [${basePos.map(v => v.toFixed(2)).join(', ')}]`);
         updateStatusOverlay();
       }
 
       function addGalaxy() {
         const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
         const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        const offset = [ (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200 ];
+        const offset = [ (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100 ];
         const basePos = useWebGPU
           ? [
-              webGPUCamera.position[0] + forward[0] * 2000 + offset[0],
-              webGPUCamera.position[1] + forward[1] * 2000 + offset[1],
-              webGPUCamera.position[2] + forward[2] * 2000 + offset[2]
+              webGPUCamera.position[0] + forward[0] * 1000 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 1000 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 1000 + offset[2]
             ]
-          : camera.position.clone().add(forward.multiplyScalar(2000)).add(new THREE.Vector3(...offset));
+          : camera.position.clone().add(forward.multiplyScalar(1000)).add(new THREE.Vector3(...offset));
         const starCount = params.type === 'spiral' ? 10 : 5;
         for (let i = 0; i < starCount; i++) {
           const r = Math.random() * params.radius;
@@ -753,24 +802,24 @@
         entityCount += starCount;
         if (entityCount > 500) showPrompt(8);
         showPrompt(3);
-        addConsoleMessage('Galaxy spawned with stars.');
+        addConsoleMessage(`Galaxy added at [${basePos.map(v => v.toFixed(2)).join(', ')}]`);
         updateStatusOverlay();
       }
 
       function addNode() {
         const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        const offset = [ (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100 ];
+        const offset = [ (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20 ];
         const position = useWebGPU
           ? [
-              webGPUCamera.position[0] + forward[0] * 300 + offset[0],
-              webGPUCamera.position[1] + forward[1] * 300 + offset[1],
-              webGPUCamera.position[2] + forward[2] * 300 + offset[2]
+              webGPUCamera.position[0] + forward[0] * 100 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 100 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 100 + offset[2]
             ]
-          : camera.position.clone().add(forward.multiplyScalar(300)).add(new THREE.Vector3(...offset));
+          : camera.position.clone().add(forward.multiplyScalar(100)).add(new THREE.Vector3(...offset));
         addParticle(3, position, [0, 0, 0], 0);
         if (entityCount > 500) showPrompt(8);
         showPrompt(4);
-        addConsoleMessage('Satellite node deployed.');
+        addConsoleMessage(`Node added at [${position.map(v => v.toFixed(2)).join(', ')}]`);
         updateStatusOverlay();
       }
 
@@ -788,7 +837,7 @@
           : forward.multiplyScalar(20).toArray();
         addParticle(2, position, velocity, 0);
         showPrompt(5);
-        addConsoleMessage('Projectile fired!');
+        addConsoleMessage(`Projectile fired from [${position.map(v => v.toFixed(2)).join(', ')}]`);
         updateStatusOverlay();
       }
 
@@ -807,6 +856,7 @@
             return;
           }
         }
+        addConsoleMessage('Max particle limit reached!');
       }
 
       function reset() {
@@ -1007,193 +1057,244 @@
         }
 
         // Update physics and rendering
+        let cometCount = 0, projectileCount = 0, nodeCount = 0;
         if (useWebGPU) {
-          // Update physics
-          const particleData = new Float32Array(maxParticles * 8);
-          instanceData.forEach((data, i) => {
-            if (data.active) {
+          try {
+            // Update physics
+            const particleData = new Float32Array(maxParticles * 8);
+            instanceData.forEach((data, i) => {
+              if (data.active) {
+                const offset = i * 8;
+                particleData[offset] = data.pos[0];
+                particleData[offset + 1] = data.pos[1];
+                particleData[offset + 2] = data.pos[2];
+                particleData[offset + 3] = data.vel[0];
+                particleData[offset + 4] = data.vel[1];
+                particleData[offset + 5] = data.vel[2];
+                particleData[offset + 6] = data.mass;
+                particleData[offset + 7] = data.type;
+              }
+            });
+            physicsParams[2] = deltaTime;
+            device.queue.writeBuffer(paramsBuffer, 0, physicsParams);
+            device.queue.writeBuffer(particleBuffer, 0, particleData);
+            const computeEncoder = device.createCommandEncoder();
+            const computePass = computeEncoder.beginComputePass();
+            computePass.setPipeline(computePipeline);
+            computePass.setBindGroup(0, computeBindGroup);
+            computePass.dispatchWorkgroups(Math.ceil(maxParticles / 256));
+            computePass.end();
+            device.queue.submit([computeEncoder.finish()]);
+
+            // Read back particle data
+            const readBuffer = device.createBuffer({
+              size: particleData.byteLength,
+              usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+            });
+            const copyEncoder = device.createCommandEncoder();
+            copyEncoder.copyBufferToBuffer(particleBuffer, 0, readBuffer, 0, particleData.byteLength);
+            device.queue.submit([copyEncoder.finish()]);
+            await readBuffer.mapAsync(GPUMapMode.READ);
+            const readData = new Float32Array(readBuffer.getMappedRange().slice());
+            readBuffer.unmap();
+
+            // Update instanceData and handle collisions
+            let toRemove = [];
+            for (let i = 0; i < maxParticles; i++) {
+              if (!instanceData[i].active) continue;
               const offset = i * 8;
-              particleData[offset] = data.pos[0];
-              particleData[offset + 1] = data.pos[1];
-              particleData[offset + 2] = data.pos[2];
-              particleData[offset + 3] = data.vel[0];
-              particleData[offset + 4] = data.vel[1];
-              particleData[offset + 5] = data.vel[2];
-              particleData[offset + 6] = data.mass;
-              particleData[offset + 7] = data.type;
-            }
-          });
-          physicsParams[2] = deltaTime;
-          device.queue.writeBuffer(paramsBuffer, 0, physicsParams);
-          device.queue.writeBuffer(particleBuffer, 0, particleData);
-          const computeEncoder = device.createCommandEncoder();
-          const computePass = computeEncoder.beginComputePass();
-          computePass.setPipeline(computePipeline);
-          computePass.setBindGroup(0, computeBindGroup);
-          computePass.dispatchWorkgroups(Math.ceil(maxParticles / 256));
-          computePass.end();
-          device.queue.submit([computeEncoder.finish()]);
-
-          // Read back particle data
-          const readBuffer = device.createBuffer({
-            size: particleData.byteLength,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-          });
-          const copyEncoder = device.createCommandEncoder();
-          copyEncoder.copyBufferToBuffer(particleBuffer, 0, readBuffer, 0, particleData.byteLength);
-          device.queue.submit([copyEncoder.finish()]);
-          await readBuffer.mapAsync(GPUMapMode.READ);
-          const readData = new Float32Array(readBuffer.getMappedRange().slice());
-          readBuffer.unmap();
-
-          // Update instanceData and handle collisions
-          let toRemove = [];
-          for (let i = 0; i < maxParticles; i++) {
-            if (!instanceData[i].active) continue;
-            const offset = i * 8;
-            instanceData[i].pos = [readData[offset], readData[offset + 1], readData[offset + 2]];
-            instanceData[i].vel = [readData[offset + 3], readData[offset + 4], readData[offset + 5]];
-            if (instanceData[i].type === 2) {
-              const pos = instanceData[i].pos;
-              if (Math.sqrt(pos[0] ** 2 + pos[1] ** 2 + pos[2] ** 2) > 2000) {
+              instanceData[i].pos = [readData[offset], readData[offset + 1], readData[offset + 2]];
+              instanceData[i].vel = [readData[offset + 3], readData[offset + 4], readData[offset + 5]];
+              if (isNaN(instanceData[i].pos[0]) || Math.abs(instanceData[i].pos[0]) > 10000) {
                 instanceData[i].active = false;
                 toRemove.push(i);
                 entityCount--;
+                addConsoleMessage('Removed invalid particle position');
                 continue;
               }
-              for (let j = 0; j < maxParticles; j++) {
-                if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
-                const dist = Math.sqrt(
-                  (pos[0] - instanceData[j].pos[0]) ** 2 +
-                  (pos[1] - instanceData[j].pos[1]) ** 2 +
-                  (pos[2] - instanceData[j].pos[2]) ** 2
-                );
-                if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
-                  instanceData[j].active = false;
+              if (instanceData[i].type === 2) {
+                const pos = instanceData[i].pos;
+                if (Math.sqrt(pos[0] ** 2 + pos[1] ** 2 + pos[2] ** 2) > 2000) {
                   instanceData[i].active = false;
-                  toRemove.push(i, j);
-                  entityCount -= 2;
-                  addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
+                  toRemove.push(i);
+                  entityCount--;
+                  continue;
                 }
-              }
-            }
-          }
-
-          // Update instance buffer
-          const instanceDataArray = new Float32Array(maxParticles * 4);
-          let instanceCount = 0;
-          for (let i = 0; i < maxParticles; i++) {
-            if (instanceData[i].active) {
-              instanceDataArray[instanceCount * 4] = instanceData[i].pos[0];
-              instanceDataArray[instanceCount * 4 + 1] = instanceData[i].pos[1];
-              instanceDataArray[instanceCount * 4 + 2] = instanceData[i].pos[2];
-              instanceDataArray[instanceCount * 4 + 3] = instanceData[i].type;
-              instanceCount++;
-            }
-          }
-          device.queue.writeBuffer(instanceBuffer, 0, instanceDataArray);
-
-          // Render
-          const { projection, view } = webGPUCamera.updateMatrices();
-          const uniforms = new Float32Array(32);
-          uniforms.set(projection, 0);
-          uniforms.set(view, 16);
-          device.queue.writeBuffer(uniformBuffer, 0, uniforms);
-
-          const renderEncoder = device.createCommandEncoder();
-          const renderPass = renderEncoder.beginRenderPass({
-            colorAttachments: [{
-              view: context.getCurrentTexture().createView(),
-              clearValue: { r: 0, g: 0, b: 0, a: 1 },
-              loadOp: 'clear',
-              storeOp: 'store'
-            }]
-          });
-          renderPass.setPipeline(renderPipeline);
-          renderPass.setBindGroup(0, renderBindGroup);
-          renderPass.setVertexBuffer(0, vertexBuffer);
-          renderPass.setVertexBuffer(1, instanceBuffer);
-          renderPass.draw(sphereVertices.length / 3, instanceCount, 0, 0);
-          renderPass.end();
-          device.queue.submit([renderEncoder.finish()]);
-        } else {
-          // WebGL physics
-          const octree = new Octree(new THREE.Vector3(0, 0, 0), 10000);
-          instanceData.forEach(data => {
-            if (data.active && data.mass > 0) {
-              octree.insert({ pos: new THREE.Vector3(...data.pos), vel: new THREE.Vector3(...data.vel), mass: data.mass });
-            }
-          });
-          octree.computeMass();
-          instanceData.forEach(data => {
-            if (data.active && data.mass > 0) {
-              const acc = new THREE.Vector3();
-              octree.getForce({ pos: new THREE.Vector3(...data.pos), mass: data.mass }, acc);
-              data.vel[0] += acc.x * deltaTime;
-              data.vel[1] += acc.y * deltaTime;
-              data.vel[2] += acc.z * deltaTime;
-            }
-          });
-
-          // Update instances
-          const cometMatrix = new THREE.Matrix4();
-          const projectileMatrix = new THREE.Matrix4();
-          const nodeMatrix = new THREE.Matrix4();
-          let cometCount = 0, projectileCount = 0, nodeCount = 0;
-
-          let toRemove = [];
-          instanceData.forEach((data, i) => {
-            if (!data.active) return;
-            data.pos[0] += data.vel[0] * deltaTime;
-            data.pos[1] += data.vel[1] * deltaTime;
-            data.pos[2] += data.vel[2] * deltaTime;
-            const posVec = new THREE.Vector3(...data.pos);
-            if (frustum.containsPoint(posVec)) {
-              if (data.type === 1 && cometCount < maxParticles) {
-                cometMatrix.setPosition(posVec);
-                cometInstanceMesh.setMatrixAt(cometCount++, cometMatrix);
-              } else if (data.type === 2 && projectileCount < maxParticles) {
-                projectileMatrix.setPosition(posVec);
-                projectileInstanceMesh.setMatrixAt(projectileCount++, projectileMatrix);
-              } else if (data.type === 3 && nodeCount < maxParticles) {
-                nodeMatrix.setPosition(posVec);
-                nodeInstanceMesh.setMatrixAt(nodeCount++, nodeMatrix);
-              }
-            }
-            if (data.type === 2) {
-              if (posVec.length() > 2000) {
-                data.active = false;
-                toRemove.push(i);
-                entityCount--;
-              } else {
                 for (let j = 0; j < maxParticles; j++) {
                   if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
-                  const dist = posVec.distanceTo(new THREE.Vector3(...instanceData[j].pos));
+                  const dist = Math.sqrt(
+                    (pos[0] - instanceData[j].pos[0]) ** 2 +
+                    (pos[1] - instanceData[j].pos[1]) ** 2 +
+                    (pos[2] - instanceData[j].pos[2]) ** 2
+                  );
                   if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
                     instanceData[j].active = false;
-                    data.active = false;
+                    instanceData[i].active = false;
                     toRemove.push(i, j);
                     entityCount -= 2;
                     addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
                   }
                 }
               }
+              if (i < 5 && instanceData[i].active) {
+                console.log(`Particle ${i}: pos=[${instanceData[i].pos.map(v => v.toFixed(2)).join(', ')}], type=${instanceData[i].type}`);
+              }
             }
-          });
 
-          cometInstanceMesh.count = cometCount;
-          projectileInstanceMesh.count = projectileCount;
-          nodeInstanceMesh.count = nodeCount;
-          cometInstanceMesh.instanceMatrix.needsUpdate = true;
-          projectileInstanceMesh.instanceMatrix.needsUpdate = true;
-          nodeInstanceMesh.instanceMatrix.needsUpdate = true;
+            // Update instance buffer
+            const instanceDataArray = new Float32Array(maxParticles * 4);
+            let instanceCount = 0;
+            for (let i = 0; i < maxParticles; i++) {
+              if (instanceData[i].active) {
+                instanceDataArray[instanceCount * 4] = instanceData[i].pos[0];
+                instanceDataArray[instanceCount * 4 + 1] = instanceData[i].pos[1];
+                instanceDataArray[instanceCount * 4 + 2] = instanceData[i].pos[2];
+                instanceDataArray[instanceCount * 4 + 3] = instanceData[i].type;
+                instanceCount++;
+                if (instanceData[i].type === 1) cometCount++;
+                else if (instanceData[i].type === 2) projectileCount++;
+                else if (instanceData[i].type === 3) nodeCount++;
+              }
+            }
+            device.queue.writeBuffer(instanceBuffer, 0, instanceDataArray);
 
-          cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-          frustum.setFromProjectionMatrix(cameraMatrix);
+            // Render
+            const { projection, view } = webGPUCamera.updateMatrices();
+            const uniforms = new Float32Array(32);
+            uniforms.set(projection, 0);
+            uniforms.set(view, 16);
+            device.queue.writeBuffer(uniformBuffer, 0, uniforms);
 
-          renderer.render(scene, camera);
+            const renderEncoder = device.createCommandEncoder();
+            const renderPass = renderEncoder.beginRenderPass({
+              colorAttachments: [{
+                view: context.getCurrentTexture().createView(),
+                clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                loadOp: 'clear',
+                storeOp: 'store'
+              }]
+            });
+            renderPass.setPipeline(renderPipeline);
+            renderPass.setBindGroup(0, renderBindGroup);
+            renderPass.setVertexBuffer(0, vertexBuffer);
+            renderPass.setVertexBuffer(1, instanceBuffer);
+            renderPass.draw(sphereVertices.length / 3, instanceCount, 0, 0);
+            renderPass.end();
+            device.queue.submit([renderEncoder.finish()]);
+          } catch (e) {
+            console.error('WebGPU render error:', e);
+            addConsoleMessage('WebGPU rendering failed. Try refreshing or switching to WebGL.');
+          }
+        } else {
+          try {
+            // WebGL physics
+            const octree = new Octree(new THREE.Vector3(0, 0, 0), 10000);
+            instanceData.forEach(data => {
+              if (data.active && data.mass > 0) {
+                octree.insert({ pos: new THREE.Vector3(...data.pos), vel: new THREE.Vector3(...data.vel), mass: data.mass });
+              }
+            });
+            octree.computeMass();
+            instanceData.forEach(data => {
+              if (data.active && data.mass > 0) {
+                const acc = new THREE.Vector3();
+                octree.getForce({ pos: new THREE.Vector3(...data.pos), mass: data.mass }, acc);
+                data.vel[0] += acc.x * deltaTime;
+                data.vel[1] += acc.y * deltaTime;
+                data.vel[2] += acc.z * deltaTime;
+              }
+            });
+
+            // Update instances
+            const cometMatrix = new THREE.Matrix4();
+            const projectileMatrix = new THREE.Matrix4();
+            const nodeMatrix = new THREE.Matrix4();
+            const pointsPositions = new Float32Array(maxParticles * 3);
+            const pointsColors = new Float32Array(maxParticles * 3);
+            let pointCount = 0;
+
+            let toRemove = [];
+            instanceData.forEach((data, i) => {
+              if (!data.active) return;
+              data.pos[0] += data.vel[0] * deltaTime;
+              data.pos[1] += data.vel[1] * deltaTime;
+              data.pos[2] += data.vel[2] * deltaTime;
+              if (isNaN(data.pos[0]) || Math.abs(data.pos[0]) > 10000) {
+                data.active = false;
+                toRemove.push(i);
+                entityCount--;
+                addConsoleMessage('Removed invalid particle position');
+                return;
+              }
+              const posVec = new THREE.Vector3(...data.pos);
+              if (frustum.containsPoint(posVec)) {
+                if (data.type === 1 && cometCount < maxParticles) {
+                  cometMatrix.setPosition(posVec);
+                  cometInstanceMesh.setMatrixAt(cometCount++, cometMatrix);
+                } else if (data.type === 2 && projectileCount < maxParticles) {
+                  projectileMatrix.setPosition(posVec);
+                  projectileInstanceMesh.setMatrixAt(projectileCount++, projectileMatrix);
+                } else if (data.type === 3 && nodeCount < maxParticles) {
+                  nodeMatrix.setPosition(posVec);
+                  nodeInstanceMesh.setMatrixAt(nodeCount++, nodeMatrix);
+                }
+                // Fallback point cloud
+                pointsPositions[pointCount * 3] = posVec.x;
+                pointsPositions[pointCount * 3 + 1] = posVec.y;
+                pointsPositions[pointCount * 3 + 2] = posVec.z;
+                const color = data.type === 1 ? [1, 1, 1] : data.type === 2 ? [1, 1, 0.6] : [1, 0.2, 0.8];
+                pointsColors[pointCount * 3] = color[0];
+                pointsColors[pointCount * 3 + 1] = color[1];
+                pointsColors[pointCount * 3 + 2] = color[2];
+                pointCount++;
+              }
+              if (data.type === 2) {
+                if (posVec.length() > 2000) {
+                  data.active = false;
+                  toRemove.push(i);
+                  entityCount--;
+                } else {
+                  for (let j = 0; j < maxParticles; j++) {
+                    if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
+                    const dist = posVec.distanceTo(new THREE.Vector3(...instanceData[j].pos));
+                    if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
+                      instanceData[j].active = false;
+                      data.active = false;
+                      toRemove.push(i, j);
+                      entityCount -= 2;
+                      addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
+                    }
+                  }
+                }
+              }
+              if (i < 5 && data.active) {
+                console.log(`Particle ${i}: pos=[${data.pos.map(v => v.toFixed(2)).join(', ')}], type=${data.type}`);
+              }
+            });
+
+            cometInstanceMesh.count = cometCount;
+            projectileInstanceMesh.count = projectileCount;
+            nodeInstanceMesh.count = nodeCount;
+            cometInstanceMesh.instanceMatrix.needsUpdate = true;
+            projectileInstanceMesh.instanceMatrix.needsUpdate = true;
+            nodeInstanceMesh.instanceMatrix.needsUpdate = true;
+
+            // Update point cloud
+            pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointsPositions, 3));
+            pointsGeometry.setAttribute('color', new THREE.BufferAttribute(pointsColors, 3));
+            pointsGeometry.setDrawRange(0, pointCount);
+
+            cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(cameraMatrix);
+
+            renderer.render(scene, camera);
+          } catch (e) {
+            console.error('WebGL render error:', e);
+            addConsoleMessage('WebGL rendering failed. Try refreshing.');
+          }
         }
 
+        updateDebugOverlay(cometCount, projectileCount, nodeCount);
         updateStatusOverlay();
       }
 
@@ -1254,6 +1355,12 @@
         animate();
       } catch (e) {
         console.error('Initialization error:', e);
+        document.getElementById('cosmicCanvas').innerHTML += `
+          <div class="error-message">
+            Initialization failed: ${e.message}<br>
+            Please refresh and ensure WebGL support.
+          </div>
+        `;
       }
 
       // Resize for WebGL
