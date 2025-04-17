@@ -272,7 +272,7 @@
     </footer>
 
     <script>
-        const STORAGE_VERSION = 'grid-locker-v3'; // Retained to ensure storage reset
+        const STORAGE_VERSION = 'grid-locker-v4'; // Updated to force storage reset
         const hologram = document.getElementById('hologram');
         const consoleInput = document.getElementById('consoleInput');
         const consoleOutput = document.getElementById('consoleOutput');
@@ -298,12 +298,17 @@
 
         // Input Sanitization
         function sanitizeInput(input) {
-            if (typeof input !== 'string') return '';
-            return input
+            if (typeof input !== 'string') {
+                console.log('Invalid input type, returning empty string');
+                return '';
+            }
+            const sanitized = input
                 .replace(/[<>&"']/g, '') // Prevent XSS
                 .replace(/[^\x20-\x7E]/g, '') // Allow printable ASCII only
                 .trim()
                 .slice(0, 1000); // Limit length
+            console.log('Sanitized input:', sanitized);
+            return sanitized;
         }
 
         consoleInput.addEventListener('input', () => {
@@ -316,7 +321,9 @@
 
         function showAlert(message) {
             const now = Date.now();
-            if (now - lastAlertTime < 5000) return; // 5-second cooldown
+            console.error('Alert:', message);
+            // Reduced cooldown to 2 seconds for critical errors
+            if (now - lastAlertTime < 2000) return;
             lastAlertTime = now;
             const modal = document.createElement('div');
             modal.className = 'popup';
@@ -328,22 +335,29 @@
         // Compression/Decompression
         function compressMessage(message) {
             try {
+                console.log('Compressing message:', message);
                 const enc = new TextEncoder();
                 const compressed = pako.gzip(enc.encode(message));
-                return btoa(String.fromCharCode(...compressed));
+                const base64 = btoa(String.fromCharCode(...compressed));
+                console.log('Compressed message:', base64);
+                return base64;
             } catch (err) {
                 console.error('Compression failed:', err);
+                showAlert('Compression failed: ' + err.message);
                 return null;
             }
         }
 
         function decompressMessage(compressed) {
             try {
+                console.log('Decompressing message:', compressed);
                 const dec = new Uint8Array(atob(compressed).split('').map(c => c.charCodeAt(0)));
                 const decompressed = pako.ungzip(dec, { to: 'string' });
+                console.log('Decompressed message:', decompressed);
                 return decompressed;
             } catch (err) {
                 console.error('Decompression failed:', err);
+                showAlert('Decompression failed: ' + err.message);
                 return null;
             }
         }
@@ -351,6 +365,7 @@
         // Cryptographic Functions
         async function deriveKey(serial, passphrase, salt) {
             try {
+                console.log('Deriving key for serial:', serial);
                 const enc = new TextEncoder();
                 const keyMaterial = await crypto.subtle.importKey(
                     'raw',
@@ -359,7 +374,7 @@
                     false,
                     ['deriveBits', 'deriveKey']
                 );
-                return crypto.subtle.deriveKey(
+                const key = await crypto.subtle.deriveKey(
                     {
                         name: 'PBKDF2',
                         salt: enc.encode(salt),
@@ -371,20 +386,33 @@
                     true,
                     ['encrypt', 'decrypt']
                 );
+                console.log('Key derived successfully');
+                return key;
             } catch (err) {
                 console.error('Key derivation failed:', err);
+                showAlert('Key derivation failed: ' + err.message);
                 return null;
             }
         }
 
         async function encryptMessage(message, serial) {
             try {
-                if (!message) return null; // Allow empty messages
+                console.log('Encrypting message:', message, 'for serial:', serial);
+                if (!message) {
+                    console.log('Empty message, skipping encryption');
+                    return null; // Allow empty messages
+                }
                 const compressed = compressMessage(message);
-                if (!compressed) return null;
+                if (!compressed) {
+                    console.error('Compression returned null');
+                    return null;
+                }
                 const salt = crypto.getRandomValues(new Uint8Array(16));
                 const key = await deriveKey(serial, userPassphrase, salt);
-                if (!key) return null;
+                if (!key) {
+                    console.error('Key derivation returned null');
+                    return null;
+                }
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const enc = new TextEncoder();
                 const encrypted = await crypto.subtle.encrypt(
@@ -392,19 +420,23 @@
                     key,
                     enc.encode(compressed)
                 );
-                return {
+                const result = {
                     salt: btoa(String.fromCharCode(...salt)),
                     iv: btoa(String.fromCharCode(...iv)),
                     encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
                 };
+                console.log('Encrypted message:', result);
+                return result;
             } catch (err) {
                 console.error('Encryption failed:', err);
+                showAlert('Encryption failed: ' + err.message);
                 return null;
             }
         }
 
         async function decryptMessage({ salt, iv, encrypted }, serial) {
             try {
+                console.log('Decrypting message for serial:', serial);
                 const key = await deriveKey(serial, userPassphrase, new Uint8Array(atob(salt).split('').map(c => c.charCodeAt(0))));
                 if (!key) return null;
                 const dec = await crypto.subtle.decrypt(
@@ -413,9 +445,12 @@
                     new Uint8Array(atob(encrypted).split('').map(c => c.charCodeAt(0)))
                 );
                 const compressed = new TextDecoder().decode(dec);
-                return decompressMessage(compressed);
+                const decompressed = decompressMessage(compressed);
+                console.log('Decrypted and decompressed message:', decompressed);
+                return decompressed;
             } catch (err) {
                 console.error('Decryption failed:', err);
+                showAlert('Decryption failed: ' + err.message);
                 return null;
             }
         }
@@ -423,6 +458,7 @@
         // Triple-Code Validation
         async function generateValidationCode(serial, code) {
             try {
+                console.log('Generating validation code for serial:', serial, 'code:', code);
                 const enc = new TextEncoder();
                 const key = await crypto.subtle.importKey(
                     'raw',
@@ -436,16 +472,21 @@
                     key,
                     enc.encode(`${serial}:${code}`)
                 );
-                return `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
+                const validationCode = `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
+                console.log('Validation code generated:', validationCode);
+                return validationCode;
             } catch (err) {
                 console.error('Validation code generation failed:', err);
+                showAlert('Validation code generation failed: ' + err.message);
                 return null;
             }
         }
 
         async function verifyValidationCode(serial, code, validationCode) {
             const expected = await generateValidationCode(serial, code);
-            return expected === validationCode;
+            const isValid = expected === validationCode;
+            console.log('Validation code verification:', { serial, code, validationCode, expected, isValid });
+            return isValid;
         }
 
         // Data Obfuscation
@@ -461,6 +502,7 @@
                 return base64;
             } catch (err) {
                 console.error('Obfuscation failed:', err);
+                showAlert('Obfuscation failed: ' + err.message);
                 return null;
             }
         }
@@ -478,6 +520,7 @@
                 return JSON.parse(json);
             } catch (err) {
                 console.error('Deobfuscation failed:', err);
+                showAlert('Deobfuscation failed: ' + err.message);
                 return null;
             }
         }
@@ -489,14 +532,22 @@
                 const json = JSON.stringify([...serialMap]);
                 const encrypted = await encryptMessage(json, 'storage-key');
                 console.log('Encrypted serialMap:', encrypted);
-                if (!encrypted) return;
+                if (!encrypted) {
+                    console.error('Encryption failed for serialMap');
+                    return;
+                }
                 const obfuscated = obfuscateData(encrypted);
                 console.log('Obfuscated serialMap:', obfuscated);
-                if (!obfuscated) return;
+                if (!obfuscated) {
+                    console.error('Obfuscation failed for serialMap');
+                    return;
+                }
                 localStorage.setItem('serialMap', obfuscated);
                 localStorage.setItem('storageVersion', STORAGE_VERSION);
+                console.log('SerialMap stored successfully');
             } catch (err) {
                 console.error('Storage failed:', err);
+                showAlert('Storage failed: ' + err.message);
             }
         }
 
@@ -512,22 +563,30 @@
                 }
                 const obfuscated = localStorage.getItem('serialMap');
                 console.log('Retrieved obfuscated:', obfuscated);
-                if (!obfuscated) return new Map();
+                if (!obfuscated) {
+                    console.log('No serialMap in storage');
+                    return new Map();
+                }
                 const encrypted = deobfuscateData(obfuscated);
                 console.log('Deobfuscated encrypted:', encrypted);
                 if (!encrypted) {
+                    console.error('Deobfuscation returned null, clearing storage');
                     localStorage.removeItem('serialMap');
                     return new Map();
                 }
                 const decrypted = await decryptMessage(encrypted, 'storage-key');
                 console.log('Decrypted serialMap:', decrypted);
                 if (!decrypted) {
+                    console.error('Decryption returned null, clearing storage');
                     localStorage.removeItem('serialMap');
                     return new Map();
                 }
-                return new Map(JSON.parse(decrypted));
+                const serialMap = new Map(JSON.parse(decrypted));
+                console.log('Loaded serialMap:', [...serialMap]);
+                return serialMap;
             } catch (err) {
                 console.error('Load serialMap failed:', err);
+                showAlert('Load serialMap failed: ' + err.message);
                 localStorage.removeItem('serialMap');
                 return new Map();
             }
@@ -541,14 +600,26 @@
                 const message = sanitizeInput(consoleInput.value);
                 console.log('Sanitized message:', message);
                 let serialMap = await loadSerialMap();
+                if (!serialMap) {
+                    console.error('loadSerialMap returned null');
+                    showAlert('Failed to load serial map');
+                    return;
+                }
                 console.log('Loaded serialMap:', [...serialMap]);
                 let newCode;
+                let attempts = 0;
                 do {
+                    if (attempts++ > 100) {
+                        console.error('Too many attempts to generate unique code');
+                        showAlert('Failed to generate unique code');
+                        return;
+                    }
                     newCode = generateCrypticCode();
                 } while (Array.from(serialMap.values()).some(data => data.code === newCode));
                 console.log('Generated code:', newCode);
                 const serial = generateSerialNumber();
                 if (!serial) {
+                    console.error('Serial generation failed');
                     showAlert('Failed to generate serial number');
                     return;
                 }
@@ -556,21 +627,28 @@
                 const encryptedMessage = message ? await encryptMessage(message, serial) : null;
                 console.log('Encrypted message:', encryptedMessage);
                 if (message && !encryptedMessage) {
+                    console.error('Encryption failed for non-empty message');
                     showAlert('Message encryption failed');
                     return;
                 }
                 serialMap.set(serial, { code: newCode, encryptedMessage });
+                console.log('Updating serialMap with:', { serial, code: newCode, encryptedMessage });
                 await storeSerialMap(serialMap);
+                console.log('SerialMap stored');
                 currentSerial = serial;
                 currentCode = newCode;
                 currentValidationCode = await generateValidationCode(serial, newCode);
                 console.log('Validation code:', currentValidationCode);
                 if (!currentValidationCode) {
+                    console.error('Validation code generation failed');
                     showAlert('Validation code generation failed');
                     return;
                 }
+                console.log('Generating image for seed:', newCode, 'serial:', serial);
                 generateImageFromSeed(newCode, serial, message);
+                console.log('Updating consoleOutput');
                 consoleOutput.textContent = `${serial},${newCode},${currentValidationCode}${message ? `\nMessage: ${message}` : ''}`;
+                console.log('generateGrid completed successfully');
             } catch (err) {
                 console.error('Grid generation failed:', err);
                 showAlert('Grid generation failed: ' + err.message);
@@ -657,6 +735,7 @@
             for (let i = 0; i < 9; i++) {
                 code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
             }
+            console.log('Generated cryptic code:', `Ω-CODE:${code}`);
             return `Ω-CODE:${code}`;
         }
 
@@ -666,15 +745,18 @@
                 const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
                 const serial = `HOLO-${paddedNumber}-${suffix}`;
                 localStorage.setItem('serialCounter', serialCounter);
+                console.log('Generated serial number:', serial);
                 return serial;
             } catch (err) {
                 console.error('Serial generation failed:', err);
+                showAlert('Serial generation failed: ' + err.message);
                 return null;
             }
         }
 
         function generateImageFromSeed(seed, serial, message = '') {
             try {
+                console.log('Generating image from seed:', seed, 'serial:', serial, 'message:', message);
                 hologram.innerHTML = '';
                 hologram.classList.remove('revealed');
 
@@ -734,6 +816,7 @@
                 consoleOutput.textContent = `${currentSerial},${currentCode},${currentValidationCode}${message ? `\nMessage: ${message}` : ''}`;
                 setTimeout(() => {
                     hologram.classList.add('revealed');
+                    console.log('Hologram revealed');
                 }, 100);
             } catch (err) {
                 console.error('Grid rendering failed:', err);
@@ -747,6 +830,7 @@
                 hash ^= str.charCodeAt(i);
                 hash *= 16777619;
             }
+            console.log('Hash code for:', str, 'is:', Math.abs(hash));
             return Math.abs(hash);
         }
 
@@ -754,11 +838,13 @@
             executeInput.value = '';
             executePopup.style.display = 'block';
             executeOverlay.style.display = 'block';
+            console.log('Execute popup shown');
         }
 
         function closeExecutePopup() {
             executePopup.style.display = 'none';
             executeOverlay.style.display = 'none';
+            console.log('Execute popup closed');
         }
 
         function copyCode() {
@@ -768,7 +854,10 @@
             }
             const code = `${currentSerial},${currentCode},${currentValidationCode}`;
             console.log('Copying code:', code);
-            navigator.clipboard.writeText(code).then(() => showAlert('Code copied!')).catch(err => {
+            navigator.clipboard.writeText(code).then(() => {
+                showAlert('Code copied!');
+                console.log('Code copied successfully');
+            }).catch(err => {
                 console.error('Copy failed:', err);
                 showAlert('Copy failed: ' + err.message);
             });
@@ -777,6 +866,7 @@
         function clearConsole() {
             consoleInput.value = '';
             consoleOutput.textContent = '';
+            console.log('Console cleared');
         }
 
         function monitorAction(action) {
@@ -785,15 +875,19 @@
             if (detectAnomaly(actionHistory)) {
                 showAlert('Suspicious activity detected! Please slow down.');
             }
+            console.log('Action monitored:', action);
         }
 
         function detectAnomaly(history) {
             const recent = history.slice(-10);
-            return recent.length === 10 && recent[9].timestamp - recent[0].timestamp < 5000; // 10 actions in 5 seconds
+            const isAnomaly = recent.length === 10 && recent[9].timestamp - recent[0].timestamp < 5000; // 10 actions in 5 seconds
+            console.log('Anomaly detection:', { recentLength: recent.length, isAnomaly });
+            return isAnomaly;
         }
 
         window.addEventListener('load', async () => {
             try {
+                console.log('Window load event triggered');
                 // Clear incompatible storage
                 const storedVersion = localStorage.getItem('storageVersion');
                 if (storedVersion !== STORAGE_VERSION) {
@@ -805,10 +899,14 @@
                 const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
                 currentValidationCode = await generateValidationCode(initSerial, initCode);
                 if (currentValidationCode) {
+                    console.log('Initializing with:', { initSerial, initCode, currentValidationCode });
                     generateImageFromSeed(initCode, initSerial);
                     consoleOutput.textContent = `${initSerial},${initCode},${currentValidationCode}`;
                     currentSerial = initSerial;
                     currentCode = initCode;
+                } else {
+                    console.error('Initial validation code generation failed');
+                    showAlert('Initialization failed: Validation code generation');
                 }
             } catch (err) {
                 console.error('Initialization failed:', err);
