@@ -272,7 +272,7 @@
     </footer>
 
     <script>
-        const STORAGE_VERSION = 'grid-locker-v1'; // Version identifier
+        const STORAGE_VERSION = 'grid-locker-v2'; // Updated version to force storage reset
         const hologram = document.getElementById('hologram');
         const consoleInput = document.getElementById('consoleInput');
         const consoleOutput = document.getElementById('consoleOutput');
@@ -331,7 +331,7 @@
                 const compressed = pako.gzip(enc.encode(message));
                 return btoa(String.fromCharCode(...compressed));
             } catch (err) {
-                showAlert('Compression failed: ' + err.message);
+                console.error('Compression failed:', err);
                 return null;
             }
         }
@@ -342,7 +342,7 @@
                 const decompressed = pako.ungzip(dec, { to: 'string' });
                 return decompressed;
             } catch (err) {
-                showAlert('Decompression failed: ' + err.message);
+                console.error('Decompression failed:', err);
                 return null;
             }
         }
@@ -371,7 +371,7 @@
                     ['encrypt', 'decrypt']
                 );
             } catch (err) {
-                showAlert('Key derivation failed: ' + err.message);
+                console.error('Key derivation failed:', err);
                 return null;
             }
         }
@@ -396,7 +396,7 @@
                     encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
                 };
             } catch (err) {
-                showAlert('Encryption failed: ' + err.message);
+                console.error('Encryption failed:', err);
                 return null;
             }
         }
@@ -413,7 +413,7 @@
                 const compressed = new TextDecoder().decode(dec);
                 return decompressMessage(compressed);
             } catch (err) {
-                showAlert('Decryption failed: ' + err.message);
+                console.error('Decryption failed:', err);
                 return null;
             }
         }
@@ -436,7 +436,7 @@
                 );
                 return `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
             } catch (err) {
-                showAlert('Validation code generation failed: ' + err.message);
+                console.error('Validation code generation failed:', err);
                 return null;
             }
         }
@@ -458,7 +458,7 @@
                 console.log('Base64 encoded:', base64);
                 return base64;
             } catch (err) {
-                showAlert('Obfuscation failed: ' + err.message);
+                console.error('Obfuscation failed:', err);
                 return null;
             }
         }
@@ -473,11 +473,9 @@
                 const dec = new TextDecoder();
                 const json = dec.decode(bytes);
                 console.log('Decoded JSON:', json);
-                const parsed = JSON.parse(json);
-                console.log('Parsed JSON:', parsed);
-                return parsed;
+                return JSON.parse(json);
             } catch (err) {
-                showAlert('Deobfuscation failed: ' + err.message);
+                console.error('Deobfuscation failed:', err);
                 return null;
             }
         }
@@ -486,7 +484,8 @@
         async function storeSerialMap(serialMap) {
             try {
                 console.log('Storing serialMap:', [...serialMap]);
-                const encrypted = await encryptMessage(JSON.stringify([...serialMap]), 'storage-key');
+                const json = JSON.stringify([...serialMap]);
+                const encrypted = await encryptMessage(json, 'storage-key');
                 console.log('Encrypted serialMap:', encrypted);
                 if (!encrypted) return;
                 const obfuscated = obfuscateData(encrypted);
@@ -495,13 +494,13 @@
                 localStorage.setItem('serialMap', obfuscated);
                 localStorage.setItem('storageVersion', STORAGE_VERSION);
             } catch (err) {
-                showAlert('Storage failed: ' + err.message);
+                console.error('Storage failed:', err);
             }
         }
 
         async function loadSerialMap() {
             try {
-                console.log('Loading serialMap from localStorage');
+                console.log('Loading serialMap');
                 const storedVersion = localStorage.getItem('storageVersion');
                 if (storedVersion !== STORAGE_VERSION) {
                     console.log('Version mismatch, clearing storage');
@@ -524,11 +523,9 @@
                     localStorage.removeItem('serialMap');
                     return new Map();
                 }
-                const parsed = JSON.parse(decrypted);
-                console.log('Parsed serialMap:', parsed);
-                return new Map(parsed);
+                return new Map(JSON.parse(decrypted));
             } catch (err) {
-                showAlert('Failed to load storage: ' + err.message);
+                console.error('Load serialMap failed:', err);
                 localStorage.removeItem('serialMap');
                 return new Map();
             }
@@ -545,19 +542,29 @@
                 do {
                     newCode = generateCrypticCode();
                 } while (Array.from(serialMap.values()).some(data => data.code === newCode));
-                const serial = generateSerialNumber(newCode);
-                if (!serial) return;
+                const serial = generateSerialNumber();
+                if (!serial) {
+                    showAlert('Failed to generate serial number');
+                    return;
+                }
                 const encryptedMessage = message ? await encryptMessage(message, serial) : null;
-                if (message && !encryptedMessage) return;
+                if (message && !encryptedMessage) {
+                    showAlert('Message encryption failed');
+                    return;
+                }
                 serialMap.set(serial, { code: newCode, encryptedMessage });
                 await storeSerialMap(serialMap);
                 currentSerial = serial;
                 currentCode = newCode;
                 currentValidationCode = await generateValidationCode(serial, newCode);
-                if (!currentValidationCode) return;
+                if (!currentValidationCode) {
+                    showAlert('Validation code generation failed');
+                    return;
+                }
                 generateImageFromSeed(newCode, serial, message);
                 consoleOutput.textContent = `${serial}\n${newCode}\n${currentValidationCode}${message ? `\nMessage: ${message}` : ''}`;
             } catch (err) {
+                console.error('Grid generation failed:', err);
                 showAlert('Grid generation failed: ' + err.message);
             }
         }
@@ -600,6 +607,7 @@
                 }
                 closeExecutePopup();
             } catch (err) {
+                console.error('Grid execution failed:', err);
                 showAlert('Grid execution failed: ' + err.message);
             }
         }
@@ -613,18 +621,15 @@
             return `Ω-CODE:${code}`;
         }
 
-        function generateSerialNumber(code) {
+        function generateSerialNumber() {
             try {
-                let serial;
-                do {
-                    const paddedNumber = String(serialCounter++).padStart(6, '0');
-                    const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
-                    serial = `HOLO-${paddedNumber}-${suffix}`;
-                } while (localStorage.getItem('serialMap') && new Map(JSON.parse(deobfuscateData(localStorage.getItem('serialMap')) || '[]')).has(serial));
+                const paddedNumber = String(serialCounter++).padStart(6, '0');
+                const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
+                const serial = `HOLO-${paddedNumber}-${suffix}`;
                 localStorage.setItem('serialCounter', serialCounter);
                 return serial;
             } catch (err) {
-                showAlert('Serial generation failed: ' + err.message);
+                console.error('Serial generation failed:', err);
                 return null;
             }
         }
@@ -670,21 +675,21 @@
 
                 const planeCount = rand(2, 3);
                 for (let i = 0; i < planeCount; i++) {
-                    const layer = document.createElement('div');
-                    layer.className = 'grid-plane';
+                    const plane = document.createElement('div');
+                    plane.className = 'grid-plane';
                     const width = randFloat(40, 100);
                     const height = randFloat(40, 100);
                     const left = randFloat(0, 100 - (width / 1.8));
                     const top = randFloat(0, 100 - (height / 1.8));
                     const z = randFloat(-80, 80);
-                    layer.style.cssText = `
+                    plane.style.cssText = `
                         width: ${width}px;
                         height: ${height}px;
                         left: ${left}%;
                         top: ${top}%;
                         transform: translateZ(${z}px) rotateX(${randFloat(-35, 35)}deg) rotateY(${randFloat(-35, 35)}deg);
                     `;
-                    hologram.appendChild(layer);
+                    hologram.appendChild(plane);
                 }
 
                 if (message) {
@@ -694,6 +699,7 @@
                     hologram.classList.add('revealed');
                 }, 100);
             } catch (err) {
+                console.error('Grid rendering failed:', err);
                 showAlert('Grid rendering failed: ' + err.message);
             }
         }
@@ -770,6 +776,7 @@
                     currentCode = initCode;
                 }
             } catch (err) {
+                console.error('Initialization failed:', err);
                 showAlert('Initialization failed: ' + err.message);
             }
         });
