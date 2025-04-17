@@ -272,7 +272,7 @@
     </footer>
 
     <script>
-        const STORAGE_VERSION = 'grid-locker-v2'; // Updated version to force storage reset
+        const STORAGE_VERSION = 'grid-locker-v3'; // Updated to force storage reset
         const hologram = document.getElementById('hologram');
         const consoleInput = document.getElementById('consoleInput');
         const consoleOutput = document.getElementById('consoleOutput');
@@ -300,9 +300,10 @@
         function sanitizeInput(input) {
             if (typeof input !== 'string') return '';
             return input
-                .replace(/[<>&"']/g, '')
-                .replace(/[^\x20-\x7E]/g, '')
-                .slice(0, 1000);
+                .replace(/[<>&"']/g, '') // Prevent XSS
+                .replace(/[^\x20-\x7E]/g, '') // Allow printable ASCII only
+                .trim()
+                .slice(0, 1000); // Limit length
         }
 
         consoleInput.addEventListener('input', () => {
@@ -378,6 +379,7 @@
 
         async function encryptMessage(message, serial) {
             try {
+                if (!message) return null; // Allow empty messages
                 const compressed = compressMessage(message);
                 if (!compressed) return null;
                 const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -446,7 +448,7 @@
             return expected === validationCode;
         }
 
-        // Data Obfuscation (Simplified)
+        // Data Obfuscation
         function obfuscateData(data) {
             try {
                 console.log('Obfuscating data:', data);
@@ -537,17 +539,22 @@
             try {
                 console.log('Starting generateGrid');
                 const message = sanitizeInput(consoleInput.value);
+                console.log('Sanitized message:', message);
                 let serialMap = await loadSerialMap();
+                console.log('Loaded serialMap:', [...serialMap]);
                 let newCode;
                 do {
                     newCode = generateCrypticCode();
                 } while (Array.from(serialMap.values()).some(data => data.code === newCode));
+                console.log('Generated code:', newCode);
                 const serial = generateSerialNumber();
                 if (!serial) {
                     showAlert('Failed to generate serial number');
                     return;
                 }
+                console.log('Generated serial:', serial);
                 const encryptedMessage = message ? await encryptMessage(message, serial) : null;
+                console.log('Encrypted message:', encryptedMessage);
                 if (message && !encryptedMessage) {
                     showAlert('Message encryption failed');
                     return;
@@ -557,6 +564,7 @@
                 currentSerial = serial;
                 currentCode = newCode;
                 currentValidationCode = await generateValidationCode(serial, newCode);
+                console.log('Validation code:', currentValidationCode);
                 if (!currentValidationCode) {
                     showAlert('Validation code generation failed');
                     return;
@@ -572,17 +580,43 @@
         async function executeGrid() {
             monitorAction('execute');
             try {
+                console.log('Starting executeGrid');
                 const input = sanitizeInput(executeInput.value);
-                const [serial, code, validationCode] = input.split(',').map(s => s.trim());
-                if (!serial.match(/HOLO-\d{6}-[A-Z0-9]{3}/) || !code.startsWith('Ω-CODE:') || !validationCode.startsWith('VAL-')) {
-                    showAlert('Invalid input format! Use: HOLO-XXXXXX-XXX,Ω-CODE:XXXX,VAL-XXXX');
+                console.log('Execute input:', input);
+                if (!input) {
+                    showAlert('Please enter serial, code, and validation code');
                     return;
                 }
+                const parts = input.split(',').map(s => s.trim());
+                console.log('Input parts:', parts);
+                if (parts.length !== 3) {
+                    showAlert('Invalid input format! Use: serial,code,validation (e.g., HOLO-000001-A7K,Ω-CODE:ΔΩΨ123#@*,VAL-XXXXXXXXXXXX)');
+                    return;
+                }
+                const [serial, code, validationCode] = parts;
+                if (!serial || !code || !validationCode) {
+                    showAlert('All fields are required: serial, code, validation');
+                    return;
+                }
+                if (!serial.match(/HOLO-\d{6}-[A-Z0-9]{3}/)) {
+                    showAlert('Invalid serial format! Must be HOLO-XXXXXX-XXX');
+                    return;
+                }
+                if (!code.startsWith('Ω-CODE:')) {
+                    showAlert('Invalid code format! Must start with Ω-CODE:');
+                    return;
+                }
+                if (!validationCode.startsWith('VAL-')) {
+                    showAlert('Invalid validation code format! Must start with VAL-');
+                    return;
+                }
+                console.log('Validating:', { serial, code, validationCode });
                 if (!(await verifyValidationCode(serial, code, validationCode))) {
                     showAlert('Invalid validation code!');
                     return;
                 }
                 let serialMap = await loadSerialMap();
+                console.log('Loaded serialMap:', [...serialMap]);
                 if (serialMap.has(serial)) {
                     const { code: storedCode, encryptedMessage } = serialMap.get(serial);
                     if (storedCode !== code) {
@@ -590,6 +624,7 @@
                         return;
                     }
                     const message = encryptedMessage ? await decryptMessage(encryptedMessage, serial) : '';
+                    console.log('Decrypted message:', message);
                     if (encryptedMessage && !message) return;
                     currentSerial = serial;
                     currentCode = code;
@@ -692,9 +727,7 @@
                     hologram.appendChild(plane);
                 }
 
-                if (message) {
-                    consoleOutput.textContent = `${currentSerial}\n${currentCode}\n${currentValidationCode}\nMessage: ${message}`;
-                }
+                consoleOutput.textContent = `${currentSerial}\n${currentCode}\n${currentValidationCode}${message ? `\nMessage: ${message}` : ''}`;
                 setTimeout(() => {
                     hologram.classList.add('revealed');
                 }, 100);
@@ -730,10 +763,6 @@
                 return;
             }
             const code = `${currentSerial}\n${currentCode}\n${currentValidationCode}`;
-            if (code.length > 100) {
-                showAlert('Code too long!');
-                return;
-            }
             navigator.clipboard.writeText(code).then(() => showAlert('Code copied!')).catch(err => {
                 showAlert('Copy failed: ' + err.message);
             });
