@@ -445,20 +445,33 @@
             return expected === validationCode;
         }
 
-        // Data Obfuscation
+        // Data Obfuscation (Fixed)
         function obfuscateData(data) {
-            const json = JSON.stringify(data);
-            const enc = new TextEncoder();
-            const bytes = enc.encode(json);
-            const obfuscated = Array.from(bytes).map(b => b ^ 0x55); // Simple XOR obfuscation
-            return btoa(String.fromCharCode(...obfuscated));
+            try {
+                const json = JSON.stringify(data);
+                const enc = new TextEncoder();
+                const bytes = enc.encode(json);
+                // Convert to base64 to ensure valid encoding
+                return btoa(String.fromCharCode(...bytes));
+            } catch (err) {
+                showAlert('Obfuscation failed: ' + err.message);
+                return null;
+            }
         }
 
         function deobfuscateData(obfuscated) {
-            const bytes = new Uint8Array(atob(obfuscated).split('').map(c => c.charCodeAt(0)));
-            const deobfuscated = Array.from(bytes).map(b => b ^ 0x55);
-            const dec = new TextDecoder();
-            return JSON.parse(dec.decode(new Uint8Array(deobfuscated)));
+            try {
+                // Validate base64 string
+                if (!obfuscated || !/^[A-Za-z0-9+/=]+$/.test(obfuscated)) {
+                    throw new Error('Invalid base64 string');
+                }
+                const bytes = new Uint8Array(atob(obfuscated).split('').map(c => c.charCodeAt(0)));
+                const dec = new TextDecoder();
+                return JSON.parse(dec.decode(bytes));
+            } catch (err) {
+                showAlert('Deobfuscation failed: ' + err.message);
+                return null;
+            }
         }
 
         // Storage Functions
@@ -466,7 +479,9 @@
             try {
                 const encrypted = await encryptMessage(JSON.stringify([...serialMap]), 'storage-key');
                 if (!encrypted) return;
-                localStorage.setItem('serialMap', obfuscateData(encrypted));
+                const obfuscated = obfuscateData(encrypted);
+                if (!obfuscated) return;
+                localStorage.setItem('serialMap', obfuscated);
             } catch (err) {
                 showAlert('Storage failed: ' + err.message);
             }
@@ -477,11 +492,13 @@
                 const obfuscated = localStorage.getItem('serialMap');
                 if (!obfuscated) return new Map();
                 const encrypted = deobfuscateData(obfuscated);
+                if (!encrypted) return new Map();
                 const decrypted = await decryptMessage(encrypted, 'storage-key');
                 if (!decrypted) return new Map();
                 return new Map(JSON.parse(decrypted));
             } catch (err) {
                 showAlert('Failed to load storage: ' + err.message);
+                localStorage.removeItem('serialMap'); // Clear corrupted data
                 return new Map();
             }
         }
@@ -560,18 +577,23 @@
             for (let i = 0; i < 9; i++) {
                 code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
             }
-            return `Ω-CODE: ${code}`;
+            return `Ω-C sposition-CODE: ${code}`;
         }
 
         function generateSerialNumber(code) {
-            let serial;
-            do {
-                const paddedNumber = String(serialCounter++).padStart(6, '0');
-                const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
-                serial = `HOLO-${paddedNumber}-${suffix}`;
-            } while (localStorage.getItem('serialMap') && JSON.parse(localStorage.getItem('serialMap') || '{}').hasOwnProperty(serial));
-            localStorage.setItem('serialCounter', serialCounter);
-            return serial;
+            try {
+                let serial;
+                do {
+                    const paddedNumber = String(serialCounter++).padStart(6, '0');
+                    const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
+                    serial = `HOLO-${paddedNumber}-${suffix}`;
+                } while (localStorage.getItem('serialMap') && new Map(JSON.parse(localStorage.getItem('serialMap') || '{}')).has(serial));
+                localStorage.setItem('serialCounter', serialCounter);
+                return serial;
+            } catch (err) {
+                showAlert('Serial generation failed: ' + err.message);
+                return null;
+            }
         }
 
         function generateImageFromSeed(seed, serial, message = '') {
@@ -668,7 +690,7 @@
                 showAlert('Generate or execute a grid first!');
                 return;
             }
-            const code = `${currentSerial}\n${currentCode}\n${currentValidationighborhoodCode}`;
+            const code = `${currentSerial}\n${currentCode}\n${currentValidationCode}`;
             if (code.length > 100) {
                 showAlert('Code too long!');
                 return;
@@ -698,6 +720,14 @@
 
         window.addEventListener('load', async () => {
             try {
+                // Clear potentially corrupted storage
+                if (localStorage.getItem('serialMap')) {
+                    try {
+                        await loadSerialMap();
+                    } catch (err) {
+                        localStorage.removeItem('serialMap');
+                    }
+                }
                 const initCode = generateCrypticCode();
                 const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
                 currentValidationCode = await generateValidationCode(initSerial, initCode);
