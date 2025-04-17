@@ -14,14 +14,44 @@
       padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
       backdrop-filter: blur(5px); z-index: 10;
     }
+    .control-item { flex: 1; min-width: 80px; text-align: center; }
     button {
       background: #4a90e2; border: none; padding: 10px 20px; color: white;
       border-radius: 20px; cursor: pointer; font-size: 16px; transition: transform 0.2s, background 0.2s;
     }
     button:hover { background: #357abd; }
     button.active { background: #ff4444; }
+    button:active { transform: scale(0.95); }
+    .prompt {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 10px; font-size: 14px;
+      max-width: 90%; text-align: center; opacity: 0; transition: opacity 0.5s; z-index: 5;
+    }
+    .prompt.active { opacity: 1; }
+    .hud {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+      opacity: 0.4; z-index: 1;
+    }
+    .hud::before {
+      content: ''; position: absolute; top: 10%; left: 10%; right: 10%; bottom: 10%;
+      border: 2px solid rgba(74, 144, 226, 0); border-radius: 20px; box-shadow: none;
+    }
+    .hud::after {
+      content: '+'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #4a90e2; font-size: 24px;
+    }
+    .throttle-indicator {
+      position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+      color: #4a90e2; font-size: 12px; opacity: 0; transition: opacity 0.3s; z-index: 5;
+    }
+    .throttle-indicator.active { opacity: 1; }
+    .status-overlay {
+      position: absolute; top: 0; width: 100%; background: rgba(0, 0, 0, 0.3);
+      padding: 5px 10px; font-size: 12px; text-align: left; color: #fff;
+      text-shadow: 0 0 2px #000; z-index: 5; pointer-events: none;
+    }
     .debug-overlay {
-      position: absolute; top: 10px; left: 10px; background: rgba(0, 0, 0, 0.5);
+      position: absolute; top: 30px; left: 10px; background: rgba(0, 0, 0, 0.5);
       padding: 5px; font-size: 12px; color: #0f0; z-index: 5; pointer-events: none;
     }
     .console {
@@ -31,301 +61,661 @@
     .console-log {
       flex: 1; overflow-y: auto; font-size: 12px; color: #fff; text-shadow: 0 0 2px #000; padding: 5px;
     }
+    .console-log p { margin: 2px 0; }
     .console-input {
       width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid #4a90e2;
       color: #fff; padding: 5px; font-size: 12px; outline: none;
     }
+    .console::-webkit-scrollbar { width: 8px; }
+    .console::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
   </style>
 </head>
 <body>
-  <div id="cosmicCanvas"></div>
+  <div id="cosmicCanvas">
+    <div class="hud"></div>
+    <div id="statusOverlay" class="status-overlay"></div>
+    <div id="debugOverlay" class="debug-overlay"></div>
+    <div id="throttleIndicator" class="throttle-indicator"></div>
+    <div id="console" class="console">
+      <div id="consoleLog" class="console-log"></div>
+      <input id="consoleInput" class="console-input" type="text" placeholder="Type /help for commands...">
+    </div>
+  </div>
   <div class="controls">
-    <button id="throttleBtn">Full Throttle</button>
-    <button id="matrixBtn">Run Matrix Op</button>
-    <button id="addComet">Add Comet</button>
-    <button id="autopilotBtn">Autopilot</button>
-    <button id="debugWeave">Toggle Weave Debug</button>
+    <div class="control-item"><button id="throttleBtn">Full Throttle</button></div>
+    <div class="control-item"><button id="addComet">Add Comet</button></div>
+    <div class="control-item"><button id="addSystem">Add System</button></div>
+    <div class="control-item"><button id="addGalaxy">Add Galaxy</button></div>
+    <div class="control-item"><button id="addNode">Add Node</button></div>
+    <div class="control-item"><button id="autopilotBtn">Autopilot</button></div>
+    <div class="control-item"><button id="shootBtn">Shoot</button></div>
+    <div class="control-item"><button id="resetBtn">Reset</button></div>
+    <div class="control-item"><button id="matrixBtn">Matrix Op</button></div>
   </div>
-  <div id="debugOverlay" class="debug-overlay"></div>
-  <div id="console" class="console">
-    <div id="consoleLog" class="console-log"></div>
-    <input id="consoleInput" class="console-input" type="text" placeholder="Type /help for commands...">
-  </div>
+  <div id="prompt" class="prompt"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
   <script>
-    // Scene setup
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 20000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
-    camera.position.set(0, 0, 100);
-
-    // Particle setup
-    const maxParticles = 1000;
-    const instanceData = Array(maxParticles).fill().map(() => ({
-      active: false,
-      type: 0, // 1=comet
-      pos: [0, 0, 0],
-      vel: [0, 0, 0]
-    }));
-    let entityCount = 0;
-
-    // Comet instanced mesh
-    const cometGeometry = new THREE.SphereGeometry(5, 16, 16);
-    const cometMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const cometInstanceMesh = new THREE.InstancedMesh(cometGeometry, cometMaterial, maxParticles);
-    scene.add(cometInstanceMesh);
-
-    // Quantum Tile Weave setup
-    const noise = new SimplexNoise();
-    const tileSize = 16;
-    const weaveSize = 32;
-    const weaveTexture = new THREE.WebGLRenderTarget(weaveSize, weaveSize, {
-      format: THREE.RGBAFormat,
-      type: THREE.FloatType
-    });
-    const matrixTextures = {
-      A: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
-      B: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
-      C: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
-      D: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType)
-    };
-    Object.values(matrixTextures).forEach(tex => tex.needsUpdate = true);
-
-    // QTW shader
-    const qtwShader = {
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D weaveTex;
-        uniform sampler2D matrixA;
-        uniform sampler2D matrixB;
-        uniform sampler2D matrixC;
-        uniform float time;
-        uniform vec2 resolution;
-        varying vec2 vUv;
-        float simplex(vec3 p) { return 0.0; } // Placeholder for Simplex noise
-        void main() {
-          vec2 weaveUv = vUv * ${weaveSize}.0 / ${tileSize}.0;
-          vec4 weaveData = texture2D(weaveTex, weaveUv);
-          float noiseVal = simplex(vec3(vUv * 10.0, time));
-          vec4 a = texture2D(matrixA, vUv);
-          vec4 b = texture2D(matrixB, vUv);
-          vec4 c = texture2D(matrixC, vUv);
-          vec4 d = vec4(0.0);
-          for (int k = 0; k < ${tileSize}; k++) {
-            vec4 aTile = texture2D(matrixA, vec2(float(k) / ${tileSize}.0, vUv.y));
-            vec4 bTile = texture2D(matrixB, vec2(vUv.x, float(k) / ${tileSize}.0));
-            d += aTile * bTile * (1.0 + noiseVal * 0.1);
-          }
-          d += c;
-          gl_FragColor = d * weaveData;
-        }
-      `,
-      uniforms: {
-        weaveTex: { value: weaveTexture.texture },
-        matrixA: { value: matrixTextures.A },
-        matrixB: { value: matrixTextures.B },
-        matrixC: { value: matrixTextures.C },
-        time: { value: 0 },
-        resolution: { value: new THREE.Vector2(weaveSize, weaveSize) }
-      }
-    };
-    const qtwMaterial = new THREE.ShaderMaterial(qtwShader);
-    const qtwPlane = new THREE.Mesh(new THREE.PlaneGeometry(weaveSize, weaveSize), qtwMaterial);
-    qtwPlane.visible = false;
-    scene.add(qtwPlane);
-
-    // Debug weave visualization
-    const debugWeaveMaterial = new THREE.ShaderMaterial({
-      vertexShader: qtwShader.vertexShader,
-      fragmentShader: `
-        uniform sampler2D weaveTex;
-        varying vec2 vUv;
-        void main() {
-          vec4 weaveData = texture2D(weaveTex, vUv);
-          gl_FragColor = vec4(weaveData.rgb * 0.5 + 0.5, 1.0);
-        }
-      `,
-      uniforms: { weaveTex: { value: weaveTexture.texture } }
-    });
-    const debugWeavePlane = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), debugWeaveMaterial);
-    debugWeavePlane.position.set(0, 0, -50);
-    debugWeavePlane.visible = false;
-    scene.add(debugWeavePlane);
-
-    // Game state
-    let throttle = 0;
-    let autopilot = false;
-    let debugWeave = false;
-    let time = 0;
-
-    // Controls
-    document.getElementById('throttleBtn').addEventListener('click', () => {
-      throttle = throttle === 0 ? 150 : 0;
-      logConsole(`Throttle: ${throttle}`);
-    });
-    document.getElementById('matrixBtn').addEventListener('click', () => {
-      runMatrixOp();
-      logConsole('Matrix operation executed');
-    });
-    document.getElementById('addComet').addEventListener('click', () => addEntity(1));
-    document.getElementById('autopilotBtn').addEventListener('click', () => {
-      autopilot = !autopilot;
-      logConsole(`Autopilot: ${autopilot}`);
-    });
-    document.getElementById('debugWeave').addEventListener('click', () => {
-      debugWeave = !debugWeave;
-      debugWeavePlane.visible = debugWeave;
-      logConsole(`Debug Weave: ${debugWeave}`);
-    });
-
-    // Console
-    const consoleLog = document.getElementById('consoleLog');
-    const consoleInput = document.getElementById('consoleInput');
-    consoleInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && consoleInput.value) {
-        processCommand(consoleInput.value);
-        consoleInput.value = '';
-      }
-    });
-
-    function logConsole(message) {
-      const p = document.createElement('p');
-      p.textContent = message;
-      consoleLog.appendChild(p);
-      consoleLog.scrollTop = consoleLog.scrollHeight;
-    }
-
-    function processCommand(cmd) {
-      logConsole(`> ${cmd}`);
-      if (cmd === '/help') {
-        logConsole('Commands: /throttle, /matrix, /comet, /autopilot, /debug');
-      } else if (cmd === '/throttle') {
-        throttle = throttle === 0 ? 150 : 0;
-        logConsole(`Throttle: ${throttle}`);
-      } else if (cmd === '/matrix') {
-        runMatrixOp();
-        logConsole('Matrix operation executed');
-      } else if (cmd === '/comet') {
-        addEntity(1);
-      } else if (cmd === '/autopilot') {
-        autopilot = !autopilot;
-        logConsole(`Autopilot: ${autopilot}`);
-      } else if (cmd === '/debug') {
-        debugWeave = !debugWeave;
-        debugWeavePlane.visible = debugWeave;
-        logConsole(`Debug Weave: ${debugWeave}`);
-      } else {
-        logConsole('Unknown command');
-      }
-    }
-
-    function addEntity(type) {
-      if (entityCount < maxParticles) {
-        const idx = instanceData.findIndex(d => !d.active);
-        instanceData[idx] = {
-          active: true,
-          type,
-          pos: [Math.random() * 200 - 100, Math.random() * 200 - 100, -50],
-          vel: [Math.random() * 2 - 1, Math.random() * 2 - 1, 0]
-        };
-        entityCount++;
-        logConsole(`Added ${type === 1 ? 'comet' : 'unknown'} at index ${idx}`);
-      }
-    }
-
-    function runMatrixOp() {
-      // Initialize matrices with random data
-      for (let i = 0; i < tileSize * tileSize; i++) {
-        matrixTextures.A.image.data[i * 4] = Math.random();
-        matrixTextures.B.image.data[i * 4] = Math.random();
-        matrixTextures.C.image.data[i * 4] = Math.random();
-      }
-      matrixTextures.A.needsUpdate = true;
-      matrixTextures.B.needsUpdate = true;
-      matrixTextures.C.needsUpdate = true;
-
-      // Render QTW pass
-      renderer.setRenderTarget(weaveTexture);
-      qtwPlane.visible = true;
-      renderer.render(scene, camera);
-      qtwPlane.visible = false;
-      renderer.setRenderTarget(null);
-
-      // Apply result to comet positions (example)
-      const resultData = new Float32Array(tileSize * tileSize * 4);
-      renderer.readRenderTargetPixels(weaveTexture, 0, 0, weaveSize, weaveSize, resultData);
-      instanceData.forEach((data, idx) => {
-        if (data.active && data.type === 1) {
-          const val = resultData[idx % (tileSize * tileSize) * 4];
-          data.pos[0] += val * 0.1;
-          data.pos[1] += val * 0.1;
-        }
-      });
-    }
-
-    // Animation loop
-    function animate() {
-      requestAnimationFrame(animate);
-      time += 0.016;
-
-      // Update particles
-      const matrix = new THREE.Matrix4();
-      let cometCount = 0;
-      instanceData.forEach((data, idx) => {
-        if (data.active) {
-          data.pos[0] += data.vel[0] * throttle * 0.016;
-          data.pos[1] += data.vel[1] * throttle * 0.016;
-          matrix.setPosition(data.pos[0], data.pos[1], data.pos[2]);
-          cometInstanceMesh.setMatrixAt(idx, matrix);
-          if (data.type === 1) cometCount++;
-        } else {
-          matrix.setPosition(0, 0, 10000);
-          cometInstanceMesh.setMatrixAt(idx, matrix);
-        }
-      });
-      cometInstanceMesh.instanceMatrix.needsUpdate = true;
-
-      // Update camera
-      camera.position.z -= throttle * 0.016;
-      if (autopilot) {
-        const target = instanceData.find(d => d.active && d.type === 1);
-        if (target) {
-          camera.position.x += (target.pos[0] - camera.position.x) * 0.01;
-          camera.position.y += (target.pos[1] - camera.position.y) * 0.01;
-        }
-      }
-
-      // Update debug overlay
-      document.getElementById('debugOverlay').textContent = `
-        Entities: ${entityCount}
-        Comets: ${cometCount}
-        Throttle: ${throttle}
-        Autopilot: ${autopilot}
-        Weave Debug: ${debugWeave}
-      `;
-
-      // Render
-      renderer.render(scene, camera);
-    }
-    animate();
-
-    // Resize handler
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
+    window.onload = () => {
+      // Scene setup
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 20000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+      renderer.setClearColor(0x000000, 1);
+      document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
+      camera.position.set(0, 0, 100);
+      const frustum = new THREE.Frustum();
+      const cameraMatrix = new THREE.Matrix4();
+
+      // Particle setup
+      const maxParticles = 1000;
+      const instanceData = Array(maxParticles).fill().map(() => ({
+        active: false,
+        type: 0, // 1=comet, 2=projectile, 3=node
+        created: 0,
+        pos: [0, 0, 0],
+        vel: [0, 0, 0],
+        mass: 0
+      }));
+      let entityCount = 0;
+
+      // Geometries and materials
+      const sharedGeometries = {
+        comet: new THREE.SphereGeometry(10, 16, 16),
+        projectile: new THREE.SphereGeometry(10, 16, 16),
+        node: new THREE.BoxGeometry(20, 20, 20)
+      };
+      const sharedMaterials = {
+        comet: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        projectile: new THREE.MeshBasicMaterial({ color: 0xffff99 }),
+        node: new THREE.MeshBasicMaterial({ color: 0xff33cc })
+      };
+
+      // Instanced meshes
+      const cometInstanceMesh = new THREE.InstancedMesh(sharedGeometries.comet, sharedMaterials.comet, maxParticles);
+      const projectileInstanceMesh = new THREE.InstancedMesh(sharedGeometries.projectile, sharedMaterials.projectile, maxParticles);
+      const nodeInstanceMesh = new THREE.InstancedMesh(sharedGeometries.node, sharedMaterials.node, maxParticles);
+      scene.add(cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh);
+
+      // Fallback point cloud
+      const pointsGeometry = new THREE.BufferGeometry();
+      const pointsPositions = new Float32Array(maxParticles * 3);
+      const pointsColors = new Float32Array(maxParticles * 3);
+      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointsPositions, 3));
+      pointsGeometry.setAttribute('color', new THREE.BufferAttribute(pointsColors, 3));
+      const pointsMaterial = new THREE.PointsMaterial({ size: 10, vertexColors: true });
+      const pointsMesh = new THREE.Points(pointsGeometry, pointsMaterial);
+      scene.add(pointsMesh);
+
+      // Quantum Tile Weave setup
+      const noise = new SimplexNoise();
+      const tileSize = 16;
+      const weaveSize = 32;
+      const weaveTexture = new THREE.WebGLRenderTarget(weaveSize, weaveSize, {
+        format: THREE.RGBAFormat,
+        type: THREE.FloatType
+      });
+      const matrixTextures = {
+        A: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
+        B: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
+        C: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType),
+        D: new THREE.DataTexture(new Float32Array(tileSize * tileSize * 4), tileSize, tileSize, THREE.RGBAFormat, THREE.FloatType)
+      };
+      Object.values(matrixTextures).forEach(tex => tex.needsUpdate = true);
+
+      // QTW shader
+      const qtwShader = {
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D weaveTex;
+          uniform sampler2D matrixA;
+          uniform sampler2D matrixB;
+          uniform sampler2D matrixC;
+          uniform float time;
+          varying vec2 vUv;
+          float simplex(vec3 p) { return 0.0; } // Placeholder (Simplex included via CDN)
+          void main() {
+            vec2 weaveUv = vUv * ${weaveSize}.0 / ${tileSize}.0;
+            vec4 weaveData = texture2D(weaveTex, weaveUv);
+            float noiseVal = simplex(vec3(vUv * 10.0, time));
+            vec4 a = texture2D(matrixA, vUv);
+            vec4 b = texture2D(matrixB, vUv);
+            vec4 c = texture2D(matrixC, vUv);
+            vec4 d = vec4(0.0);
+            for (int k = 0; k < ${tileSize}; k++) {
+              vec4 aTile = texture2D(matrixA, vec2(float(k) / ${tileSize}.0, vUv.y));
+              vec4 bTile = texture2D(matrixB, vec2(vUv.x, float(k) / ${tileSize}.0));
+              d += aTile * bTile * (1.0 + noiseVal * 0.1);
+            }
+            d += c;
+            if (isnan(d.x) || isinf(d.x)) d = vec4(0.0);
+            gl_FragColor = d * weaveData;
+          }
+        `,
+        uniforms: {
+          weaveTex: { value: weaveTexture.texture },
+          matrixA: { value: matrixTextures.A },
+          matrixB: { value: matrixTextures.B },
+          matrixC: { value: matrixTextures.C },
+          time: { value: 0 }
+        }
+      };
+      const qtwMaterial = new THREE.ShaderMaterial(qtwShader);
+      const qtwPlane = new THREE.Mesh(new THREE.PlaneGeometry(weaveSize, weaveSize), qtwMaterial);
+      qtwPlane.visible = false;
+      scene.add(qtwPlane);
+
+      // Game state
+      let throttle = 0;
+      let velocity = [0, 0, 0];
+      let autopilotActive = false;
+      let currentNodeIndex = 0;
+      let lastTime = performance.now();
+      let time = 0;
+
+      // Simulated data
+      const trainingData = {
+        comets: Array(100).fill().map(() => ({
+          semiMajorAxis: Math.random() * 50 + 20,
+          eccentricity: Math.random() * 0.8,
+          velocity: Math.random() * 3 + 1
+        })),
+        systems: Array(50).fill().map(() => ({
+          planets: Math.floor(Math.random() * 3) + 1,
+          orbitalRadius: Math.random() * 100 + 50
+        })),
+        galaxies: Array(20).fill().map(() => ({
+          radius: Math.random() * 300 + 150,
+          type: ['spiral', 'elliptical'][Math.floor(Math.random() * 2)]
+        }))
+      };
+
+      // UI elements
+      const statusOverlay = document.getElementById('statusOverlay');
+      const debugOverlay = document.getElementById('debugOverlay');
+      const consoleLog = document.getElementById('consoleLog');
+      const consoleInput = document.getElementById('consoleInput');
+      const throttleIndicator = document.getElementById('throttleIndicator');
+      const prompt = document.getElementById('prompt');
+      const maxLogMessages = 50;
+      let logMessages = [];
+
+      function addConsoleMessage(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        logMessages.push(`[${timestamp}] ${message}`);
+        if (logMessages.length > maxLogMessages) logMessages.shift();
+        consoleLog.innerHTML = logMessages.map(msg => `<p>${msg}</p>`).join('');
+        consoleLog.scrollTop = consoleLog.scrollHeight;
+      }
+
+      function updateStatusOverlay(cometCount, projectileCount, nodeCount) {
+        statusOverlay.textContent = `Entities: ${entityCount} | Comets: ${cometCount} | Projectiles: ${projectileCount} | Nodes: ${nodeCount} | Throttle: ${throttle} | Autopilot: ${autopilotActive ? 'On' : 'Off'}`;
+      }
+
+      // Input handling
+      const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+      window.addEventListener('keydown', e => {
+        if (e.key in keys) { keys[e.key] = true; e.preventDefault(); }
+      });
+      window.addEventListener('keyup', e => {
+        if (e.key in keys) keys[e.key] = false;
+      });
+
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+      renderer.domElement.addEventListener('mousedown', e => {
+        if (autopilotActive) return;
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+      renderer.domElement.addEventListener('mousemove', e => {
+        if (isDragging && !autopilotActive) {
+          const deltaX = e.clientX - previousMousePosition.x;
+          const deltaY = e.clientY - previousMousePosition.y;
+          camera.rotationVelocity = camera.rotationVelocity || { pitch: 0, yaw: 0 };
+          camera.rotationVelocity.yaw -= deltaX * 0.01;
+          camera.rotationVelocity.pitch -= deltaY * 0.01;
+          previousMousePosition = { x: e.clientX, y: e.clientY };
+        }
+      });
+      renderer.domElement.addEventListener('mouseup', () => isDragging = false);
+      renderer.domElement.addEventListener('touchstart', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+      renderer.domElement.addEventListener('touchmove', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        const deltaX = e.touches[0].clientX - previousMousePosition.x;
+        const deltaY = e.touches[0].clientY - previousMousePosition.y;
+        camera.rotationVelocity = camera.rotationVelocity || { pitch: 0, yaw: 0 };
+        camera.rotationVelocity.yaw -= deltaX * 0.01;
+        camera.rotationVelocity.pitch -= deltaY * 0.01;
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+
+      // Console commands
+      consoleInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && consoleInput.value) {
+          addConsoleMessage(`> ${consoleInput.value}`);
+          handleCommand(consoleInput.value);
+          consoleInput.value = '';
+        }
+      });
+
+      function handleCommand(input) {
+        const cmd = input.trim().toLowerCase();
+        if (!cmd.startsWith('/')) {
+          addConsoleMessage('Commands must start with "/". Type /help for commands.');
+          return;
+        }
+        const parts = cmd.slice(1).split(' ');
+        const command = parts[0];
+        const args = parts.slice(1);
+
+        switch (command) {
+          case 'help':
+            addConsoleMessage('Commands: /add comet, /add system, /add galaxy, /add node, /shoot, /reset, /throttle, /autopilot, /matrix');
+            break;
+          case 'add':
+            if (args[0] === 'comet') addComet();
+            else if (args[0] === 'system') addSystem();
+            else if (args[0] === 'galaxy') addGalaxy();
+            else if (args[0] === 'node') addNode();
+            else addConsoleMessage('Invalid add command. Use: comet, system, galaxy, node');
+            break;
+          case 'shoot':
+            shoot();
+            break;
+          case 'reset':
+            reset();
+            break;
+          case 'throttle':
+            toggleThrottle();
+            break;
+          case 'autopilot':
+            toggleAutopilot();
+            break;
+          case 'matrix':
+            runMatrixOp();
+            addConsoleMessage('Matrix operation executed');
+            break;
+          default:
+            addConsoleMessage('Unknown command. Type /help for commands.');
+        }
+      }
+
+      // Entity management
+      function addComet() {
+        const params = trainingData.comets[Math.floor(Math.random() * trainingData.comets.length)];
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [(Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20];
+        const position = camera.position.clone().add(forward.multiplyScalar(50)).add(new THREE.Vector3(...offset));
+        addParticle(1, position, [(Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5], 1);
+        showPrompt(1);
+        addConsoleMessage(`Comet added at [${position.toArray().map(v => v.toFixed(2)).join(', ')}]`);
+      }
+
+      function addSystem() {
+        const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [(Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50];
+        const basePos = camera.position.clone().add(forward.multiplyScalar(100)).add(new THREE.Vector3(...offset));
+        addParticle(1, basePos, [0, 0, 0], 1000);
+        for (let i = 0; i < params.planets; i++) {
+          const r = (i + 1) * params.orbitalRadius / params.planets;
+          const v = Math.sqrt(100 * 1000 / r);
+          addParticle(1, [basePos.x + r, basePos.y, basePos.z], [0, 0, v], 10);
+        }
+        entityCount += 1 + params.planets;
+        showPrompt(2);
+        addConsoleMessage(`System added at [${basePos.toArray().map(v => v.toFixed(2)).join(', ')}]`);
+      }
+
+      function addGalaxy() {
+        const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [(Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100];
+        const basePos = camera.position.clone().add(forward.multiplyScalar(200)).add(new THREE.Vector3(...offset));
+        const starCount = params.type === 'spiral' ? 10 : 5;
+        for (let i = 0; i < starCount; i++) {
+          const r = Math.random() * params.radius;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = params.type === 'spiral' ? Math.random() * 0.2 : Math.random() * Math.PI;
+          const pos = [
+            basePos.x + r * Math.sin(phi) * Math.cos(theta),
+            basePos.y + r * Math.sin(phi) * Math.sin(theta),
+            basePos.z + r * Math.cos(phi)
+          ];
+          const v = Math.sqrt(100 * 50 / r);
+          const tangent = [-pos[1] + basePos.y, pos[0] - basePos.x, 0];
+          const len = Math.sqrt(tangent[0] ** 2 + tangent[1] ** 2);
+          tangent[0] /= len || 1;
+          tangent[1] /= len || 1;
+          addParticle(1, pos, [tangent[0] * v, tangent[1] * v, 0], 50);
+        }
+        entityCount += starCount;
+        showPrompt(3);
+        addConsoleMessage(`Galaxy added at [${basePos.toArray().map(v => v.toFixed(2)).join(', ')}]`);
+      }
+
+      function addNode() {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [(Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20];
+        const position = camera.position.clone().add(forward.multiplyScalar(50)).add(new THREE.Vector3(...offset));
+        addParticle(3, position, [0, 0, 0], 0);
+        showPrompt(4);
+        addConsoleMessage(`Node added at [${position.toArray().map(v => v.toFixed(2)).join(', ')}]`);
+      }
+
+      function shoot() {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const position = camera.position.clone().add(forward.multiplyScalar(10));
+        const velocity = forward.multiplyScalar(20).toArray();
+        addParticle(2, position, velocity, 0);
+        showPrompt(5);
+        addConsoleMessage(`Projectile fired from [${position.toArray().map(v => v.toFixed(2)).join(', ')}]`);
+      }
+
+      function addParticle(type, position, velocity, mass) {
+        for (let i = 0; i < maxParticles; i++) {
+          if (!instanceData[i].active) {
+            instanceData[i] = {
+              active: true,
+              type,
+              created: Date.now(),
+              pos: Array.isArray(position) ? position : [position.x, position.y, position.z],
+              vel: Array.isArray(velocity) ? velocity : [velocity.x, velocity.y, velocity.z],
+              mass
+            };
+            entityCount++;
+            return;
+          }
+        }
+        addConsoleMessage('Max particle limit reached!');
+      }
+
+      function reset() {
+        instanceData.forEach(d => d.active = false);
+        entityCount = 0;
+        autopilotActive = false;
+        currentNodeIndex = 0;
+        throttle = 0;
+        document.getElementById('autopilotBtn').classList.remove('active');
+        document.getElementById('throttleBtn').classList.remove('active');
+        throttleIndicator.textContent = '';
+        throttleIndicator.classList.remove('active');
+        showPrompt(6);
+        addConsoleMessage('Galaxy reset to blank slate.');
+      }
+
+      function toggleThrottle() {
+        if (autopilotActive) {
+          addConsoleMessage('Cannot toggle throttle during autopilot.');
+          return;
+        }
+        throttle = throttle === 0 ? 150 : 0;
+        document.getElementById('throttleBtn').classList.toggle('active', throttle > 0);
+        throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
+        throttleIndicator.classList.toggle('active', throttle > 0);
+        showPrompt(0);
+        addConsoleMessage(throttle > 0 ? 'Manual throttle engaged!' : 'Throttle disengaged.');
+      }
+
+      function toggleAutopilot() {
+        const nodes = instanceData.filter(d => d.active && d.type === 3);
+        if (nodes.length < 2) {
+          showPrompt(7);
+          addConsoleMessage('Need at least 2 nodes for autopilot.');
+          return;
+        }
+        autopilotActive = !autopilotActive;
+        document.getElementById('autopilotBtn').classList.toggle('active', autopilotActive);
+        if (autopilotActive) {
+          throttle = 0;
+          document.getElementById('throttleBtn').classList.remove('active');
+          throttleIndicator.textContent = '';
+          throttleIndicator.classList.remove('active');
+          currentNodeIndex = 0;
+          showPrompt(9);
+          addConsoleMessage('Autopilot engaged! Navigating nodes.');
+        } else {
+          showPrompt(0);
+          addConsoleMessage('Autopilot disengaged.');
+        }
+      }
+
+      function runMatrixOp() {
+        // Initialize matrices with identity-like data for stability
+        for (let i = 0; i < tileSize * tileSize; i++) {
+          matrixTextures.A.image.data[i * 4] = (i % tileSize === Math.floor(i / tileSize)) ? 1.0 : 0.0;
+          matrixTextures.B.image.data[i * 4] = (i % tileSize === Math.floor(i / tileSize)) ? 1.0 : 0.0;
+          matrixTextures.C.image.data[i * 4] = 0.0;
+        }
+        matrixTextures.A.needsUpdate = true;
+        matrixTextures.B.needsUpdate = true;
+        matrixTextures.C.needsUpdate = true;
+
+        // Render QTW pass
+        renderer.setRenderTarget(weaveTexture);
+        qtwPlane.visible = true;
+        renderer.render(scene, camera);
+        qtwPlane.visible = false;
+        renderer.setRenderTarget(null);
+
+        // Apply result to particle positions
+        const resultData = new Float32Array(tileSize * tileSize * 4);
+        renderer.readRenderTargetPixels(weaveTexture, 0, 0, weaveSize, weaveSize, resultData);
+        instanceData.forEach((data, idx) => {
+          if (data.active && (data.type === 1 || data.type === 3)) {
+            const val = resultData[(idx % (tileSize * tileSize)) * 4];
+            if (!isNaN(val) && Math.abs(val) < 100) {
+              data.pos[0] += val * 0.1;
+              data.pos[1] += val * 0.1;
+              data.pos[2] += val * 0.1;
+            }
+          }
+        });
+      }
+
+      // Autopilot
+      function updateAutopilot(deltaTime) {
+        if (!autopilotActive) return;
+        const nodes = instanceData.filter(d => d.active && d.type === 3);
+        if (nodes.length === 0) return;
+
+        const targetNode = nodes[currentNodeIndex];
+        const direction = targetNode.pos.map((v, i) => v - camera.position.toArray()[i]);
+        const distance = Math.sqrt(direction.reduce((sum, v) => sum + v * v, 0));
+
+        if (distance < 50) {
+          currentNodeIndex = (currentNodeIndex + 1) % nodes.length;
+          addConsoleMessage(`Reached node ${currentNodeIndex + 1}. Heading to next node.`);
+        }
+
+        const len = distance || 1;
+        direction[0] /= len;
+        direction[1] /= len;
+        direction[2] /= len;
+        const speed = 150;
+        velocity = [direction[0] * speed, direction[1] * speed, direction[2] * speed];
+        camera.position.add(new THREE.Vector3(...velocity).multiplyScalar(deltaTime));
+        camera.lookAt(new THREE.Vector3(...targetNode.pos));
+      }
+
+      // Prompt handling
+      const prompts = [
+        "Manual throttle engaged!",
+        "Comet added to your galaxy.",
+        "Planetary system created ahead.",
+        "Galaxy spawned with stars.",
+        "Satellite node deployed.",
+        "Projectile fired!",
+        "Galaxy reset to blank slate.",
+        "Need at least 2 nodes for autopilot!",
+        "Warning: Adding more may slow performance!",
+        "Autopilot engaged! Navigating nodes."
+      ];
+
+      function showPrompt(index) {
+        prompt.textContent = prompts[index];
+        prompt.classList.add('active');
+        setTimeout(() => prompt.classList.remove('active'), 2000);
+      }
+
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        const now = performance.now();
+        const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+        time += deltaTime;
+
+        // Update camera
+        if (!autopilotActive) {
+          camera.rotationVelocity = camera.rotationVelocity || { pitch: 0, yaw: 0 };
+          if (keys.ArrowLeft) camera.rotationVelocity.yaw += 0.05;
+          if (keys.ArrowRight) camera.rotationVelocity.yaw -= 0.05;
+          if (keys.ArrowUp) camera.rotationVelocity.pitch -= 0.05;
+          if (keys.ArrowDown) camera.rotationVelocity.pitch += 0.05;
+
+          camera.rotation = camera.rotation || { pitch: 0, yaw: 0 };
+          camera.rotation.pitch += camera.rotationVelocity.pitch * deltaTime;
+          camera.rotation.yaw += camera.rotationVelocity.yaw * deltaTime;
+          camera.rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.pitch));
+          camera.rotationVelocity.pitch *= 0.95;
+          camera.rotationVelocity.yaw *= 0.95;
+
+          camera.quaternion.setFromEuler(new THREE.Euler(camera.rotation.pitch, camera.rotation.yaw, 0, 'YXZ'));
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          velocity = forward.multiplyScalar(throttle).toArray();
+          camera.position.add(new THREE.Vector3(...velocity).multiplyScalar(deltaTime));
+        } else {
+          updateAutopilot(deltaTime);
+        }
+
+        // Update particles
+        const cometMatrix = new THREE.Matrix4();
+        const projectileMatrix = new THREE.Matrix4();
+        const nodeMatrix = new THREE.Matrix4();
+        const pointsPositions = new Float32Array(maxParticles * 3);
+        const pointsColors = new Float32Array(maxParticles * 3);
+        let pointCount = 0;
+        let cometCount = 0, projectileCount = 0, nodeCount = 0;
+        let toRemove = [];
+
+        instanceData.forEach((data, i) => {
+          if (!data.active) return;
+          data.pos[0] += data.vel[0] * deltaTime;
+          data.pos[1] += data.vel[1] * deltaTime;
+          data.pos[2] += data.vel[2] * deltaTime;
+          if (isNaN(data.pos[0]) || Math.abs(data.pos[0]) > 10000) {
+            data.active = false;
+            toRemove.push(i);
+            entityCount--;
+            addConsoleMessage('Removed invalid particle position');
+            return;
+          }
+          const posVec = new THREE.Vector3(...data.pos);
+          if (frustum.containsPoint(posVec)) {
+            if (data.type === 1 && cometCount < maxParticles) {
+              cometMatrix.setPosition(posVec);
+              cometInstanceMesh.setMatrixAt(cometCount++, cometMatrix);
+            } else if (data.type === 2 && projectileCount < maxParticles) {
+              projectileMatrix.setPosition(posVec);
+              projectileInstanceMesh.setMatrixAt(projectileCount++, projectileMatrix);
+            } else if (data.type === 3 && nodeCount < maxParticles) {
+              nodeMatrix.setPosition(posVec);
+              nodeInstanceMesh.setMatrixAt(nodeCount++, nodeMatrix);
+            }
+            pointsPositions[pointCount * 3] = posVec.x;
+            pointsPositions[pointCount * 3 + 1] = posVec.y;
+            pointsPositions[pointCount * 3 + 2] = posVec.z;
+            const color = data.type === 1 ? [1, 1, 1] : data.type === 2 ? [1, 1, 0.6] : [1, 0.2, 0.8];
+            pointsColors[pointCount * 3] = color[0];
+            pointsColors[pointCount * 3 + 1] = color[1];
+            pointsColors[pointCount * 3 + 2] = color[2];
+            pointCount++;
+          }
+          if (data.type === 2) {
+            if (posVec.length() > 2000) {
+              data.active = false;
+              toRemove.push(i);
+              entityCount--;
+            } else {
+              for (let j = 0; j < maxParticles; j++) {
+                if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
+                const dist = posVec.distanceTo(new THREE.Vector3(...instanceData[j].pos));
+                if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
+                  instanceData[j].active = false;
+                  data.active = false;
+                  toRemove.push(i, j);
+                  entityCount -= 2;
+                  addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
+                }
+              }
+            }
+          }
+          if (i < 5 && data.active) {
+            console.log(`Particle ${i}: pos=[${data.pos.map(v => v.toFixed(2)).join(', ')}], type=${data.type}`);
+          }
+        });
+
+        cometInstanceMesh.count = cometCount;
+        projectileInstanceMesh.count = projectileCount;
+        nodeInstanceMesh.count = nodeCount;
+        cometInstanceMesh.instanceMatrix.needsUpdate = true;
+        projectileInstanceMesh.instanceMatrix.needsUpdate = true;
+        nodeInstanceMesh.instanceMatrix.needsUpdate = true;
+
+        pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointsPositions, 3));
+        pointsGeometry.setAttribute('color', new THREE.BufferAttribute(pointsColors, 3));
+        pointsGeometry.setDrawRange(0, pointCount);
+
+        cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        frustum.setFromProjectionMatrix(cameraMatrix);
+
+        // Update QTW uniforms
+        qtwMaterial.uniforms.time.value = time;
+
+        // Render
+        renderer.render(scene, camera);
+        updateStatusOverlay(cometCount, projectileCount, nodeCount);
+        debugOverlay.textContent = `Rendered: Comets=${cometCount}, Projectiles=${projectileCount}, Nodes=${nodeCount}`;
+      }
+
+      // Button bindings
+      document.getElementById('throttleBtn').addEventListener('click', toggleThrottle);
+      document.getElementById('addComet').addEventListener('click', addComet);
+      document.getElementById('addSystem').addEventListener('click', addSystem);
+      document.getElementById('addGalaxy').addEventListener('click', addGalaxy);
+      document.getElementById('addNode').addEventListener('click', addNode);
+      document.getElementById('autopilotBtn').addEventListener('click', toggleAutopilot);
+      document.getElementById('shootBtn').addEventListener('click', shoot);
+      document.getElementById('resetBtn').addEventListener('click', reset);
+      document.getElementById('matrixBtn').addEventListener('click', runMatrixOp);
+
+      // Resize handler
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // Initialize
+      addConsoleMessage('Galaxycraft initialized with WebGL and Quantum Tile Weave. Type /help for commands.');
+      animate();
+    };
   </script>
 </body>
 </html>
