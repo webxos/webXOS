@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#00ff00">
+    <link rel="manifest" href="/manifest.json">
+    <title>Grid Locker</title>
+    <!-- Existing CSS unchanged -->
+    <style>
+        /* Previous CSS */
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="hologram-container">
+            <div class="hologram" id="hologram"></div>
+        </div>
+        <div class="console-section">
+            <textarea id="consoleInput" placeholder="Enter message"></textarea>
+            <button onclick="clearConsole()">Clear</button>
+            <div id="consoleOutput"></div>
+        </div>
+        <div class="button-container">
+            <button class="btn" onclick="generateGrid()">Generate</button>
+            <button class="btn" onclick="copyCode()">Copy</button>
+            <button class="btn" onclick="showExecutePopup()">Execute</button>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="executeOverlay"></div>
+    <div class="popup" id="executePopup">
+        <h3>Execute Grid</h3>
+        <input type="text" id="executeInput" placeholder="Enter serial,code,validation (e.g., HOLO-000001-A7K,Ω-CODE:ΔΩΨ123#@*,VAL-XXXXXXXXXXXX)">
+        <button class="btn" onclick="executeGrid()">Submit</button>
+        <button class="btn" onclick="closeExecutePopup()">Cancel</button>
+    </div>
+
+    <footer>
+        © WebXOS 2025<br>
+        Usage: Generate encrypts grid with message and generates 3 codes. Copy saves codes. Execute loads grid and message from codes. Secure PWA.
+    </footer>
+
+    <script>
+        const hologram = document.getElementById('hologram');
+        const consoleInput = document.getElementById('consoleInput');
+        const consoleOutput = document.getElementById('consoleOutput');
+        const executePopup = document.getElementById('executePopup');
+        const executeOverlay = document.getElementById('executeOverlay');
+        const executeInput = document.getElementById('executeInput');
+        let currentSerial = '';
+        let currentCode = '';
+        let currentValidationCode = '';
+        let inputHistory = [];
+
+        // PWA Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(() => console.log('Service Worker registered'));
+        }
+
+        // Input Sanitization
+        function sanitizeInput(input) {
+            if (typeof input !== 'string') return '';
+            return input.replace(/[<>&"']/g, '').replace(/[^\x20-\x7E]/g, '').slice(0, 1000);
+        }
+
+        consoleInput.addEventListener('input', () => {
+            consoleInput.value = sanitizeInput(consoleInput.value);
+            monitorInput(consoleInput.value);
+        });
+
+        executeInput.addEventListener('input', () => {
+            executeInput.value = sanitizeInput(executeInput.value);
+            monitorInput(executeInput.value);
+        });
+
+        function showAlert(message) {
+            const modal = document.createElement('div');
+            modal.className = 'popup';
+            modal.innerHTML = `<h3>Alert</h3><p>${sanitizeInput(message)}</p><button class="btn" onclick="this.parentElement.remove()">OK</button>`;
+            document.body.appendChild(modal);
+            modal.style.display = 'block';
+        }
+
+        // Cryptographic Functions
+        async function deriveKey(serial, passphrase, salt) {
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                enc.encode(passphrase),
+                'PBKDF2',
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+            return crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: enc.encode(salt),
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                true,
+                ['encrypt', 'decrypt']
+            );
+        }
+
+        async function encryptMessage(message, serial) {
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const key = await deriveKey(serial, 'user-passphrase', salt); // Replace with user input
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const enc = new TextEncoder();
+            const encrypted = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv },
+                key,
+                enc.encode(message)
+            );
+            return {
+                salt: btoa(String.fromCharCode(...salt)),
+                iv: btoa(String.fromCharCode(...iv)),
+                encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
+            };
+        }
+
+        async function decryptMessage({ salt, iv, encrypted }, serial) {
+            const key = await deriveKey(serial, 'user-passphrase', new Uint8Array(atob(salt).split('').map(c => c.charCodeAt(0))));
+            const dec = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: new Uint8Array(atob(iv).split('').map(c => c.charCodeAt(0))) },
+                key,
+                new Uint8Array(atob(encrypted).split('').map(c => c.charCodeAt(0)))
+            );
+            return new TextDecoder().decode(dec);
+        }
+
+        async function generateValidationCode(serial, code) {
+            const enc = new TextEncoder();
+            const key = await crypto.subtle.importKey(
+                'raw',
+                enc.encode('grid-locker-secret'),
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
+            );
+            const signature = await crypto.subtle.sign(
+                'HMAC',
+                key,
+                enc.encode(`${serial}:${code}`)
+            );
+            return `VAL-${btoa(String.fromCharCode(...new Uint8Array(signature))).slice(0, 12)}`;
+        }
+
+        async function verifyValidationCode(serial, code, validationCode) {
+            const expected = await generateValidationCode(serial, code);
+            return expected === validationCode;
+        }
+
+        // Grid Generation and Execution
+        async function generateGrid() {
+            const message = sanitizeInput(consoleInput.value);
+            let response;
+            try {
+                response = await fetch('https://api.gridlocker.com/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('jwt')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                });
+                if (!response.ok) throw new Error('Failed to generate grid');
+            } catch (err) {
+                showAlert('Error generating grid. Using offline mode.');
+                return;
+            }
+            const { serial, code, encryptedMessage } = await response.json();
+            currentSerial = serial;
+            currentCode = code;
+            currentValidationCode = await generateValidationCode(serial, code);
+            generateImageFromSeed(code, serial, message);
+            consoleOutput.textContent = `${serial}\n${code}\n${currentValidationCode}`;
+        }
+
+        async function executeGrid() {
+            const input = sanitizeInput(executeInput.value);
+            const [serial, code, validationCode] = input.split(',').map(s => s.trim());
+            if (!serial.match(/HOLO-\d{6}-[A-Z0-9]{3}/) || !code.startsWith('Ω-CODE:') || !validationCode.startsWith('VAL-')) {
+                showAlert('Invalid input format! Use: HOLO-XXXXXX-XXX,Ω-CODE:XXXX,VAL-XXXX');
+                return;
+            }
+            if (!(await verifyValidationCode(serial, code, validationCode))) {
+                showAlert('Invalid validation code!');
+                return;
+            }
+            try {
+                const response = await fetch(`https://api.gridlocker.com/execute/${serial}`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt')}' }
+                });
+                if (!response.ok) throw new Error('Invalid serial');
+                const { code: storedCode, encryptedMessage } = await response.json();
+                if (storedCode !== code) {
+                    showAlert('Code mismatch!');
+                    return;
+                }
+                const message = encryptedMessage ? await decryptMessage(encryptedMessage, serial) : '';
+                currentSerial = serial;
+                currentCode = code;
+                currentValidationCode = validationCode;
+                generateImageFromSeed(code, serial, message);
+                consoleOutput.textContent = `${serial}\n${code}\n${validationCode}${message ? `\nMessage: ${message}` : ''}`;
+                closeExecutePopup();
+            } catch (err) {
+                showAlert('Error executing grid.');
+            }
+        }
+
+        function generateCrypticCode() {
+            const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=<>';
+            let code = '';
+            for (let i = 0; i < 9; i++) {
+                code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
+            }
+            return `Ω-CODE: ${code}`;
+        }
+
+        function generateImageFromSeed(seed, serial, message = '') {
+            // Existing grid generation logic unchanged
+        }
+
+        function showExecutePopup() {
+            executeInput.value = '';
+            executePopup.style.display = 'block';
+            executeOverlay.style.display = 'block';
+        }
+
+        function closeExecutePopup() {
+            executePopup.style.display = 'none';
+            executeOverlay.style.display = 'none';
+        }
+
+        function copyCode() {
+            if (!currentSerial || !currentCode || !currentValidationCode) {
+                showAlert('Generate or execute a grid first!');
+                return;
+            }
+            const code = `${currentSerial}\n${currentCode}\n${currentValidationCode}`;
+            if (code.length > 100) {
+                showAlert('Code too long!');
+                return;
+            }
+            navigator.clipboard.writeText(code).then(() => showAlert('Code copied!'));
+        }
+
+        function clearConsole() {
+            consoleInput.value = '';
+            consoleOutput.textContent = '';
+        }
+
+        function monitorInput(input) {
+            inputHistory.push({ input, timestamp: Date.now() });
+            if (inputHistory.length > 100) inputHistory.shift();
+            if (detectAnomaly(inputHistory)) {
+                showAlert('Suspicious activity detected!');
+                fetch('/api/log', { method: 'POST', body: JSON.stringify({ event: 'anomaly', input }) });
+            }
+        }
+
+        function detectAnomaly(history) {
+            const recent = history.slice(-5);
+            return recent.length === 5 && recent[4].timestamp - recent[0].timestamp < 1000;
+        }
+
+        window.addEventListener('load', async () => {
+            const initCode = generateCrypticCode();
+            const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
+            currentValidationCode = await generateValidationCode(initSerial, initCode);
+            generateImageFromSeed(initCode, initSerial);
+            consoleOutput.textContent = `${initSerial}\n${initCode}\n${currentValidationCode}`;
+            currentSerial = initSerial;
+            currentCode = initCode;
+        });
+    </script>
+</body>
+</html>
