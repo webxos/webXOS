@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Galaxycraft - WebGPU/WebGL Hybrid</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body {
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #cosmicCanvas {
+      flex: 1;
+      width: 100%;
+      touch-action: none;
+      position: relative;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+    .controls {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background: rgba(20, 20, 50, 0.9);
+      padding: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      backdrop-filter: blur(5px);
+      z-index: 10;
+    }
+    .control-item {
+      flex: 1;
+      min-width: 80px;
+      text-align: center;
+    }
+    button {
+      background: #4a90e2;
+      border: none;
+      padding: 10px 20px;
+      color: white;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: transform 0.2s, background 0.2s;
+    }
+    button:hover {
+      background: #357abd;
+    }
+    button.active {
+      background: #ff4444;
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    .prompt {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 14px;
+      max-width: 90%;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s;
+      z-index: 5;
+    }
+    .prompt.active {
+      opacity: 1;
+    }
+    .hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.4;
+      z-index: 1;
+    }
+    .hud::before {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      right: 10%;
+      bottom: 10%;
+      border: 2px solid rgba(74, 144, 226, 0);
+      border-radius: 20px;
+      box-shadow: none;
+    }
+    .hud::after {
+      content: '+';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #4a90e2;
+      font-size: 24px;
+    }
+    .throttle-indicator {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #4a90e2;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 5;
+    }
+    .throttle-indicator.active {
+      opacity: 1;
+    }
+    .status-overlay {
+      position: absolute;
+      top: 0;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 5px 10px;
+      font-size: 12px;
+      text-align: left;
+      color: #fff;
+      text-shadow: 0 0 2px #000;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .console {
+      position: absolute;
+      bottom: 60px;
+      width: 100%;
+      height: 25%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      z-index: 5;
+      padding: 5px;
+    }
+    .console-log {
+      flex: 1;
+      overflow-y: auto;
+      font-size: 12px;
+      color: #fff;
+      text-shadow: 0 0 2px #000;
+      padding: 5px;
+    }
+    .console-log p {
+      margin: 2px 0;
+    }
+    .console-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid #4a90e2;
+      color: #fff;
+      padding: 5px;
+      font-size: 12px;
+      outline: none;
+    }
+    .console-input::placeholder {
+      color: #aaa;
+    }
+    .console::-webkit-scrollbar {
+      width: 8px;
+    }
+    .console::-webkit-scrollbar-thumb {
+      background: #4a90e2;
+      border-radius: 4px;
+    }
+    .error-message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 50, 50, 0.9);
+      padding: 20px;
+      border-radius: 10px;
+      color: white;
+      text-align: center;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div id="cosmicCanvas">
+    <canvas id="renderCanvas"></canvas>
+    <div class="hud"></div>
+    <div id="statusOverlay" class="status-overlay"></div>
+    <div id="throttleIndicator" class="throttle-indicator"></div>
+    <div id="console" class="console">
+      <div id="consoleLog" class="console-log"></div>
+      <input id="consoleInput" class="console-input" type="text" placeholder="Type /help for commands..." autocomplete="off">
+    </div>
+  </div>
+  <div class="controls">
+    <div class="control-item"><button id="throttleBtn">Full Throttle</button></div>
+    <div class="control-item"><button id="addComet">Add Comet</button></div>
+    <div class="control-item"><button id="addSystem">Add System</button></div>
+    <div class="control-item"><button id="addGalaxy">Add Galaxy</button></div>
+    <div class="control-item"><button id="addNode">Add Node</button></div>
+    <div class="control-item"><button id="autopilotBtn">Autopilot</button></div>
+    <div class="control-item"><button id="shootBtn">Shoot</button></div>
+    <div class="control-item"><button id="resetBtn">Reset</button></div>
+  </div>
+  <div id="prompt" class="prompt"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    window.onload = async () => {
+      let useWebGPU = true;
+      let device, context, presentationFormat, particleBuffer, paramsBuffer, computePipeline, computeBindGroup,
+          renderPipeline, renderBindGroup, vertexBuffer, instanceBuffer, uniformBuffer;
+
+      // Attempt WebGPU initialization
+      try {
+        if (!navigator.gpu) throw new Error('WebGPU not supported in this browser.');
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        if (!adapter) throw new Error('No GPU adapter found.');
+        device = await adapter.requestDevice();
+        const canvas = document.getElementById('renderCanvas');
+        context = canvas.getContext('webgpu');
+        presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+        context.configure({ device, format: presentationFormat, alphaMode: 'premultiplied' });
+        console.log('WebGPU initialized successfully.');
+      } catch (e) {
+        console.error('WebGPU initialization failed:', e);
+        useWebGPU = false;
+        document.getElementById('cosmicCanvas').innerHTML += `
+          <div class="error-message">
+            WebGPU initialization failed: ${e.message}<br>
+            Falling back to WebGL. Ensure you're using a WebGPU-compatible browser (Chrome 126+, Edge 126+) and have updated GPU drivers.
+          </div>
+        `;
+        setTimeout(() => {
+          document.querySelector('.error-message')?.remove();
+        }, 5000);
+      }
+
+      // Common setup
+      const maxParticles = 10000;
+      const instanceData = Array(maxParticles).fill().map(() => ({
+        active: false,
+        type: 0, // 1=comet, 2=projectile, 3=node
+        created: 0,
+        pos: [0, 0, 0],
+        vel: [0, 0, 0],
+        mass: 0
+      }));
+      let entityCount = 0;
+      let throttle = 0;
+      let velocity = [0, 0, 0];
+      let autopilotActive = false;
+      let currentNodeIndex = 0;
+      let lastTime = performance.now();
+
+      // Console and status
+      const statusOverlay = document.getElementById('statusOverlay');
+      const consoleLog = document.getElementById('consoleLog');
+      const consoleInput = document.getElementById('consoleInput');
+      const maxLogMessages = 50;
+      let logMessages = [];
+
+      function addConsoleMessage(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        logMessages.push(`[${timestamp}] ${message}`);
+        if (logMessages.length > maxLogMessages) logMessages.shift();
+        consoleLog.innerHTML = logMessages.map(msg => `<p>${msg}</p>`).join('');
+        consoleLog.scrollTop = consoleLog.scrollHeight;
+      }
+
+      function updateStatusOverlay() {
+        statusOverlay.textContent = `Entities: ${entityCount} | Throttle: ${throttle} | Autopilot: ${autopilotActive ? 'On' : 'Off'} | Nodes: ${instanceData.filter(d => d.active && d.type === 3).length} | Renderer: ${useWebGPU ? 'WebGPU' : 'WebGL'}`;
+      }
+
+      // WebGPU-specific setup
+      if (useWebGPU) {
+        // Resize canvas
+        function resizeCanvas() {
+          canvas.width = window.innerWidth * Math.min(window.devicePixelRatio, 1.5);
+          canvas.height = window.innerHeight * Math.min(window.devicePixelRatio, 1.5);
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Particle buffer
+        const particleData = new Float32Array(maxParticles * 8); // pos (3), vel (3), mass (1), type (1)
+        particleBuffer = device.createBuffer({
+          size: particleData.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+
+        // Physics parameters
+        const physicsParams = new Float32Array([100, 10, 0.016, 2000]); // G, softening, deltaTime, maxDistance
+        paramsBuffer = device.createBuffer({
+          size: physicsParams.byteLength,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+
+        // Compute shader
+        const computeShaderCode = `
+          struct Particle {
+            position: vec3<f32>,
+            velocity: vec3<f32>,
+            mass: f32,
+            type: f32
+          };
+          struct PhysicsParams {
+            G: f32,
+            softening: f32,
+            deltaTime: f32,
+            maxDistance: f32
+          };
+          @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
+          @group(0) @binding(1) var<uniform> params: PhysicsParams;
+          @compute @workgroup_size(256)
+          fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+            let i = id.x;
+            if (i >= arrayLength(&particles) || particles[i].type == 0) { return; }
+            var acc = vec3<f32>(0.0);
+            for (var j = 0u; j < arrayLength(&particles); j++) {
+              if (i == j || particles[j].type == 0) { continue; }
+              let delta = particles[j].position - particles[i].position;
+              let distSq = dot(delta, delta) + params.softening * params.softening;
+              let dist = sqrt(distSq);
+              if (dist > params.maxDistance) { continue; }
+              let forceMag = (params.G * particles[i].mass * particles[j].mass) / distSq;
+              acc += normalize(delta) * forceMag / particles[i].mass;
+            }
+            particles[i].velocity += acc * params.deltaTime;
+            particles[i].position += particles[i].velocity * params.deltaTime;
+          }
+        `;
+        const computeModule = device.createShaderModule({ code: computeShaderCode });
+        computePipeline = device.createComputePipeline({
+          compute: { module: computeModule, entryPoint: 'main' }
+        });
+        computeBindGroup = device.createBindGroup({
+          layout: computePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: particleBuffer } },
+            { binding: 1, resource: { buffer: paramsBuffer } }
+          ]
+        });
+
+        // Vertex and fragment shaders
+        const vertexShaderCode = `
+          struct VertexInput {
+            @location(0) position: vec3<f32>,
+            @location(1) instancePos: vec3<f32>
+          };
+          struct VertexOutput {
+            @builtin(position) position: vec4<f32>,
+            @location(0) color: vec4<f32>
+          };
+          struct Uniforms {
+            projection: mat4x4<f32>,
+            view: mat4x4<f32>
+          };
+          @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+          @vertex
+          fn main(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            let worldPos = input.position + input.instancePos;
+            output.position = uniforms.projection * uniforms.view * vec4<f32>(worldPos, 1.0);
+            let type = f32(input.instancePos.w);
+            output.color = select(
+              vec4<f32>(1.0, 1.0, 1.0, 1.0),
+              select(
+                vec4<f32>(1.0, 0.2, 0.8, 1.0),
+                vec4<f32>(1.0, 1.0, 0.6, 1.0),
+                type == 3.0
+              ),
+              type == 1.0
+            );
+            return output;
+          }
+        `;
+        const fragmentShaderCode = `
+          @fragment
+          fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+            return color;
+          }
+        `;
+        const renderModule = device.createShaderModule({ code: vertexShaderCode });
+        const fragmentModule = device.createShaderModule({ code: fragmentShaderCode });
+
+        // Sphere geometry
+        const sphereVertices = new Float32Array([
+          0, 0, 5,  5, 0, 0,  0, 5, 0,
+          0, 0, 5,  0, 5, 0,  -5, 0, 0,
+          0, 0, 5,  -5, 0, 0,  0, -5, 0,
+          0, -5, 0,  5, 0, 0,  -5, 0, 0
+        ]);
+        vertexBuffer = device.createBuffer({
+          size: sphereVertices.byteLength,
+          usage: GPUBufferUsage.VERTEX,
+          mappedAtCreation: true
+        });
+        new Float32Array(vertexBuffer.getMappedRange()).set(sphereVertices);
+        vertexBuffer.unmap();
+
+        // Render pipeline
+        uniformBuffer = device.createBuffer({
+          size: 128,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        instanceBuffer = device.createBuffer({
+          size: maxParticles * 16,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+        });
+        renderPipeline = device.createRenderPipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [device.createBindGroupLayout({
+              entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }]
+            })]
+          }),
+          vertex: {
+            module: renderModule,
+            entryPoint: 'main',
+            buffers: [
+              { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+              { arrayStride: 16, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }] }
+            ]
+          },
+          fragment: {
+            module: fragmentModule,
+            entryPoint: 'main',
+            targets: [{ format: presentationFormat }]
+          },
+          primitive: { topology: 'triangle-list' }
+        });
+        renderBindGroup = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
+        });
+      }
+
+      // WebGL-specific setup
+      let scene, camera, renderer, cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh, frustum, cameraMatrix;
+      if (!useWebGPU) {
+        if (!window.THREE) throw new Error('Three.js not loaded');
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 10000);
+        renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 1);
+        document.getElementById('cosmicCanvas').appendChild(renderer.domElement);
+
+        camera.position.set(0, 0, 0);
+        frustum = new THREE.Frustum();
+        cameraMatrix = new THREE.Matrix4();
+
+        const sharedMaterials = {
+          glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+          star: new THREE.MeshBasicMaterial({ color: 0xffff99 }),
+          planet: new THREE.MeshBasicMaterial({ color: 0x3399ff }),
+          node: new THREE.MeshBasicMaterial({ color: 0xff33cc }),
+          line: new THREE.LineBasicMaterial({ color: 0x00ff00 })
+        };
+        const sharedGeometries = {
+          comet: new THREE.SphereGeometry(5, 8, 8),
+          star: new THREE.SphereGeometry(100, 16, 16),
+          planet: new THREE.SphereGeometry(20, 12, 12),
+          galaxyStar: new THREE.SphereGeometry(10, 8, 8),
+          projectile: new THREE.SphereGeometry(5, 8, 8),
+          node: new THREE.BoxGeometry(10, 10, 10)
+        };
+
+        cometInstanceMesh = new THREE.InstancedMesh(sharedGeometries.comet, sharedMaterials.glow, maxParticles);
+        projectileInstanceMesh = new THREE.InstancedMesh(sharedGeometries.projectile, sharedMaterials.glow, maxParticles);
+        nodeInstanceMesh = new THREE.InstancedMesh(sharedGeometries.node, sharedMaterials.node, maxParticles);
+        scene.add(cometInstanceMesh, projectileInstanceMesh, nodeInstanceMesh);
+      }
+
+      // Camera for WebGPU
+      const webGPUCamera = useWebGPU ? {
+        position: [0, 0, 0],
+        rotation: { pitch: 0, yaw: 0 },
+        rotationVelocity: { pitch: 0, yaw: 0 },
+        fov: 80,
+        aspect: window.innerWidth / window.innerHeight,
+        near: 0.1,
+        far: 10000,
+        updateMatrices() {
+          const fovRad = this.fov * Math.PI / 180;
+          const tanHalfFov = Math.tan(fovRad / 2);
+          const projection = new Float32Array([
+            1 / (this.aspect * tanHalfFov), 0, 0, 0,
+            0, 1 / tanHalfFov, 0, 0,
+            0, 0, -(this.far + this.near) / (this.far - this.near), -1,
+            0, 0, -2 * this.far * this.near / (this.far - this.near), 0
+          ]);
+
+          const cosPitch = Math.cos(this.rotation.pitch);
+          const sinPitch = Math.sin(this.rotation.pitch);
+          const cosYaw = Math.cos(this.rotation.yaw);
+          const sinYaw = Math.sin(this.rotation.yaw);
+          const view = new Float32Array([
+            cosYaw, 0, -sinYaw, 0,
+            sinYaw * sinPitch, cosPitch, cosYaw * sinPitch, 0,
+            sinYaw * cosPitch, -sinPitch, cosYaw * cosPitch, 0,
+            -this.position[0], -this.position[1], -this.position[2], 1
+          ]);
+
+          return { projection, view };
+        }
+      } : null;
+
+      // Octree for WebGL physics
+      class Octree {
+        constructor(center, size) {
+          this.center = center;
+          this.size = size;
+          this.objects = [];
+          this.children = null;
+          this.mass = 0;
+          this.com = new THREE.Vector3();
+        }
+        insert(obj) {
+          if (!this.contains(obj.pos)) return;
+          this.objects.push(obj);
+          if (this.objects.length > 8 && this.size > 10) {
+            this.subdivide();
+            this.objects.forEach(o => {
+              for (let child of this.children) child.insert(o);
+            });
+            this.objects = [];
+          }
+        }
+        subdivide() {
+          this.children = [];
+          const half = this.size / 2;
+          const quarter = this.size / 4;
+          for (let x = -1; x <= 1; x += 2) {
+            for (let y = -1; y <= 1; y += 2) {
+              for (let z = -1; z <= 1; z += 2) {
+                const center = new THREE.Vector3(
+                  this.center.x + x * quarter,
+                  this.center.y + y * quarter,
+                  this.center.z + z * quarter
+                );
+                this.children.push(new Octree(center, half));
+              }
+            }
+          }
+        }
+        contains(pos) {
+          const half = this.size / 2;
+          return (
+            pos.x >= this.center.x - half && pos.x < this.center.x + half &&
+            pos.y >= this.center.y - half && pos.y < this.center.y + half &&
+            pos.z >= this.center.z - half && pos.z < this.center.z + half
+          );
+        }
+        computeMass() {
+          this.mass = 0;
+          this.com.set(0, 0, 0);
+          if (this.objects.length > 0) {
+            this.objects.forEach(obj => {
+              this.mass += obj.mass;
+              this.com.add(obj.pos.clone().multiplyScalar(obj.mass));
+            });
+            this.com.divideScalar(this.mass || 1);
+          } else if (this.children) {
+            this.children.forEach(child => {
+              child.computeMass();
+              this.mass += child.mass;
+              this.com.add(child.com.clone().multiplyScalar(child.mass));
+            });
+            this.com.divideScalar(this.mass || 1);
+          }
+        }
+        getForce(obj, acc) {
+          if (!this.mass) return;
+          const delta = this.com.clone().sub(obj.pos);
+          const dist = delta.length();
+          if (dist === 0) return;
+          if (this.children && this.size / dist < 0.5) {
+            this.children.forEach(child => child.getForce(obj, acc));
+          } else {
+            const distSq = dist * dist + 100;
+            if (dist > 2000) return;
+            const forceMag = (100 * obj.mass * this.mass) / distSq;
+            acc.add(delta.normalize().multiplyScalar(forceMag / obj.mass));
+          }
+        }
+      }
+
+      // Keyboard controls
+      const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+      window.addEventListener('keydown', e => {
+        if (e.key in keys) { keys[e.key] = true; e.preventDefault(); }
+      });
+      window.addEventListener('keyup', e => {
+        if (e.key in keys) keys[e.key] = false;
+      });
+
+      // Console commands
+      function handleCommand(input) {
+        const cmd = input.trim().toLowerCase();
+        if (!cmd.startsWith('/')) {
+          addConsoleMessage('Commands must start with "/". Type /help for commands.');
+          return;
+        }
+        const parts = cmd.slice(1).split(' ');
+        const command = parts[0];
+        const args = parts.slice(1);
+
+        switch (command) {
+          case 'help':
+            addConsoleMessage('Commands: /add comet, /add system, /add galaxy, /add node, /shoot, /reset, /throttle, /autopilot');
+            break;
+          case 'add':
+            if (args[0] === 'comet') addComet();
+            else if (args[0] === 'system') addSystem();
+            else if (args[0] === 'galaxy') addGalaxy();
+            else if (args[0] === 'node') addNode();
+            else addConsoleMessage('Invalid add command. Use: comet, system, galaxy, node');
+            break;
+          case 'shoot':
+            shoot();
+            break;
+          case 'reset':
+            reset();
+            break;
+          case 'throttle':
+            if (autopilotActive) addConsoleMessage('Cannot toggle throttle during autopilot.');
+            else toggleThrottle();
+            break;
+          case 'autopilot':
+            toggleAutopilot();
+            break;
+          default:
+            addConsoleMessage('Unknown command. Type /help for commands.');
+        }
+      }
+
+      consoleInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          const input = consoleInput.value;
+          if (input) {
+            addConsoleMessage(`> ${input}`);
+            handleCommand(input);
+            consoleInput.value = '';
+          }
+        }
+      });
+
+      // Simulated data
+      const trainingData = {
+        comets: Array(100).fill().map(() => ({
+          semiMajorAxis: Math.random() * 50 + 20,
+          eccentricity: Math.random() * 0.8,
+          velocity: Math.random() * 3 + 1
+        })),
+        systems: Array(50).fill().map(() => ({
+          planets: Math.floor(Math.random() * 3) + 1,
+          orbitalRadius: Math.random() * 100 + 50
+        })),
+        galaxies: Array(20).fill().map(() => ({
+          radius: Math.random() * 300 + 150,
+          type: ['spiral', 'elliptical'][Math.floor(Math.random() * 2)]
+        }))
+      };
+
+      // Add entities
+      function addComet() {
+        const params = trainingData.comets[Math.floor(Math.random() * trainingData.comets.length)];
+        const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [ (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50 ];
+        const position = useWebGPU
+          ? [
+              webGPUCamera.position[0] + forward[0] * 500 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 500 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 500 + offset[2]
+            ]
+          : camera.position.clone().add(forward.multiplyScalar(500)).add(new THREE.Vector3(...offset));
+        addParticle(1, position, [(Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5], 1);
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(1);
+        addConsoleMessage('Comet added to your galaxy.');
+        updateStatusOverlay();
+      }
+
+      function addSystem() {
+        const params = trainingData.systems[Math.floor(Math.random() * trainingData.systems.length)];
+        const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [ (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100 ];
+        const basePos = useWebGPU
+          ? [
+              webGPUCamera.position[0] + forward[0] * 1000 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 1000 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 1000 + offset[2]
+            ]
+          : camera.position.clone().add(forward.multiplyScalar(1000)).add(new THREE.Vector3(...offset));
+        addParticle(1, basePos, [0, 0, 0], 1000);
+        for (let i = 0; i < params.planets; i++) {
+          const r = (i + 1) * params.orbitalRadius / params.planets;
+          const v = Math.sqrt(100 * 1000 / r);
+          addParticle(1, [basePos[0] + r, basePos[1], basePos[2]], [0, 0, v], 10);
+        }
+        entityCount += 1 + params.planets;
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(2);
+        addConsoleMessage('Planetary system created ahead.');
+        updateStatusOverlay();
+      }
+
+      function addGalaxy() {
+        const params = trainingData.galaxies[Math.floor(Math.random() * trainingData.galaxies.length)];
+        const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [ (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200 ];
+        const basePos = useWebGPU
+          ? [
+              webGPUCamera.position[0] + forward[0] * 2000 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 2000 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 2000 + offset[2]
+            ]
+          : camera.position.clone().add(forward.multiplyScalar(2000)).add(new THREE.Vector3(...offset));
+        const starCount = params.type === 'spiral' ? 10 : 5;
+        for (let i = 0; i < starCount; i++) {
+          const r = Math.random() * params.radius;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = params.type === 'spiral' ? Math.random() * 0.2 : Math.random() * Math.PI;
+          const pos = [
+            basePos[0] + r * Math.sin(phi) * Math.cos(theta),
+            basePos[1] + r * Math.sin(phi) * Math.sin(theta),
+            basePos[2] + r * Math.cos(phi)
+          ];
+          const v = Math.sqrt(100 * 50 / r);
+          const tangent = [-pos[1] + basePos[1], pos[0] - basePos[0], 0];
+          const len = Math.sqrt(tangent[0] ** 2 + tangent[1] ** 2);
+          tangent[0] /= len || 1;
+          tangent[1] /= len || 1;
+          addParticle(1, pos, [tangent[0] * v, tangent[1] * v, 0], 50);
+        }
+        entityCount += starCount;
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(3);
+        addConsoleMessage('Galaxy spawned with stars.');
+        updateStatusOverlay();
+      }
+
+      function addNode() {
+        const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const offset = [ (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100 ];
+        const position = useWebGPU
+          ? [
+              webGPUCamera.position[0] + forward[0] * 300 + offset[0],
+              webGPUCamera.position[1] + forward[1] * 300 + offset[1],
+              webGPUCamera.position[2] + forward[2] * 300 + offset[2]
+            ]
+          : camera.position.clone().add(forward.multiplyScalar(300)).add(new THREE.Vector3(...offset));
+        addParticle(3, position, [0, 0, 0], 0);
+        if (entityCount > 500) showPrompt(8);
+        showPrompt(4);
+        addConsoleMessage('Satellite node deployed.');
+        updateStatusOverlay();
+      }
+
+      function shoot() {
+        const forward = useWebGPU ? getForwardVector() : new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const position = useWebGPU
+          ? [
+              webGPUCamera.position[0] + forward[0] * 10,
+              webGPUCamera.position[1] + forward[1] * 10,
+              webGPUCamera.position[2] + forward[2] * 10
+            ]
+          : camera.position.clone().add(forward.multiplyScalar(10));
+        const velocity = useWebGPU
+          ? [forward[0] * 20, forward[1] * 20, forward[2] * 20]
+          : forward.multiplyScalar(20).toArray();
+        addParticle(2, position, velocity, 0);
+        showPrompt(5);
+        addConsoleMessage('Projectile fired!');
+        updateStatusOverlay();
+      }
+
+      function addParticle(type, position, velocity, mass) {
+        for (let i = 0; i < maxParticles; i++) {
+          if (!instanceData[i].active) {
+            instanceData[i] = {
+              active: true,
+              type,
+              created: Date.now(),
+              pos: Array.isArray(position) ? position : [position.x, position.y, position.z],
+              vel: Array.isArray(velocity) ? velocity : [velocity.x, velocity.y, velocity.z],
+              mass
+            };
+            entityCount++;
+            return;
+          }
+        }
+      }
+
+      function reset() {
+        instanceData.forEach(d => d.active = false);
+        entityCount = 0;
+        autopilotActive = false;
+        currentNodeIndex = 0;
+        throttle = 0;
+        document.getElementById('autopilotBtn').classList.remove('active');
+        document.getElementById('throttleBtn').classList.remove('active');
+        document.getElementById('throttleIndicator').textContent = '';
+        document.getElementById('throttleIndicator').classList.remove('active');
+        showPrompt(6);
+        addConsoleMessage('Galaxy reset to blank slate.');
+        updateStatusOverlay();
+      }
+
+      function toggleThrottle() {
+        throttle = throttle === 0 ? 150 : 0;
+        document.getElementById('throttleBtn').classList.toggle('active', throttle > 0);
+        document.getElementById('throttleIndicator').textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
+        document.getElementById('throttleIndicator').classList.toggle('active', throttle > 0);
+        showPrompt(0);
+        addConsoleMessage(throttle > 0 ? 'Manual throttle engaged!' : 'Throttle disengaged.');
+        updateStatusOverlay();
+      }
+
+      function toggleAutopilot() {
+        const nodes = instanceData.filter(d => d.active && d.type === 3);
+        if (nodes.length < 2) {
+          showPrompt(7);
+          addConsoleMessage('Need at least 2 nodes for autopilot.');
+          return;
+        }
+        autopilotActive = !autopilotActive;
+        document.getElementById('autopilotBtn').classList.toggle('active', autopilotActive);
+        if (autopilotActive) {
+          throttle = 0;
+          document.getElementById('throttleBtn').classList.remove('active');
+          document.getElementById('throttleIndicator').textContent = '';
+          document.getElementById('throttleIndicator').classList.remove('active');
+          currentNodeIndex = 0;
+          showPrompt(9);
+          addConsoleMessage('Autopilot engaged! Navigating nodes.');
+        } else {
+          showPrompt(0);
+          addConsoleMessage('Autopilot disengaged.');
+        }
+        updateStatusOverlay();
+      }
+
+      function getForwardVector() {
+        if (!useWebGPU) return new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const cosPitch = Math.cos(webGPUCamera.rotation.pitch);
+        const sinPitch = Math.sin(webGPUCamera.rotation.pitch);
+        const cosYaw = Math.cos(webGPUCamera.rotation.yaw);
+        const sinYaw = Math.sin(webGPUCamera.rotation.yaw);
+        return [-sinYaw * cosPitch, -sinPitch, -cosYaw * cosPitch];
+      }
+
+      function updateAutopilot(deltaTime) {
+        if (!autopilotActive) return;
+        const nodes = instanceData.filter(d => d.active && d.type === 3);
+        if (nodes.length === 0) return;
+
+        const targetNode = nodes[currentNodeIndex];
+        const direction = useWebGPU
+          ? [
+              targetNode.pos[0] - webGPUCamera.position[0],
+              targetNode.pos[1] - webGPUCamera.position[1],
+              targetNode.pos[2] - webGPUCamera.position[2]
+            ]
+          : targetNode.pos.map((v, i) => v - camera.position.toArray()[i]);
+        const distance = Math.sqrt(direction.reduce((sum, v) => sum + v * v, 0));
+
+        if (distance < 50) {
+          currentNodeIndex = (currentNodeIndex + 1) % nodes.length;
+          addConsoleMessage(`Reached node ${currentNodeIndex + 1}. Heading to next node.`);
+        }
+
+        const len = distance || 1;
+        direction[0] /= len;
+        direction[1] /= len;
+        direction[2] /= len;
+        const speed = 150;
+        velocity = [direction[0] * speed, direction[1] * speed, direction[2] * speed];
+
+        if (useWebGPU) {
+          webGPUCamera.position[0] += velocity[0] * deltaTime;
+          webGPUCamera.position[1] += velocity[1] * deltaTime;
+          webGPUCamera.position[2] += velocity[2] * deltaTime;
+          webGPUCamera.rotation.yaw = Math.atan2(-direction[0], -direction[2]);
+          webGPUCamera.rotation.pitch = Math.asin(direction[1]);
+        } else {
+          camera.position.add(new THREE.Vector3(...velocity).multiplyScalar(deltaTime));
+          camera.lookAt(new THREE.Vector3(...targetNode.pos));
+        }
+      }
+
+      // Viewing controls
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+
+      function updateRotation(deltaX, deltaY) {
+        if (autopilotActive) return;
+        if (useWebGPU) {
+          webGPUCamera.rotationVelocity.yaw -= deltaX * 0.01;
+          webGPUCamera.rotationVelocity.pitch -= deltaY * 0.01;
+        } else {
+          camera.rotationVelocity = camera.rotationVelocity || { pitch: 0, yaw: 0 };
+          camera.rotationVelocity.yaw -= deltaX * 0.01;
+          camera.rotationVelocity.pitch -= deltaY * 0.01;
+        }
+      }
+
+      const canvas = document.getElementById('renderCanvas');
+      canvas.addEventListener('mousedown', e => {
+        if (autopilotActive) return;
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+
+      canvas.addEventListener('mousemove', e => {
+        if (isDragging && !autopilotActive) {
+          const deltaX = e.clientX - previousMousePosition.x;
+          const deltaY = e.clientY - previousMousePosition.y;
+          updateRotation(deltaX, deltaY);
+          previousMousePosition = { x: e.clientX, y: e.clientY };
+        }
+      });
+
+      canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      canvas.addEventListener('touchstart', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+
+      canvas.addEventListener('touchmove', e => {
+        if (autopilotActive) return;
+        e.preventDefault();
+        const deltaX = e.touches[0].clientX - previousMousePosition.x;
+        const deltaY = e.touches[0].clientY - previousMousePosition.y;
+        updateRotation(deltaX, deltaY);
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+
+      // Animation loop
+      async function animate() {
+        requestAnimationFrame(animate);
+
+        const now = performance.now();
+        const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+
+        // Update camera
+        if (!autopilotActive) {
+          if (useWebGPU) {
+            if (keys.ArrowLeft) webGPUCamera.rotationVelocity.yaw += 0.05;
+            if (keys.ArrowRight) webGPUCamera.rotationVelocity.yaw -= 0.05;
+            if (keys.ArrowUp) webGPUCamera.rotationVelocity.pitch -= 0.05;
+            if (keys.ArrowDown) webGPUCamera.rotationVelocity.pitch += 0.05;
+
+            webGPUCamera.rotation.pitch += webGPUCamera.rotationVelocity.pitch * deltaTime;
+            webGPUCamera.rotation.yaw += webGPUCamera.rotationVelocity.yaw * deltaTime;
+            webGPUCamera.rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, webGPUCamera.rotation.pitch));
+            webGPUCamera.rotationVelocity.pitch *= 0.95;
+            webGPUCamera.rotationVelocity.yaw *= 0.95;
+
+            const forward = getForwardVector();
+            velocity = [forward[0] * throttle, forward[1] * throttle, forward[2] * throttle];
+            webGPUCamera.position[0] += velocity[0] * deltaTime;
+            webGPUCamera.position[1] += velocity[1] * deltaTime;
+            webGPUCamera.position[2] += velocity[2] * deltaTime;
+          } else {
+            if (keys.ArrowLeft) camera.rotationVelocity.yaw += 0.05;
+            if (keys.ArrowRight) camera.rotationVelocity.yaw -= 0.05;
+            if (keys.ArrowUp) camera.rotationVelocity.pitch -= 0.05;
+            if (keys.ArrowDown) camera.rotationVelocity.pitch += 0.05;
+
+            camera.rotation = camera.rotation || { pitch: 0, yaw: 0 };
+            camera.rotation.pitch += camera.rotationVelocity.pitch * deltaTime;
+            camera.rotation.yaw += camera.rotationVelocity.yaw * deltaTime;
+            camera.rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.pitch));
+            camera.rotationVelocity.pitch *= 0.95;
+            camera.rotationVelocity.yaw *= 0.95;
+
+            camera.quaternion.setFromEuler(new THREE.Euler(camera.rotation.pitch, camera.rotation.yaw, 0, 'YXZ'));
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            velocity = forward.multiplyScalar(throttle).toArray();
+            camera.position.add(new THREE.Vector3(...velocity).multiplyScalar(deltaTime));
+          }
+        } else {
+          updateAutopilot(deltaTime);
+        }
+
+        // Update physics and rendering
+        if (useWebGPU) {
+          // Update physics
+          const particleData = new Float32Array(maxParticles * 8);
+          instanceData.forEach((data, i) => {
+            if (data.active) {
+              const offset = i * 8;
+              particleData[offset] = data.pos[0];
+              particleData[offset + 1] = data.pos[1];
+              particleData[offset + 2] = data.pos[2];
+              particleData[offset + 3] = data.vel[0];
+              particleData[offset + 4] = data.vel[1];
+              particleData[offset + 5] = data.vel[2];
+              particleData[offset + 6] = data.mass;
+              particleData[offset + 7] = data.type;
+            }
+          });
+          physicsParams[2] = deltaTime;
+          device.queue.writeBuffer(paramsBuffer, 0, physicsParams);
+          device.queue.writeBuffer(particleBuffer, 0, particleData);
+          const computeEncoder = device.createCommandEncoder();
+          const computePass = computeEncoder.beginComputePass();
+          computePass.setPipeline(computePipeline);
+          computePass.setBindGroup(0, computeBindGroup);
+          computePass.dispatchWorkgroups(Math.ceil(maxParticles / 256));
+          computePass.end();
+          device.queue.submit([computeEncoder.finish()]);
+
+          // Read back particle data
+          const readBuffer = device.createBuffer({
+            size: particleData.byteLength,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+          });
+          const copyEncoder = device.createCommandEncoder();
+          copyEncoder.copyBufferToBuffer(particleBuffer, 0, readBuffer, 0, particleData.byteLength);
+          device.queue.submit([copyEncoder.finish()]);
+          await readBuffer.mapAsync(GPUMapMode.READ);
+          const readData = new Float32Array(readBuffer.getMappedRange().slice());
+          readBuffer.unmap();
+
+          // Update instanceData and handle collisions
+          let toRemove = [];
+          for (let i = 0; i < maxParticles; i++) {
+            if (!instanceData[i].active) continue;
+            const offset = i * 8;
+            instanceData[i].pos = [readData[offset], readData[offset + 1], readData[offset + 2]];
+            instanceData[i].vel = [readData[offset + 3], readData[offset + 4], readData[offset + 5]];
+            if (instanceData[i].type === 2) {
+              const pos = instanceData[i].pos;
+              if (Math.sqrt(pos[0] ** 2 + pos[1] ** 2 + pos[2] ** 2) > 2000) {
+                instanceData[i].active = false;
+                toRemove.push(i);
+                entityCount--;
+                continue;
+              }
+              for (let j = 0; j < maxParticles; j++) {
+                if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
+                const dist = Math.sqrt(
+                  (pos[0] - instanceData[j].pos[0]) ** 2 +
+                  (pos[1] - instanceData[j].pos[1]) ** 2 +
+                  (pos[2] - instanceData[j].pos[2]) ** 2
+                );
+                if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
+                  instanceData[j].active = false;
+                  instanceData[i].active = false;
+                  toRemove.push(i, j);
+                  entityCount -= 2;
+                  addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
+                }
+              }
+            }
+          }
+
+          // Update instance buffer
+          const instanceDataArray = new Float32Array(maxParticles * 4);
+          let instanceCount = 0;
+          for (let i = 0; i < maxParticles; i++) {
+            if (instanceData[i].active) {
+              instanceDataArray[instanceCount * 4] = instanceData[i].pos[0];
+              instanceDataArray[instanceCount * 4 + 1] = instanceData[i].pos[1];
+              instanceDataArray[instanceCount * 4 + 2] = instanceData[i].pos[2];
+              instanceDataArray[instanceCount * 4 + 3] = instanceData[i].type;
+              instanceCount++;
+            }
+          }
+          device.queue.writeBuffer(instanceBuffer, 0, instanceDataArray);
+
+          // Render
+          const { projection, view } = webGPUCamera.updateMatrices();
+          const uniforms = new Float32Array(32);
+          uniforms.set(projection, 0);
+          uniforms.set(view, 16);
+          device.queue.writeBuffer(uniformBuffer, 0, uniforms);
+
+          const renderEncoder = device.createCommandEncoder();
+          const renderPass = renderEncoder.beginRenderPass({
+            colorAttachments: [{
+              view: context.getCurrentTexture().createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: 'clear',
+              storeOp: 'store'
+            }]
+          });
+          renderPass.setPipeline(renderPipeline);
+          renderPass.setBindGroup(0, renderBindGroup);
+          renderPass.setVertexBuffer(0, vertexBuffer);
+          renderPass.setVertexBuffer(1, instanceBuffer);
+          renderPass.draw(sphereVertices.length / 3, instanceCount, 0, 0);
+          renderPass.end();
+          device.queue.submit([renderEncoder.finish()]);
+        } else {
+          // WebGL physics
+          const octree = new Octree(new THREE.Vector3(0, 0, 0), 10000);
+          instanceData.forEach(data => {
+            if (data.active && data.mass > 0) {
+              octree.insert({ pos: new THREE.Vector3(...data.pos), vel: new THREE.Vector3(...data.vel), mass: data.mass });
+            }
+          });
+          octree.computeMass();
+          instanceData.forEach(data => {
+            if (data.active && data.mass > 0) {
+              const acc = new THREE.Vector3();
+              octree.getForce({ pos: new THREE.Vector3(...data.pos), mass: data.mass }, acc);
+              data.vel[0] += acc.x * deltaTime;
+              data.vel[1] += acc.y * deltaTime;
+              data.vel[2] += acc.z * deltaTime;
+            }
+          });
+
+          // Update instances
+          const cometMatrix = new THREE.Matrix4();
+          const projectileMatrix = new THREE.Matrix4();
+          const nodeMatrix = new THREE.Matrix4();
+          let cometCount = 0, projectileCount = 0, nodeCount = 0;
+
+          let toRemove = [];
+          instanceData.forEach((data, i) => {
+            if (!data.active) return;
+            data.pos[0] += data.vel[0] * deltaTime;
+            data.pos[1] += data.vel[1] * deltaTime;
+            data.pos[2] += data.vel[2] * deltaTime;
+            const posVec = new THREE.Vector3(...data.pos);
+            if (frustum.containsPoint(posVec)) {
+              if (data.type === 1 && cometCount < maxParticles) {
+                cometMatrix.setPosition(posVec);
+                cometInstanceMesh.setMatrixAt(cometCount++, cometMatrix);
+              } else if (data.type === 2 && projectileCount < maxParticles) {
+                projectileMatrix.setPosition(posVec);
+                projectileInstanceMesh.setMatrixAt(projectileCount++, projectileMatrix);
+              } else if (data.type === 3 && nodeCount < maxParticles) {
+                nodeMatrix.setPosition(posVec);
+                nodeInstanceMesh.setMatrixAt(nodeCount++, nodeMatrix);
+              }
+            }
+            if (data.type === 2) {
+              if (posVec.length() > 2000) {
+                data.active = false;
+                toRemove.push(i);
+                entityCount--;
+              } else {
+                for (let j = 0; j < maxParticles; j++) {
+                  if (i === j || !instanceData[j].active || instanceData[j].type === 2) continue;
+                  const dist = posVec.distanceTo(new THREE.Vector3(...instanceData[j].pos));
+                  if (dist < 20 && (instanceData[j].type === 1 || instanceData[j].type === 3)) {
+                    instanceData[j].active = false;
+                    data.active = false;
+                    toRemove.push(i, j);
+                    entityCount -= 2;
+                    addConsoleMessage(instanceData[j].type === 1 ? 'Comet destroyed.' : 'Node destroyed.');
+                  }
+                }
+              }
+            }
+          });
+
+          cometInstanceMesh.count = cometCount;
+          projectileInstanceMesh.count = projectileCount;
+          nodeInstanceMesh.count = nodeCount;
+          cometInstanceMesh.instanceMatrix.needsUpdate = true;
+          projectileInstanceMesh.instanceMatrix.needsUpdate = true;
+          nodeInstanceMesh.instanceMatrix.needsUpdate = true;
+
+          cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+          frustum.setFromProjectionMatrix(cameraMatrix);
+
+          renderer.render(scene, camera);
+        }
+
+        updateStatusOverlay();
+      }
+
+      // Controls
+      try {
+        const throttleBtn = document.getElementById('throttleBtn');
+        const addCometBtn = document.getElementById('addComet');
+        const addSystemBtn = document.getElementById('addSystem');
+        const addGalaxyBtn = document.getElementById('addGalaxy');
+        const addNodeBtn = document.getElementById('addNode');
+        const autopilotBtn = document.getElementById('autopilotBtn');
+        const shootBtn = document.getElementById('shootBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const prompt = document.getElementById('prompt');
+
+        if (!throttleBtn || !addCometBtn || !addSystemBtn || !addGalaxyBtn || !addNodeBtn || !autopilotBtn || !shootBtn || !resetBtn || !prompt) {
+          throw new Error('One or more control elements not found');
+        }
+
+        throttleBtn.addEventListener('click', () => {
+          if (autopilotActive) return;
+          toggleThrottle();
+        });
+        addCometBtn.addEventListener('click', addComet);
+        addSystemBtn.addEventListener('click', addSystem);
+        addGalaxyBtn.addEventListener('click', addGalaxy);
+        addNodeBtn.addEventListener('click', addNode);
+        autopilotBtn.addEventListener('click', toggleAutopilot);
+        shootBtn.addEventListener('click', shoot);
+        resetBtn.addEventListener('click', reset);
+
+        const prompts = [
+          "Manual throttle engaged!",
+          "Comet added to your galaxy.",
+          "Planetary system created ahead.",
+          "Galaxy spawned with stars.",
+          "Satellite node deployed.",
+          "Projectile fired!",
+          "Galaxy reset to blank slate.",
+          "Need at least 2 nodes for autopilot!",
+          "Warning: Adding more may slow performance!",
+          "Autopilot engaged! Navigating nodes."
+        ];
+
+        function showPrompt(index) {
+          prompt.textContent = prompts[index];
+          prompt.classList.add('active');
+          setTimeout(() => prompt.classList.remove('active'), 2000);
+        }
+      } catch (e) {
+        console.error('Control setup error:', e);
+      }
+
+      // Initialize
+      try {
+        addConsoleMessage(`Galaxycraft initialized with ${useWebGPU ? 'WebGPU' : 'WebGL'}. Type /help for commands.`);
+        updateStatusOverlay();
+        animate();
+      } catch (e) {
+        console.error('Initialization error:', e);
+      }
+
+      // Resize for WebGL
+      if (!useWebGPU) {
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+    };
+  </script>
+</body>
+</html>
