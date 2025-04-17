@@ -272,6 +272,7 @@
     </footer>
 
     <script>
+        const STORAGE_VERSION = 'grid-locker-v1'; // Version identifier
         const hologram = document.getElementById('hologram');
         const consoleInput = document.getElementById('consoleInput');
         const consoleOutput = document.getElementById('consoleOutput');
@@ -445,14 +446,17 @@
             return expected === validationCode;
         }
 
-        // Data Obfuscation (Fixed)
+        // Data Obfuscation (Simplified)
         function obfuscateData(data) {
             try {
+                console.log('Obfuscating data:', data);
                 const json = JSON.stringify(data);
+                console.log('JSON stringified:', json);
                 const enc = new TextEncoder();
                 const bytes = enc.encode(json);
-                // Convert to base64 to ensure valid encoding
-                return btoa(String.fromCharCode(...bytes));
+                const base64 = btoa(String.fromCharCode(...bytes));
+                console.log('Base64 encoded:', base64);
+                return base64;
             } catch (err) {
                 showAlert('Obfuscation failed: ' + err.message);
                 return null;
@@ -461,13 +465,17 @@
 
         function deobfuscateData(obfuscated) {
             try {
-                // Validate base64 string
+                console.log('Deobfuscating data:', obfuscated);
                 if (!obfuscated || !/^[A-Za-z0-9+/=]+$/.test(obfuscated)) {
                     throw new Error('Invalid base64 string');
                 }
                 const bytes = new Uint8Array(atob(obfuscated).split('').map(c => c.charCodeAt(0)));
                 const dec = new TextDecoder();
-                return JSON.parse(dec.decode(bytes));
+                const json = dec.decode(bytes);
+                console.log('Decoded JSON:', json);
+                const parsed = JSON.parse(json);
+                console.log('Parsed JSON:', parsed);
+                return parsed;
             } catch (err) {
                 showAlert('Deobfuscation failed: ' + err.message);
                 return null;
@@ -477,11 +485,15 @@
         // Storage Functions
         async function storeSerialMap(serialMap) {
             try {
+                console.log('Storing serialMap:', [...serialMap]);
                 const encrypted = await encryptMessage(JSON.stringify([...serialMap]), 'storage-key');
+                console.log('Encrypted serialMap:', encrypted);
                 if (!encrypted) return;
                 const obfuscated = obfuscateData(encrypted);
+                console.log('Obfuscated serialMap:', obfuscated);
                 if (!obfuscated) return;
                 localStorage.setItem('serialMap', obfuscated);
+                localStorage.setItem('storageVersion', STORAGE_VERSION);
             } catch (err) {
                 showAlert('Storage failed: ' + err.message);
             }
@@ -489,16 +501,35 @@
 
         async function loadSerialMap() {
             try {
+                console.log('Loading serialMap from localStorage');
+                const storedVersion = localStorage.getItem('storageVersion');
+                if (storedVersion !== STORAGE_VERSION) {
+                    console.log('Version mismatch, clearing storage');
+                    localStorage.removeItem('serialMap');
+                    localStorage.setItem('storageVersion', STORAGE_VERSION);
+                    return new Map();
+                }
                 const obfuscated = localStorage.getItem('serialMap');
+                console.log('Retrieved obfuscated:', obfuscated);
                 if (!obfuscated) return new Map();
                 const encrypted = deobfuscateData(obfuscated);
-                if (!encrypted) return new Map();
+                console.log('Deobfuscated encrypted:', encrypted);
+                if (!encrypted) {
+                    localStorage.removeItem('serialMap');
+                    return new Map();
+                }
                 const decrypted = await decryptMessage(encrypted, 'storage-key');
-                if (!decrypted) return new Map();
-                return new Map(JSON.parse(decrypted));
+                console.log('Decrypted serialMap:', decrypted);
+                if (!decrypted) {
+                    localStorage.removeItem('serialMap');
+                    return new Map();
+                }
+                const parsed = JSON.parse(decrypted);
+                console.log('Parsed serialMap:', parsed);
+                return new Map(parsed);
             } catch (err) {
                 showAlert('Failed to load storage: ' + err.message);
-                localStorage.removeItem('serialMap'); // Clear corrupted data
+                localStorage.removeItem('serialMap');
                 return new Map();
             }
         }
@@ -507,6 +538,7 @@
         async function generateGrid() {
             monitorAction('generate');
             try {
+                console.log('Starting generateGrid');
                 const message = sanitizeInput(consoleInput.value);
                 let serialMap = await loadSerialMap();
                 let newCode;
@@ -514,6 +546,7 @@
                     newCode = generateCrypticCode();
                 } while (Array.from(serialMap.values()).some(data => data.code === newCode));
                 const serial = generateSerialNumber(newCode);
+                if (!serial) return;
                 const encryptedMessage = message ? await encryptMessage(message, serial) : null;
                 if (message && !encryptedMessage) return;
                 serialMap.set(serial, { code: newCode, encryptedMessage });
@@ -577,7 +610,7 @@
             for (let i = 0; i < 9; i++) {
                 code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
             }
-            return `Ω-C sposition-CODE: ${code}`;
+            return `Ω-CODE:${code}`;
         }
 
         function generateSerialNumber(code) {
@@ -587,7 +620,7 @@
                     const paddedNumber = String(serialCounter++).padStart(6, '0');
                     const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
                     serial = `HOLO-${paddedNumber}-${suffix}`;
-                } while (localStorage.getItem('serialMap') && new Map(JSON.parse(localStorage.getItem('serialMap') || '{}')).has(serial));
+                } while (localStorage.getItem('serialMap') && new Map(JSON.parse(deobfuscateData(localStorage.getItem('serialMap')) || '[]')).has(serial));
                 localStorage.setItem('serialCounter', serialCounter);
                 return serial;
             } catch (err) {
@@ -637,21 +670,21 @@
 
                 const planeCount = rand(2, 3);
                 for (let i = 0; i < planeCount; i++) {
-                    const plane = document.createElement('div');
-                    plane.className = 'grid-plane';
+                    const layer = document.createElement('div');
+                    layer.className = 'grid-plane';
                     const width = randFloat(40, 100);
                     const height = randFloat(40, 100);
                     const left = randFloat(0, 100 - (width / 1.8));
                     const top = randFloat(0, 100 - (height / 1.8));
                     const z = randFloat(-80, 80);
-                    plane.style.cssText = `
+                    layer.style.cssText = `
                         width: ${width}px;
                         height: ${height}px;
                         left: ${left}%;
                         top: ${top}%;
                         transform: translateZ(${z}px) rotateX(${randFloat(-35, 35)}deg) rotateY(${randFloat(-35, 35)}deg);
                     `;
-                    hologram.appendChild(plane);
+                    hologram.appendChild(layer);
                 }
 
                 if (message) {
@@ -720,13 +753,12 @@
 
         window.addEventListener('load', async () => {
             try {
-                // Clear potentially corrupted storage
-                if (localStorage.getItem('serialMap')) {
-                    try {
-                        await loadSerialMap();
-                    } catch (err) {
-                        localStorage.removeItem('serialMap');
-                    }
+                // Clear incompatible storage
+                const storedVersion = localStorage.getItem('storageVersion');
+                if (storedVersion !== STORAGE_VERSION) {
+                    console.log('Clearing incompatible storage');
+                    localStorage.removeItem('serialMap');
+                    localStorage.setItem('storageVersion', STORAGE_VERSION);
                 }
                 const initCode = generateCrypticCode();
                 const initSerial = `HOLO-${String(1).padStart(6, '0')}-INIT`;
