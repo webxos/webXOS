@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Galaxycraft v2.0 Neo Cyber Edition</title>
+  <title>Galaxycraft v2.0 Turbo Cyber Edition</title>
   <style>
     * {
       margin: 0;
@@ -34,6 +34,34 @@
       width: 100%;
       background: #000;
       touch-action: none;
+    }
+    #crosshairs {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #crosshairs::before, #crosshairs::after {
+      content: '';
+      position: absolute;
+      background: #00ff00;
+      box-shadow: 0 0 5px #00ff00;
+    }
+    #crosshairs::before {
+      width: 100%;
+      height: 2px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    #crosshairs::after {
+      width: 2px;
+      height: 100%;
+      left: 50%;
+      transform: translateX(-50%);
     }
     #console {
       position: fixed;
@@ -134,12 +162,17 @@
       .checkpoint-text {
         font-size: 12px;
       }
+      #crosshairs {
+        width: 16px;
+        height: 16px;
+      }
     }
   </style>
 </head>
 <body>
   <div id="logo">Galaxycraft</div>
   <div id="cosmicCanvas"></div>
+  <div id="crosshairs"></div>
   <div id="status"></div>
   <div id="prompt"></div>
   <div id="console">
@@ -164,7 +197,7 @@
     try {
       // Scene setup
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 2000);
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1500);
       const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
       renderer.setPixelRatio(/Mobi|Android|iPhone/i.test(navigator.userAgent) ? 0.5 : 1);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -174,29 +207,16 @@
       canvas.appendChild(renderer.domElement);
       camera.position.set(0, 0, 0);
 
-      // Starship
-      const shipMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-      const shipGeometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, -10), new THREE.Vector3(-6, -3, 0),
-        new THREE.Vector3(-6, -3, 0), new THREE.Vector3(6, -3, 0),
-        new THREE.Vector3(6, -3, 0), new THREE.Vector3(0, 0, -10),
-        new THREE.Vector3(0, 3, 0), new THREE.Vector3(0, 0, -10)
-      ]);
-      const starship = new THREE.LineSegments(shipGeometry, shipMaterial);
-      starship.position.set(0, -1.5, -6);
-      camera.add(starship);
-      scene.add(camera);
-
       // Resources
       const greenMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
       const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
       const geometries = {
-        comet: new THREE.SphereGeometry(4, 6, 6),
-        system: new THREE.SphereGeometry(60, 6, 6),
-        galaxy: new THREE.SphereGeometry(6, 6, 6),
-        node: new THREE.BoxGeometry(6, 6, 6),
-        projectile: new THREE.SphereGeometry(2, 6, 6),
-        checkpoint: new THREE.BoxGeometry(30, 30, 30)
+        comet: new THREE.SphereGeometry(3, 4, 4),
+        system: new THREE.SphereGeometry(50, 4, 4),
+        galaxy: new THREE.SphereGeometry(5, 4, 4),
+        node: new THREE.BoxGeometry(5, 5, 5),
+        projectile: new THREE.SphereGeometry(1.5, 4, 4),
+        checkpoint: new THREE.BoxGeometry(25, 25, 25)
       };
 
       // State
@@ -223,18 +243,22 @@
       let rotationVelocity = { pitch: 0, yaw: 0 };
       let velocity = new THREE.Vector3();
       const pool = [];
+      const forward = new THREE.Vector3(); // Cached vector
 
       // Object pool
       function getMesh(type) {
-        const mesh = pool.find(m => !m.visible && m.userData.type === type) || new THREE.Mesh(geometries[type], greenMaterial);
+        let mesh = pool.find(m => !m.visible && m.userData.type === type);
+        if (!mesh) {
+          mesh = new THREE.Mesh(geometries[type], greenMaterial);
+          mesh.userData.type = type;
+        }
         mesh.visible = true;
-        mesh.userData.type = type;
         return mesh;
       }
 
       // WebXOS
       function encodeState() {
-        const state = {
+        return btoa(JSON.stringify({
           m: gameMode,
           p: camera.position.toArray(),
           e: entities.map(e => ({
@@ -243,8 +267,7 @@
             v: e.userData.velocity?.toArray() || [0, 0, 0]
           })),
           c: checkpointProgress
-        };
-        return btoa(JSON.stringify(state)).slice(0, 40);
+        })).slice(0, 40);
       }
       function decodeState(code) {
         try {
@@ -274,7 +297,7 @@
       // Commands
       function handleCommand(cmd) {
         if (!cmd.startsWith('/')) return;
-        cmd = cmd.trim().toLowerCase().slice(1);
+        cmd = cmd.slice(1).trim().toLowerCase();
         const [command, arg] = cmd.split(' ');
         if (gameMode === 'explore' && ['add', 'shoot'].includes(command)) {
           log('Unavailable in Explore');
@@ -285,10 +308,7 @@
             log(gameMode === 'craft' ? '/add comet|system|galaxy|node, /shoot, /reset, /throttle, /autopilot, /boost, /pause, /save, /load, /debug' : '/reset, /throttle, /autopilot, /boost, /pause, /save, /load, /debug');
             break;
           case 'add':
-            if (arg === 'comet') addEntity('comet');
-            else if (arg === 'system') addEntity('system');
-            else if (arg === 'galaxy') addEntity('galaxy');
-            else if (arg === 'node') addEntity('node');
+            if (['comet', 'system', 'galaxy', 'node'].includes(arg)) addEntity(arg);
             else log('Use: /add comet|system|galaxy|node');
             break;
           case 'shoot':
@@ -326,10 +346,9 @@
                 const box = new THREE.BoxHelper(e, 0x00ff00);
                 box.userData = { debug: true };
                 scene.add(box);
-              } else {
-                scene.children.filter(c => c.userData?.debug).forEach(c => scene.remove(c));
               }
             });
+            if (!debugMode) scene.children.filter(c => c.userData?.debug).forEach(c => scene.remove(c));
             log(`Debug ${debugMode ? 'on' : 'off'}`);
             break;
           default:
@@ -345,16 +364,16 @@
 
       // Entity management
       function addEntity(type) {
-        if (entityCount >= 300) {
+        if (entityCount >= 200) {
           showPrompt('Entity limit');
           return;
         }
         const mesh = getMesh(type);
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        mesh.position.copy(camera.position).add(forward.multiplyScalar(type === 'projectile' ? 10 : 300));
+        forward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        mesh.position.copy(camera.position).addScaledVector(forward, type === 'projectile' ? 8 : 200);
         mesh.userData = {
           type,
-          velocity: type === 'projectile' ? forward.multiplyScalar(25) : new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6),
+          velocity: type === 'projectile' ? forward.clone().multiplyScalar(20) : new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5),
           created: Date.now()
         };
         scene.add(mesh);
@@ -376,7 +395,7 @@
         document.getElementById('modeBtn').textContent = gameMode === 'craft' ? 'Explore' : 'Craft';
         camera.position.fromArray(state.p);
         state.e.forEach(e => {
-          if (entityCount >= 300) return;
+          if (entityCount >= 200) return;
           const mesh = getMesh(e.t);
           mesh.position.fromArray(e.p);
           mesh.userData = {
@@ -431,28 +450,22 @@
       function initExplore() {
         checkpointStart = Date.now();
         for (let i = 0; i < 10; i++) {
-          if (entityCount >= 300) break;
+          if (entityCount >= 200) break;
           const mesh = getMesh('checkpoint');
-          mesh.position.set(0, 0, i * 800);
+          mesh.position.set(0, 0, i * 600);
           mesh.userData = { type: 'checkpoint', created: Date.now(), index: i };
           scene.add(mesh);
           entities.push(mesh);
           entityCount++;
         }
-        for (let i = 0; i < 30; i++) {
-          if (entityCount >= 300) break;
+        for (let i = 0; i < 20; i++) {
+          if (entityCount >= 200) break;
           const mesh = getMesh('node');
-          mesh.position.set((Math.random() - 0.5) * 800, (Math.random() - 0.5) * 800, Math.random() * 8000);
+          mesh.position.set((Math.random() - 0.5) * 600, (Math.random() - 0.5) * 600, Math.random() * 6000);
           mesh.userData = { type: 'node', created: Date.now() };
           scene.add(mesh);
           entities.push(mesh);
           entityCount++;
-        }
-        const nodes = entities.filter(e => e.userData.type === 'node');
-        for (let i = 1; i < nodes.length; i++) {
-          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([nodes[i - 1].position, nodes[i].position]), lineMaterial);
-          scene.add(line);
-          nodeLines.push(line);
         }
         log('Explore mode ready');
       }
@@ -464,7 +477,6 @@
         document.getElementById('throttleBtn').classList.toggle('active', throttle > 0);
         showPrompt(throttle > 0 ? 'Thrust on' : 'Thrust off');
         log(throttle > 0 ? 'Thrust on' : 'Thrust off');
-        updateStatus();
       }
       function toggleBoost() {
         if (autopilot || isPaused || boost || boostCooldown > Date.now()) return;
@@ -474,7 +486,6 @@
         document.getElementById('boostBtn').classList.add('active');
         showPrompt('Boost activated');
         log('Boost on');
-        updateStatus();
       }
       function toggleAutopilot() {
         if (isPaused) return;
@@ -495,7 +506,6 @@
         currentNode = 0;
         showPrompt(autopilot ? 'Autopilot on' : 'Autopilot off');
         log(autopilot ? 'Autopilot on' : 'Autopilot off');
-        updateStatus();
       }
       function togglePause() {
         isPaused = !isPaused;
@@ -508,7 +518,6 @@
         }
         showPrompt(isPaused ? 'Paused' : 'Resumed');
         log(isPaused ? 'Paused' : 'Resumed');
-        updateStatus();
       }
       function toggleMode() {
         if (isPaused) return;
@@ -519,7 +528,6 @@
         updateControls();
         showPrompt(`Mode: ${gameMode}`);
         log(`Mode: ${gameMode}`);
-        updateStatus();
       }
       function updateControls() {
         document.querySelectorAll('.craft-only').forEach(b => {
@@ -538,8 +546,8 @@
       });
       canvas.addEventListener('mousemove', e => {
         if (isDragging && !autopilot && !isPaused) {
-          rotationVelocity.yaw -= (e.clientX - prevTouch.x) * 0.015;
-          rotationVelocity.pitch -= (e.clientY - prevTouch.y) * 0.015;
+          rotationVelocity.yaw -= (e.clientX - prevTouch.x) * 0.01;
+          rotationVelocity.pitch -= (e.clientY - prevTouch.y) * 0.01;
           prevTouch = { x: e.clientX, y: e.clientY };
         }
       });
@@ -557,8 +565,8 @@
           e.preventDefault();
           const deltaX = e.touches[0].clientX - prevTouch.x;
           const deltaY = e.touches[0].clientY - prevTouch.y;
-          rotationVelocity.yaw -= deltaX * 0.015;
-          rotationVelocity.pitch -= deltaY * 0.015;
+          rotationVelocity.yaw -= deltaX * 0.01;
+          rotationVelocity.pitch -= deltaY * 0.01;
           prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         }
       });
@@ -575,8 +583,8 @@
 
       // FPS limiter
       function limitEntities() {
-        if (fps < 25 && entityCount > 50) {
-          const toRemove = entities.filter(e => e.userData.type !== 'checkpoint' && e.userData.type !== 'node').sort((a, b) => a.userData.created - b.userData.created).slice(0, Math.min(5, entityCount - 50));
+        if (fps < 30 && entityCount > 30) {
+          const toRemove = entities.filter(e => e.userData.type !== 'checkpoint' && e.userData.type !== 'node').sort((a, b) => a.userData.created - b.userData.created).slice(0, Math.min(3, entityCount - 30));
           toRemove.forEach(e => {
             e.visible = false;
             pool.push(e);
@@ -615,31 +623,31 @@
 
         // Rotation
         if (!autopilot) {
-          if (keys.ArrowLeft) rotationVelocity.yaw += 0.08;
-          if (keys.ArrowRight) rotationVelocity.yaw -= 0.08;
-          if (keys.ArrowUp) rotationVelocity.pitch -= 0.08;
-          if (keys.ArrowDown) rotationVelocity.pitch += 0.08;
+          if (keys.ArrowLeft) rotationVelocity.yaw += 0.06;
+          if (keys.ArrowRight) rotationVelocity.yaw -= 0.06;
+          if (keys.ArrowUp) rotationVelocity.pitch -= 0.06;
+          if (keys.ArrowDown) rotationVelocity.pitch += 0.06;
           rotation.pitch += rotationVelocity.pitch * deltaTime;
           rotation.yaw += rotationVelocity.yaw * deltaTime;
           rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
-          rotationVelocity.pitch *= 0.92;
-          rotationVelocity.yaw *= 0.92;
+          rotationVelocity.pitch *= 0.95;
+          rotationVelocity.yaw *= 0.95;
           camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
         }
 
         // Movement
         if (!autopilot) {
-          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          forward.set(0, 0, -1).applyQuaternion(camera.quaternion);
           const speed = boost ? 300 : throttle;
-          velocity.copy(forward.multiplyScalar(speed));
-          camera.position.add(velocity.multiplyScalar(deltaTime));
+          velocity.copy(forward).multiplyScalar(speed);
+          camera.position.addScaledVector(velocity, deltaTime);
         } else {
           const targets = gameMode === 'explore' ? entities.filter(e => e.userData.type === 'checkpoint') : entities.filter(e => e.userData.type === 'node');
-          if (targets.length === 0) return;
+          if (!targets.length) return;
           const target = targets[currentNode];
           const dir = target.position.clone().sub(camera.position);
           const dist = dir.length();
-          if (dist < 40) {
+          if (dist < 30) {
             if (gameMode === 'explore') {
               checkpointProgress = Math.max(checkpointProgress, currentNode + 1);
               const text = document.createElement('div');
@@ -650,41 +658,45 @@
               setTimeout(() => {
                 if (document.body.contains(text)) document.body.removeChild(text);
                 checkpointTexts = checkpointTexts.filter(t => t !== text);
-              }, 1500);
+              }, 1000);
               const code = encodeState();
               log(`CP ${currentNode + 1}: ${code}`);
-              showPrompt(`CP ${currentNode + 1} reached`);
+              showPrompt(`CP ${currentNode + 1}`);
             }
             currentNode = (currentNode + 1) % targets.length;
           }
           dir.normalize();
-          velocity.copy(dir.multiplyScalar(150));
-          camera.position.add(velocity.multiplyScalar(deltaTime));
+          velocity.copy(dir).multiplyScalar(150);
+          camera.position.addScaledVector(velocity, deltaTime);
           camera.lookAt(target.position);
         }
 
         // Entities
-        entities.forEach(e => {
-          if (e.userData.velocity && e.position.distanceTo(camera.position) < 600) {
-            e.position.add(e.userData.velocity.clone().multiplyScalar(deltaTime));
+        const camPos = camera.position;
+        for (let i = entities.length - 1; i >= 0; i--) {
+          const e = entities[i];
+          if (e.userData.velocity && e.position.distanceTo(camPos) < 500) {
+            e.position.addScaledVector(e.userData.velocity, deltaTime);
           }
-          if (e.userData.type === 'projectile' && e.position.length() > 1000) {
+          if (e.userData.type === 'projectile' && e.position.length() > 800) {
             e.visible = false;
             pool.push(e);
             scene.remove(e);
-            entities = entities.filter(ent => ent !== e);
+            entities.splice(i, 1);
             entityCount--;
           }
-        });
+        }
 
         // Node lines
         const nodes = entities.filter(e => e.userData.type === 'node');
         nodeLines.forEach(l => scene.remove(l));
         nodeLines = [];
         for (let i = 1; i < nodes.length; i++) {
-          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([nodes[i - 1].position, nodes[i].position]), lineMaterial);
-          scene.add(line);
-          nodeLines.push(line);
+          if (nodes[i].position.distanceTo(camPos) < 500) {
+            const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([nodes[i - 1].position, nodes[i].position]), lineMaterial);
+            scene.add(line);
+            nodeLines.push(line);
+          }
         }
 
         // Checkpoint text
@@ -717,9 +729,9 @@
       // Green coding
       document.addEventListener('visibilitychange', () => {
         isActive = document.visibilityState === 'visible';
-        if (isActive) {
+        if (isActive && !isPaused) {
           lastTime = performance.now();
-          if (!isPaused) animate();
+          animate();
         }
       });
 
@@ -731,7 +743,7 @@
       });
 
       // Initialize
-      log('Galaxycraft Neo initialized');
+      log('Galaxycraft Turbo initialized');
       updateControls();
       updateStatus();
       animate();
