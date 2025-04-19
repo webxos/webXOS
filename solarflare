@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000">
+    <title>SolarFlare AI: Solar Simulator</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+        #controls {
+            margin: 5px;
+            text-align: center;
+            width: 100%;
+            max-width: 90vw;
+        }
+        button {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin: 2px;
+            font-size: 10px;
+            transition: none;
+        }
+        button:hover, button.active {
+            background: #0f0;
+            color: #000;
+        }
+        canvas {
+            border: 1px solid #0f0;
+            max-width: 90vw;
+            max-height: 40vh;
+            width: 100%;
+            height: auto;
+            display: block;
+            margin: 5px auto;
+            image-rendering: pixelated;
+        }
+        #dashboard {
+            margin: 5px;
+            font-size: 12px;
+            text-align: left;
+            width: 100%;
+            max-width: 90vw;
+            border: 1px solid #0f0;
+            padding: 8px;
+        }
+        #timeDisplay {
+            margin: 5px;
+            font-size: 12px;
+            text-align: center;
+            width: 100%;
+            max-width: 90vw;
+        }
+        #console {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            height: 50vh;
+            background: #000;
+            border-top: 1px solid #0f0;
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+        }
+        #consoleOutput {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 12px;
+        }
+        #consoleInput {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            font-family: 'Courier New', monospace;
+            width: 100%;
+            padding: 8px;
+            font-size: 16px;
+        }
+        #helpText {
+            padding: 5px;
+            font-size: 10px;
+            color: #0f0;
+            text-align: center;
+        }
+        @media (max-width: 600px) {
+            canvas {
+                max-height: 35vh;
+            }
+            button {
+                font-size: 8px;
+                padding: 3px 5px;
+            }
+            #dashboard, #timeDisplay {
+                font-size: 10px;
+            }
+            #consoleOutput {
+                font-size: 10px;
+            }
+            #consoleInput {
+                font-size: 14px;
+            }
+            #helpText {
+                font-size: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="startSimulation()">Start</button>
+        <button onclick="stopSimulation()">Stop</button>
+        <button onclick="setSpeed(1)" class="speedBtn active">1x</button>
+        <button onclick="setSpeed(100000)" class="speedBtn">100000x</button>
+        <button onclick="setSpeed(1000000)" class="speedBtn">1000000x</button>
+    </div>
+    <canvas id="solarCanvas"></canvas>
+    <div id="dashboard">SolarFlare AI Dashboard: Loading...</div>
+    <div id="timeDisplay">Date: Loading...</div>
+    <div id="console">
+        <div id="consoleOutput"></div>
+        <input id="consoleInput" type="text" placeholder="Enter command...">
+        <div id="helpText">
+            Commands: nogravity, gravity, reverse, reset, sunlight <planet>, co2 <planet>, solarcycle <years>, predict, carbon, <planet>, help<br>
+            Planets: sun, mercury, venus, earth, mars, jupiter, saturn, uranus, neptune, pluto<br>
+            Type 'help' for full list.
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('solarCanvas');
+        const ctx = canvas.getContext('2d');
+        const dashboard = document.getElementById('dashboard');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const consoleOutput = document.getElementById('consoleOutput');
+        const consoleInput = document.getElementById('consoleInput');
+        let animationFrameId;
+        let isRunning = false;
+        let speed = 1;
+        let simulatedTime = new Date('2025-04-19').getTime();
+        let lastFrameTime = performance.now();
+        let gravityEnabled = true;
+        let orbitDirection = 1;
+        let planetVelocities = [];
+        let computationCount = 0;
+        const SOLAR_CONSTANT = 1361; // W/m² at 1 AU
+        const SOLAR_CYCLE_PERIOD = 11 * 365.25 * 24 * 60 * 60 * 1000; // 11 years in ms
+        let lastConsoleUpdate = 0;
+        const CONSOLE_DEBOUNCE_MS = 500; // Debounce console updates
+
+        // AI model for solar predictions
+        let solarModel;
+        async function initSolarModel() {
+            solarModel = tf.sequential();
+            solarModel.add(tf.layers.dense({ units: 16, activation: 'relu', inputShape: [2] })); // Input: cycle phase, speed
+            solarModel.add(tf.layers.dense({ units: 8, activation: 'relu' }));
+            solarModel.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
+            solarModel.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+            // Synthetic training data
+            const xs = tf.tensor2d(Array.from({ length: 100 }, (_, i) => [i / 100, Math.random() * 1000000]));
+            const ys = tf.tensor1d(Array.from({ length: 100 }, (_, i) => Math.sin(Math.PI * (i / 100)) * 0.5 + 0.5));
+            await solarModel.fit(xs, ys, { epochs: 50, verbose: 0 });
+            xs.dispose();
+            ys.dispose();
+        }
+        initSolarModel();
+
+        // Resize canvas
+        function resizeCanvas() {
+            const maxWidth = Math.min(window.innerWidth * 0.9, 800);
+            const maxHeight = Math.min(window.innerHeight * 0.4, 400);
+            canvas.width = maxWidth;
+            canvas.height = maxHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Solar system data
+        const solarSystem = [
+            {
+                name: 'Sun',
+                radius: 10,
+                color: '#ff0',
+                stats: {
+                    radius: '696,340 km',
+                    avgTemp: '5,500 °C',
+                    distance: '0 AU',
+                    orbitalPeriod: 'N/A',
+                    co2: 'N/A',
+                    albedo: 0,
+                    eccentricity: 0,
+                    inclination: 0,
+                    axialTilt: 7.25
+                }
+            },
+            {
+                name: 'Mercury',
+                radius: 2,
+                color: '#aaa',
+                semiMajorAxis: 30,
+                orbitalPeriod: 87.97,
+                orbitalSpeed: 47.87,
+                stats: {
+                    radius: '2,439.7 km',
+                    avgTemp: '167 °C',
+                    distance: '0.387 AU',
+                    orbitalPeriod: '87.97 days',
+                    co2: 'Trace',
+                    albedo: 0.068,
+                    eccentricity: 0.2056,
+                    inclination: 7.0,
+                    axialTilt: 0.034
+                }
+            },
+            {
+                name: 'Venus',
+                radius: 3,
+                color: '#f90',
+                semiMajorAxis: 50,
+                orbitalPeriod: 224.7,
+                orbitalSpeed: 35.02,
+                stats: {
+                    radius: '6,051.8 km',
+                    avgTemp: '464 °C',
+                    distance: '0.723 AU',
+                    orbitalPeriod: '224.7 days',
+                    co2: '96.5% atmosphere',
+                    albedo: 0.75,
+                    eccentricity: 0.0067,
+                    inclination: 3.39,
+                    axialTilt: 177.36
+                }
+            },
+            {
+                name: 'Earth',
+                radius: 4,
+                color: '#00f',
+                semiMajorAxis: 70,
+                orbitalPeriod: 365.25,
+                orbitalSpeed: 29.78,
+                stats: {
+                    radius: '6,371 km',
+                    avgTemp: '15 °C',
+                    distance: '1 AU',
+                    orbitalPeriod: '365.25 days',
+                    co2: '0.041% atmosphere',
+                    albedo: 0.306,
+                    eccentricity: 0.0167,
+                    inclination: 0,
+                    axialTilt: 23.44
+                }
+            },
+            {
+                name: 'Mars',
+                radius: 3,
+                color: '#f00',
+                semiMajorAxis: 90,
+                orbitalPeriod: 686.98,
+                orbitalSpeed: 24.13,
+                stats: {
+                    radius: '3,389.5 km',
+                    avgTemp: '-65 °C',
+                    distance: '1.524 AU',
+                    orbitalPeriod: '686.98 days',
+                    co2: '95.3% atmosphere',
+                    albedo: 0.25,
+                    eccentricity: 0.0934,
+                    inclination: 1.85,
+                    axialTilt: 25.19
+                }
+            },
+            {
+                name: 'Jupiter',
+                radius: 6,
+                color: '#f80',
+                semiMajorAxis: 110,
+                orbitalPeriod: 4332.59,
+                orbitalSpeed: 13.07,
+                stats: {
+                    radius: '69,911 km',
+                    avgTemp: '-110 °C',
+                    distance: '5.204 AU',
+                    orbitalPeriod: '4332.59 days',
+                    co2: 'Trace',
+                    albedo: 0.343,
+                    eccentricity: 0.0489,
+                    inclination: 1.31,
+                    axialTilt: 3.13
+                }
+            },
+            {
+                name: 'Saturn',
+                radius: 5,
+                color: '#ff8',
+                semiMajorAxis: 130,
+                orbitalPeriod: 10759.22,
+                orbitalSpeed: 9.69,
+                stats: {
+                    radius: '58,232 km',
+                    avgTemp: '-140 °C',
+                    distance: '9.582 AU',
+                    orbitalPeriod: '10759.22 days',
+                    co2: 'Trace',
+                    albedo: 0.342,
+                    eccentricity: 0.0565,
+                    inclination: 2.49,
+                    axialTilt: 26.73
+                }
+            },
+            {
+                name: 'Uranus',
+                radius: 4,
+                color: '#0ff',
+                semiMajorAxis: 140,
+                orbitalPeriod: 30688.5,
+                orbitalSpeed: 6.81,
+                stats: {
+                    radius: '25,362 km',
+                    avgTemp: '-195 °C',
+                    distance: '19.191 AU',
+                    orbitalPeriod: '30688.5 days',
+                    co2: 'Trace',
+                    albedo: 0.3,
+                    eccentricity: 0.0463,
+                    inclination: 0.77,
+                    axialTilt: 97.77
+                }
+            },
+            {
+                name: 'Neptune',
+                radius: 4,
+                color: '#00f',
+                semiMajorAxis: 150,
+                orbitalPeriod: 59800,
+                orbitalSpeed: 5.43,
+                stats: {
+                    radius: '24,622 km',
+                    avgTemp: '-200 °C',
+                    distance: '30.07 AU',
+                    orbitalPeriod: '59800 days',
+                    co2: 'Trace',
+                    albedo: 0.29,
+                    eccentricity: 0.0095,
+                    inclination: 1.77,
+                    axialTilt: 28.32
+                }
+            },
+            {
+                name: 'Pluto',
+                radius: 2,
+                color: '#ccc',
+                semiMajorAxis: 180,
+                orbitalPeriod: 90560,
+                orbitalSpeed: 4.74,
+                stats: {
+                    radius: '1,188.3 km',
+                    avgTemp: '-225 °C',
+                    distance: '39.48 AU',
+                    orbitalPeriod: '90560 days',
+                    co2: 'Trace',
+                    albedo: 0.5,
+                    eccentricity: 0.2488,
+                    inclination: 17.16,
+                    axialTilt: 57.47
+                }
+            }
+        ];
+
+        // Log stat sheet
+        console.log('SolarFlare AI Stat Sheet:');
+        solarSystem.forEach(body => {
+            console.log(`${body.name}: Radius=${body.stats.radius}, Temp=${body.stats.avgTemp}, Distance=${body.stats.distance}, Cycle=${body.stats.orbitalPeriod}`);
+        });
+
+        // Calculate planet position
+        async function calculatePosition(body, daysSinceStart) {
+            if (body.name === 'Sun') return { x: canvas.width / 2, y: canvas.height / 2 };
+
+            if (!gravityEnabled && planetVelocities[body.name]) {
+                const { x, y, vx, vy } = planetVelocities[body.name];
+                const dt = (simulatedTime - planetVelocities[body.name].time) / (1000 * 60 * 60 * 24);
+                return { x: x + vx * dt, y: y + vy * dt };
+            }
+
+            const e = body.stats.eccentricity;
+            const a = body.semiMajorAxis;
+            const meanAnomaly = (2 * Math.PI * daysSinceStart * orbitDirection) / body.orbitalPeriod;
+            let E = meanAnomaly;
+            for (let i = 0; i < 5; i++) {
+                E = meanAnomaly + e * Math.sin(E);
+            }
+            const trueAnomaly = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+            const r = a * (1 - e * Math.cos(E));
+            const inclination = body.stats.inclination * (Math.PI / 180);
+            const x = r * Math.cos(trueAnomaly);
+            const y = r * Math.sin(trueAnomaly) * Math.cos(inclination);
+            return { x: canvas.width / 2 + x, y: canvas.height / 2 + y };
+        }
+
+        // Calculate tangential velocity
+        function calculateTangentialVelocity(body, daysSinceStart) {
+            const a = body.semiMajorAxis;
+            const e = body.stats.eccentricity;
+            const meanMotion = (2 * Math.PI) / body.orbitalPeriod;
+            const meanAnomaly = (2 * Math.PI * daysSinceStart * orbitDirection) / body.orbitalPeriod;
+            let E = meanAnomaly;
+            for (let i = 0; i < 5; i++) {
+                E = meanAnomaly + e * Math.sin(E);
+            }
+            const trueAnomaly = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+            const r = a * (1 - e * Math.cos(E));
+            const v = Math.sqrt(meanMotion * a * (1 + e * Math.cos(trueAnomaly)) / r);
+            return {
+                vx: -v * Math.sin(trueAnomaly) * orbitDirection,
+                vy: v * Math.cos(trueAnomaly) * orbitDirection
+            };
+        }
+
+        // Calculate sunlight and energy
+        function calculateSunlight(body, daysSinceStart) {
+            if (body.name === 'Sun') return { insolation: 0, energy: 0, peakTime: 'N/A' };
+
+            const au = parseFloat(body.stats.distance.split(' ')[0]);
+            const albedo = body.stats.albedo;
+            const axialTilt = body.stats.axialTilt * (Math.PI / 180);
+            const cyclePhase = (simulatedTime % SOLAR_CYCLE_PERIOD) / SOLAR_CYCLE_PERIOD;
+            const solarOutput = SOLAR_CONSTANT * (1 + 0.034 * Math.sin(2 * Math.PI * cyclePhase));
+            const insolation = solarOutput / (au * au);
+            const absorbed = insolation * (1 - albedo);
+            const period = body.orbitalPeriod;
+            const timeInPeriod = (daysSinceStart % period) / period;
+            const tiltEffect = Math.abs(Math.cos(2 * Math.PI * timeInPeriod + axialTilt));
+            const peakInsolation = insolation * tiltEffect;
+            const peakTime = new Date(simulatedTime + (period * (1 - timeInPeriod)) * 24 * 60 * 60 * 1000).toUTCString();
+            return { insolation: peakInsolation.toFixed(2), energy: absorbed.toFixed(2), peakTime };
+        }
+
+        // Predict solar exposure trend
+        async function predictSolarTrend(body, daysSinceStart) {
+            if (body.name === 'Sun') return 'N/A';
+            const cyclePhase = (simulatedTime % SOLAR_CYCLE_PERIOD) / SOLAR_CYCLE_PERIOD;
+            const input = tf.tensor2d([[cyclePhase, speed]]);
+            const prediction = solarModel.predict(input);
+            const trend = (await prediction.data())[0];
+            prediction.dispose();
+            input.dispose();
+            return trend > 0.7 ? 'Increasing' : trend > 0.3 ? 'Stable' : 'Decreasing';
+        }
+
+        // AI-based solar event prediction
+        async function predictSolarEvents() {
+            const cyclePhase = (simulatedTime % SOLAR_CYCLE_PERIOD) / SOLAR_CYCLE_PERIOD;
+            const input = tf.tensor2d([[cyclePhase, speed]]);
+            const prediction = solarModel.predict(input);
+            const sunspotActivity = (await prediction.data())[0];
+            prediction.dispose();
+            input.dispose();
+            let eventLikelihood = 'Low';
+            let energyOutput = SOLAR_CONSTANT * (1 + 0.034 * sunspotActivity);
+            if (sunspotActivity > 0.7) {
+                eventLikelihood = 'High (Solar Maximum)';
+            } else if (sunspotActivity > 0.3) {
+                eventLikelihood = 'Moderate';
+            }
+            return `Solar Event Likelihood: ${eventLikelihood}\nSunspot Activity: ${(sunspotActivity * 100).toFixed(2)}%\nEnergy Output: ${energyOutput.toFixed(2)} W/m²\nNext Peak: ~${new Date(simulatedTime + (0.5 - cyclePhase) * SOLAR_CYCLE_PERIOD).toUTCString()}`;
+        }
+
+        // Estimate carbon footprint
+        function estimateCarbonFootprint() {
+            const carbon = (computationCount * 0.1).toFixed(2);
+            return `Estimated Carbon Footprint: ${carbon} g CO2 (${computationCount} cycles)`;
+        }
+
+        // Update dashboard
+        function updateDashboard() {
+            if (Date.now() - lastConsoleUpdate < CONSOLE_DEBOUNCE_MS) return;
+            const daysSinceStart = (simulatedTime - new Date('2025-04-19').getTime()) / (1000 * 60 * 60 * 24);
+            let output = 'SolarFlare AI Dashboard:\n';
+            solarSystem.forEach(body => {
+                if (body.name !== 'Sun') {
+                    const { insolation, energy } = calculateSunlight(body, daysSinceStart);
+                    output += `${body.name}: Insolation=${insolation} W/m², Energy=${energy} W/m², CO2=${body.stats.co2}\n`;
+                }
+            });
+            dashboard.textContent = output;
+            lastConsoleUpdate = Date.now();
+        }
+
+        // Update time display
+        function updateTimeDisplay() {
+            const date = new Date(simulatedTime);
+            timeDisplay.textContent = `Date: ${date.toUTCString()} | Solar Cycle: ${(simulatedTime / SOLAR_CYCLE_PERIOD).toFixed(2)}`;
+        }
+
+        // Draw sunlight overlay
+        async function drawSunlightOverlay(daysSinceStart) {
+            const sunPos = await calculatePosition(solarSystem[0], daysSinceStart);
+            const gradient = ctx.createRadialGradient(sunPos.x, sunPos.y, 10, sunPos.x, sunPos.y, canvas.width / 2);
+            gradient.addColorStop(0, 'rgba(255, 255, 0, 0.5)');
+            gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Highlight planets with high insolation
+            for (const body of solarSystem) {
+                if (body.name === 'Sun') continue;
+                const pos = await calculatePosition(body, daysSinceStart);
+                const { insolation } = calculateSunlight(body, daysSinceStart);
+                if (parseFloat(insolation) > 1000) { // Highlight if insolation > 1000 W/m²
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, body.radius + 2, 0, 2 * Math.PI);
+                    ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Draw the solar system
+        async function draw(showSunlightOverlay = false) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            computationCount++;
+
+            const daysSinceStart = (simulatedTime - new Date('2025-04-19').getTime()) / (1000 * 60 * 60 * 24);
+
+            if (showSunlightOverlay) {
+                await drawSunlightOverlay(daysSinceStart);
+            }
+
+            if (gravityEnabled) {
+                solarSystem.forEach(body => {
+                    if (body.name !== 'Sun') {
+                        ctx.beginPath();
+                        const a = body.semiMajorAxis;
+                        const e = body.stats.eccentricity;
+                        const steps = 100;
+                        for (let i = 0; i <= steps; i++) {
+                            const theta = (i / steps) * 2 * Math.PI;
+                            const r = a * (1 - e * e) / (1 + e * Math.cos(theta));
+                            const x = r * Math.cos(theta);
+                            const y = r * Math.sin(theta) * Math.cos(body.stats.inclination * (Math.PI / 180));
+                            if (i === 0) {
+                                ctx.moveTo(canvas.width / 2 + x, canvas.height / 2 + y);
+                            } else {
+                                ctx.lineTo(canvas.width / 2 + x, canvas.height / 2 + y);
+                            }
+                        }
+                        ctx.strokeStyle = '#0f0';
+                        ctx.stroke();
+                    }
+                });
+            }
+
+            for (const body of solarSystem) {
+                const pos = await calculatePosition(body, daysSinceStart);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, body.radius, 0, 2 * Math.PI);
+                ctx.fillStyle = body.color;
+                ctx.fill();
+                ctx.fillStyle = '#0f0';
+                ctx.font = '8px Courier New';
+                ctx.fillText(body.name, pos.x + body.radius + 3, pos.y);
+            }
+        }
+
+        // Animation loop
+        async function animate() {
+            if (!isRunning) return;
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastFrameTime) / 1000;
+            lastFrameTime = currentTime;
+
+            simulatedTime += deltaTime * speed * 1000;
+            await draw();
+            updateDashboard();
+            updateTimeDisplay();
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // Start/stop simulation
+        function startSimulation() {
+            if (!isRunning) {
+                isRunning = true;
+                lastFrameTime = performance.now();
+                animate();
+            }
+        }
+
+        function stopSimulation() {
+            isRunning = false;
+            cancelAnimationFrame(animationFrameId);
+        }
+
+        // Set speed
+        function setSpeed(newSpeed) {
+            speed = newSpeed;
+            document.querySelectorAll('.speedBtn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === `${speed}x`);
+            });
+            appendConsole(`Speed set to ${speed}x`);
+        }
+
+        // Reset simulation
+        function resetSimulation() {
+            simulatedTime = new Date('2025-04-19').getTime();
+            gravityEnabled = true;
+            orbitDirection = 1;
+            planetVelocities = [];
+            setSpeed(1);
+            computationCount = 0;
+            appendConsole('Simulation reset');
+        }
+
+        // Console handling
+        function appendConsole(message) {
+            if (Date.now() - lastConsoleUpdate < CONSOLE_DEBOUNCE_MS) return;
+            const p = document.createElement('p');
+            p.textContent = `> ${message}`;
+            consoleOutput.appendChild(p);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            lastConsoleUpdate = Date.now();
+        }
+
+        consoleInput.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && consoleInput.value.trim()) {
+                const input = consoleInput.value.toLowerCase().trim();
+                consoleInput.value = '';
+                appendConsole(input);
+
+                const daysSinceStart = (simulatedTime - new Date('2025-04-19').getTime()) / (1000 * 60 * 60 * 24);
+
+                if (input === 'nogravity') {
+                    gravityEnabled = false;
+                    planetVelocities = {};
+                    solarSystem.forEach(body => {
+                        if (body.name !== 'Sun') {
+                            const pos = calculatePosition(body, daysSinceStart);
+                            const vel = calculateTangentialVelocity(body, daysSinceStart);
+                            planetVelocities[body.name] = {
+                                x: pos.x,
+                                y: pos.y,
+                                vx: vel.vx,
+                                vy: vel.vy,
+                                time: simulatedTime
+                            };
+                        }
+                    });
+                    appendConsole('Gravity disabled: planets move freely');
+                } else if (input === 'gravity') {
+                    gravityEnabled = true;
+                    planetVelocities = [];
+                    appendConsole('Gravity restored: planets orbit Sun');
+                } else if (input === 'reverse') {
+                    orbitDirection *= -1;
+                    appendConsole(`Orbits ${orbitDirection === 1 ? 'restored' : 'reversed'}`);
+                } else if (input === 'reset') {
+                    resetSimulation();
+                } else if (input === 'help') {
+                    appendConsole('Commands:');
+                    appendConsole('  nogravity - Planets move freely');
+                    appendConsole('  gravity - Restore orbits');
+                    appendConsole('  reverse - Reverse orbit direction');
+                    appendConsole('  reset - Reset simulation');
+                    appendConsole('  sunlight <planet> - Show sunlight data');
+                    appendConsole('  co2 <planet> - Show CO2 levels');
+                    appendConsole('  solarcycle <years> - Simulate solar cycles');
+                    appendConsole('  predict - AI-based solar event forecast');
+                    appendConsole('  carbon - Computational carbon footprint');
+                    appendConsole('  <planet> - Show planet data (incl. real-time)');
+                    appendConsole('Planets: sun, mercury, venus, earth, mars, jupiter, saturn, uranus, neptune, pluto');
+                } else if (input.startsWith('sunlight')) {
+                    const planetName = input.split(' ')[1];
+                    const body = solarSystem.find(b => b.name.toLowerCase() === planetName);
+                    if (body) {
+                        const { insolation, energy, peakTime } = calculateSunlight(body, daysSinceStart);
+                        const trend = await predictSolarTrend(body, daysSinceStart);
+                        appendConsole(`${body.name} Sunlight Data:`);
+                        appendConsole(`  Insolation: ${insolation} W/m²`);
+                        appendConsole(`  Energy Absorbed: ${energy} W/m²`);
+                        appendConsole(`  Peak Sunlight: ${peakTime}`);
+                        appendConsole(`  Exposure Trend: ${trend}`);
+                    } else {
+                        appendConsole('Invalid planet. Type "help" for list.');
+                    }
+                } else if (input.startsWith('co2')) {
+                    const planetName = input.split(' ')[1];
+                    const body = solarSystem.find(b => b.name.toLowerCase() === planetName);
+                    if (body) {
+                        appendConsole(`${body.name} CO2 Data:`);
+                        appendConsole(`  CO2 Level: ${body.stats.co2}`);
+                    } else {
+                        appendConsole('Invalid planet. Type "help" for list.');
+                    }
+                } else if (input.startsWith('solarcycle')) {
+                    const years = parseInt(input.split(' ')[1]) || 11;
+                    const cycleTime = years * 365.25 * 24 * 60 * 60 * 1000;
+                    simulatedTime += cycleTime;
+                    appendConsole(`Advanced ${years} years. New date: ${new Date(simulatedTime).toUTCString()}`);
+                } else if (input === 'predict') {
+                    appendConsole(await predictSolarEvents());
+                } else if (input === 'carbon') {
+                    appendConsole(estimateCarbonFootprint());
+                } else if (input === 'sun') {
+                    const solarEvents = await predictSolarEvents();
+                    appendConsole('Sun Data:');
+                    appendConsole(solarEvents);
+                    await draw(true); // Draw with sunlight overlay
+                    setTimeout(() => draw(false), 3000); // Revert after 3 seconds
+                } else {
+                    const body = solarSystem.find(b => b.name.toLowerCase() === input);
+                    if (body) {
+                        const { insolation, energy, peakTime } = calculateSunlight(body, daysSinceStart);
+                        const trend = await predictSolarTrend(body, daysSinceStart);
+                        appendConsole(`${body.name} Data:`);
+                        appendConsole(`  Radius: ${body.stats.radius}`);
+                        appendConsole(`  Avg Temp: ${body.stats.avgTemp}`);
+                        appendConsole(`  Distance: ${body.stats.distance}`);
+                        appendConsole(`  Orbital Period: ${body.stats.orbitalPeriod}`);
+                        appendConsole(`  CO2: ${body.stats.co2}`);
+                        appendConsole(`  Albedo: ${body.stats.albedo}`);
+                        appendConsole(`  Eccentricity: ${body.stats.eccentricity}`);
+                        appendConsole(`  Inclination: ${body.stats.inclination}°`);
+                        appendConsole(`  Axial Tilt: ${body.stats.axialTilt}°`);
+                        appendConsole(`  Real-Time Sunlight:`);
+                        appendConsole(`    Insolation: ${insolation} W/m²`);
+                        appendConsole(`    Energy Absorbed: ${energy} W/m²`);
+                        appendConsole(`    Peak Sunlight: ${peakTime}`);
+                        appendConsole(`    Exposure Trend: ${trend}`);
+                    } else {
+                        appendConsole('Unknown command or planet. Type "help" for list.');
+                    }
+                }
+            }
+        });
+
+        // Initial setup
+        setSpeed(1);
+        draw();
+        updateDashboard();
+        updateTimeDisplay();
+        appendConsole('SolarFlare AI ready. Type "help" for commands.');
+
+        // PWA service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker error:', err));
+        }
+    </script>
+</body>
+</html>
