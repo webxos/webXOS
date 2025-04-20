@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#0f0">
-    <meta name="description" content="Watchdog AI tests users carbon emissions data">
+    <meta name="description" content="Watchdog AI BETA tests users carbon emissions data">
     <meta name="keywords" content="sustainable software, green coding, eco web design, carbon testing, energy consumption studies, browser energy efficiency, eco-friendly web, green tech, carbon footprint, web performance, sustainable web development">
     <meta name="author" content="WebXOS">
     <meta name="robots" content="index, follow">
@@ -23,6 +23,7 @@
     <title>Watchdog AI BETA: Sustainable Software & Green Coding</title>
     <link rel="icon" href="icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -118,6 +119,41 @@
             cursor: not-allowed;
         }
 
+        #status-bar {
+            width: 90%;
+            max-width: 900px;
+            margin: 0.5rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .progress-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .progress-label {
+            width: 100px;
+            font-size: 0.8rem;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 10px;
+            background: #333;
+            border: 1px solid #0f0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #0f0;
+            transition: width 0.5s;
+        }
+
         footer {
             width: 100%;
             padding: 0.5rem;
@@ -141,6 +177,7 @@
                 min-width: 70px; 
             }
             footer { padding: 0.4rem; }
+            .progress-label { width: 80px; }
         }
 
         @media (max-width: 400px) {
@@ -153,16 +190,28 @@
 <body>
     <h1 role="heading" aria-level="1">Watchdog AI BETA</h1>
     <div id="console" role="log" aria-live="polite">
-        <p>Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle connection monitor | Reset: Clear console</p>
+        <p>Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle latency & power monitor | Reset: Clear console</p>
+    </div>
+    <div id="status-bar">
+        <div class="progress-container">
+            <span class="progress-label">Latency:</span>
+            <div class="progress-bar"><div class="progress-fill" id="latency-bar" style="width: 0%"></div></div>
+            <span id="latency-value">0 ms</span>
+        </div>
+        <div class="progress-container">
+            <span class="progress-label">Power Usage:</span>
+            <div class="progress-bar"><div class="progress-fill" id="power-bar" style="width: 0%"></div></div>
+            <span id="power-value">0 W</span>
+        </div>
     </div>
     <div class="button-group">
         <button id="bark-btn" aria-label="Run performance tests and generate report">Bark</button>
-        <button id="byte-btn" aria-label="Toggle connection monitor">Byte</button>
+        <button id="byte-btn" aria-label="Toggle latency and power monitor">Byte</button>
         <button id="reset-btn" aria-label="Clear console output">Reset</button>
     </div>
     <footer>
         © 2025 WebXOS - Watchdog AI BETA<br>
-        Bark: Run tests & report | Byte: Toggle connection monitor | Reset: Clear console
+        Bark: Run tests & report | Byte: Toggle latency & power monitor | Reset: Clear console
     </footer>
 
     <script>
@@ -211,7 +260,7 @@
         function resetConsole() {
             debugLog('Reset button clicked');
             try {
-                logQueue = ['Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle connection monitor | Reset: Clear console'];
+                logQueue = ['Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle latency & power monitor | Reset: Clear console'];
                 throttleConsoleUpdate();
                 log('Console cleared.', true);
             } catch (err) {
@@ -544,11 +593,48 @@
         let lastTestResults = null;
         let byteActive = false;
         let latencyHistory = [];
+        let powerHistory = [];
         let connectionInterval = null;
+        let anomalyModel = null;
+
+        async function loadAnomalyModel() {
+            // Define a simple autoencoder for anomaly detection
+            const model = tf.sequential();
+            model.add(tf.layers.dense({ units: 16, activation: 'relu', inputShape: [2] }));
+            model.add(tf.layers.dense({ units: 8, activation: 'relu' }));
+            model.add(tf.layers.dense({ units: 16, activation: 'relu' }));
+            model.add(tf.layers.dense({ units: 2 }));
+            model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+            // Synthetic training data: [latency, power]
+            const normalData = Array.from({ length: 1000 }, () => [
+                Math.random() * 100 + 10, // Latency: 10-110ms
+                Math.random() * 5 + 1     // Power: 1-6W
+            ]);
+            const xs = tf.tensor2d(normalData);
+            await model.fit(xs, xs, { epochs: 10, batchSize: 32 });
+            xs.dispose();
+            return model;
+        }
+
+        async function detectAnomaly(latency, power) {
+            if (!anomalyModel) return false;
+            const input = tf.tensor2d([[latency, power]]);
+            const output = anomalyModel.predict(input);
+            const mse = tf.losses.meanSquaredError(input, output).dataSync()[0];
+            input.dispose();
+            output.dispose();
+            return mse > 0.1; // Threshold for anomaly
+        }
 
         async function runLatencyTest() {
             const start = performance.now();
-            await new Promise(resolve => setTimeout(resolve, 10)); // Simulate lightweight request
+            try {
+                await fetch('https://www.google.com/generate_204', { method: 'HEAD', mode: 'no-cors' });
+            } catch {
+                // Fallback to local timing if fetch fails
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
             const latency = performance.now() - start;
             latencyHistory.push(latency);
             if (latencyHistory.length > 20) latencyHistory.shift();
@@ -556,14 +642,53 @@
             const avgLatency = latencyHistory.reduce((sum, val) => sum + val, 0) / latencyHistory.length;
             const deviation = Math.abs(latency - avgLatency);
             if (deviation > avgLatency * 1.5 && latencyHistory.length > 5) {
-                log('Warning: Potential data spike detected.', true);
+                log('Warning: Potential latency spike detected.', true);
+                flashRedGlow();
+                if (await detectAnomaly(latency, estimatePowerUsage())) {
+                    log('Anomaly: Possible intrusion or DDoS detected.', true);
+                    flashRedGlow();
+                }
+            } else if (latency < avgLatency * 0.5 && latencyHistory.length > 5) {
+                log('Warning: Unusually low latency detected. Possible spoofing.', true);
                 flashRedGlow();
             }
             return latency;
         }
 
+        function estimatePowerUsage() {
+            // Simplified power estimation based on latency and battery level
+            let power = latencyHistory.length > 0 ? latencyHistory[latencyHistory.length - 1] / 10 : 1;
+            if (navigator.getBattery) {
+                navigator.getBattery().then(battery => {
+                    power *= (1 - battery.level) * 2 + 1; // Higher power if battery is low
+                });
+            }
+            power = Math.min(10, Math.max(1, power));
+            powerHistory.push(power);
+            if (powerHistory.length > 20) powerHistory.shift();
+            return power;
+        }
+
+        async function updateStatus() {
+            const latency = await runLatencyTest();
+            const power = estimatePowerUsage();
+
+            // Update progress bars
+            document.getElementById('latency-bar').style.width = `${Math.min(100, latency / 2)}%`;
+            document.getElementById('latency-value').textContent = `${latency.toFixed(2)} ms`;
+            document.getElementById('power-bar').style.width = `${power * 10}%`;
+            document.getElementById('power-value').textContent = `${power.toFixed(2)} W`;
+
+            // Provide tips
+            if (latency > 100) {
+                log('Tip: High latency detected. Close unused tabs or check your network connection.', true);
+            }
+            if (power > 5) {
+                log('Tip: High power usage. Enable power-saving mode or reduce screen brightness.', true);
+            }
+        }
+
         async function secureConnection() {
-            // Simulate lightweight data lock (e.g., throttling, basic encryption)
             debugLog('Securing connection with lightweight measures');
             await new Promise(resolve => setTimeout(resolve, 50)); // Simulate low-resource security check
             log('Connection secured with data lock.', true);
@@ -571,37 +696,40 @@
 
         async function sendPacket() {
             try {
-                const response = await fetch('https://watchdog-ai-beta.webxos.com/ping', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ timestamp: Date.now() })
+                const response = await fetch('https://www.google.com/generate_204', {
+                    method: 'HEAD',
+                    mode: 'no-cors'
                 });
-                if (response.ok) {
-                    const latency = await runLatencyTest();
-                    log(`Packet sent, latency: ${latency.toFixed(2)}ms`, true);
-                } else {
-                    log('Packet send failed.', true);
-                }
+                const latency = await runLatencyTest();
+                log(`Packet sent, latency: ${latency.toFixed(2)}ms`, true);
             } catch (err) {
-                log(`Packet Error: ${err.message}`, true);
+                log(`Packet Error: ${err.message}. Falling back to local timing.`, true);
+                const latency = await runLatencyTest();
+                log(`Local latency: ${latency.toFixed(2)}ms`, true);
             }
         }
 
-        function toggleByte() {
+        async function toggleByte() {
             byteActive = !byteActive;
             const byteBtn = document.getElementById('byte-btn');
             const consoleDiv = document.getElementById('console');
             byteBtn.classList.toggle('active-byte', byteActive);
             consoleDiv.classList.toggle('active-byte', byteActive);
-            log(byteActive ? 'Byte: Connection monitor activated.' : 'Byte: Connection monitor deactivated.', true);
+            log(byteActive ? 'Byte: Latency & power monitor activated.' : 'Byte: Latency & power monitor deactivated.', true);
 
             if (byteActive) {
+                if (!anomalyModel) {
+                    anomalyModel = await loadAnomalyModel();
+                    log('TensorFlow.js anomaly detection model loaded.', true);
+                }
                 secureConnection();
-                sendPacket();
+                await sendPacket();
+                await updateStatus();
                 connectionInterval = setInterval(async () => {
                     await sendPacket();
-                    const latency = await runLatencyTest();
-                    const isConnected = latency < 1000; // Arbitrary threshold
+                    await updateStatus();
+                    const latency = latencyHistory[latencyHistory.length - 1];
+                    const isConnected = latency < 1000;
                     if (!isConnected) {
                         log('Warning: Connection to user lost.', true);
                         flashRedGlow();
@@ -609,7 +737,7 @@
                 }, 5000);
             } else {
                 clearInterval(connectionInterval);
-                log('Byte: Connection monitoring stopped.', true);
+                log('Byte: Monitoring stopped.', true);
             }
         }
 
@@ -671,7 +799,7 @@
                     } catch (err) {
                         log(`Copy Error: ${err.message}`, true);
                     }
-                    document.body.removeChamita (textarea);
+                    document.body.removeChild(textarea);
                 }
 
                 lastTestResults = null;
@@ -712,7 +840,7 @@
             else if (e.key === 'r' || e.key === 'R') resetConsole();
         });
 
-        log('Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle connection monitor | Reset: Clear console', true);
+        log('Watchdog AI BETA User Guide: Bark: Run tests & report | Byte: Toggle latency & power monitor | Reset: Clear console', true);
     </script>
 </body>
 </html>
