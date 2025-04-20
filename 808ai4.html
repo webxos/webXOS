@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>808AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        header {
+            flex: 0 0 8%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .logo {
+            font-size: 1.5em;
+            text-shadow: 0 0 5px #0f0;
+            text-align: center;
+        }
+        .controls {
+            flex: 0 0 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+        }
+        .control-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .eq-grid, .beat-grid {
+            width: 200px;
+            height: 200px;
+            position: relative;
+            background: repeating-linear-gradient(
+                0deg, transparent, transparent 9px, #0f0 10px),
+                repeating-linear-gradient(
+                90deg, transparent, transparent 9px, #0f0 10px);
+            background-size: 10px 10px;
+            background-color: #000;
+            border: 2px solid #0f0;
+            cursor: crosshair;
+        }
+        .eq-cursor, .beat-cursor {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: #0f0;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .visualizer {
+            flex: 0 0 20%;
+            width: 100%;
+            padding: 5px;
+        }
+        footer {
+            flex: 0 0 5%;
+            text-align: center;
+            font-size: 0.7em;
+            padding: 3px;
+        }
+        select, button {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background 0.05s, color 0.05s;
+            touch-action: none;
+            overscroll-behavior: none;
+        }
+        select:active, button:active, button.active {
+            background: #00ff00;
+            color: #000;
+        }
+        select:focus {
+            outline: none;
+        }
+        canvas {
+            width: 100%;
+            height: 100px;
+            background: #111;
+            border: 1px solid #0f0;
+        }
+        @media (max-width: 600px) {
+            .logo {
+                font-size: 1.2em;
+            }
+            .controls {
+                gap: 8px;
+                padding: 8px;
+            }
+            .control-buttons {
+                gap: 5px;
+            }
+            .eq-grid, .beat-grid {
+                width: 150px;
+                height: 150px;
+            }
+            select, button {
+                font-size: 0.7em;
+                padding: 3px;
+            }
+            canvas {
+                height: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1 class="logo">808AI</h1>
+    </header>
+    <section class="controls">
+        <div class="control-buttons">
+            <button onclick="generateLoop()">Generate Loop</button>
+            <button onclick="stopLoop()">Stop Loop</button>
+            <button id="isolate-drums" onclick="toggleIsolateDrums()">Isolate Drums</button>
+            <button id="isolate-synths" onclick="toggleIsolateSynths()">Isolate Synths</button>
+            <button onclick="tapTempo()">Tap Tempo</button>
+            <select id="bpm-select">
+                <option value="60">60 BPM</option>
+                <option value="65">65 BPM</option>
+                <option value="70">70 BPM</option>
+                <option value="75">75 BPM</option>
+                <option value="80" selected>80 BPM</option>
+                <option value="85">85 BPM</option>
+                <option value="90">90 BPM</option>
+                <option value="95">95 BPM</option>
+                <option value="100">100 BPM</option>
+                <option value="105">105 BPM</option>
+                <option value="110">110 BPM</option>
+                <option value="115">115 BPM</option>
+                <option value="120">120 BPM</option>
+            </select>
+            <select id="synth-select">
+                <option value="MidnightGlow">Midnight Glow</option>
+                <option value="ChromeBlade">Chrome Blade</option>
+                <option value="NeonHaze">Neon Haze</option>
+                <option value="CyberSpark">Cyber Spark</option>
+                <option value="DreamWeave">Dream Weave</option>
+                <option value="GothStar">Goth Star</option>
+                <option value="Angelwing">Angelwing</option>
+                <option value="Grandfather">Grandfather</option>
+            </select>
+        </div>
+        <div class="eq-grid" id="eq-grid">
+            <div class="eq-cursor" id="eq-cursor"></div>
+        </div>
+        <div class="beat-grid" id="beat-grid">
+            <div class="beat-cursor" id="beat-cursor"></div>
+        </div>
+    </section>
+    <section class="visualizer">
+        <canvas id="waveform"></canvas>
+    </section>
+    <footer>
+        <p>© 2025 808AI. All rights reserved.</p>
+    </footer>
+    <script>
+        // Web Audio API Setup
+        let ctx, analyser, lowPassFilter, limiter;
+        let isolateDrums = false, isolateSynths = false;
+        let tapTimes = [];
+        const maxTapInterval = 2000; // 2 seconds max interval between taps
+        let drumComplexity = 0.5; // 0 (simple) to 1 (complex)
+        let synthComplexity = 0.5; // 0 (simple) to 1 (complex)
+
+        function initAudio() {
+            if (!ctx || ctx.state === 'closed') {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                lowPassFilter = ctx.createBiquadFilter();
+                lowPassFilter.type = 'lowpass';
+                lowPassFilter.frequency.setValueAtTime(2000, ctx.currentTime);
+                lowPassFilter.Q.setValueAtTime(5.25, ctx.currentTime);
+                limiter = ctx.createDynamicsCompressor();
+                limiter.threshold.setValueAtTime(-1, ctx.currentTime);
+                limiter.ratio.setValueAtTime(20, ctx.currentTime);
+                limiter.attack.setValueAtTime(0.001, ctx.currentTime);
+                limiter.release.setValueAtTime(0.05, ctx.currentTime);
+                lowPassFilter.connect(limiter);
+                limiter.connect(ctx.destination);
+                analyser = ctx.createAnalyser();
+                analyser.fftSize = 32;
+                limiter.connect(analyser);
+            }
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
+        }
+
+        function createDistortionCurve(amount) {
+            const samples = 44100;
+            const curve = new Float32Array(samples);
+            const k = amount * 100;
+            for (let i = 0; i < samples; i++) {
+                const x = (i * 2) / samples - 1;
+                curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+
+        function createSound(type, freq = 440, velocity = 1) {
+            initAudio();
+            const now = ctx.currentTime;
+            const masterGain = ctx.createGain();
+            masterGain.gain.setValueAtTime(velocity, now);
+            masterGain.connect(lowPassFilter);
+
+            if (type === '808kick') {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+                gain.gain.setValueAtTime(0.7 * velocity, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now);
+                osc.stop(now + 0.5);
+                osc.onended = () => {
+                    osc.disconnect();
+                    gain.disconnect();
+                };
+            } else if (type === 'snare') {
+                const noise = ctx.createBufferSource();
+                const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+                noise.buffer = buffer;
+                const gain = ctx.createGain();
+                noise.connect(gain);
+                gain.connect(masterGain);
+                gain.gain.setValueAtTime(0.5 * velocity, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+                noise.start(now);
+                noise.stop(now + 0.12);
+                noise.onended = () => {
+                    noise.disconnect();
+                    gain.disconnect();
+                };
+            } else if (type === 'hihat') {
+                const noise = ctx.createBufferSource();
+                const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.03, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+                noise.buffer = buffer;
+                const gain = ctx.createGain();
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.setValueAtTime(3000, now);
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(masterGain);
+                gain.gain.setValueAtTime(0.1 * velocity, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+                noise.start(now);
+                noise.stop(now + 0.03);
+                noise.onended = () => {
+                    noise.disconnect();
+                    filter.disconnect();
+                    gain.disconnect();
+                };
+            } else if (type === 'cowbell') {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(800, now);
+                gain.gain.setValueAtTime(0.15 * velocity, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now);
+                osc.stop(now + 0.08);
+                osc.onended = () => {
+                    osc.disconnect();
+                    gain.disconnect();
+                };
+            } else if (type === 'bass') {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                const filter = ctx.createBiquadFilter();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(120, now);
+                gain.gain.setValueAtTime(0.18 * velocity, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now);
+                osc.stop(now + 0.25);
+                osc.onended = () => {
+                    osc.disconnect();
+                    filter.disconnect();
+                    gain.disconnect();
+                };
+            } else if (type.startsWith('synth')) {
+                const synthType = document.getElementById('synth-select').value;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                const filter = ctx.createBiquadFilter();
+                const padOsc = ctx.createOscillator();
+                const padGain = ctx.createGain();
+                const padFilter = ctx.createBiquadFilter();
+                let gritOsc, gritGain, gritFilter, distortion;
+
+                if (synthType === 'MidnightGlow') {
+                    osc.type = 'sawtooth';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(350, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                    padOsc.type = 'sawtooth';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(250, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+                } else if (synthType === 'ChromeBlade') {
+                    osc.type = 'square';
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(900, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    padOsc.type = 'square';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(700, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                } else if (synthType === 'NeonHaze') {
+                    osc.type = 'triangle';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(550, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+                    padOsc.type = 'triangle';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(450, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+                } else if (synthType === 'CyberSpark') {
+                    osc.type = 'sine';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(1100, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    padOsc.type = 'sine';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(900, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                } else if (synthType === 'DreamWeave') {
+                    osc.type = 'sawtooth';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(250, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+                    padOsc.type = 'sawtooth';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(200, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+                } else if (synthType === 'GothStar') {
+                    // Distortion
+                    distortion = ctx.createWaveShaper();
+                    distortion.curve = createDistortionCurve(0.8); // Aggressive death metal distortion
+                    distortion.oversample = '4x';
+                    // Main oscillator (sine)
+                    osc.type = 'sine';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(120, now);
+                    filter.Q.setValueAtTime(2, now);
+                    gain.gain.setValueAtTime(0.4 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.3 * velocity, now + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    // Grit oscillator (sawtooth)
+                    gritOsc = ctx.createOscillator();
+                    gritGain = ctx.createGain();
+                    gritFilter = ctx.createBiquadFilter();
+                    gritOsc.type = 'sawtooth';
+                    gritFilter.type = 'lowpass';
+                    gritFilter.frequency.setValueAtTime(120, now);
+                    gritFilter.Q.setValueAtTime(2, now);
+                    gritGain.gain.setValueAtTime(0.1 * velocity, now);
+                    gritGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    // Pad oscillator (sine)
+                    padOsc.type = 'sine';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(80, now);
+                    padFilter.Q.setValueAtTime(2, now);
+                    padGain.gain.setValueAtTime(0.12 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+                    // Connect through distortion
+                    osc.connect(filter);
+                    filter.connect(distortion);
+                    gritOsc.connect(gritFilter);
+                    gritFilter.connect(distortion);
+                    distortion.connect(gain);
+                    gain.connect(masterGain);
+                    gritGain.connect(masterGain);
+                } else if (synthType === 'Angelwing') {
+                    osc.type = 'triangle';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(800, now);
+                    gain.gain.setValueAtTime(0.12 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+                    padOsc.type = 'triangle';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(600, now);
+                    padGain.gain.setValueAtTime(0.06 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+                } else if (synthType === 'Grandfather') {
+                    osc.type = 'sawtooth';
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(500, now);
+                    gain.gain.setValueAtTime(0.15 * velocity, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+                    padOsc.type = 'sawtooth';
+                    padFilter.type = 'lowpass';
+                    padFilter.frequency.setValueAtTime(400, now);
+                    padGain.gain.setValueAtTime(0.08 * velocity, now);
+                    padGain.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
+                }
+
+                osc.frequency.setValueAtTime(freq, now);
+                if (Math.random() > 0.7) {
+                    osc.frequency.exponentialRampToValueAtTime(freq * 1.05, now + 0.05);
+                    osc.frequency.exponentialRampToValueAtTime(freq, now + 0.1);
+                }
+                padOsc.frequency.setValueAtTime(freq, now);
+                if (Math.random() > 0.7) {
+                    padOsc.frequency.exponentialRampToValueAtTime(freq * 1.05, now + 0.05);
+                    padOsc.frequency.exponentialRampToValueAtTime(freq, now + 0.1);
+                }
+                if (synthType === 'GothStar') {
+                    gritOsc.frequency.setValueAtTime(freq, now);
+                    if (Math.random() > 0.7) {
+                        gritOsc.frequency.exponentialRampToValueAtTime(freq * 1.05, now + 0.05);
+                        gritOsc.frequency.exponentialRampToValueAtTime(freq, now + 0.1);
+                    }
+                }
+
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(masterGain);
+                padOsc.connect(padFilter);
+                padFilter.connect(padGain);
+                padGain.connect(masterGain);
+                if (synthType === 'GothStar') {
+                    gritOsc.connect(gritFilter);
+                    gritFilter.connect(distortion);
+                    distortion.connect(gritGain);
+                    gritGain.connect(masterGain);
+                }
+
+                osc.start(now);
+                osc.stop(now + (synthType === 'DreamWeave' ? 1.5 : synthType === 'MidnightGlow' ? 0.8 : synthType === 'NeonHaze' ? 0.6 : synthType === 'ChromeBlade' ? 0.3 : synthType === 'CyberSpark' ? 0.4 : synthType === 'GothStar' ? 0.4 : synthType === 'Angelwing' ? 1.2 : 2.5));
+                padOsc.start(now);
+                padOsc.stop(now + (synthType === 'DreamWeave' ? 2.0 : synthType === 'MidnightGlow' ? 1.2 : synthType === 'NeonHaze' ? 1.0 : synthType === 'ChromeBlade' ? 0.8 : synthType === 'CyberSpark' ? 0.8 : synthType === 'GothStar' ? 0.6 : synthType === 'Angelwing' ? 1.5 : 3.0));
+                if (synthType === 'GothStar') {
+                    gritOsc.start(now);
+                    gritOsc.stop(now + 0.4);
+                    gritOsc.onended = () => {
+                        gritOsc.disconnect();
+                        gritFilter.disconnect();
+                        gritGain.disconnect();
+                        distortion.disconnect();
+                    };
+                }
+
+                osc.onended = () => {
+                    osc.disconnect();
+                    filter.disconnect();
+                    gain.disconnect();
+                };
+                padOsc.onended = () => {
+                    padOsc.disconnect();
+                    padFilter.disconnect();
+                    padGain.disconnect();
+                };
+            }
+        }
+
+        // Synth and Bass Frequencies (C Minor Scale)
+        const synthFrequencies = {
+            MidnightGlow: [87.31, 103.83, 123.47], // F2, G2, A#2
+            ChromeBlade: [523.25, 622.25, 739.99], // C5, D#5, F5
+            NeonHaze: [261.63, 311.13, 369.99], // C4, D#4, F4
+            CyberSpark: [392.00, 466.16, 554.37], // G4, A#4, C5
+            DreamWeave: [65.41, 77.78, 92.50], // C2, D#2, F2
+            GothStar: [65.41, 77.78, 92.50], // C2, D#2, F2
+            Angelwing: [261.63, 311.13, 369.99], // C4, D#4, F4
+            Grandfather: [130.81, 155.56, 185.00], // C3, D#3, F3
+            bass: [65.41, 77.78, 92.50] // C2, D#2, F2
+        };
+
+        // Waveform Visualizer
+        function initVisualizer() {
+            initAudio();
+            const canvas = document.getElementById('waveform');
+            const ctx2d = canvas.getContext('2d');
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                requestAnimationFrame(draw);
+                analyser.getByteTimeDomainData(dataArray);
+                ctx2d.fillStyle = '#111';
+                ctx2d.fillRect(0, 0, canvas.width, canvas.height);
+                ctx2d.lineWidth = 1;
+                ctx2d.strokeStyle = '#0f0';
+                ctx2d.beginPath();
+                const sliceWidth = canvas.width / bufferLength;
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * canvas.height) / 2;
+                    if (i === 0) ctx2d.moveTo(x, y);
+                    else ctx2d.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                ctx2d.lineTo(canvas.width, canvas.height / 2);
+                ctx2d.stroke();
+            }
+            draw();
+        }
+
+        // EQ and Resonance Grid (Top)
+        function initEQGrid() {
+            const grid = document.getElementById('eq-grid');
+            const cursor = document.getElementById('eq-cursor');
+            let isDragging = false;
+
+            function updateEQ(x, y) {
+                const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+                const filterFreq = 200 + (x / gridWidth) * 4800;
+                const filterQ = 0.5 + (y / gridWidth) * 9.5;
+                lowPassFilter.frequency.setValueAtTime(filterFreq, ctx.currentTime);
+                lowPassFilter.Q.setValueAtTime(filterQ, ctx.currentTime);
+                cursor.style.left = `${x}px`;
+                cursor.style.top = `${y}px`;
+            }
+
+            function handleMove(e) {
+                e.preventDefault();
+                if (!isDragging) return;
+                const rect = grid.getBoundingClientRect();
+                let x = (e.clientX || e.touches[0].clientX) - rect.left;
+                let y = (e.clientY || e.touches[0].clientY) - rect.top;
+                const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+                x = Math.max(0, Math.min(gridWidth, x));
+                y = Math.max(0, Math.min(gridWidth, y));
+                updateEQ(x, y);
+            }
+
+            grid.addEventListener('mousedown', () => { isDragging = true; }, { passive: false });
+            grid.addEventListener('touchstart', (e) => { isDragging = true; e.preventDefault(); }, { passive: false });
+            document.addEventListener('mouseup', () => { isDragging = false; }, { passive: false });
+            document.addEventListener('touchend', () => { isDragging = false; }, { passive: false });
+            grid.addEventListener('mousemove', handleMove, { passive: false });
+            grid.addEventListener('touchmove', handleMove, { passive: false });
+
+            const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+            updateEQ(gridWidth / 2, gridWidth / 2);
+        }
+
+        // Complexity Grid (Bottom, Drums and Synths)
+        function initBeatGrid() {
+            const grid = document.getElementById('beat-grid');
+            const cursor = document.getElementById('beat-cursor');
+            let isDragging = false;
+
+            function updateComplexity(x, y) {
+                const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+                drumComplexity = x / gridWidth;
+                synthComplexity = y / gridWidth;
+                cursor.style.left = `${x}px`;
+                cursor.style.top = `${y}px`;
+            }
+
+            function handleMove(e) {
+                e.preventDefault();
+                if (!isDragging) return;
+                const rect = grid.getBoundingClientRect();
+                let x = (e.clientX || e.touches[0].clientX) - rect.left;
+                let y = (e.clientY || e.touches[0].clientY) - rect.top;
+                const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+                x = Math.max(0, Math.min(gridWidth, x));
+                y = Math.max(0, Math.min(gridWidth, y));
+                updateComplexity(x, y);
+            }
+
+            grid.addEventListener('mousedown', () => { isDragging = true; }, { passive: false });
+            grid.addEventListener('touchstart', (e) => { isDragging = true; e.preventDefault(); }, { passive: false });
+            document.addEventListener('mouseup', () => { isDragging = false; }, { passive: false });
+            document.addEventListener('touchend', () => { isDragging = false; }, { passive: false });
+            grid.addEventListener('mousemove', handleMove, { passive: false });
+            grid.addEventListener('touchmove', handleMove, { passive: false });
+
+            const gridWidth = window.innerWidth <= 600 ? 150 : 200;
+            updateComplexity(gridWidth / 2, gridWidth / 2);
+        }
+
+        // Isolate Functions
+        function toggleIsolateDrums() {
+            const drumsButton = document.getElementById('isolate-drums');
+            const synthsButton = document.getElementById('isolate-synths');
+            if (isolateDrums) {
+                isolateDrums = false;
+                drumsButton.classList.remove('active');
+            } else {
+                isolateDrums = true;
+                isolateSynths = false;
+                drumsButton.classList.add('active');
+                synthsButton.classList.remove('active');
+            }
+        }
+
+        function toggleIsolateSynths() {
+            const drumsButton = document.getElementById('isolate-drums');
+            const synthsButton = document.getElementById('isolate-synths');
+            if (isolateSynths) {
+                isolateSynths = false;
+                synthsButton.classList.remove('active');
+            } else {
+                isolateSynths = true;
+                isolateDrums = false;
+                synthsButton.classList.add('active');
+                drumsButton.classList.remove('active');
+            }
+        }
+
+        // AI Sequencer
+        let isPlaying = false;
+        let nextNoteTime = 0;
+        let currentStep = 0;
+        let scheduleAheadTime = 0.04; // 40ms lookahead
+        const tracks = ['808kick', 'snare', 'hihat', 'cowbell', 'bass', 'synth1', 'synth2', 'synth3', 'synth4'];
+        let patterns = {};
+        let activeSynths = 0;
+
+        function generatePatterns() {
+            const steps = window.innerWidth <= 600 ? 8 : 16;
+            patterns = {};
+            tracks.forEach(track => {
+                patterns[track] = new Array(steps).fill(false);
+                for (let i = 0; i < steps; i++) {
+                    if (track === '808kick') {
+                        if (i === 0 || i === 8) {
+                            patterns[track][i] = drumComplexity >= 0.1;
+                        } else if ((i === 2 || i === 12) && Math.random() > (0.6 - drumComplexity * 0.2)) {
+                            patterns[track][i] = true;
+                        } else if ((i === 5 || i === 10) && Math.random() > (0.7 - drumComplexity * 0.3)) {
+                            patterns[track][i] = true;
+                        }
+                    } else if (track === 'snare') {
+                        if (i === 8) {
+                            patterns[track][i] = drumComplexity >= 0.1;
+                        } else if ((i === 4 || i === 12) && Math.random() > (0.6 - drumComplexity * 0.2)) {
+                            patterns[track][i] = true;
+                        } else if (i === 14 && Math.random() > (0.7 - drumComplexity * 0.3)) {
+                            patterns[track][i] = true;
+                        }
+                    } else if (track === 'hihat') {
+                        if (Math.random() > (0.7 - drumComplexity * 0.4) || (i % 2 === 1 && Math.random() > (0.5 - drumComplexity * 0.2))) {
+                            patterns[track][i] = true;
+                        }
+                    } else if (track === 'cowbell') {
+                        if ((i === 0 || i === 8 || i === 4 || i === 12) && Math.random() > (0.7 - drumComplexity * 0.3)) {
+                            patterns[track][i] = true;
+                        }
+                    } else if (track === 'bass') {
+                        if (patterns['808kick'][i] && Math.random() > (0.6 - drumComplexity * 0.2) || (i === 2 || i === 6 || i === 10 || i === 14) && Math.random() > (0.4 - drumComplexity * 0.2)) {
+                            patterns[track][i] = true;
+                        }
+                    } else if (track.startsWith('synth')) {
+                        if ((i % 2 === 0 || i % 4 === 3) && Math.random() > (0.5 - synthComplexity * 0.3)) {
+                            patterns[track][i] = synthComplexity >= 0.1;
+                        }
+                        if (patterns[track].filter(x => x).length > 3) {
+                            patterns[track][i] = false;
+                        }
+                    }
+                }
+            });
+        }
+
+        function scheduleNote(time) {
+            const steps = window.innerWidth <= 600 ? 8 : 16;
+            activeSynths = 0;
+            tracks.forEach(track => {
+                if (patterns[track][currentStep]) {
+                    if (isolateDrums && (track.startsWith('synth') || track === 'bass')) return;
+                    if (isolateSynths && !(track.startsWith('synth') || track === 'bass')) return;
+
+                    let noteTime = time;
+                    let offset = 0;
+                    if (track.startsWith('synth') && (patterns['808kick'][currentStep] || patterns['snare'][currentStep])) {
+                        offset = 0.005 + Math.random() * 0.005;
+                        noteTime += offset;
+                    }
+
+                    if (track.startsWith('synth')) {
+                        if (activeSynths >= 1) return;
+                        activeSynths++;
+                        const synthType = document.getElementById('synth-select').value;
+                        const freq = synthFrequencies[synthType][Math.floor(Math.random() * 3)];
+                        createSound(track, freq, 1);
+                    } else if (track === 'bass') {
+                        const freq = synthFrequencies['bass'][Math.floor(Math.random() * 3)];
+                        createSound('bass', freq, 1);
+                    } else {
+                        createSound(track, 440, 1);
+                    }
+                }
+            });
+            currentStep = (currentStep + 1) % steps;
+        }
+
+        function scheduler() {
+            initAudio();
+            const bpm = parseInt(document.getElementById('bpm-select').value);
+            const noteTime = (60 / bpm) / 4;
+            while (nextNoteTime < ctx.currentTime + scheduleAheadTime) {
+                scheduleNote(nextNoteTime);
+                nextNoteTime += noteTime;
+            }
+            if (isPlaying) {
+                requestAnimationFrame(scheduler);
+            }
+        }
+
+        function generateLoop() {
+            stopLoop();
+            isPlaying = true;
+            generatePatterns();
+            nextNoteTime = ctx.currentTime;
+            currentStep = 0;
+            scheduler();
+        }
+
+        function stopLoop() {
+            isPlaying = false;
+            isolateDrums = false;
+            isolateSynths = false;
+            document.getElementById('isolate-drums').classList.remove('active');
+            document.getElementById('isolate-synths').classList.remove('active');
+        }
+
+        function tapTempo() {
+            const now = Date.now();
+            tapTimes.push(now);
+
+            if (tapTimes.length > 1 && now - tapTimes[tapTimes.length - 2] > maxTapInterval) {
+                tapTimes = [now];
+            }
+
+            if (tapTimes.length >= 2) {
+                const intervals = [];
+                for (let i = 1; i < tapTimes.length; i++) {
+                    intervals.push(tapTimes[i] - tapTimes[i - 1]);
+                }
+                const avgInterval = intervals.reduce((sum, val) => sum + val, 0) / intervals.length;
+                const bpm = Math.round(60000 / avgInterval);
+                const constrainedBpm = Math.max(50, Math.min(200, bpm));
+                const bpmSelect = document.getElementById('bpm-select');
+                const options = Array.from(bpmSelect.options).map(opt => parseInt(opt.value));
+                const closestBpm = options.reduce((prev, curr) => 
+                    Math.abs(curr - constrainedBpm) < Math.abs(prev - constrainedBpm) ? curr : prev
+                );
+                bpmSelect.value = closestBpm;
+                if (isPlaying) {
+                    generateLoop();
+                }
+            }
+
+            if (tapTimes.length > 4) {
+                tapTimes.shift();
+            }
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            initVisualizer();
+            initEQGrid();
+            initBeatGrid();
+            generateLoop();
+
+            document.getElementById('synth-select').addEventListener('change', () => {
+                if (isPlaying) generateLoop();
+            }, { passive: false });
+
+            document.getElementById('bpm-select').addEventListener('change', () => {
+                if (isPlaying) generateLoop();
+            }, { passive: false });
+        });
+    </script>
+</body>
+</html>
