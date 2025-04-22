@@ -120,16 +120,20 @@
         let canvasWidth, canvasHeight;
 
         function resizeCanvas() {
-            const container = document.querySelector('.symbol-container');
-            canvasWidth = container.offsetWidth;
-            canvasHeight = container.offsetHeight;
-            drawCanvas.width = canvasWidth;
-            drawCanvas.height = canvasHeight;
-            drawCtx.lineWidth = 3;
-            drawCtx.lineCap = 'round';
-            drawCtx.lineJoin = 'round';
-            drawCtx.strokeStyle = uiColors[currentColorIndex];
-            redrawStrokes();
+            try {
+                const container = document.querySelector('.symbol-container');
+                canvasWidth = container.offsetWidth;
+                canvasHeight = container.offsetHeight;
+                drawCanvas.width = canvasWidth;
+                drawCanvas.height = canvasHeight;
+                drawCtx.lineWidth = 3;
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+                drawCtx.strokeStyle = uiColors[currentColorIndex];
+                redrawStrokes();
+            } catch (error) {
+                showConfirmation(`ERROR: Canvas resize failed - ${error.message}`);
+            }
         }
 
         window.addEventListener('resize', resizeCanvas);
@@ -137,18 +141,28 @@
 
         // Exoskeleton AI Serial/Code Functions
         function hashCode(str, salt = '') {
-            let hash = 2166136261;
-            const saltedStr = str + salt;
-            for (let i = 0; i < saltedStr.length; i++) {
-                hash ^= saltedStr.charCodeAt(i);
-                hash *= 16777619;
+            try {
+                let hash = 2166136261;
+                const saltedStr = str + salt;
+                for (let i = 0; i < saltedStr.length; i++) {
+                    hash ^= saltedStr.charCodeAt(i);
+                    hash *= 16777619;
+                }
+                return Math.abs(hash);
+            } catch (error) {
+                showConfirmation(`ERROR: Hash code failed - ${error.message}`);
+                return 0;
             }
-            return Math.abs(hash);
         }
 
         function seededRandom(seed) {
-            let x = Math.sin(seed++) * 10000;
-            return x - Math.floor(x);
+            try {
+                let x = Math.sin(seed++) * 10000;
+                return x - Math.floor(x);
+            } catch (error) {
+                showConfirmation(`ERROR: Seeded random failed - ${error.message}`);
+                return Math.random();
+            }
         }
 
         function saveState() {
@@ -183,7 +197,12 @@
         }
 
         function compressDatabase(entries) {
-            return JSON.stringify(entries);
+            try {
+                return JSON.stringify(entries);
+            } catch (error) {
+                showConfirmation(`ERROR: Compression failed - ${error.message}`);
+                return '';
+            }
         }
 
         function decompressDatabase(compressed, seed) {
@@ -230,236 +249,293 @@
         }
 
         function generateRandomSuffix() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let suffix = '';
-            for (let i = 0; i < 3; i++) {
-                suffix += chars.charAt(Math.floor(seededRandom(hashCode(suffix + i)) * chars.length));
+            try {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let suffix = '';
+                for (let i = 0; i < 3; i++) {
+                    suffix += chars.charAt(Math.floor(seededRandom(hashCode(suffix + i)) * chars.length));
+                }
+                return suffix.toUpperCase();
+            } catch (error) {
+                showConfirmation(`ERROR: Suffix generation failed - ${error.message}`);
+                return 'XYZ';
             }
-            return suffix.toUpperCase();
         }
 
         function generateSerialNumber(code) {
-            let serial;
-            let attempts = 0;
-            const maxAttempts = 1000;
-            do {
-                if (serialCounter > 999999) {
-                    serialCounter = 1;
-                }
-                const paddedNumber = String(serialCounter++).padStart(6, '0');
-                const suffix = generateRandomSuffix();
-                serial = `HOLO-${paddedNumber}-${suffix}`;
-                attempts++;
-                if (attempts > maxAttempts) {
-                    showConfirmation('ERROR: Failed to generate unique serial');
-                    return null;
-                }
-            } while (serialMap.has(serial));
-            serialMap.set(serial, { code, encryptedDatabase: '', strokes: [] });
-            saveState();
-            return serial;
+            try {
+                let serial;
+                let attempts = 0;
+                const maxAttempts = 1000;
+                do {
+                    if (serialCounter > 999999) {
+                        serialCounter = 1;
+                    }
+                    const paddedNumber = String(serialCounter++).padStart(6, '0');
+                    const suffix = generateRandomSuffix();
+                    serial = `HOLO-${paddedNumber}-${suffix}`;
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        showConfirmation('ERROR: Failed to generate unique serial');
+                        return null;
+                    }
+                } while (serialMap.has(serial));
+                serialMap.set(serial, { code, encryptedDatabase: '', strokes: [] });
+                saveState();
+                return serial;
+            } catch (error) {
+                showConfirmation(`ERROR: Serial generation failed - ${error.message}`);
+                return null;
+            }
         }
 
         function generateCrypticCode(serial) {
-            const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=<>';
-            let code = '';
-            const seedValue = hashCode(serial + 'CODE');
-            for (let i = 0; i < 9; i++) {
-                code += glyphs.charAt(Math.floor(seededRandom(seedValue + i) * glyphs.length));
+            try {
+                const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=<>';
+                let code = '';
+                const seedValue = hashCode(serial + 'CODE');
+                for (let i = 0; i < 9; i++) {
+                    code += glyphs.charAt(Math.floor(seededRandom(seedValue + i) * glyphs.length));
+                }
+                return `Ω-CODE: ${code}`;
+            } catch (error) {
+                showConfirmation(`ERROR: Code generation failed - ${error.message}`);
+                return 'Ω-CODE: ERRORCODE';
             }
-            return `Ω-CODE: ${code}`;
         }
 
         // Shape Generation (2D)
         function generateShape() {
-            const shapeElement = document.getElementById('dynamic-shape');
-            shapeElement.innerHTML = ''; // Clear any 3D grid
-            is3DMode = false;
-            const currentColor = uiColors[currentColorIndex];
-            const patterns = [
-                () => `repeating-radial-gradient(circle, ${currentColor} ${rand(2,15)}px, #000 ${rand(2,15)}px, #000 ${rand(5,20)}px, ${currentColor} ${rand(5,20)}px)`,
-                () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(5,15)}px, ${currentColor} ${rand(5,15)}px, ${currentColor} ${rand(10,25)}px, transparent ${rand(10,25)}px)`,
-                () => `repeating-radial-gradient(${currentColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, #000 ${rand(10,30)}px)`,
-                () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, ${currentColor} ${rand(10,30)}px)`,
-                () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentColor} ${rand(2,10)}px), repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentColor} ${rand(2,10)}px)`,
-                () => `repeating-radial-gradient(${currentColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`,
-                () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`
-            ];
-            const patternIndex = Math.floor(Math.random() * patterns.length);
-            currentShapePattern = { index: patternIndex, color: currentColor, randValues: [] };
-            const patternFunc = patterns[patternIndex];
-            const originalRand = Math.random;
-            Math.random = () => {
-                const val = Math.random();
-                currentShapePattern.randValues.push(val);
-                return val;
-            };
-            shapeElement.style.background = patternFunc();
-            Math.random = originalRand;
-            currentScale = rand(0.8, 1.2);
-            currentRotation = rand(0, 360);
-            current3DGrid = null;
-            updateTransform(shapeElement);
-            if (!isAutoGenerating) {
-                generateNFT();
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                shapeElement.innerHTML = ''; // Clear any 3D grid
+                is3DMode = false;
+                const currentColor = uiColors[currentColorIndex];
+                const patterns = [
+                    () => `repeating-radial-gradient(circle, ${currentColor} ${rand(2,15)}px, #000 ${rand(2,15)}px, #000 ${rand(5,20)}px, ${currentColor} ${rand(5,20)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(5,15)}px, ${currentColor} ${rand(5,15)}px, ${currentColor} ${rand(10,25)}px, transparent ${rand(10,25)}px)`,
+                    () => `repeating-radial-gradient(${currentColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, #000 ${rand(10,30)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, ${currentColor} ${rand(10,30)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentColor} ${rand(2,10)}px), repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentColor} ${rand(2,10)}px)`,
+                    () => `repeating-radial-gradient(${currentColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`
+                ];
+                const patternIndex = Math.floor(Math.random() * patterns.length);
+                currentShapePattern = { index: patternIndex, color: currentColor, randValues: [] };
+                const patternFunc = patterns[patternIndex];
+                const originalRand = Math.random;
+                Math.random = () => {
+                    const val = Math.random();
+                    currentShapePattern.randValues.push(val);
+                    return val;
+                };
+                shapeElement.style.background = patternFunc();
+                Math.random = originalRand;
+                currentScale = rand(0.8, 1.2);
+                currentRotation = rand(0, 360);
+                current3DGrid = null;
+                updateTransform(shapeElement);
+                if (!isAutoGenerating) {
+                    generateNFT();
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: Shape generation failed - ${error.message}`);
             }
         }
 
         // 3D Grid Generation
         function generate3DGrid() {
-            const shapeElement = document.getElementById('dynamic-shape');
-            shapeElement.style.background = 'none';
-            shapeElement.innerHTML = '<div class="hologram" id="hologram"></div>';
-            const hologram = document.getElementById('hologram');
-            const hash = hashCode(currentSerial + JSON.stringify(strokes));
-            let seedValue = hash;
-            const rand = (min, max) => {
-                seedValue = hashCode(String(seedValue));
-                return min + (seedValue % (max - min + 1));
-            };
-            const randFloat = (min, max) => {
-                seedValue = hashCode(String(seedValue));
-                return min + ((seedValue % 10000) / 10000) * (max - min);
-            };
-            const squareCount = rand(20, 50);
-            current3DGrid = { squares: [], color: uiColors[currentColorIndex], seed: hash };
-            for (let i = 0; i < squareCount; i++) {
-                const square = document.createElement('div');
-                square.className = 'grid-square';
-                const size = randFloat(30, 80);
-                const left = randFloat(0, canvasWidth - size);
-                const top = randFloat(0, canvasHeight - size);
-                const z = randFloat(-100, 100);
-                const rotateX = randFloat(-30, 30);
-                const rotateY = randFloat(-30, 30);
-                square.style.width = `${size}px`;
-                square.style.height = `${size}px`;
-                square.style.left = `${left}px`;
-                square.style.top = `${top}px`;
-                square.style.transform = `translateZ(${z}px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-                square.style.opacity = randFloat(0.4, 0.8);
-                square.style.borderColor = uiColors[currentColorIndex];
-                square.style.boxShadow = `0 0 5px ${uiColors[currentColorIndex]}`;
-                current3DGrid.squares.push({ size, left, top, z, rotateX, rotateY, opacity: square.style.opacity });
-                hologram.appendChild(square);
-            }
-            currentScale = rand(0.8, 1.2);
-            currentRotation = rand(0, 360);
-            updateTransform(shapeElement);
-            if (!isAutoGenerating) {
-                generateNFT();
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                shapeElement.style.background = 'none';
+                shapeElement.innerHTML = '<div class="hologram" id="hologram"></div>';
+                const hologram = document.getElementById('hologram');
+                const hash = hashCode(currentSerial + JSON.stringify(strokes));
+                let seedValue = hash;
+                const rand = (min, max) => {
+                    seedValue = hashCode(String(seedValue));
+                    return min + (seedValue % (max - min + 1));
+                };
+                const randFloat = (min, max) => {
+                    seedValue = hashCode(String(seedValue));
+                    return min + ((seedValue % 10000) / 10000) * (max - min);
+                };
+                const squareCount = rand(20, 50);
+                current3DGrid = { squares: [], color: uiColors[currentColorIndex], seed: hash };
+                for (let i = 0; i < squareCount; i++) {
+                    const square = document.createElement('div');
+                    square.className = 'grid-square';
+                    const size = randFloat(30, 80);
+                    const left = randFloat(0, canvasWidth - size);
+                    const top = randFloat(0, canvasHeight - size);
+                    const z = randFloat(-100, 100);
+                    const rotateX = randFloat(-30, 30);
+                    const rotateY = randFloat(-30, 30);
+                    square.style.width = `${size}px`;
+                    square.style.height = `${size}px`;
+                    square.style.left = `${left}px`;
+                    square.style.top = `${top}px`;
+                    square.style.transform = `translateZ(${z}px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+                    square.style.opacity = randFloat(0.4, 0.8);
+                    square.style.borderColor = uiColors[currentColorIndex];
+                    square.style.boxShadow = `0 0 5px ${uiColors[currentColorIndex]}`;
+                    current3DGrid.squares.push({ size, left, top, z, rotateX, rotateY, opacity: square.style.opacity });
+                    hologram.appendChild(square);
+                }
+                currentScale = rand(0.8, 1.2);
+                currentRotation = rand(0, 360);
+                updateTransform(shapeElement);
+                if (!isAutoGenerating) {
+                    generateNFT();
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: 3D grid generation failed - ${error.message}`);
             }
         }
 
         function regenerate3DGrid(gridData, scale, rotation, strokesData) {
-            const shapeElement = document.getElementById('dynamic-shape');
-            shapeElement.style.background = 'none';
-            shapeElement.innerHTML = '<div class="hologram" id="hologram"></div>';
-            const hologram = document.getElementById('hologram');
-            current3DGrid = gridData;
-            gridData.squares.forEach(squareData => {
-                const square = document.createElement('div');
-                square.className = 'grid-square';
-                square.style.width = `${squareData.size}px`;
-                square.style.height = `${squareData.size}px`;
-                square.style.left = `${squareData.left}px`;
-                square.style.top = `${squareData.top}px`;
-                square.style.transform = `translateZ(${squareData.z}px) rotateX(${squareData.rotateX}deg) rotateY(${squareData.rotateY}deg)`;
-                square.style.opacity = squareData.opacity;
-                square.style.borderColor = gridData.color;
-                square.style.boxShadow = `0 0 5px ${gridData.color}`;
-                hologram.appendChild(square);
-            });
-            currentScale = scale;
-            currentRotation = rotation;
-            updateTransform(shapeElement);
-            strokes = strokesData || [];
-            redrawStrokes();
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                shapeElement.style.background = 'none';
+                shapeElement.innerHTML = '<div class="hologram" id="hologram"></div>';
+                const hologram = document.getElementById('hologram');
+                current3DGrid = gridData;
+                gridData.squares.forEach(squareData => {
+                    const square = document.createElement('div');
+                    square.className = 'grid-square';
+                    square.style.width = `${squareData.size}px`;
+                    square.style.height = `${squareData.size}px`;
+                    square.style.left = `${squareData.left}px`;
+                    square.style.top = `${squareData.top}px`;
+                    square.style.transform = `translateZ(${squareData.z}px) rotateX(${squareData.rotateX}deg) rotateY(${squareData.rotateY}deg)`;
+                    square.style.opacity = squareData.opacity;
+                    square.style.borderColor = gridData.color;
+                    square.style.boxShadow = `0 0 5px ${gridData.color}`;
+                    hologram.appendChild(square);
+                });
+                currentScale = scale;
+                currentRotation = rotation;
+                updateTransform(shapeElement);
+                strokes = strokesData || [];
+                redrawStrokes();
+            } catch (error) {
+                showConfirmation(`ERROR: 3D grid regeneration failed - ${error.message}`);
+            }
         }
 
         function toggle3DMode() {
-            is3DMode = !is3DMode;
-            const modeBtn = document.querySelector('button[onclick="toggle3DMode()"]');
-            modeBtn.innerText = is3DMode ? '3D Mode: On' : '3D Mode';
-            if (is3DMode) {
-                generate3DGrid();
-            } else {
-                generateShape();
+            try {
+                is3DMode = !is3DMode;
+                const modeBtn = document.querySelector('button[onclick="toggle3DMode()"]');
+                modeBtn.innerText = is3DMode ? '3D Mode: On' : '3D Mode';
+                if (is3DMode) {
+                    generate3DGrid();
+                } else {
+                    generateShape();
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: Toggling 3D mode failed - ${error.message}`);
             }
         }
 
         function regenerateShape(patternData, scale, rotation, strokesData) {
-            const shapeElement = document.getElementById('dynamic-shape');
-            shapeElement.innerHTML = '';
-            const patterns = [
-                () => `repeating-radial-gradient(circle, ${patternData.color} ${patternData.randValues[0]*13+2}px, #000 ${patternData.randValues[1]*13+2}px, #000 ${patternData.randValues[2]*15+5}px, ${patternData.color} ${patternData.randValues[3]*15+5}px)`,
-                () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, transparent ${patternData.randValues[1]*10+5}px, ${patternData.color} ${patternData.randValues[2]*10+5}px, ${patternData.color} ${patternData.randValues[3]*15+10}px, transparent ${patternData.randValues[4]*15+10}px)`,
-                () => `repeating-radial-gradient(${patternData.color} ${patternData.randValues[0]*15+5}px, transparent ${patternData.randValues[1]*15+5}px, #000 ${patternData.randValues[2]*20+10}px)`,
-                () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, ${patternData.color} ${patternData.randValues[1]*15+5}px, transparent ${patternData.randValues[2]*15+5}px, ${patternData.color} ${patternData.randValues[3]*20+10}px)`,
-                () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, transparent ${patternData.randValues[1]*8+2}px, ${patternData.color} ${patternData.randValues[2]*8+2}px), repeating-linear-gradient(${patternData.randValues[3]*360}deg, transparent ${patternData.randValues[4]*8+2}px, ${patternData.color} ${patternData.randValues[5]*8+2}px)`,
-                () => `repeating-radial-gradient(${patternData.color} ${patternData.randValues[0]*13+2}px, transparent ${patternData.randValues[1]*13+2}px, #000 ${patternData.randValues[2]*15+5}px)`,
-                () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, ${patternData.color} ${patternData.randValues[1]*13+2}px, transparent ${patternData.randValues[2]*13+2}px, #000 ${patternData.randValues[3]*15+5}px)`
-            ];
-            shapeElement.style.background = patterns[patternData.index]();
-            currentShapePattern = patternData;
-            currentScale = scale;
-            currentRotation = rotation;
-            updateTransform(shapeElement);
-            strokes = strokesData || [];
-            redrawStrokes();
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                shapeElement.innerHTML = '';
+                const patterns = [
+                    () => `repeating-radial-gradient(circle, ${patternData.color} ${patternData.randValues[0]*13+2}px, #000 ${patternData.randValues[1]*13+2}px, #000 ${patternData.randValues[2]*15+5}px, ${patternData.color} ${patternData.randValues[3]*15+5}px)`,
+                    () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, transparent ${patternData.randValues[1]*10+5}px, ${patternData.color} ${patternData.randValues[2]*10+5}px, ${patternData.color} ${patternData.randValues[3]*15+10}px, transparent ${patternData.randValues[4]*15+10}px)`,
+                    () => `repeating-radial-gradient(${patternData.color} ${patternData.randValues[0]*15+5}px, transparent ${patternData.randValues[1]*15+5}px, #000 ${patternData.randValues[2]*20+10}px)`,
+                    () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, ${patternData.color} ${patternData.randValues[1]*15+5}px, transparent ${patternData.randValues[2]*15+5}px, ${patternData.color} ${patternData.randValues[3]*20+10}px)`,
+                    () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, transparent ${patternData.randValues[1]*8+2}px, ${patternData.color} ${patternData.randValues[2]*8+2}px), repeating-linear-gradient(${patternData.randValues[3]*360}deg, transparent ${patternData.randValues[4]*8+2}px, ${patternData.color} ${patternData.randValues[5]*8+2}px)`,
+                    () => `repeating-radial-gradient(${patternData.color} ${patternData.randValues[0]*13+2}px, transparent ${patternData.randValues[1]*13+2}px, #000 ${patternData.randValues[2]*15+5}px)`,
+                    () => `repeating-linear-gradient(${patternData.randValues[0]*360}deg, ${patternData.color} ${patternData.randValues[1]*13+2}px, transparent ${patternData.randValues[2]*13+2}px, #000 ${patternData.randValues[3]*15+5}px)`
+                ];
+                shapeElement.style.background = patterns[patternData.index]();
+                currentShapePattern = patternData;
+                currentScale = scale;
+                currentRotation = rotation;
+                updateTransform(shapeElement);
+                strokes = strokesData || [];
+                redrawStrokes();
+            } catch (error) {
+                showConfirmation(`ERROR: Shape regeneration failed - ${error.message}`);
+            }
         }
 
         function generateNFT() {
-            const shapeData = {
-                is3DMode,
-                pattern: is3DMode ? null : currentShapePattern,
-                grid: is3DMode ? current3DGrid : null,
-                scale: currentScale,
-                rotation: currentRotation,
-                colorIndex: currentColorIndex,
-                strokes
-            };
-            let newCode;
-            do {
-                newCode = generateCrypticCode('NFT' + serialCounter + JSON.stringify(shapeData));
-            } while (Array.from(serialMap.values()).some(data => data.code === newCode));
-            const serial = generateSerialNumber(newCode);
-            if (!serial) return;
-            const encodedData = encodeDatabase([shapeData], serial);
-            if (!encodedData) return;
-            serialMap.set(serial, { code: newCode, encryptedDatabase: encodedData, strokes });
-            saveState();
-            currentSerial = serial;
-            currentCode = newCode;
-            showConfirmation(`New Shape Generated! ${serial} | ${newCode}`);
-            navigator.clipboard.writeText(`${serial}\n${newCode}`).then(() => {
-                showConfirmation('Serial and code copied to clipboard');
-            }).catch(() => {
-                showConfirmation('ERROR: Failed to copy serial and code');
-            });
+            try {
+                const shapeData = {
+                    is3DMode,
+                    pattern: is3DMode ? null : currentShapePattern,
+                    grid: is3DMode ? current3DGrid : null,
+                    scale: currentScale,
+                    rotation: currentRotation,
+                    colorIndex: currentColorIndex,
+                    strokes
+                };
+                let newCode;
+                do {
+                    newCode = generateCrypticCode('NFT' + serialCounter + JSON.stringify(shapeData));
+                } while (Array.from(serialMap.values()).some(data => data.code === newCode));
+                const serial = generateSerialNumber(newCode);
+                if (!serial) return;
+                const encodedData = encodeDatabase([shapeData], serial);
+                if (!encodedData) return;
+                serialMap.set(serial, { code: newCode, encryptedDatabase: encodedData, strokes });
+                saveState();
+                currentSerial = serial;
+                currentCode = newCode;
+                if (!isAutoGenerating) {
+                    showConfirmation(`New Shape Generated! ${serial} | ${newCode}`);
+                    navigator.clipboard.writeText(`${serial}\n${newCode}`).then(() => {
+                        showConfirmation('Serial and code copied to clipboard');
+                    }).catch(() => {
+                        showConfirmation('ERROR: Failed to copy serial and code');
+                    });
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: NFT generation failed - ${error.message}`);
+            }
         }
 
         function updateTransform(shapeElement) {
-            shapeElement.style.transform = `rotate(${currentRotation}deg) scale(${currentScale})`;
-            drawCanvas.style.transform = `rotate(${currentRotation}deg) scale(${currentScale})`;
+            try {
+                shapeElement.style.transform = `rotate(${currentRotation}deg) scale(${currentScale})`;
+                drawCanvas.style.transform = `rotate(${currentRotation}deg) scale(${currentScale})`;
+            } catch (error) {
+                showConfirmation(`ERROR: Transform update failed - ${error.message}`);
+            }
         }
 
         function zoomIn() {
-            const shapeElement = document.getElementById('dynamic-shape');
-            currentScale = Math.min(currentScale + 0.1, 2.0);
-            updateTransform(shapeElement);
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                currentScale = Math.min(currentScale + 0.1, 2.0);
+                updateTransform(shapeElement);
+            } catch (error) {
+                showConfirmation(`ERROR: Zoom in failed - ${error.message}`);
+            }
         }
 
         function zoomOut() {
-            const shapeElement = document.getElementById('dynamic-shape');
-            currentScale = Math.max(currentScale - 0.1, 0.5);
-            updateTransform(shapeElement);
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                currentScale = Math.max(currentScale - 0.1, 0.5);
+                updateTransform(shapeElement);
+            } catch (error) {
+                showConfirmation(`ERROR: Zoom out failed - ${error.message}`);
+            }
         }
 
         function rotateShape() {
-            const shapeElement = document.getElementById('dynamic-shape');
-            currentRotation = (currentRotation + 90) % 360;
-            updateTransform(shapeElement);
+            try {
+                const shapeElement = document.getElementById('dynamic-shape');
+                currentRotation = (currentRotation + 90) % 360;
+                updateTransform(shapeElement);
+            } catch (error) {
+                showConfirmation(`ERROR: Rotate failed - ${error.message}`);
+            }
         }
 
         function rand(min, max) {
@@ -467,120 +543,151 @@
         }
 
         function showConfirmation(message) {
-            const confirmation = document.getElementById('confirmationText');
-            confirmation.innerText = message;
-            confirmation.style.display = 'block';
-            setTimeout(() => { confirmation.style.display = 'none'; }, 3000);
+            try {
+                const confirmation = document.getElementById('confirmationText');
+                confirmation.innerText = message;
+                confirmation.style.display = 'block';
+                setTimeout(() => { confirmation.style.display = 'none'; }, 3000);
+            } catch (error) {
+                console.error(`Confirmation display failed: ${error.message}`);
+            }
         }
 
         function toggleAutoGenerate() {
-            const autoBtn = document.getElementById('autoGenerateBtn');
-            isAutoGenerating = !isAutoGenerating;
-            if (isAutoGenerating) {
-                autoBtn.innerText = 'Auto Generate: On';
-                autoGenerateInterval = setInterval(() => {
-                    if (is3DMode) generate3DGrid();
-                    else generateShape();
-                }, 300);
-            } else {
-                autoBtn.innerText = 'Auto Generate: Off';
-                clearInterval(autoGenerateInterval);
+            try {
+                const autoBtn = document.getElementById('autoGenerateBtn');
+                isAutoGenerating = !isAutoGenerating;
+                if (isAutoGenerating) {
+                    autoBtn.innerText = 'Auto Generate: On';
+                    autoGenerateInterval = setInterval(() => {
+                        if (is3DMode) generate3DGrid();
+                        else generateShape();
+                    }, 300);
+                } else {
+                    autoBtn.innerText = 'Auto Generate: Off';
+                    if (autoGenerateInterval) {
+                        clearInterval(autoGenerateInterval);
+                        autoGenerateInterval = null;
+                    }
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: Auto generate toggle failed - ${error.message}`);
             }
         }
 
         function changeUIColor() {
-            currentColorIndex = (currentColorIndex + 1) % uiColors.length;
-            const newColor = uiColors[currentColorIndex];
-            document.body.style.color = newColor;
-            const header = document.querySelector('h1.glow-text');
-            header.style.textShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
-            document.querySelector('style').innerHTML = document.querySelector('style').innerHTML.replace(
-                /@keyframes glow{from{text-shadow:0 0 10px #[\da-fA-F]{3,6}.*?}to{text-shadow:0 0 20px #[\da-fA-F]{3,6}.*?}}/,
-                `@keyframes glow{from{text-shadow:0 0 10px ${newColor}, 0 0 20px ${newColor}, 0 0 30px ${newColor}}to{text-shadow:0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}}}`
-            );
-            const shape = document.getElementById('dynamic-shape');
-            shape.style.borderColor = newColor;
-            shape.style.boxShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
-            const buttons = document.querySelectorAll('button');
-            buttons.forEach(btn => {
-                btn.style.color = newColor;
-                btn.style.borderColor = newColor;
-                btn.style.boxShadow = `0 0 15px ${newColor}, 0 0 25px ${newColor}`;
-                btn.onmouseover = () => {
-                    btn.style.background = newColor;
-                    btn.style.color = '#000';
-                    btn.style.boxShadow = `0 0 25px ${newColor}, 0 0 35px ${newColor}, 0 0 45px ${newColor}`;
-                };
-                btn.onmouseout = () => {
-                    btn.style.background = '#000';
+            try {
+                currentColorIndex = (currentColorIndex + 1) % uiColors.length;
+                const newColor = uiColors[currentColorIndex];
+                document.body.style.color = newColor;
+                const header = document.querySelector('h1.glow-text');
+                header.style.textShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
+                document.querySelector('style').innerHTML = document.querySelector('style').innerHTML.replace(
+                    /@keyframes glow{from{text-shadow:0 0 10px #[\da-fA-F]{3,6}.*?}to{text-shadow:0 0 20px #[\da-fA-F]{3,6}.*?}}/,
+                    `@keyframes glow{from{text-shadow:0 0 10px ${newColor}, 0 0 20px ${newColor}, 0 0 30px ${newColor}}to{text-shadow:0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}}}`
+                );
+                const shape = document.getElementById('dynamic-shape');
+                shape.style.borderColor = newColor;
+                shape.style.boxShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
+                const buttons = document.querySelectorAll('button');
+                buttons.forEach(btn => {
                     btn.style.color = newColor;
+                    btn.style.borderColor = newColor;
                     btn.style.boxShadow = `0 0 15px ${newColor}, 0 0 25px ${newColor}`;
-                };
-            });
-            const confirmation = document.getElementById('confirmationText');
-            confirmation.style.color = newColor;
-            confirmation.style.textShadow = `0 0 15px ${newColor}, 0 0 25px ${newColor}`;
-            document.querySelector('.copyright').style.color = '#FFFFFF';
-            document.querySelector('.copyright').style.textShadow = `0 0 15px #FFFFFF`;
-            drawCtx.strokeStyle = newColor;
-            if (is3DMode && current3DGrid) {
-                current3DGrid.color = newColor;
-                document.querySelectorAll('.grid-square').forEach(square => {
-                    square.style.borderColor = newColor;
-                    square.style.boxShadow = `0 0 5px ${newColor}`;
+                    btn.onmouseover = () => {
+                        btn.style.background = newColor;
+                        btn.style.color = '#000';
+                        btn.style.boxShadow = `0 0 25px ${newColor}, 0 0 35px ${newColor}, 0 0 45px ${newColor}`;
+                    };
+                    btn.onmouseout = () => {
+                        btn.style.background = '#000';
+                        btn.style.color = newColor;
+                        btn.style.boxShadow = `0 0 15px ${newColor}, 0 0 25px ${newColor}`;
+                    };
                 });
+                const confirmation = document.getElementById('confirmationText');
+                confirmation.style.color = newColor;
+                confirmation.style.textShadow = `0 0 15px ${newColor}, 0 0 25px ${newColor}`;
+                document.querySelector('.copyright').style.color = '#FFFFFF';
+                document.querySelector('.copyright').style.textShadow = `0 0 15px #FFFFFF`;
+                drawCtx.strokeStyle = newColor;
+                if (is3DMode && current3DGrid) {
+                    current3DGrid.color = newColor;
+                    document.querySelectorAll('.grid-square').forEach(square => {
+                        square.style.borderColor = newColor;
+                        square.style.boxShadow = `0 0 5px ${newColor}`;
+                    });
+                }
+                redrawStrokes();
+            } catch (error) {
+                showConfirmation(`ERROR: Color change failed - ${error.message}`);
             }
-            redrawStrokes();
         }
 
         // Drawing Functions
         function startDrawing(e) {
-            if (!isDrawing) return;
-            e.preventDefault();
-            const rect = drawCanvas.getBoundingClientRect();
-            const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-            const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-            currentStroke = [{ x, y }];
-            drawCtx.beginPath();
-            drawCtx.moveTo(x, y);
+            try {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const rect = drawCanvas.getBoundingClientRect();
+                const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+                const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+                currentStroke = [{ x, y }];
+                drawCtx.beginPath();
+                drawCtx.moveTo(x, y);
+            } catch (error) {
+                showConfirmation(`ERROR: Drawing start failed - ${error.message}`);
+            }
         }
 
         function stopDrawing() {
-            if (isDrawing && currentStroke.length > 1) {
-                strokes.push([...currentStroke]);
-                currentStroke = [];
-                drawCtx.beginPath();
-                if (!isAutoGenerating) {
-                    generateNFT();
+            try {
+                if (isDrawing && currentStroke.length > 1) {
+                    strokes.push([...currentStroke]);
+                    currentStroke = [];
+                    drawCtx.beginPath();
+                    if (!isAutoGenerating) {
+                        generateNFT();
+                    }
                 }
+            } catch (error) {
+                showConfirmation(`ERROR: Drawing stop failed - ${error.message}`);
             }
         }
 
         function draw(e) {
-            if (!isDrawing) return;
-            e.preventDefault();
-            const rect = drawCanvas.getBoundingClientRect();
-            const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-            const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-            currentStroke.push({ x, y });
-            drawCtx.lineTo(x, y);
-            drawCtx.stroke();
-            drawCtx.beginPath();
-            drawCtx.moveTo(x, y);
+            try {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const rect = drawCanvas.getBoundingClientRect();
+                const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+                const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+                currentStroke.push({ x, y });
+                drawCtx.lineTo(x, y);
+                drawCtx.stroke();
+                drawCtx.beginPath();
+                drawCtx.moveTo(x, y);
+            } catch (error) {
+                showConfirmation(`ERROR: Drawing failed - ${error.message}`);
+            }
         }
 
         function redrawStrokes() {
-            drawCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-            drawCtx.strokeStyle = uiColors[currentColorIndex];
-            strokes.forEach(stroke => {
-                if (stroke.length < 2) return;
-                drawCtx.beginPath();
-                stroke.forEach((point, idx) => {
-                    if (idx === 0) drawCtx.moveTo(point.x, point.y);
-                    else drawCtx.lineTo(point.x, point.y);
+            try {
+                drawCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+                drawCtx.strokeStyle = uiColors[currentColorIndex];
+                strokes.forEach(stroke => {
+                    if (stroke.length < 2) return;
+                    drawCtx.beginPath();
+                    stroke.forEach((point, idx) => {
+                        if (idx === 0) drawCtx.moveTo(point.x, point.y);
+                        else drawCtx.lineTo(point.x, point.y);
+                    });
+                    drawCtx.stroke();
                 });
-                drawCtx.stroke();
-            });
+            } catch (error) {
+                showConfirmation(`ERROR: Redraw strokes failed - ${error.message}`);
+            }
         }
 
         drawCanvas.addEventListener('mousedown', startDrawing);
@@ -592,113 +699,142 @@
         drawCanvas.addEventListener('mouseleave', stopDrawing);
 
         function toggleDraw() {
-            isDrawing = !isDrawing;
-            drawCanvas.classList.toggle('active', isDrawing);
-            const drawBtn = document.querySelector('button[onclick="toggleDraw()"]');
-            drawBtn.innerText = isDrawing ? 'Draw: On' : 'Draw';
+            try {
+                isDrawing = !isDrawing;
+                drawCanvas.classList.toggle('active', isDrawing);
+                const drawBtn = document.querySelector('button[onclick="toggleDraw()"]');
+                drawBtn.innerText = isDrawing ? 'Draw: On' : 'Draw';
+            } catch (error) {
+                showConfirmation(`ERROR: Draw toggle failed - ${error.message}`);
+            }
         }
 
         function clearDrawing() {
-            strokes = [];
-            currentStroke = [];
-            drawCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-            if (!isAutoGenerating) {
-                generateNFT();
+            try {
+                strokes = [];
+                currentStroke = [];
+                drawCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+                if (!isAutoGenerating) {
+                    generateNFT();
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: Clear drawing failed - ${error.message}`);
             }
         }
 
         // Wallet Functions
         function openWallet() {
-            document.getElementById('walletPopup').style.display = 'block';
-            const walletCanvas = document.getElementById('walletCanvas');
-            walletCanvas.width = 200;
-            walletCanvas.height = 200;
+            try {
+                document.getElementById('walletPopup').style.display = 'block';
+                const walletCanvas = document.getElementById('walletCanvas');
+                walletCanvas.width = 200;
+                walletCanvas.height = 200;
+            } catch (error) {
+                showConfirmation(`ERROR: Open wallet failed - ${error.message}`);
+            }
         }
 
         function closeWallet() {
-            document.getElementById('walletPopup').style.display = 'none';
+            try {
+                document.getElementById('walletPopup').style.display = 'none';
+            } catch (error) {
+                showConfirmation(`ERROR: Close wallet failed - ${error.message}`);
+            }
         }
 
         function copyCurrentNFTCode() {
-            if (currentSerial && currentCode) {
-                navigator.clipboard.writeText(`${currentSerial}\n${currentCode}`).then(() => {
-                    showConfirmation('Serial and code copied to clipboard');
-                }).catch(() => {
-                    showConfirmation('ERROR: Failed to copy serial and code');
-                });
-            } else {
-                showConfirmation('ERROR: No serial or code to copy');
+            try {
+                if (currentSerial && currentCode) {
+                    navigator.clipboard.writeText(`${currentSerial}\n${currentCode}`).then(() => {
+                        showConfirmation('Serial and code copied to clipboard');
+                    }).catch(() => {
+                        showConfirmation('ERROR: Failed to copy serial and code');
+                    });
+                } else {
+                    showConfirmation('ERROR: No serial or code to copy');
+                }
+            } catch (error) {
+                showConfirmation(`ERROR: Copy NFT code failed - ${error.message}`);
             }
         }
 
         function loadNFTImage() {
-            const serialInput = document.getElementById('nftSerialInput').value.trim();
-            const codeInput = document.getElementById('nftCodeInput').value.trim();
-            if (!serialInput || !codeInput) {
-                showConfirmation('ERROR: Serial and code required');
-                return;
-            }
-            const serialMatch = serialInput.match(/^HOLO-\d{6}-[A-Z0-9]{3}$/);
-            const validSerial = serialMatch ? serialMatch[0] : null;
-            if (!validSerial) {
-                showConfirmation('ERROR: Invalid serial format. Use HOLO-XXXXXX-XXX');
-                return;
-            }
-            const codeMatch = codeInput.match(/^Ω-CODE: [ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+=\-<>]{9}$/);
-            const validCode = codeMatch ? codeMatch[0] : null;
-            if (!validCode) {
-                showConfirmation('ERROR: Invalid code format. Use Ω-CODE: followed by 9 glyphs');
-                return;
-            }
-            if (serialMap.has(validSerial)) {
-                const { code, encryptedDatabase, strokes: storedStrokes } = serialMap.get(validSerial);
-                if (code !== validCode) {
-                    showConfirmation(`ERROR: Invalid code for serial ${validSerial}`);
+            try {
+                const serialInput = document.getElementById('nftSerialInput').value.trim();
+                const codeInput = document.getElementById('nftCodeInput').value.trim();
+                if (!serialInput || !codeInput) {
+                    showConfirmation('ERROR: Serial and code required');
                     return;
                 }
-                const shapeData = decodeDatabase(encryptedDatabase, validSerial)[0];
-                if (!shapeData) {
-                    showConfirmation('ERROR: Failed to decode shape data');
+                const serialMatch = serialInput.match(/^HOLO-\d{6}-[A-Z0-9]{3}$/);
+                const validSerial = serialMatch ? serialMatch[0] : null;
+                if (!validSerial) {
+                    showConfirmation('ERROR: Invalid serial format. Use HOLO-XXXXXX-XXX');
                     return;
                 }
-                currentSerial = validSerial;
-                currentCode = validCode;
-                currentColorIndex = shapeData.colorIndex;
-                changeUIColor();
-                is3DMode = shapeData.is3DMode;
-                if (is3DMode) {
-                    regenerate3DGrid(shapeData.grid, shapeData.scale, shapeData.rotation, shapeData.strokes);
+                const codeMatch = codeInput.match(/^Ω-CODE: [ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+=\-<>]{9}$/);
+                const validCode = codeMatch ? codeMatch[0] : null;
+                if (!validCode) {
+                    showConfirmation('ERROR: Invalid code format. Use Ω-CODE: followed by 9 glyphs');
+                    return;
+                }
+                if (serialMap.has(validSerial)) {
+                    const { code, encryptedDatabase, strokes: storedStrokes } = serialMap.get(validSerial);
+                    if (code !== validCode) {
+                        showConfirmation(`ERROR: Invalid code for serial ${validSerial}`);
+                        return;
+                    }
+                    const shapeData = decodeDatabase(encryptedDatabase, validSerial)[0];
+                    if (!shapeData) {
+                        showConfirmation('ERROR: Failed to decode shape data');
+                        return;
+                    }
+                    currentSerial = validSerial;
+                    currentCode = validCode;
+                    currentColorIndex = shapeData.colorIndex;
+                    changeUIColor();
+                    is3DMode = shapeData.is3DMode;
+                    if (is3DMode) {
+                        regenerate3DGrid(shapeData.grid, shapeData.scale, shapeData.rotation, shapeData.strokes);
+                    } else {
+                        regenerateShape(shapeData.pattern, shapeData.scale, shapeData.rotation, shapeData.strokes);
+                    }
+                    const walletCanvas = document.getElementById('walletCanvas');
+                    const walletCtx = walletCanvas.getContext('2d');
+                    walletCtx.clearRect(0, 0, walletCanvas.width, walletCanvas.height);
+                    walletCtx.fillStyle = '#000';
+                    walletCtx.fillRect(0, 0, walletCanvas.width, walletCanvas.height);
+                    walletCtx.strokeStyle = uiColors[currentColorIndex];
+                    walletCtx.lineWidth = 2;
+                    walletCtx.lineCap = 'round';
+                    walletCtx.lineJoin = 'round';
+                    shapeData.strokes.forEach(stroke => {
+                        if (stroke.length < 2) return;
+                        walletCtx.beginPath();
+                        stroke.forEach((point, idx) => {
+                            const x = (point.x / canvasWidth) * walletCanvas.width;
+                            const y = (point.y / canvasHeight) * walletCanvas.height;
+                            if (idx === 0) walletCtx.moveTo(x, y);
+                            else walletCtx.lineTo(x, y);
+                        });
+                        walletCtx.stroke();
+                    });
+                    showConfirmation(`Loaded: ${validSerial} | ${validCode}`);
                 } else {
-                    regenerateShape(shapeData.pattern, shapeData.scale, shapeData.rotation, shapeData.strokes);
+                    showConfirmation(`ERROR: Serial ${validSerial} not found`);
                 }
-                const walletCanvas = document.getElementById('walletCanvas');
-                const walletCtx = walletCanvas.getContext('2d');
-                walletCtx.clearRect(0, 0, walletCanvas.width, walletCanvas.height);
-                walletCtx.fillStyle = '#000';
-                walletCtx.fillRect(0, 0, walletCanvas.width, walletCanvas.height);
-                walletCtx.strokeStyle = uiColors[currentColorIndex];
-                walletCtx.lineWidth = 2;
-                walletCtx.lineCap = 'round';
-                walletCtx.lineJoin = 'round';
-                shapeData.strokes.forEach(stroke => {
-                    if (stroke.length < 2) return;
-                    walletCtx.beginPath();
-                    stroke.forEach((point, idx) => {
-                        const x = (point.x / canvasWidth) * walletCanvas.width;
-                        const y = (point.y / canvasHeight) * walletCanvas.height;
-                        if (idx === 0) walletCtx.moveTo(x, y);
-                        else walletCtx.lineTo(x, y);
- tatto                    walletCtx.stroke();
-                });
-                showConfirmation(`Loaded: ${validSerial} | ${validCode}`);
-            } else {
-                showConfirmation(`ERROR: Serial ${validSerial} not found`);
+            } catch (error) {
+                showConfirmation(`ERROR: Load NFT image failed - ${error.message}`);
             }
         }
 
         // Initialize
-        loadState();
-        generateShape();
+        try {
+            loadState();
+            generateShape();
+        } catch (error) {
+            showConfirmation(`ERROR: Initialization failed - ${error.message}`);
+        }
     </script>
 </body>
 </html>
