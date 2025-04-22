@@ -38,7 +38,8 @@
             transition: transform 0.3s ease;
             text-shadow: 0 0 10px var(--matrix-green);
             position: relative;
-            touch-action: manipulation; /* Improve touch responsiveness */
+            touch-action: manipulation;
+            cursor: pointer; /* Indicate clickability */
         }
 
         h1 {
@@ -107,15 +108,16 @@
         .char {
             display: inline-block;
             position: relative;
+            transition: all 0.1s ease;
         }
 
         .dissolving {
-            animation: dissolve 1.5s ease-out forwards;
+            animation: dissolve 1.8s ease-out forwards;
             color: var(--matrix-green);
         }
 
         .rebuilding {
-            animation: rebuild 1s ease-in forwards;
+            animation: rebuild 1.2s ease-in forwards;
         }
 
         @keyframes dissolve {
@@ -124,8 +126,8 @@
                 opacity: 1;
             }
             50% {
-                transform: translate(0, -20px);
-                opacity: 0.5;
+                transform: translate(0, -15px);
+                opacity: 0.7;
             }
             100% {
                 transform: translate(calc((50 - 100 * var(--rand-x)) * 1px), calc((50 - 100 * var(--rand-y)) * 1px));
@@ -156,82 +158,99 @@
     </div>
 
     <script>
-        // Select all text elements within the copyright container
         const container = document.querySelector('.copyright-container');
         const textElements = container.querySelectorAll('h1, p, span');
+        let isDissolved = false;
+        let originalContents = [];
 
-        // Store original text and wrap each character in a span
+        // Store original content without modifying the DOM initially
         textElements.forEach(element => {
-            const originalText = element.textContent;
-            element.dataset.original = originalText; // Store original text
-            const chars = originalText.split('');
-            element.innerHTML = chars
-                .map(char => `<span class="char">${char}</span>`)
-                .join('');
+            originalContents.push({
+                element,
+                originalText: element.textContent
+            });
         });
 
-        // Random number generator for digits
-        const getRandomDigit = () => String.fromCharCode(48 + Math.floor(Math.random() * 10));
-
-        // Generate random values for x and y scatter directions
-        const getRandomDirection = () => Math.random();
-
-        // Dissolve effect: replace with digits and animate out
-        const dissolveText = () => {
-            const chars = container.querySelectorAll('.char');
-            let index = 0;
-            const interval = setInterval(() => {
-                if (index >= chars.length) {
-                    clearInterval(interval);
-                    return;
-                }
-                const char = chars[index];
-                char.textContent = getRandomDigit();
-                char.classList.add('dissolving');
-                // Assign random x and y for scatter direction
-                char.style.setProperty('--rand-x', getRandomDirection());
-                char.style.setProperty('--rand-y', getRandomDirection());
-                index++;
-            }, 20); // Speed up over time by keeping interval short
-        };
-
-        // Rebuild effect: restore original text and animate in
-        const rebuildText = () => {
-            const chars = container.querySelectorAll('.char');
-            chars.forEach((char, index) => {
-                const parent = char.parentElement;
-                const originalText = parent.dataset.original;
-                char.textContent = originalText[index];
-                char.classList.remove('dissolving');
-                char.classList.add('rebuilding');
-                // Rebuild animation starts from the same random position
-                char.style.setProperty('--rand-x', getRandomDirection());
-                char.style.setProperty('--rand-y', getRandomDirection());
-                // Remove animation class after it completes to allow replay
-                setTimeout(() => {
-                    char.classList.remove('rebuilding');
-                }, 1000); // Match rebuild animation duration
+        // Wrap text in spans for animation
+        const wrapChars = () => {
+            textElements.forEach((element, idx) => {
+                const chars = originalContents[idx].originalText.split('');
+                element.innerHTML = chars
+                    .map(char => `<span class="char">${char}</span>`)
+                    .join('');
             });
         };
 
-        // Event listeners for desktop (hover)
-        container.addEventListener('mouseover', dissolveText);
-        container.addEventListener('mouseout', rebuildText);
+        // Random digit generator
+        const getRandomDigit = () => String.fromCharCode(48 + Math.floor(Math.random() * 10));
 
-        // Event listeners for mobile (touch and hold)
-        let touchTimeout;
+        // Random direction for scattering
+        const getRandomDirection = () => Math.random();
+
+        // Dissolve effect
+        const dissolveText = () => {
+            if (!isDissolved) {
+                wrapChars(); // Wrap characters in spans only when dissolving
+                const chars = container.querySelectorAll('.char');
+                let index = 0;
+                const interval = setInterval(() => {
+                    if (index >= chars.length) {
+                        clearInterval(interval);
+                        isDissolved = true;
+                        return;
+                    }
+                    const char = chars[index];
+                    char.textContent = getRandomDigit();
+                    char.classList.add('dissolving');
+                    char.style.setProperty('--rand-x', getRandomDirection());
+                    char.style.setProperty('--rand-y', getRandomDirection());
+                    index++;
+                }, 15); // Smooth, slightly faster for a polished feel
+            }
+        };
+
+        // Rebuild effect
+        const rebuildText = () => {
+            if (isDissolved) {
+                const chars = container.querySelectorAll('.char');
+                chars.forEach((char, index) => {
+                    const parent = char.parentElement;
+                    const originalIdx = Array.from(textElements).indexOf(parent);
+                    const originalText = originalContents[originalIdx].originalText;
+                    char.textContent = originalText[index] || '';
+                    char.classList.remove('dissolving');
+                    char.classList.add('rebuilding');
+                    char.style.setProperty('--rand-x', getRandomDirection());
+                    char.style.setProperty('--rand-y', getRandomDirection());
+                    setTimeout(() => {
+                        char.classList.remove('rebuilding');
+                    }, 1200); // Match rebuild animation duration
+                });
+                // After rebuilding, restore original text to remove spans
+                setTimeout(() => {
+                    originalContents.forEach(({ element, originalText }) => {
+                        element.textContent = originalText;
+                    });
+                    isDissolved = false;
+                }, 1200);
+            }
+        };
+
+        // Toggle between dissolve and rebuild on click/tap
+        const handleInteraction = (e) => {
+            e.preventDefault(); // Prevent default behaviors
+            if (!isDissolved) {
+                dissolveText();
+            } else {
+                rebuildText();
+            }
+        };
+
+        // Add event listeners for click (desktop) and tap (mobile)
+        container.addEventListener('click', handleInteraction);
         container.addEventListener('touchstart', (e) => {
             e.preventDefault(); // Prevent default touch behaviors
-            touchTimeout = setTimeout(dissolveText, 200); // Trigger after a short hold
-        });
-        container.addEventListener('touchend', () => {
-            clearTimeout(touchTimeout);
-            rebuildText();
-        });
-        // Handle touch cancel (e.g., if touch is interrupted)
-        container.addEventListener('touchcancel', () => {
-            clearTimeout(touchTimeout);
-            rebuildText();
+            handleInteraction(e);
         });
     </script>
 </body>
