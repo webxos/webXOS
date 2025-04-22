@@ -90,7 +90,7 @@
             border: 1px solid var(--matrix-green);
             padding: 10px 20px;
             font-family: 'Roboto Mono', monospace;
-            cursor: pointer;
+            cursor: prosecution;
             transition: background 0.3s;
         }
 
@@ -174,7 +174,7 @@
         <h1>Scrambler</h1>
         <div class="marquee" id="marquee"></div>
         <div class="console">
-            <input type="text" id="consoleInput" placeholder="Enter command or text...">
+            <input type="text" id="consoleInput" placeholder="Enter command or SCR- code...">
             <div class="console-buttons">
                 <button onclick="executeCommand()">Execute</button>
                 <button onclick="clearConsole()">Clear</button>
@@ -187,11 +187,20 @@
     </div>
 
     <script>
+        // SHA-256 implementation (for front-end hashing)
+        async function sha256(str) {
+            const msgBuffer = new TextEncoder().encode(str);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
         const marquee = document.getElementById('marquee');
         const input = document.getElementById('consoleInput');
         const output = document.getElementById('output');
         let isDissolved = false;
         let originalText = '';
+        const messageStore = new Map(); // Store SCR- codes and messages
 
         // Random digit generator
         const getRandomDigit = () => String.fromCharCode(48 + Math.floor(Math.random() * 10));
@@ -199,12 +208,17 @@
         // Random direction for scattering
         const getRandomDirection = () => Math.random();
 
-        // Generate a scrambled key
-        const generateKey = (text) => {
+        // Generate a hard-to-guess SCR- code
+        async function generateSCRCode(text) {
             const timestamp = Date.now();
-            const hash = Array.from(text).reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            return btoa(`${timestamp}-${hash}`); // Base64-encoded key
-        };
+            const salt = Math.random().toString(36).substring(2, 15);
+            const hashInput = `${text}:${timestamp}:${salt}`;
+            const hash = await sha256(hashInput);
+            const code = `SCR-${hash.slice(0, 8).toUpperCase()}`;
+            messageStore.set(code, text); // Store for deciphering
+            localStorage.setItem('scramblerMessages', JSON.stringify([...messageStore]));
+            return code;
+        }
 
         // Wrap text in spans for animation
         const wrapChars = (text) => {
@@ -230,7 +244,7 @@
             });
         };
 
-        // Dissolve effect (encrypt)
+        // Dissolve effect (scramble)
         const dissolveText = () => {
             if (!isDissolved) {
                 const chars = marquee.querySelectorAll('.char');
@@ -252,34 +266,59 @@
         };
 
         // Execute command
-        const executeCommand = () => {
-            const command = input.value.trim().toLowerCase();
+        async function executeCommand() {
+            const command = input.value.trim();
             input.value = '';
+            const parts = command.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1).join(' ');
 
-            if (command === 'encrypt') {
+            if (cmd === 'help') {
+                output.innerHTML = `
+                    <p><strong>Commands:</strong></p>
+                    <p><strong>help</strong>: Display this help message.</p>
+                    <p><strong>text &lt;message&gt;</strong>: Display a message in the marquee.</p>
+                    <p><strong>scramble</strong>: Scramble the current message and generate a SCR- code.</p>
+                    <p><strong>clear</strong>: Clear the console and marquee.</p>
+                    <p><strong>SCR-xxxxxxxx</strong>: Enter a SCR- code to decipher a message.</p>
+                `;
+            } else if (cmd === 'text' && args) {
+                displayText(args);
+                output.innerHTML = `<p>Displayed: "${args}"</p>`;
+            } else if (cmd === 'scramble') {
                 if (originalText) {
-                    const key = generateKey(originalText);
+                    const code = await generateSCRCode(originalText);
                     dissolveText();
-                    output.innerHTML = `<p>Encrypted! Key: <strong>${key}</strong></p>`;
+                    output.innerHTML = `<p>Scrambled! Code: <strong>${code}</strong></p>`;
                 } else {
-                    output.innerHTML = '<p>Error: No text to encrypt.</p>';
+                    output.innerHTML = '<p>Error: No message to scramble.</p>';
                 }
-            } else if (command) {
-                displayText(command);
-                output.innerHTML = `<p>Displayed: "${command}"</p>`;
+            } else if (cmd.toUpperCase().startsWith('SCR-') && command.length === 12) {
+                const storedMessages = JSON.parse(localStorage.getItem('scramblerMessages') || '{}');
+                messageStore.clear();
+                Object.entries(storedMessages).forEach(([k, v]) => messageStore.set(k, v));
+                const message = messageStore.get(command.toUpperCase());
+                if (message) {
+                    displayText(message);
+                    output.innerHTML = `<p>Deciphered: "${message}"</p>`;
+                } else {
+                    output.innerHTML = '<p>Error: Invalid or unknown SCR- code.</p>';
+                }
+            } else if (cmd === 'clear') {
+                clearConsole();
             } else {
-                output.innerHTML = '<p>Please enter a command or text.</p>';
+                output.innerHTML = '<p>Error: Unknown command. Type <strong>help</strong> for commands.</p>';
             }
-        };
+        }
 
         // Clear console
-        const clearConsole = () => {
+        function clearConsole() {
             marquee.innerHTML = '';
             output.innerHTML = '';
             input.value = '';
             originalText = '';
             isDissolved = false;
-        };
+        }
 
         // Handle Enter key
         input.addEventListener('keypress', (e) => {
