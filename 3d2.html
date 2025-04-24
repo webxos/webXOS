@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>WebX Universe 3D - Debug</title>
+    <title>WebX Universe 3D</title>
     <style>
         * {
             margin: 0;
@@ -106,6 +106,31 @@
             border: 1px solid #00ffcc;
             border-radius: 5px;
         }
+        .quest-log {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px;
+            max-width: 250px;
+            border: 1px solid #00ffcc;
+            border-radius: 5px;
+        }
+        .minimap {
+            position: absolute;
+            bottom: 150px;
+            right: 15px;
+            width: 150px;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ffcc;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .minimap canvas {
+            width: 100%;
+            height: 100%;
+        }
         .footer {
             position: absolute;
             bottom: 10px;
@@ -114,6 +139,7 @@
             font-size: 10px;
             color: #00ffcc;
             z-index: 5;
+            text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
@@ -122,7 +148,9 @@
     <div id="gameCanvas">
         <div class="hud">
             <div class="crosshair">✛</div>
-            <div class="status" id="status">Health: 100</div>
+            <div class="status" id="status">Health: 100 | Cooldown: 0%</div>
+            <div class="quest-log" id="questLog">Quest: Explore the Ancient Temple</div>
+            <div class="minimap"><canvas id="minimapCanvas"></canvas></div>
         </div>
     </div>
     <div class="controls">
@@ -137,6 +165,7 @@
     <div class="footer">© 2025 WebXOS - WebX Universe 3D</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r169/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/4.0.1/simplex-noise.min.js"></script>
     <script>
         window.onload = () => {
             try {
@@ -144,55 +173,129 @@
 
                 // Scene setup
                 const scene = new THREE.Scene();
-                scene.background = new THREE.Color(0x333333); // Gray background for visibility
+                scene.background = new THREE.Color(0x111111); // Starry black background
                 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
                 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-                
-                // Verify WebGL support
+
+                // Verify WebGL
                 if (!renderer.getContext()) {
-                    console.error("WebGL not supported by this browser.");
-                    alert("WebGL is not supported. Please use a modern browser like Chrome or Firefox.");
+                    console.error("WebGL not supported.");
+                    alert("WebGL is not supported. Use a modern browser like Chrome or Firefox.");
                     return;
                 }
 
                 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
                 renderer.setSize(window.innerWidth, window.innerHeight);
-                const canvas = renderer.domElement;
-                canvas.style.display = 'block'; // Ensure canvas is visible
-                document.getElementById('gameCanvas').appendChild(canvas);
-                console.log("Renderer initialized, canvas appended.");
+                renderer.domElement.style.display = 'block';
+                document.getElementById('gameCanvas').appendChild(renderer.domElement);
+                console.log("Renderer initialized.");
 
-                // Camera position
-                camera.position.set(0, 5, 10); // Position camera to see origin
-                camera.lookAt(0, 0, 0); // Look at origin
-                console.log("Camera set to position:", camera.position);
+                // Camera
+                camera.position.set(0, 5, 10);
+                camera.lookAt(0, 0, 0);
+                console.log("Camera set:", camera.position);
 
                 // Lighting
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Bright ambient light
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
                 scene.add(ambientLight);
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-                directionalLight.position.set(5, 10, 5);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 20, 10);
                 scene.add(directionalLight);
                 console.log("Lighting added.");
 
-                // Test object (red cube)
-                const cubeGeometry = new THREE.BoxGeometry(2, 2, 2);
-                const cubeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // No lighting dependency
-                const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-                cube.position.set(0, 1, 0); // Place at origin, slightly raised
-                scene.add(cube);
-                console.log("Red cube added at position:", cube.position);
+                // Debug objects
+                const gridHelper = new THREE.GridHelper(20, 20, 0x00ffcc, 0x00ffcc);
+                scene.add(gridHelper);
+                const debugCube = new THREE.Mesh(
+                    new THREE.BoxGeometry(1, 1, 1),
+                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                );
+                debugCube.position.set(0, 0.5, 0);
+                scene.add(debugCube);
+                console.log("Debug cube and grid added.");
 
-                // Player state
+                // Terrain
+                const terrainSize = 500;
+                const terrainSegments = 64;
+                const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+                const noise = new SimplexNoise();
+                const vertices = terrainGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    const x = vertices[i];
+                    const z = vertices[i + 1];
+                    vertices[i + 2] = noise.noise2D(x / 50, z / 50) * 8;
+                }
+                terrainGeometry.computeVertexNormals();
+                const terrainMaterial = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.8 });
+                const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+                terrain.rotation.x = -Math.PI / 2;
+                scene.add(terrain);
+                console.log("Terrain added.");
+
+                // Caves
+                const caveGeometry = new THREE.SphereGeometry(8, 16, 16);
+                const caveMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 1.0 });
+                for (let i = 0; i < 3; i++) {
+                    const cave = new THREE.Mesh(caveGeometry, caveMaterial);
+                    cave.position.set(
+                        (Math.random() - 0.5) * terrainSize * 0.8,
+                        -4,
+                        (Math.random() - 0.5) * terrainSize * 0.8
+                    );
+                    scene.add(cave);
+                }
+                console.log("Caves added.");
+
+                // Temples
+                const templeGeometry = new THREE.ConeGeometry(6, 8, 4);
+                const templeMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.5 });
+                for (let i = 0; i < 2; i++) {
+                    const temple = new THREE.Mesh(templeGeometry, templeMaterial);
+                    temple.position.set(
+                        (Math.random() - 0.5) * terrainSize * 0.6,
+                        4,
+                        (Math.random() - 0.5) * terrainSize * 0.6
+                    );
+                    scene.add(temple);
+                }
+                console.log("Temples added.");
+
+                // Enemies
+                const enemyTypes = [
+                    { geometry: new THREE.BoxGeometry(1, 1, 1), material: new THREE.MeshBasicMaterial({ color: 0x00ff00 }), speed: 2, health: 50, type: 'melee' },
+                    { geometry: new THREE.SphereGeometry(0.8, 16, 16), material: new THREE.MeshBasicMaterial({ color: 0xff0000 }), speed: 1.5, health: 75, type: 'ranged' }
+                ];
+                const enemies = [];
+                function spawnEnemy() {
+                    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+                    const enemy = new THREE.Mesh(type.geometry, type.material);
+                    enemy.position.set(
+                        (Math.random() - 0.5) * terrainSize * 0.9,
+                        1,
+                        (Math.random() - 0.5) * terrainSize * 0.9
+                    );
+                    enemy.userData = { health: type.health, velocity: new THREE.Vector3(), type: type.type, speed: type.speed };
+                    scene.add(enemy);
+                    enemies.push(enemy);
+                    console.log("Enemy spawned:", enemy.position);
+                }
+                for (let i = 0; i < 10; i++) spawnEnemy();
+                setInterval(spawnEnemy, 5000);
+
+                // Player
                 const player = {
                     health: 100,
+                    shootCooldown: 0,
+                    speed: 6,
+                    sprintSpeed: 12,
                     velocity: new THREE.Vector3(),
                     rotation: { pitch: 0, yaw: 0 },
                     rotationVelocity: { pitch: 0, yaw: 0 },
-                    isSprinting: false
+                    isSprinting: false,
+                    bobTime: 0
                 };
 
-                // Joystick controls
+                // Joystick
                 const joystickContainer = document.getElementById('joystickContainer');
                 const joystick = document.getElementById('joystick');
                 let joystickActive = false;
@@ -202,8 +305,7 @@
                 joystickContainer.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     joystickActive = true;
-                    const touch = e.touches[0];
-                    joystickOrigin = { x: touch.clientX, y: touch.clientY };
+                    joystickOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                     console.log("Joystick touch started.");
                 });
 
@@ -234,20 +336,37 @@
                 });
 
                 // Action buttons
-                document.getElementById('shootBtn').addEventListener('click', () => {
-                    console.log("Shoot button clicked.");
+                const shootBtn = document.getElementById('shootBtn');
+                const sprintBtn = document.getElementById('sprintBtn');
+                shootBtn.addEventListener('click', () => {
+                    if (player.shootCooldown <= 0) {
+                        shoot();
+                        player.shootCooldown = 0.5;
+                        console.log("Shoot fired.");
+                    }
                 });
-
-                document.getElementById('sprintBtn').addEventListener('touchstart', () => {
+                sprintBtn.addEventListener('touchstart', () => {
                     player.isSprinting = true;
                     console.log("Sprint started.");
                 });
-                document.getElementById('sprintBtn').addEventListener('touchend', () => {
+                sprintBtn.addEventListener('touchend', () => {
                     player.isSprinting = false;
                     console.log("Sprint ended.");
                 });
 
-                // Touch look controls
+                // Desktop controls
+                const keys = {};
+                window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+                window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+                let mouseDown = false;
+                window.addEventListener('mousedown', () => { mouseDown = true; });
+                window.addEventListener('mouseup', () => { mouseDown = false; });
+                window.addEventListener('mousemove', (e) => {
+                    player.rotationVelocity.yaw -= e.movementX * 0.002;
+                    player.rotationVelocity.pitch -= e.movementY * 0.002;
+                });
+
+                // Touch look
                 let isLooking = false;
                 let previousTouch = { x: 0, y: 0 };
                 document.getElementById('gameCanvas').addEventListener('touchstart', (e) => {
@@ -271,6 +390,70 @@
                     isLooking = false;
                 });
 
+                // Shooting
+                const projectiles = [];
+                function shoot() {
+                    const projectileGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+                    const projectileMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+                    const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+                    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                    projectile.position.copy(camera.position).add(forward.multiplyScalar(0.5));
+                    projectile.userData = { velocity: forward.multiplyScalar(30), remove: false };
+                    scene.add(projectile);
+                    projectiles.push(projectile);
+                }
+
+                // Quests
+                const quests = [
+                    { id: 1, text: "Explore the Ancient Temple", target: new THREE.Vector3(50, 4, -50) },
+                    { id: 2, text: "Defeat 10 Enemies", kills: 0, targetKills: 10 }
+                ];
+                let currentQuest = quests[0];
+
+                // Minimap
+                const minimapCanvas = document.getElementById('minimapCanvas');
+                const minimapCtx = minimapCanvas.getContext('2d');
+                minimapCanvas.width = 150;
+                minimapCanvas.height = 150;
+
+                function updateMinimap() {
+                    minimapCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    minimapCtx.fillRect(0, 0, 150, 150);
+                    minimapCtx.fillStyle = '#00ffcc';
+                    minimapCtx.fillRect(75 - 2, 75 - 2, 4, 4);
+                    enemies.forEach(enemy => {
+                        const dx = enemy.position.x - camera.position.x;
+                        const dz = enemy.position.z - camera.position.z;
+                        const mx = 75 + (dx / terrainSize) * 150;
+                        const my = 75 + (dz / terrainSize) * 150;
+                        if (mx >= 0 && mx <= 150 && my >= 0 && my <= 150) {
+                            minimapCtx.fillStyle = enemy.userData.type === 'melee' ? '#00ff00' : '#ff0000';
+                            minimapCtx.fillRect(mx - 2, my - 2, 4, 4);
+                        }
+                    });
+                    if (currentQuest.target) {
+                        const dx = currentQuest.target.x - camera.position.x;
+                        const dz = currentQuest.target.z - camera.position.z;
+                        const mx = 75 + (dx / terrainSize) * 150;
+                        const my = 75 + (dz / terrainSize) * 150;
+                        if (mx >= 0 && mx <= 150 && my >= 0 && my <= 150) {
+                            minimapCtx.fillStyle = '#ffff00';
+                            minimapCtx.fillRect(mx - 3, my - 3, 6, 6);
+                        }
+                    }
+                }
+
+                function updateHUD() {
+                    document.getElementById('status').textContent = `Health: ${player.health} | Cooldown: ${Math.max(0, Math.floor(player.shootCooldown * 100))}%`;
+                    document.getElementById('questLog').textContent = `Quest: ${currentQuest.text}`;
+                }
+
+                // Physics
+                const gravity = -9.8;
+                function getTerrainHeight(x, z) {
+                    return noise.noise2D(x / 50, z / 50) * 8;
+                }
+
                 // Animation loop
                 let lastTime = performance.now();
                 function animate() {
@@ -278,10 +461,6 @@
                     const now = performance.now();
                     const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
                     lastTime = now;
-
-                    // Rotate cube for visibility
-                    cube.rotation.x += deltaTime;
-                    cube.rotation.y += deltaTime;
 
                     // Player rotation
                     player.rotation.pitch += player.rotationVelocity.pitch * deltaTime;
@@ -291,32 +470,136 @@
                     player.rotationVelocity.yaw *= 0.9;
                     camera.quaternion.setFromEuler(new THREE.Euler(player.rotation.pitch, player.rotation.yaw, 0, 'YXZ'));
 
+                    // Camera bob
+                    if (player.velocity.length() > 0) {
+                        player.bobTime += deltaTime * (player.isSprinting ? 10 : 5);
+                        camera.position.y += Math.sin(player.bobTime) * 0.05;
+                    }
+
                     // Player movement
-                    const speed = player.isSprinting ? 10 : 5;
+                    const speed = player.isSprinting ? player.sprintSpeed : player.speed;
                     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    player.velocity.set(0, 0, 0);
+                    player.velocity.set(0, player.velocity.y, 0);
                     if (joystickActive) {
                         const moveX = joystickDelta.x / 60;
                         const moveZ = joystickDelta.y / 60;
                         player.velocity.add(right.multiplyScalar(moveX * speed));
                         player.velocity.add(forward.multiplyScalar(-moveZ * speed));
                     }
+                    if (keys['KeyW']) player.velocity.add(forward.multiplyScalar(speed));
+                    if (keys['KeyS']) player.velocity.add(forward.multiplyScalar(-speed));
+                    if (keys['KeyA']) player.velocity.add(right.multiplyScalar(-speed));
+                    if (keys['KeyD']) player.velocity.add(right.multiplyScalar(speed));
+                    if (keys['Space']) player.isSprinting = true;
+                    else if (!sprintBtn.ontouchstart) player.isSprinting = false;
+                    if (mouseDown && player.shootCooldown <= 0) {
+                        shoot();
+                        player.shootCooldown = 0.5;
+                    }
+
+                    // Gravity and terrain
+                    player.velocity.y += gravity * deltaTime;
                     camera.position.add(player.velocity.clone().multiplyScalar(deltaTime));
+                    const terrainHeight = getTerrainHeight(camera.position.x, camera.position.z) + 2;
+                    if (camera.position.y < terrainHeight) {
+                        camera.position.y = terrainHeight;
+                        player.velocity.y = 0;
+                    }
+
+                    // Enemy AI
+                    enemies.forEach((enemy) => {
+                        const direction = camera.position.clone().sub(enemy.position).normalize();
+                        if (enemy.userData.type === 'melee') {
+                            enemy.userData.velocity.copy(direction.multiplyScalar(enemy.userData.speed));
+                            enemy.position.add(enemy.userData.velocity.clone().multiplyScalar(deltaTime));
+                            enemy.position.y = getTerrainHeight(enemy.position.x, enemy.position.z) + 1;
+                            if (enemy.position.distanceTo(camera.position) < 1.5) {
+                                player.health -= 10 * deltaTime;
+                                updateHUD();
+                            }
+                        } else {
+                            if (Math.random() < 0.01) {
+                                const projectile = new THREE.Mesh(
+                                    new THREE.SphereGeometry(0.1, 8, 8),
+                                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                                );
+                                projectile.position.copy(enemy.position);
+                                projectile.userData = { velocity: direction.multiplyScalar(15), remove: false };
+                                scene.add(projectile);
+                                projectiles.push(projectile);
+                            }
+                        }
+                    });
+
+                    // Projectiles
+                    const projectilesToRemove = [];
+                    projectiles.forEach((projectile, i) => {
+                        projectile.position.add(projectile.userData.velocity.clone().multiplyScalar(deltaTime));
+                        if (projectile.position.length() > terrainSize) {
+                            projectile.userData.remove = true;
+                            projectilesToRemove.push(i);
+                        }
+                        enemies.forEach((enemy, j) => {
+                            if (projectile.position.distanceTo(enemy.position) < 1) {
+                                enemy.userData.health -= 25;
+                                projectile.userData.remove = true;
+                                projectilesToRemove.push(i);
+                                if (enemy.userData.health <= 0) {
+                                    scene.remove(enemy);
+                                    enemies.splice(j, 1);
+                                    if (currentQuest.id === 2) {
+                                        currentQuest.kills++;
+                                        if (currentQuest.kills >= currentQuest.targetKills) {
+                                            currentQuest = quests[0];
+                                        }
+                                        updateHUD();
+                                    }
+                                }
+                            }
+                        });
+                        if (projectile.userData.velocity.length() === 15 && projectile.position.distanceTo(camera.position) < 1) {
+                            player.health -= 20;
+                            projectile.userData.remove = true;
+                            projectilesToRemove.push(i);
+                            updateHUD();
+                        }
+                    });
+                    projectilesToRemove.sort((a, b) => b - a).forEach((i) => {
+                        scene.remove(projectiles[i]);
+                        projectiles.splice(i, 1);
+                    });
+
+                    // Quest progress
+                    if (currentQuest.target && camera.position.distanceTo(currentQuest.target) < 5) {
+                        currentQuest = quests[Math.min(currentQuest.id, quests.length - 1)];
+                        updateHUD();
+                    }
+
+                    // Cooldown
+                    player.shootCooldown = Math.max(0, player.shootCooldown - deltaTime);
+
+                    // Minimap
+                    updateMinimap();
+
+                    // Debug cube rotation
+                    debugCube.rotation.y += deltaTime;
 
                     renderer.render(scene, camera);
                 }
 
-                // Resize handling
+                // Resize
                 window.addEventListener('resize', () => {
                     camera.aspect = window.innerWidth / window.innerHeight;
                     camera.updateProjectionMatrix();
                     renderer.setSize(window.innerWidth, window.innerHeight);
-                    console.log("Window resized, renderer updated.");
+                    minimapCanvas.width = 150;
+                    minimapCanvas.height = 150;
+                    console.log("Window resized.");
                 });
 
                 // Initialize
-                document.getElementById('status').textContent = `Health: ${player.health}`;
+                updateHUD();
                 console.log("Starting animation loop...");
                 animate();
             } catch (e) {
