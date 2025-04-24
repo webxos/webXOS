@@ -175,7 +175,7 @@
         <button onclick="generateNFT()">Generate NFT</button>
         <button onclick="showLoadInput()">Load NFT</button>
         <div id="loadInput" style="display: none;">
-            <input type="text" id="nftSerialInput" placeholder="Enter NFT Serial">
+            <input type="text" id="nftSerialInput" placeholder="Enter NFT Serial (e.g., NFT-...)">
             <button onclick="loadNFT()">Load</button>
         </div>
         <div id="nftOutput"></div>
@@ -200,6 +200,7 @@
         let currentScale = 1;
         let currentRotation = 0;
         let currentPattern = null;
+        let currentBackground = null;
 
         // AES encryption key (in production, store securely)
         const AES_KEY = 'sacred-ai-secure-key-2025';
@@ -208,6 +209,7 @@
             currentColorIndex = (currentColorIndex + 1) % uiColors.length;
             const newColor = uiColors[currentColorIndex];
 
+            // Update UI elements
             document.body.style.color = newColor;
             const header = document.querySelector('h1.glow-text');
             header.style.textShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
@@ -219,6 +221,22 @@
             const shape = document.getElementById('dynamic-shape');
             shape.style.borderColor = newColor;
             shape.style.boxShadow = `0 0 20px ${newColor}, 0 0 30px ${newColor}, 0 0 40px ${newColor}`;
+
+            // Update shape color while preserving pattern
+            if (currentPattern && currentPattern.index !== undefined) {
+                const patterns = [
+                    () => `repeating-radial-gradient(circle, ${newColor} ${rand(2,15)}px, #000 ${rand(2,15)}px, #000 ${rand(5,20)}px, ${newColor} ${rand(5,20)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(5,15)}px, ${newColor} ${rand(5,15)}px, ${newColor} ${rand(10,25)}px, transparent ${rand(10,25)}px)`,
+                    () => `repeating-radial-gradient(${newColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, #000 ${rand(10,30)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, ${newColor} ${rand(5,20)}px, transparent ${rand(5,20)}px, ${newColor} ${rand(10,30)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${newColor} ${rand(2,10)}px), repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${newColor} ${rand(2,10)}px)`,
+                    () => `repeating-radial-gradient(${newColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`,
+                    () => `repeating-linear-gradient(${rand(0,360)}deg, ${newColor} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`
+                ];
+                currentBackground = patterns[currentPattern.index]();
+                shape.style.background = currentBackground;
+                currentPattern.color = newColor;
+            }
 
             const buttons = document.querySelectorAll('button');
             buttons.forEach(btn => {
@@ -279,8 +297,10 @@
             ];
 
             const patternIndex = Math.floor(Math.random() * patterns.length);
+            const background = patterns[patternIndex]();
             currentPattern = { index: patternIndex, color: currentColor };
-            shapeElement.style.background = patterns[patternIndex]();
+            currentBackground = background;
+            shapeElement.style.background = background;
 
             currentScale = rand(0.8, 1.2);
             currentRotation = rand(0, 360);
@@ -351,54 +371,77 @@
             document.getElementById('nftOutput').innerText = '';
         }
 
+        function copyToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    document.getElementById('nftOutput').innerText += '\nSerial copied to clipboard!';
+                }).catch(err => {
+                    document.getElementById('nftOutput').innerText += '\nFailed to copy serial: ' + err;
+                });
+            } else {
+                // Fallback for non-secure contexts
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    document.getElementById('nftOutput').innerText += '\nSerial copied to clipboard!';
+                } catch (err) {
+                    document.getElementById('nftOutput').innerText += '\nFailed to copy serial: Please copy manually.';
+                }
+                document.body.removeChild(textarea);
+            }
+        }
+
         function generateNFT() {
             const shapeData = {
                 nftNumber: currentNFTNumber,
                 pattern: currentPattern,
                 scale: currentScale,
-                rotation: currentRotation
+                rotation: currentRotation,
+                background: currentBackground
             };
             const shapeString = JSON.stringify(shapeData);
-            const hash = CryptoJS.SHA256(shapeString).toString();
-            const encrypted = CryptoJS.AES.encrypt(hash, AES_KEY).toString();
-            const serial = btoa(encrypted);
+            const encrypted = CryptoJS.AES.encrypt(shapeString, AES_KEY).toString();
+            const serial = `NFT-${btoa(encrypted)}`;
             document.getElementById('nftOutput').innerText = `NFT Serial: ${serial}`;
+            copyToClipboard(serial);
         }
 
         function loadNFT() {
-            const serial = document.getElementById('nftSerialInput').value;
+            const serial = document.getElementById('nftSerialInput').value.trim();
             try {
-                const encrypted = atob(serial);
-                const decrypted = CryptoJS.AES.decrypt(encrypted, AES_KEY).toString(CryptoJS.enc.Utf8);
-                const shapeData = JSON.parse(CryptoJS.SHA256.reverse(decrypted));
-                if (shapeData && shapeData.nftNumber && shapeData.pattern) {
+                if (!serial.startsWith('NFT-')) {
+                    throw new Error('Serial must start with "NFT-"');
+                }
+                const encoded = serial.slice(4);
+                const encrypted = atob(encoded);
+                const decrypted = CryptoJS.AES.decrypt(encrypted, AES_KEY);
+                const shapeString = decrypted.toString(CryptoJS.enc.Utf8);
+                const shapeData = JSON.parse(shapeString);
+
+                if (shapeData && shapeData.nftNumber && shapeData.pattern && shapeData.background) {
                     const shapeElement = document.getElementById('dynamic-shape');
                     currentNFTNumber = shapeData.nftNumber;
                     currentScale = shapeData.scale;
                     currentRotation = shapeData.rotation;
                     currentPattern = shapeData.pattern;
+                    currentBackground = shapeData.background;
                     currentColorIndex = uiColors.indexOf(shapeData.pattern.color);
                     if (currentColorIndex === -1) currentColorIndex = 0;
 
-                    const patterns = [
-                        () => `repeating-radial-gradient(circle, ${currentPattern.color} ${rand(2,15)}px, #000 ${rand(2,15)}px, #000 ${rand(5,20)}px, ${currentPattern.color} ${rand(5,20)}px)`,
-                        () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(5,15)}px, ${currentPattern.color} ${rand(5,15)}px, ${currentPattern.color} ${rand(10,25)}px, transparent ${rand(10,25)}px)`,
-                        () => `repeating-radial-gradient(${currentPattern.color} ${rand(5,20)}px, transparent ${rand(5,20)}px, #000 ${rand(10,30)}px)`,
-                        () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentPattern.color} ${rand(5,20)}px, transparent ${rand(5,20)}px, ${currentPattern.color} ${rand(10,30)}px)`,
-                        () => `repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentPattern.color} ${rand(2,10)}px), repeating-linear-gradient(${rand(0,360)}deg, transparent ${rand(2,10)}px, ${currentPattern.color} ${rand(2,10)}px)`,
-                        () => `repeating-radial-gradient(${currentPattern.color} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`,
-                        () => `repeating-linear-gradient(${rand(0,360)}deg, ${currentPattern.color} ${rand(2,15)}px, transparent ${rand(2,15)}px, #000 ${rand(5,20)}px)`
-                    ];
-                    shapeElement.style.background = patterns[currentPattern.index]();
+                    shapeElement.style.background = shapeData.background;
+                    shapeElement.style.borderColor = shapeData.pattern.color;
+                    shapeElement.style.boxShadow = `0 0 20px ${shapeData.pattern.color}, 0 0 30px ${shapeData.pattern.color}, 0 0 40px ${shapeData.pattern.color}`;
                     updateTransform(shapeElement);
-                    changeUIColor();
                     showConfirmation();
                     document.getElementById('nftOutput').innerText = 'NFT Loaded Successfully!';
                 } else {
-                    document.getElementById('nftOutput').innerText = 'Invalid NFT Serial';
+                    document.getElementById('nftOutput').innerText = 'Invalid NFT Serial: Missing data';
                 }
             } catch (e) {
-                document.getElementById('nftOutput').innerText = 'Error: Invalid NFT Serial';
+                document.getElementById('nftOutput').innerText = `Error: Invalid NFT Serial (${e.message})`;
             }
         }
 
