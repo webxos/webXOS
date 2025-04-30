@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoDrive Console - WebXOS 2025</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/idb/7.1.1/umd.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Courier New', monospace;
+    }
+    body {
+      background: #000;
+      color: #00ff00;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 10px;
+      text-align: center;
+      overflow-x: hidden;
+    }
+    .logo {
+      font-size: 1.5em;
+      text-shadow: 0 0 10px #00ff00;
+      margin: 10px 0;
+      white-space: pre;
+      line-height: 1.2;
+    }
+    .console {
+      width: 100%;
+      max-width: 600px;
+      height: 70vh;
+      background: #111;
+      border: 1px solid #00ff00;
+      border-radius: 5px;
+      box-shadow: 0 0 15px #00ff00;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      overflow: hidden;
+    }
+    #output {
+      flex-grow: 1;
+      overflow-y: auto;
+      font-size: 0.9em;
+      text-align: left;
+      padding: 5px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .input-container {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    #commandInput {
+      flex-grow: 1;
+      background: #000;
+      color: #00ff00;
+      border: 1px solid #00ff00;
+      border-radius: 3px;
+      padding: 8px;
+      font-size: 0.9em;
+    }
+    button {
+      background: #00ff00;
+      color: #000;
+      border: 1px solid #00ff00;
+      border-radius: 3px;
+      padding: 8px;
+      font-size: 0.9em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover {
+      background: #000;
+      color: #00ff00;
+      box-shadow: 0 0 8px #00ff00;
+    }
+    .footer-logo {
+      font-size: 0.8em;
+      text-shadow: 0 0 5px #00ff00;
+      margin: 10px 0;
+      white-space: pre;
+    }
+    @media (max-width: 600px) {
+      .logo {
+        font-size: 1.2em;
+      }
+      .console {
+        height: 80vh;
+      }
+      #output, #commandInput, button {
+        font-size: 0.8em;
+      }
+      .footer-logo {
+        font-size: 0.7em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    ____ _          
+   / ___| |__   ___ 
+  | |   | '_ \ / __|
+  | |___| | | | (__ 
+   \____|_| |_|___|
+  </div>
+  <div class="console">
+    <div id="output"></div>
+    <div class="input-container">
+      <input id="commandInput" type="text" placeholder="Enter command...">
+      <button onclick="executeCommand()">Execute</button>
+      <button onclick="clearConsole()">Clear</button>
+    </div>
+  </div>
+  <div class="footer-logo">
+    __        __       ___  ____  
+    \ \      / /__    / _ \/ ___| 
+     \ \ /\ / / _ \  | | | \___ \ 
+      \ V  V /  __/  | |_| |___) |
+       \_/\_/ \___|   \___/|____/
+  </div>
+
+  <script>
+    // Initialize IndexedDB
+    const dbPromise = idb.openDB('GeoDriveDB', 1, {
+      upgrade(db) {
+        db.createObjectStore('profiles', { keyPath: 'profileKey' });
+        db.createObjectStore('data', { keyPath: 'dataKey' });
+      }
+    });
+
+    // Console output
+    const output = document.getElementById('output');
+    function log(message) {
+      output.textContent += message + '\n';
+      output.scrollTop = output.scrollHeight;
+    }
+
+    // Display help at startup
+    const helpText = `
+GeoDrive Console - Commands:
+  create_profile           Generate a new profile key
+  copy_profile            Copy the last generated profile key
+  store_text <text>       Store text data
+  store_file <file>       Store a file (prompts for file selection)
+  copy_data_key           Copy the last generated data key
+  list_keys               List all profile and data keys
+  view_text <data_key>     View stored text data
+  download_file <data_key> Download stored file
+  delete_key <key>         Delete a profile or data key
+  storage_info            Show storage usage and limits
+  regen_db                Regenerate the database
+  help                    Show this help message
+  clear                   Clear the console
+`;
+    log(helpText);
+
+    // Browser detection for storage limits
+    const ua = navigator.userAgent.toLowerCase();
+    const browser = {
+      chrome: /chrome|chromium|crios/.test(ua),
+      firefox: /firefox|fxios/.test(ua),
+      safari: /safari/.test(ua) && !/chrome|chromium|crios/.test(ua),
+    };
+    const MAX_PER_KEY_MB = browser.chrome || browser.firefox ? 1000 : browser.safari ? 500 : 500;
+    const MAX_TOTAL_MB = 1000000; // 1TB
+
+    let currentProfileKey = '';
+    let currentDataKey = '';
+    let totalUsedMB = 0;
+
+    // Create profile key
+    async function createProfile() {
+      try {
+        const randomStr = CryptoJS.lib.WordArray.random(16).toString();
+        const profileKey = `GEO_${randomStr.slice(0, 8)}-${randomStr.slice(8, 16)}-${randomStr.slice(16, 24)}`;
+        const db = await dbPromise;
+        await db.put('profiles', { profileKey, size: 0.001 });
+        currentProfileKey = profileKey;
+        log(`Profile key generated: ${profileKey}`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Copy profile key
+    function copyProfileKey() {
+      if (!currentProfileKey) {
+        log('Error: No profile key to copy.');
+        return;
+      }
+      navigator.clipboard.writeText(currentProfileKey).then(() => {
+        log('Profile key copied to clipboard!');
+      }).catch(err => {
+        log(`Error: ${err.message}`);
+      });
+    }
+
+    // Store data
+    async function storeData(profileKey, text, file) {
+      if (!profileKey) {
+        log('Error: Please specify a profile key.');
+        return;
+      }
+      if (!text && !file) {
+        log('Error: Please provide text or select a file.');
+        return;
+      }
+      if (totalUsedMB >= MAX_TOTAL_MB) {
+        log('Error: Total storage limit (1TB) reached.');
+        return;
+      }
+
+      try {
+        const db = await dbPromise;
+        const profile = await db.get('profiles', profileKey);
+        if (!profile) {
+          log('Error: Invalid profile key.');
+          return;
+        }
+
+        let data, sizeMB, fileName = 'text.txt';
+        if (file) {
+          data = await file.arrayBuffer();
+          sizeMB = data.byteLength / (1024 * 1024);
+          fileName = file.name;
+        } else {
+          data = new TextEncoder().encode(text).buffer;
+          sizeMB = data.byteLength / (1024 * 1024);
+        }
+
+        if (sizeMB > MAX_PER_KEY_MB) {
+          log(`Error: Data size (${sizeMB.toFixed(3)} MB) exceeds per-key limit (${MAX_PER_KEY_MB} MB).`);
+          return;
+        }
+        if (totalUsedMB + sizeMB > MAX_TOTAL_MB) {
+          log(`Error: Not enough remaining storage (${(MAX_TOTAL_MB - totalUsedMB).toFixed(3)} MB left).`);
+          return;
+        }
+
+        const aesKey = CryptoJS.SHA256(profileKey).toString();
+        const wordArray = CryptoJS.lib.WordArray.create(data);
+        const encrypted = CryptoJS.AES.encrypt(wordArray, aesKey).toString();
+        const dataHash = CryptoJS.SHA256(encrypted).toString();
+        const dataKey = `GEO_${dataHash.slice(0, 8)}-${dataHash.slice(8, 16)}-${dataHash.slice(16, 24)}`;
+
+        await db.put('data', {
+          dataKey,
+          profileKey,
+          fileName,
+          size: sizeMB,
+          encryptedData: encrypted,
+          isText: !file
+        });
+
+        totalUsedMB += sizeMB;
+        currentDataKey = dataKey;
+        log(`Data stored! Key: ${dataKey}`);
+        updateStorageInfo();
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Copy data key
+    function copyDataKey() {
+      if (!currentDataKey) {
+        log('Error: No data key to copy.');
+        return;
+      }
+      navigator.clipboard.writeText(currentDataKey).then(() => {
+        log('Data key copied to clipboard!');
+      }).catch(err => {
+        log(`Error: ${err.message}`);
+      });
+    }
+
+    // List keys
+    async function listKeys(profileKey) {
+      try {
+        const db = await dbPromise;
+        const profile = await db.get('profiles', profileKey);
+        if (!profile) {
+          log('Error: Invalid profile key.');
+          return;
+        }
+        const dataItems = await db.getAll('data');
+        const userData = dataItems.filter(d => d.profileKey === profileKey);
+        log('Keys:');
+        log(`Profile: ${profileKey} (0.001 MB)`);
+        userData.forEach(d => {
+          log(`Data: ${d.dataKey} (${d.size.toFixed(3)} MB) ${d.isText ? '[Text]' : `[File: ${d.fileName}]`}`);
+        });
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // View text
+    async function viewText(dataKey, profileKey) {
+      try {
+        const db = await dbPromise;
+        const data = await db.get('data', dataKey);
+        if (!data || data.profileKey !== profileKey) {
+          log('Error: Invalid data key.');
+          return;
+        }
+        if (!data.isText) {
+          log('Error: This is a file, use download_file instead.');
+          return;
+        }
+        const aesKey = CryptoJS.SHA256(profileKey).toString();
+        const decrypted = CryptoJS.AES.decrypt(data.encryptedData, aesKey).toString(CryptoJS.enc.Utf8);
+        log(`Text content:\n${decrypted}`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Download file
+    async function downloadFile(dataKey, profileKey) {
+      try {
+        const db = await dbPromise;
+        const data = await db.get('data', dataKey);
+        if (!data || data.profileKey !== profileKey) {
+          log('Error: Invalid data key.');
+          return;
+        }
+        if (data.isText) {
+          log('Error: This is text, use view_text instead.');
+          return;
+        }
+        const aesKey = CryptoJS.SHA256(profileKey).toString();
+        const decrypted = CryptoJS.AES.decrypt(data.encryptedData, aesKey);
+        const blob = new Blob([decrypted.toString(CryptoJS.enc.Latin1)], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        log(`File "${data.fileName}" downloaded!`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Delete key
+    async function deleteKey(key) {
+      try {
+        const db = await dbPromise;
+        const profile = await db.get('profiles', key);
+        const data = await db.get('data', key);
+        if (!profile && !data) {
+          log('Error: Invalid key.');
+          return;
+        }
+        if (profile) {
+          totalUsedMB -= 0.001;
+          await db.delete('profiles', key);
+          log(`Profile key ${key} deleted.`);
+        } else {
+          totalUsedMB -= data.size;
+          await db.delete('data', key);
+          log(`Data key ${key} deleted.`);
+        }
+        updateStorageInfo();
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Storage info
+    async function storageInfo(profileKey) {
+      try {
+        const db = await dbPromise;
+        const profile = await db.get('profiles', profileKey);
+        if (!profile) {
+          log('Error: Invalid profile key.');
+          return;
+        }
+        const dataItems = await db.getAll('data');
+        const userData = dataItems.filter(d => d.profileKey === profileKey);
+        totalUsedMB = 0.001; // Profile size
+        userData.forEach(d => totalUsedMB += d.size || 0);
+        log(`Storage Info:
+Browser: ${browser.chrome ? 'Chrome' : browser.firefox ? 'Firefox' : browser.safari ? 'Safari' : 'Unknown'}
+Max per key: ${MAX_PER_KEY_MB} MB
+Total used: ${totalUsedMB.toFixed(3)} MB
+Remaining: ${(MAX_TOTAL_MB - totalUsedMB).toFixed(3)} MB of ${MAX_TOTAL_MB} MB`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Regenerate database
+    async function regenerateDB() {
+      try {
+        await idb.deleteDB('GeoDriveDB');
+        const db = await idb.openDB('GeoDriveDB', 1, {
+          upgrade(db) {
+            db.createObjectStore('profiles', { keyPath: 'profileKey' });
+            db.createObjectStore('data', { keyPath: 'dataKey' });
+          }
+        });
+        totalUsedMB = 0;
+        log('Database regenerated!');
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    }
+
+    // Update storage info
+    async function updateStorageInfo() {
+      // Called internally to keep totalUsedMB updated
+    }
+
+    // Execute command
+    async function executeCommand() {
+      const input = document.getElementById('commandInput');
+      const command = input.value.trim();
+      input.value = '';
+      if (!command) return;
+
+      log(`> ${command}`);
+      const [cmd, ...args] = command.split(' ');
+      const profileKey = args[0] && args[0].startsWith('GEO_') ? args.shift() : currentProfileKey;
+
+      switch (cmd.toLowerCase()) {
+        case 'create_profile':
+          await createProfile();
+          break;
+        case 'copy_profile':
+          copyProfileKey();
+          break;
+        case 'store_text':
+          await storeData(profileKey, args.join(' '), null);
+          break;
+        case 'store_file':
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.onchange = async () => {
+            if (fileInput.files[0]) {
+              await storeData(profileKey, null, fileInput.files[0]);
+            }
+          };
+          fileInput.click();
+          break;
+        case 'copy_data_key':
+          copyDataKey();
+          break;
+        case 'list_keys':
+          await listKeys(profileKey);
+          break;
+        case 'view_text':
+          await viewText(args[0], profileKey);
+          break;
+        case 'download_file':
+          await downloadFile(args[0], profileKey);
+          break;
+        case 'delete_key':
+          await deleteKey(args[0]);
+          break;
+        case 'storage_info':
+          await storageInfo(profileKey);
+          break;
+        case 'regen_db':
+          await regenerateDB();
+          break;
+        case 'help':
+          log(helpText);
+          break;
+        case 'clear':
+          clearConsole();
+          break;
+        default:
+          log('Error: Unknown command. Type "help" for a list of commands.');
+      }
+    }
+
+    // Clear console
+    function clearConsole() {
+      output.textContent = '';
+      log(helpText);
+    }
+
+    // Handle Enter key
+    document.getElementById('commandInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') executeCommand();
+    });
+  </script>
+</body>
+</html>
