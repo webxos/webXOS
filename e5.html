@@ -20,25 +20,6 @@
             align-items: center;
             overscroll-behavior: none;
         }
-        .mini-grid {
-            width: 100%;
-            max-width: 320px;
-            height: 40px;
-            position: fixed;
-            top: 40px;
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
-            grid-gap: 2px;
-            background: rgba(0,0,0,0.8);
-            z-index: 15;
-            padding: 4px;
-        }
-        .mini-grid-square {
-            background: rgba(0,255,0,0.4);
-            border: 1px solid #0f0;
-            box-shadow: 0 0 3px #0f0;
-            animation: pulseSquare 3s infinite;
-        }
         .header {
             width: 100%;
             max-width: 320px;
@@ -60,7 +41,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-top: 80px;
+            margin-top: 40px;
             margin-bottom: 10px;
         }
         .hologram-container {
@@ -101,10 +82,19 @@
             opacity: 0.6;
             z-index: 10;
             filter: drop-shadow(0 0 5px #0f0);
+            display: grid;
+            grid-template-columns: repeat(20, 10px);
+            grid-template-rows: repeat(10, 10px);
+            gap: 1px;
         }
-        .signature-layer canvas {
-            width: 100%;
-            height: 100%;
+        .signature-cell {
+            background: rgba(0,255,0,0.8);
+            border: 1px solid #0f0;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .signature-cell.active {
+            opacity: 1;
         }
         .bottom-section {
             width: 100%;
@@ -154,18 +144,10 @@
         .entry {
             margin: 4px 0;
             word-wrap: break-word;
-            display: flex;
-            align-items: center;
         }
         .timestamp {
             color: #080;
             margin-right: 8px;
-        }
-        .signature-img {
-            width: 30px;
-            height: 30px;
-            margin-left: 8px;
-            vertical-align: middle;
         }
         .input-area {
             display: flex;
@@ -309,15 +291,10 @@
                 padding: 6px;
                 height: 36px;
             }
-            .mini-grid {
-                max-width: 280px;
-                height: 36px;
-                top: 36px;
-            }
             .app-container {
                 max-width: 280px;
                 height: 280px;
-                margin-top: 72px;
+                margin-top: 36px;
             }
             .hologram-container {
                 max-width: 280px;
@@ -331,6 +308,8 @@
             .signature-layer {
                 width: 150px;
                 height: 75px;
+                grid-template-columns: repeat(15, 10px);
+                grid-template-rows: repeat(8, 9.375px);
             }
             .bottom-section {
                 max-width: 100%;
@@ -385,7 +364,6 @@
 </head>
 <body>
     <div class="header">Exoskeleton AI</div>
-    <div class="mini-grid" id="miniGrid"></div>
     <div class="app-container">
         <div class="hologram-container">
             <div class="hologram" id="hologram"></div>
@@ -429,7 +407,6 @@
         let strokes = [];
         let usedSerials = new Set();
         const hologram = document.getElementById('hologram');
-        const miniGrid = document.getElementById('miniGrid');
         const commandInput = document.getElementById('commandInput');
         const consoleDiv = document.getElementById('console');
         const signCanvas = document.getElementById('signCanvas');
@@ -443,52 +420,69 @@
         let currentStroke = [];
         const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
         const MAX_SERIAL_SIZE = 10 * 1024 * 1024; // 10MB for serial code
+        let signatureGrid = Array(10).fill().map(() => Array(20).fill(0)); // 10x20 grid for signature
 
         // IndexedDB Setup
         let db;
-        const dbRequest = indexedDB.open('ExoskeletonAI', 1);
+        const dbName = 'ExoskeletonAI';
+        const storeName = 'signatures';
+        const dbRequest = indexedDB.open(dbName, 1);
+
         dbRequest.onupgradeneeded = (event) => {
             db = event.target.result;
-            if (!db.objectStoreNames.contains('signatures')) {
-                db.createObjectStore('signatures', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains(storeName)) {
+                db.createObjectStore(storeName, { keyPath: 'id' });
             }
         };
+
         dbRequest.onsuccess = (event) => {
             db = event.target.result;
-        };
-        dbRequest.onerror = (event) => {
-            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to initialize IndexedDB</div>`;
+            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>IndexedDB initialized</div>`;
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         };
 
-        // Save signature to IndexedDB
-        function saveSignatureToDB(id, miniSignature, fullSignature) {
-            const transaction = db.transaction(['signatures'], 'readwrite');
-            const store = transaction.objectStore('signatures');
-            store.put({ id, miniSignature, fullSignature });
-            transaction.oncomplete = () => {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Signature saved to IndexedDB for index ${id}</div>`;
+        dbRequest.onerror = (event) => {
+            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: IndexedDB initialization failed - ${event.target.error}</div>`;
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        };
+
+        function storeMiniSignature(id, miniImage) {
+            const transaction = db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.put({ id, miniImage });
+
+            request.onsuccess = () => {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Mini signature stored in IndexedDB with ID: ${id}</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
             };
-            transaction.onerror = () => {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to save signature to IndexedDB</div>`;
+
+            request.onerror = (event) => {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to store mini signature - ${event.target.error}</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
             };
         }
 
-        // Retrieve signature from IndexedDB
-        function getSignatureFromDB(id, callback) {
-            const transaction = db.transaction(['signatures'], 'readonly');
-            const store = transaction.objectStore('signatures');
-            const request = store.get(id);
-            request.onsuccess = (event) => {
-                callback(event.target.result || { miniSignature: '', fullSignature: '' });
-            };
-            request.onerror = () => {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to retrieve signature from IndexedDB</div>`;
-                consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                callback({ miniSignature: '', fullSignature: '' });
-            };
+        function retrieveMiniSignature(id) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([storeName], 'readonly');
+                const store = transaction.objectStore(storeName);
+                const request = store.get(id);
+
+                request.onsuccess = (event) => {
+                    const result = event.target.result;
+                    if (result) {
+                        resolve(result.miniImage);
+                    } else {
+                        resolve(null);
+                    }
+                };
+
+                request.onerror = (event) => {
+                    consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to retrieve mini signature - ${event.target.error}</div>`;
+                    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+                    reject(event.target.error);
+                };
+            });
         }
 
         // Exoskeleton AI Agent
@@ -524,13 +518,14 @@
                             fileSizeKB += entry.fileSize / 1024;
                         }
                     } else if (entry.text !== ':DELETED') {
-                        const textSize = (entry.text || '').length * 2 / 1024;
-                        const sigSize = entry.signature ? 0.1 : 0; // Approx. size for signature placeholder
-                        nonFileSizeKB += textSize + sigSize;
+                        const textSize = (entry.text || '').length * 2 / 1024; // Approx. 2 bytes per char
+                        const sigSize = entry.signature ? (entry.miniSignature.length / 1024) : 0; // Approx. base64 size
+                        const gridSize = entry.signatureGrid ? (JSON.stringify(entry.signatureGrid).length * 2 / 1024) : 0;
+                        nonFileSizeKB += textSize + sigSize + gridSize;
                     }
                 });
                 const totalSizeKB = fileSizeKB + nonFileSizeKB;
-                const remainingSizeKB = (MAX_SERIAL_SIZE / 1024) - fileSizeKB;
+                const remainingSizeKB = (MAX_SERIAL_SIZE / 1024) - fileSizeKB; // Only files count toward serial limit
                 return { totalSizeKB, fileSizeKB, nonFileSizeKB, remainingSizeKB };
             }
         };
@@ -595,7 +590,9 @@
                             text: entry.text,
                             time: entry.time.toISOString(),
                             signature: entry.signature,
-                            isGrid: entry.isGrid || false
+                            miniSignature: entry.miniSignature,
+                            fullSignature: entry.fullSignature || '',
+                            signatureGrid: entry.signatureGrid || []
                         };
                     }
                 });
@@ -622,7 +619,9 @@
                         text: entry.text || '',
                         time: new Date(entry.time || Date.now()),
                         signature: isFile ? false : (entry.signature || false),
-                        isGrid: isFile ? false : (entry.isGrid || false),
+                        miniSignature: isFile ? '' : (entry.miniSignature || ''),
+                        fullSignature: isFile ? '' : (entry.fullSignature || ''),
+                        signatureGrid: isFile ? [] : (entry.signatureGrid || []),
                         isFile: isFile,
                         fileName: isFile ? (entry.fileName || '') : '',
                         fileSize: isFile ? (entry.fileSize || 0) : 0,
@@ -816,6 +815,7 @@
             currentStroke = [{ x, y }];
             signCtx.beginPath();
             signCtx.moveTo(x, y);
+            updateSignatureGrid(x, y);
         }
 
         function stopPainting() {
@@ -838,6 +838,17 @@
             signCtx.stroke();
             signCtx.beginPath();
             signCtx.moveTo(x, y);
+            updateSignatureGrid(x, y);
+        }
+
+        function updateSignatureGrid(x, y) {
+            const cellWidth = 280 / 20; // Canvas width / grid columns
+            const cellHeight = 150 / 10; // Canvas height / grid rows
+            const col = Math.floor(x / cellWidth);
+            const row = Math.floor(y / cellHeight);
+            if (row >= 0 && row < 10 && col >= 0 && col < 20) {
+                signatureGrid[row][col] = 1;
+            }
         }
 
         signCanvas.addEventListener('mousedown', startPainting);
@@ -854,6 +865,7 @@
             currentStroke = [];
             painting = false;
             signCtx.beginPath();
+            signatureGrid = Array(10).fill().map(() => Array(20).fill(0));
         }
 
         function drawSignatureStrokes(canvas, ctx, strokes, width, height) {
@@ -873,6 +885,22 @@
                 });
                 ctx.stroke();
             });
+        }
+
+        function renderSignatureGrid(grid) {
+            const signatureLayer = document.createElement('div');
+            signatureLayer.className = 'signature-layer';
+            for (let row = 0; row < 10; row++) {
+                for (let col = 0; col < 20; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'signature-cell';
+                    if (grid[row][col] === 1) {
+                        cell.classList.add('active');
+                    }
+                    signatureLayer.appendChild(cell);
+                }
+            }
+            return signatureLayer;
         }
 
         function submitSignature() {
@@ -897,16 +925,17 @@
             const miniCtx = miniCanvas.getContext('2d');
             drawSignatureStrokes(miniCanvas, miniCtx, strokes, 50, 50);
             const miniImage = miniCanvas.toDataURL('image/png');
-            const index = database.length;
+            storeMiniSignature(codesign, miniImage);
             database.push({
                 text: `Signed by: ${codesign} (${strokeReplica})`,
                 time: new Date(),
                 signature: true,
-                isFile: false,
-                isGrid: false
+                miniSignature: miniImage,
+                fullSignature: fullImage,
+                signatureGrid: signatureGrid,
+                isFile: false
             });
-            saveSignatureToDB(index, miniImage, fullImage);
-            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Signature added: ${codesign} at index ${index}</div>`;
+            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Signature added: ${codesign}</div>`;
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
             closeSignPopup();
             generateGrid(currentSerial.split(':')[0], { serial: currentSerial, entries: database, code: currentHoloCode });
@@ -966,8 +995,8 @@
                         text: `File: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`,
                         time: new Date(),
                         signature: false,
+                        miniSignature: '',
                         isFile: true,
-                        isGrid: false,
                         fileName: file.name,
                         fileSize: file.size,
                         fileType: file.type || 'application/octet-stream',
@@ -1047,9 +1076,9 @@
             if (database[index].isFile) {
                 database[index].fileData = '';
             } else if (database[index].signature) {
-                const transaction = db.transaction(['signatures'], 'readwrite');
-                const store = transaction.objectStore('signatures');
-                store.delete(index);
+                database[index].miniSignature = '';
+                database[index].fullSignature = '';
+                database[index].signatureGrid = [];
             }
             consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Entry at index ${index} marked as deleted</div>`;
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
@@ -1067,56 +1096,53 @@
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         }
 
-        function generateImageFromSeed(holoCode, serialBase, target = hologram) {
-            target.innerHTML = '';
+        function generateImageFromSeed(holoCode, serialBase) {
+            hologram.innerHTML = '';
             const seed = hashCode(holoCode + serialBase);
-            const rowCount = target === miniGrid ? 1 : 4 + Math.floor(seededRandom(seed) * 5); // 1 row for mini grid
-            const colCount = target === miniGrid ? 8 : 4 + Math.floor(seededRandom(seed + 1) * 5); // 8 cols for mini grid
-            target.style.gridTemplateRows = `repeat(${rowCount}, 1fr)`;
-            target.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
+            const rowCount = 4 + Math.floor(seededRandom(seed) * 5); // 4-8 rows
+            const colCount = 4 + Math.floor(seededRandom(seed + 1) * 5); // 4-8 cols
+            hologram.style.gridTemplateRows = `repeat(${rowCount}, 1fr)`;
+            hologram.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
             const squareCount = rowCount * colCount;
-            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Generating ${target === miniGrid ? 'mini' : 'main'} grid: ${rowCount}x${colCount}, ${squareCount} squares</div>`;
+            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Generating grid: ${rowCount}x${colCount}, ${squareCount} squares</div>`;
             for (let i = 0; i < squareCount; i++) {
                 if (seededRandom(seed + i) > 0.2) {
                     const square = document.createElement('div');
-                    square.className = target === miniGrid ? 'mini-grid-square' : 'grid-square';
-                    const size = target === miniGrid ? 8 : 10 + (seededRandom(seed + i + 1) * 20);
+                    square.className = 'grid-square';
+                    const size = 10 + (seededRandom(seed + i + 1) * 20); // 10-30px
                     square.style.width = `${size}px`;
                     square.style.height = `${size}px`;
                     square.style.gridRow = `${Math.floor(i / colCount) + 1}`;
                     square.style.gridColumn = `${(i % colCount) + 1}`;
                     square.style.animationDelay = `${(seededRandom(seed + i + 2) * 2).toFixed(2)}s`;
-                    target.appendChild(square);
+                    hologram.appendChild(square);
                 }
             }
-            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>${target === miniGrid ? 'Mini' : 'Main'} grid squares appended</div>`;
-            if (target === hologram) {
-                const signatureData = database.find(entry => entry.signature);
-                if (signatureData) {
-                    const signatureLayer = document.createElement('div');
-                    signatureLayer.className = 'signature-layer';
-                    const sigCanvas = document.createElement('canvas');
-                    sigCanvas.width = 200;
-                    sigCanvas.height = 100;
-                    const sigCtx = sigCanvas.getContext('2d');
-                    getSignatureFromDB(database.indexOf(signatureData), (sigData) => {
-                        if (sigData.miniSignature) {
-                            const img = new Image();
-                            img.src = sigData.miniSignature;
-                            img.onload = () => {
-                                sigCtx.drawImage(img, 0, 0, 200, 100);
-                                signatureLayer.appendChild(sigCanvas);
-                                hologram.appendChild(signatureLayer);
-                                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Signature layer added</div>`;
-                                consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                            };
-                            img.onerror = () => {
-                                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to load signature image</div>`;
-                                consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                            };
-                        }
-                    });
-                }
+            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Grid squares appended</div>`;
+            const signatureData = database.find(entry => entry.signature && entry.signatureGrid);
+            if (signatureData) {
+                const signatureLayer = renderSignatureGrid(signatureData.signatureGrid);
+                hologram.appendChild(signatureLayer);
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Signature grid layer added</div>`;
+                retrieveMiniSignature(signatureData.text.split('Signed by: ')[1].split(' ')[0]).then(miniImage => {
+                    if (miniImage) {
+                        const miniSigCanvas = document.createElement('canvas');
+                        miniSigCanvas.width = 50;
+                        miniSigCanvas.height = 50;
+                        miniSigCanvas.style.position = 'absolute';
+                        miniSigCanvas.style.top = '10px';
+                        miniSigCanvas.style.right = '10px';
+                        miniSigCanvas.style.opacity = '0.7';
+                        const miniCtx = miniSigCanvas.getContext('2d');
+                        const img = new Image();
+                        img.src = miniImage;
+                        img.onload = () => {
+                            miniCtx.drawImage(img, 0, 0, 50, 50);
+                            hologram.appendChild(miniSigCanvas);
+                            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Mini signature retrieved from IndexedDB and displayed</div>`;
+                        };
+                    }
+                });
             }
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         }
@@ -1127,36 +1153,26 @@
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 return;
             }
-            generateImageFromSeed(data.code, serialBase, hologram);
-            generateImageFromSeed(data.code, serialBase, miniGrid);
+            generateImageFromSeed(data.code, serialBase);
         }
 
         function displayDatabaseEntries() {
-            if (database.length <= 1 && database[0]?.isGrid) {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>No user entries in database</div>`;
+            if (database.length === 0) {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>No entries in database</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 return;
             }
             consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Database entries:</div>`;
             database.forEach((entry, index) => {
-                if (entry.isGrid) return; // Skip index 0 (grid placeholder)
                 let displayText = entry.text;
                 if (entry.isFile) {
                     displayText = `File: ${entry.fileName} (${(entry.fileSize / 1024).toFixed(2)} KB)`;
                 }
                 if (entry.text !== ':DELETED') {
-                    if (entry.signature) {
-                        getSignatureFromDB(index, (sigData) => {
-                            const imgTag = sigData.miniSignature ? `<img src="${sigData.miniSignature}" class="signature-img" alt="Signature">` : '';
-                            consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>[${index}] ${entry.time.toLocaleString()} - ${displayText}${imgTag}</div>`;
-                            consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                        });
-                    } else {
-                        consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>[${index}] ${entry.time.toLocaleString()} - ${displayText}</div>`;
-                        consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                    }
+                    consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>[${index}] ${entry.time.toLocaleString()} - ${displayText}</div>`;
                 }
             });
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
         }
 
         function initializeGrid() {
@@ -1167,13 +1183,7 @@
                 usedSerials.add(initSerialBase);
                 currentSerial = initSerial;
                 currentHoloCode = initHoloCode;
-                database = [{
-                    text: 'Mini Grid Placeholder',
-                    time: new Date(),
-                    signature: false,
-                    isFile: false,
-                    isGrid: true
-                }];
+                database = [];
             }
             generateGrid(currentSerial.split(':')[0], { serial: currentSerial, entries: database, code: currentHoloCode });
             consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Initial grid initialized</div>`;
@@ -1198,12 +1208,12 @@
         }
 
         function generateDatabase() {
-            if (database.length <= 1 && database[0].isGrid) {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No user data to generate</div>`;
+            if (database.length === 0) {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No data to generate</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 return;
             }
-            const { fileEntries, nonFileEntries } = ExoskeletonAIAgent.organizeData(database.filter(entry => !entry.isGrid));
+            const { fileEntries, nonFileEntries } = ExoskeletonAIAgent.organizeData(database);
             const serial = generateSerialNumber(fileEntries);
             if (!serial) return;
             const serialBase = serial.split(':')[0];
@@ -1240,11 +1250,11 @@
             const fileEntries = decodeSerialNumber(userSerial);
             const nonFileEntries = decodeHoloGridCode(userHoloCode, serialBase);
             if (fileEntries.length === 0 && nonFileEntries.length === 0) {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>         consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No valid data decoded from codes</div>`;
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No valid data decoded from codes</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 return;
             }
-            database = [{ text: 'Mini Grid Placeholder', time: new Date(), signature: false, isFile: false, isGrid: true }, ...fileEntries, ...nonFileEntries];
+            database = [...fileEntries, ...nonFileEntries];
             currentSerial = userSerial;
             currentHoloCode = userHoloCode;
             usedSerials.add(serialBase);
@@ -1261,8 +1271,8 @@
         }
 
         function generateHTMLSheet() {
-            if (database.length <= 1 && database[0].isGrid) {
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No user data to generate HTML</div>`;
+            if (database.length === 0) {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: No data to generate HTML</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
                 return;
             }
@@ -1279,6 +1289,9 @@
                         th, td { border: 1px solid #0f0; padding: 8px; text-align: left; }
                         th { background: rgba(0,255,0,0.1); }
                         img.signature { max-width: 100px; vertical-align: middle; }
+                        .signature-grid { display: grid; grid-template-columns: repeat(20, 10px); grid-template-rows: repeat(10, 10px); gap: 1px; width: 200px; height: 100px; }
+                        .signature-cell { background: rgba(0,255,0,0.8); border: 1px solid #0f0; }
+                        .signature-cell.active { background: #0f0; }
                         h1 { text-align: center; text-shadow: 0 0 5px #0f0; }
                     </style>
                 </head>
@@ -1292,64 +1305,53 @@
                             <th>Type</th>
                         </tr>
             `;
-            const promises = database.map((entry, index) => {
-                if (entry.isGrid || entry.text === ':DELETED') return Promise.resolve('');
+            database.forEach((entry, index) => {
                 const type = entry.signature ? 'Signature' : entry.isFile ? 'File' : 'Text';
                 let dataDisplay = entry.text;
                 if (entry.isFile) {
                     dataDisplay = `File: ${entry.fileName} (${(entry.fileSize / 1024).toFixed(2)} KB)`;
+                } else if (entry.signature) {
+                    dataDisplay += `<div class="signature-grid">`;
+                    for (let row = 0; row < 10; row++) {
+                        for (let col = 0; col < 20; col++) {
+                            dataDisplay += `<div class="signature-cell ${entry.signatureGrid[row][col] === 1 ? 'active' : ''}"></div>`;
+                        }
+                    }
+                    dataDisplay += `</div>`;
                 }
-                if (entry.signature) {
-                    return new Promise((resolve) => {
-                        getSignatureFromDB(index, (sigData) => {
-                            const imgTag = sigData.fullSignature ? `<img src="${sigData.fullSignature}" class="signature" alt="Signature">` : '';
-                            resolve(`
-                                <tr>
-                                    <td>${index}</td>
-                                    <td>${entry.time.toLocaleString()}</td>
-                                    <td>${dataDisplay} ${imgTag}</td>
-                                    <td>${type}</td>
-                                </tr>
-                            `);
-                        });
-                    });
-                } else {
-                    return Promise.resolve(`
+                if (entry.text !== ':DELETED') {
+                    htmlContent += `
                         <tr>
                             <td>${index}</td>
                             <td>${entry.time.toLocaleString()}</td>
                             <td>${dataDisplay}</td>
                             <td>${type}</td>
                         </tr>
-                    `);
+                    `;
                 }
             });
-            Promise.all(promises).then((rows) => {
-                htmlContent += rows.join('') + `
+            htmlContent += `
                     </table>
-                    </body>
-                    </html>
-                `;
-                navigator.clipboard.writeText(htmlContent).then(() => {
-                    consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>HTML data sheet copied to clipboard</div>`;
-                    consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                }).catch(() => {
-                    consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to copy HTML data sheet</div>`;
-                    consoleDiv.scrollTop = consoleDiv.scrollHeight;
-                });
+                </body>
+                </html>
+            `;
+            navigator.clipboard.writeText(htmlContent).then(() => {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>HTML data sheet copied to clipboard</div>`;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }).catch(() => {
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>ERROR: Failed to copy HTML data sheet</div>`;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
             });
         }
 
         function clearConsole() {
-            database = [{ text: 'Mini Grid Placeholder', time: new Date(), signature: false, isFile: false, isGrid: true }];
+            database = [];
             currentSerial = '';
             currentHoloCode = '';
             usedSerials.clear();
             serialCounter = 1;
             strokes = [];
-            const transaction = db.transaction(['signatures'], 'readwrite');
-            const store = transaction.objectStore('signatures');
-            store.clear();
+            signatureGrid = Array(10).fill().map(() => Array(20).fill(0));
             consoleDiv.innerHTML = `
                 <div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Exoskeleton AI v1.0 - Holographic Console initialized</div>
                 <div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Type 'HELP' for commands</div>
@@ -1395,10 +1397,10 @@
                     text: args,
                     time: new Date(),
                     signature: false,
-                    isFile: false,
-                    isGrid: false
+                    miniSignature: '',
+                    isFile: false
                 });
-                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Data added: ${args} at index ${database.length - 1}</div>`;
+                consoleDiv.innerHTML += `<div class="entry"><span class="timestamp">[${getFullTimestamp()}]</span>Data added: ${args}</div>`;
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
             } else if (command === 'VIEW') {
                 displayDatabaseEntries();
