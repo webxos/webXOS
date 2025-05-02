@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grid Locker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #000000;
+            font-family: 'Courier New', monospace;
+            color: #00ff00;
+            min-height: 100vh;
+        }
+        .app-container {
+            width: 100%;
+            max-width: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+            position: relative;
+        }
+        .hologram-container {
+            width: 220px;
+            height: 180px;
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .hologram {
+            width: 180px;
+            height: 180px;
+            position: absolute;
+            top: 0;
+            left: 20px;
+            transform-style: preserve-3d;
+            animation: rotateHologram 30s infinite linear;
+        }
+        .grid-base {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #00ff00, #00cc00);
+            opacity: 0.5;
+        }
+        .grid-layer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0, 255, 0, 0.5) 8px, rgba(0, 255, 0, 0.5) 10px);
+            animation: shiftGrid 10s infinite linear;
+        }
+        .grid-wireframe {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 1px solid #00ff00;
+        }
+        .grid-plane {
+            position: absolute;
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+            animation: pulsePlane 5s infinite;
+        }
+        .button-container {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0;
+            z-index: 1;
+        }
+        .btn {
+            padding: 8px 14px;
+            font-size: 12px;
+            color: #000000;
+            background: #00ff00;
+            border: none;
+            cursor: pointer;
+        }
+        .console-section {
+            width: 100%;
+            max-width: 200px;
+            margin: 10px 0;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 0;
+        }
+        .console-section textarea {
+            width: 180%;
+            height: 1200%;
+            padding: 10px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: none;
+            margin-top: 10px;
+            margin-left: -80px;
+            margin-right: -80px;
+        }
+        .console-section button {
+            padding: 6px 12px;
+            background: #00ff00;
+            color: #000000;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        .console-section #consoleOutput {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #00ff00;
+            word-wrap: break-word;
+        }
+        .file-upload {
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        .file-upload label {
+            padding: 6px 12px;
+            background: #00ff00;
+            color: #000000;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            display: inline-block;
+        }
+        .file-upload span {
+            font-size: 12px;
+            color: #00ff00;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 180px;
+            padding: 12px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .popup h3 {
+            margin: 0 0 10px;
+            font-size: 14px;
+        }
+        .popup input {
+            width: 100%;
+            padding: 6px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .popup .btn {
+            width: 100%;
+            margin: 5px 0 0;
+            padding: 8px 14px;
+        }
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+        }
+        footer {
+            width: 100%;
+            max-width: 200px;
+            text-align: center;
+            font-size: 10px;
+            color: #00ff00;
+            margin-top: 10px;
+        }
+        @keyframes rotateHologram {
+            0% { transform: rotateY(0deg) rotateX(15deg); }
+            100% { transform: rotateY(360deg) rotateX(15deg); }
+        }
+        @keyframes shiftGrid {
+            0% { background-position: 0 0; }
+            100% { background-position: 80px 80px; }
+        }
+        @keyframes pulsePlane {
+            0%, 100% { transform: scale(1) translateZ(0); }
+            50% { transform: scale(1.1) translateZ(12px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="hologram-container">
+            <div class="hologram" id="hologram"></div>
+        </div>
+        <div class="console-section">
+            <textarea id="consoleInput" placeholder="Enter message"></textarea>
+            <div class="file-upload">
+                <label for="fileInput" class="btn">Upload File</label>
+                <input type="file" id="fileInput">
+                <span id="fileName"></span>
+            </div>
+            <button onclick="clearConsole()">Clear</button>
+            <div id="consoleOutput"></div>
+        </div>
+        <div class="button-container">
+            <button class="btn" onclick="generateGrid()">Generate</button>
+            <button class="btn" onclick="copyCode()">Copy</button>
+            <button class="btn" onclick="showExecutePopup()">Execute</button>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="executeOverlay"></div>
+    <div class="popup" id="executePopup">
+        <h3>Execute Grid</h3>
+        <input type="text" id="executeInput" placeholder="Enter serial (e.g., HOLO-000001-A7K)">
+        <button class="btn" onclick="executeGrid()">Submit</button>
+        <button class="btn" onclick="closeExecutePopup()">Cancel</button>
+    </div>
+
+    <footer>
+        © WebXOS 2025<br>
+        Usage: Generate embeds encrypted message and file in grid CSS, generates a serial code. Copy saves serial. Execute loads grid and decodes CSS to retrieve data. Use at your own Risk.
+    </footer>
+
+    <script>
+        const hologram = document.getElementById('hologram');
+        const consoleInput = document.getElementById('consoleInput');
+        const consoleOutput = document.getElementById('consoleOutput');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileName');
+        const executePopup = document.getElementById('executePopup');
+        const executeOverlay = document.getElementById('executeOverlay');
+        const executeInput = document.getElementById('executeInput');
+        let currentSerial = '';
+        let currentCode = '';
+        let currentFile = null;
+
+        function hashCode(str) {
+            let hash = 2166136261;
+            for (let i = 0; i < str.length; i++) {
+                hash ^= str.charCodeAt(i);
+                hash *= 16777619;
+            }
+            return Math.abs(hash);
+        }
+
+        function generateCrypticCode() {
+            const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=><';
+            let code = '';
+            for (let i = 0; i < 9; i++) {
+                code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
+            }
+            return `Ω-CODE: ${code}`;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            else if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            else return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function sanitizeFileName(name) {
+            return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        }
+
+        async function encryptData(message, file, serial) {
+            const data = { message: message || '' };
+            if (file) {
+                const maxSize = 20 * 1024 * 1024; // 20 MB
+                if (file.size > maxSize) {
+                    throw new Error(`File too large! Maximum size is ${formatFileSize(maxSize)}.`);
+                }
+                const arrayBuffer = await file.arrayBuffer();
+                data.file = {
+                    name: sanitizeFileName(file.name),
+                    type: file.type,
+                    size: file.size,
+                    data: Array.from(new Uint8Array(arrayBuffer))
+                };
+            }
+            const jsonString = JSON.stringify(data);
+            const encrypted = CryptoJS.AES.encrypt(jsonString, serial).toString();
+            const compressed = pako.gzip(encrypted);
+            if (compressed.length > 10 * 1024 * 1024) {
+                throw new Error('Compressed data exceeds 10 MB limit.');
+            }
+            return compressed;
+        }
+
+        async function decryptData(compressed, serial) {
+            const decompressed = pako.ungzip(compressed);
+            const encryptedString = new TextDecoder().decode(decompressed);
+            const decrypted = CryptoJS.AES.decrypt(encryptedString, serial);
+            const jsonString = decrypted.toString(CryptoJS.enc.Utf8);
+            return JSON.parse(jsonString);
+        }
+
+        function encodeDataInCSS(compressedData) {
+            const bytes = Array.from(compressedData);
+            const cssProperties = [];
+            let byteIndex = 0;
+
+            for (let i = 0; i < 200000 && byteIndex < bytes.length; i++) {
+                const props = {};
+                const type = i % 3 === 0 ? 'grid-layer' : i % 3 === 1 ? 'grid-wireframe' : 'grid-plane';
+                const zIndex = i * 0.01 - 1000; // Thin stacking
+
+                // Transforms (7 bytes)
+                if (byteIndex < bytes.length) props.rotateX = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.rotateY = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.rotateZ = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.translateX = -50 + (bytes[byteIndex++] / 255) * 100;
+                if (byteIndex < bytes.length) props.translateY = -50 + (bytes[byteIndex++] / 255) * 100;
+                if (byteIndex < bytes.length) props.translateZ = zIndex + (bytes[byteIndex++] / 255) * 5;
+                if (byteIndex < bytes.length) props.scale = 0.8 + (bytes[byteIndex++] / 255) * 0.3;
+
+                // Opacity (1 byte)
+                if (byteIndex < bytes.length) props.opacity = bytes[byteIndex++] / 255;
+
+                // Colors (6 bytes)
+                if (byteIndex < bytes.length) props.backgroundColorR = bytes[byteIndex++];
+                if (byteIndex < bytes.length) props.backgroundColorG = bytes[byteIndex++];
+                if (byteIndex < bytes.length) props.backgroundColorB = bytes[byteIndex++];
+                if (byteIndex < bytes.length) props.borderColorR = bytes[byteIndex++];
+                if (byteIndex < bytes.length) props.borderColorG = bytes[byteIndex++];
+                if (byteIndex < bytes.length) props.borderColorB = bytes[byteIndex++];
+
+                // Sizes and Positioning for grid-plane (4 bytes)
+                if (type === 'grid-plane') {
+                    if (byteIndex < bytes.length) props.width = 40 + (bytes[byteIndex++] % 60);
+                    if (byteIndex < bytes.length) props.height = 40 + (bytes[byteIndex++] % 60);
+                    if (byteIndex < bytes.length) props.left = (bytes[byteIndex++] / 255) * 100;
+                    if (byteIndex < bytes.length) props.top = (bytes[byteIndex++] / 255) * 100;
+                }
+
+                // Gradient and Animation for grid-layer (3 bytes)
+                if (type === 'grid-layer') {
+                    if (byteIndex < bytes.length) props.gradientAngle = bytes[byteIndex++] % 360;
+                    if (byteIndex < bytes.length) props.gradientSpacing = 8 + (bytes[byteIndex++] % 4);
+                    if (byteIndex < bytes.length) props.animationDuration = 10 + (bytes[byteIndex++] % 15);
+                }
+
+                // Borders, Margins, Paddings (4 bytes)
+                if (byteIndex < bytes.length) props.borderWidth = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.margin = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.padding = (bytes[byteIndex++] / 255) * 25.5;
+                if (byteIndex < bytes.length) props.animationDelay = (bytes[byteIndex++] / 255) * 5;
+
+                // Pseudo-elements (8 bytes)
+                if (byteIndex < bytes.length) {
+                    props.beforeContent = String.fromCharCode(65 + (bytes[byteIndex++] % 26)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0));
+                    props.afterContent = String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0)) +
+                                         String.fromCharCode(65 + (byteIndex < bytes.length ? bytes[byteIndex++] % 26 : 0));
+                }
+
+                // Class names (4 bytes)
+                if (byteIndex < bytes.length) {
+                    props.className = `data-${(bytes[byteIndex++] % 16).toString(16)}${(byteIndex < bytes.length ? bytes[byteIndex++] % 16 : 0).toString(16)}` +
+                                      `-${(byteIndex < bytes.length ? bytes[byteIndex++] % 16 : 0).toString(16)}${(byteIndex < bytes.length ? bytes[byteIndex++] % 16 : 0).toString(16)}`;
+                }
+
+                props.type = type;
+                cssProperties.push(props);
+            }
+
+            return cssProperties;
+        }
+
+        function decodeDataFromCSS(hologramElement) {
+            const elements = hologramElement.querySelectorAll('.grid-layer, .grid-wireframe, .grid-plane');
+            const bytes = [];
+
+            elements.forEach((element, index) => {
+                const style = getComputedStyle(element);
+                const transform = style.transform;
+                const type = element.classList.contains('grid-layer') ? 'grid-layer' :
+                             element.classList.contains('grid-wireframe') ? 'grid-wireframe' : 'grid-plane';
+
+                // Transforms
+                const rotateXMatch = transform.match(/rotateX\(([\d.]+)deg\)/);
+                if (rotateXMatch) bytes.push(Math.round((parseFloat(rotateXMatch[1]) / 25.5) * 255));
+                const rotateYMatch = transform.match(/rotateY\(([\d.]+)deg\)/);
+                if (rotateYMatch) bytes.push(Math.round((parseFloat(rotateYMatch[1]) / 25.5) * 255));
+                const rotateZMatch = transform.match(/rotateZ\(([\d.]+)deg\)/);
+                if (rotateZMatch) bytes.push(Math.round((parseFloat(rotateZMatch[1]) / 25.5) * 255));
+                const translateXMatch = transform.match(/translateX\(([\d.-]+)px\)/);
+                if (translateXMatch) bytes.push(Math.round(((parseFloat(translateXMatch[1]) + 50) / 100) * 255));
+                const translateYMatch = transform.match(/translateY\(([\d.-]+)px\)/);
+                if (translateYMatch) bytes.push(Math.round(((parseFloat(translateYMatch[1]) + 50) / 100) * 255));
+                const translateZMatch = transform.match(/translateZ\(([\d.-]+)px\)/);
+                if (translateZMatch) bytes.push(Math.round(((parseFloat(translateZMatch[1]) - (index * 0.01 - 1000)) / 5) * 255));
+                const scaleMatch = transform.match(/scale\(([\d.]+)\)/);
+                if (scaleMatch) bytes.push(Math.round(((parseFloat(scaleMatch[1]) - 0.8) / 0.3) * 255));
+
+                // Opacity
+                bytes.push(Math.round(parseFloat(style.opacity) * 255));
+
+                // Colors
+                const bgColorMatch = style.backgroundColor.match(/rgb\((\d+), (\d+), (\d+)\)/);
+                if (bgColorMatch) {
+                    bytes.push(parseInt(bgColorMatch[1]));
+                    bytes.push(parseInt(bgColorMatch[2]));
+                    bytes.push(parseInt(bgColorMatch[3]));
+                }
+                const borderColorMatch = style.borderColor.match(/rgb\((\d+), (\d+), (\d+)\)/);
+                if (borderColorMatch) {
+                    bytes.push(parseInt(borderColorMatch[1]));
+                    bytes.push(parseInt(borderColorMatch[2]));
+                    bytes.push(parseInt(borderColorMatch[3]));
+                }
+
+                // Sizes and Positioning for grid-plane
+                if (type === 'grid-plane') {
+                    bytes.push(Math.round(parseFloat(style.width) - 40));
+                    bytes.push(Math.round(parseFloat(style.height) - 40));
+                    bytes.push(Math.round((parseFloat(style.left) / 100) * 255));
+                    bytes.push(Math.round((parseFloat(style.top) / 100) * 255));
+                }
+
+                // Gradient and Animation for grid-layer
+                if (type === 'grid-layer') {
+                    const gradientMatch = style.background.match(/linear-gradient\((\d+)deg/);
+                    if (gradientMatch) bytes.push(parseInt(gradientMatch[1]));
+                    const spacingMatch = style.background.match(/transparent ([\d.]+)px/);
+                    if (spacingMatch) bytes.push(Math.round(parseFloat(spacingMatch[1]) - 8));
+                    const durationMatch = style.animationDuration.match(/([\d.]+)s/);
+                    if (durationMatch) bytes.push(Math.round(parseFloat(durationMatch[1]) - 10));
+                }
+
+                // Borders, Margins, Paddings
+                bytes.push(Math.round((parseFloat(style.borderWidth) / 25.5) * 255));
+                bytes.push(Math.round((parseFloat(style.margin) / 25.5) * 255));
+                bytes.push(Math.round((parseFloat(style.padding) / 25.5) * 255));
+                bytes.push(Math.round((parseFloat(style.animationDelay) / 5) * 255));
+
+                // Pseudo-elements
+                const beforeContent = getComputedStyle(element, '::before').content.replace(/"/g, '');
+                if (beforeContent && beforeContent.length >= 4) {
+                    for (let i = 0; i < 4; i++) {
+                        bytes.push(beforeContent.charCodeAt(i) - 65);
+                    }
+                }
+                const afterContent = getComputedStyle(element, '::after').content.replace(/"/g, '');
+                if (afterContent && afterContent.length >= 4) {
+                    for (let i = 0; i < 4; i++) {
+                        bytes.push(afterContent.charCodeAt(i) - 65);
+                    }
+                }
+
+                // Class names
+                const classMatch = element.className.match(/data-([0-9a-f]{2})-([0-9a-f]{2})/);
+                if (classMatch) {
+                    bytes.push(parseInt(classMatch[1], 16));
+                    bytes.push(parseInt(classMatch[2], 16));
+                    bytes.push(parseInt(classMatch[2], 16));
+                    bytes.push(parseInt(classMatch[2], 16));
+                }
+            });
+
+            try {
+                return new Uint8Array(bytes);
+            } catch (e) {
+                throw new Error('Failed to decode data from grid CSS: ' + e.message);
+            }
+        }
+
+        function generateSerialNumber() {
+            const counter = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+            const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
+            return `HOLO-${counter}-${suffix}`;
+        }
+
+        function generateImageFromSeed(seed, serial, cssProperties, message = '', fileData = null) {
+            hologram.innerHTML = '';
+            hologram.classList.remove('revealed');
+
+            const hash = hashCode(seed);
+            const rand = (min, max) => min + (hash % (max - min + 1));
+            const randFloat = (min, max) => min + ((hash % 10000) / 10000) * (max - min);
+
+            const gridBase = document.createElement('div');
+            gridBase.className = 'grid-base';
+            gridBase.style.opacity = randFloat(0.4, 0.6);
+            hologram.appendChild(gridBase);
+
+            cssProperties.forEach((props, index) => {
+                const element = document.createElement('div');
+                element.className = `${props.type} ${props.className || ''}`;
+
+                // Apply CSS properties
+                let transform = '';
+                if (props.rotateX !== undefined) transform += `rotateX(${props.rotateX}deg) `;
+                if (props.rotateY !== undefined) transform += `rotateY(${props.rotateY}deg) `;
+                if (props.rotateZ !== undefined) transform += `rotateZ(${props.rotateZ}deg) `;
+                if (props.translateX !== undefined) transform += `translateX(${props.translateX}px) `;
+                if (props.translateY !== undefined) transform += `translateY(${props.translateY}px) `;
+                if (props.translateZ !== undefined) transform += `translateZ(${props.translateZ}px) `;
+                if (props.scale !== undefined) transform += `scale(${props.scale}) `;
+                element.style.transform = transform.trim();
+
+                if (props.opacity !== undefined) element.style.opacity = props.opacity;
+
+                if (props.backgroundColorR !== undefined) {
+                    element.style.backgroundColor = `rgb(${props.backgroundColorR}, ${props.backgroundColorG}, ${props.backgroundColorB})`;
+                }
+                if (props.borderColorR !== undefined) {
+                    element.style.borderColor = `rgb(${props.borderColorR}, ${props.borderColorG}, ${props.borderColorB})`;
+                }
+
+                if (props.type === 'grid-plane') {
+                    if (props.width !== undefined) element.style.width = `${props.width}px`;
+                    if (props.height !== undefined) element.style.height = `${props.height}px`;
+                    if (props.left !== undefined) element.style.left = `${props.left}%`;
+                    if (props.top !== undefined) element.style.top = `${props.top}%`;
+                }
+
+                if (props.type === 'grid-layer' && props.gradientAngle !== undefined) {
+                    element.style.background = `repeating-linear-gradient(${props.gradientAngle}deg, transparent, transparent ${props.gradientSpacing}px, rgba(0, 255, 0, 0.5) ${props.gradientSpacing}px, rgba(0, 255, 0, 0.5) ${props.gradientSpacing + 2}px)`;
+                    element.style.animation = `shiftGrid ${props.animationDuration}s infinite linear`;
+                }
+
+                if (props.borderWidth !== undefined) element.style.borderWidth = `${props.borderWidth}px`;
+                if (props.margin !== undefined) element.style.margin = `${props.margin}px`;
+                if (props.padding !== undefined) element.style.padding = `${props.padding}px`;
+                if (props.animationDelay !== undefined) element.style.animationDelay = `${props.animationDelay}s`;
+
+                // Pseudo-elements
+                if (props.beforeContent || props.afterContent) {
+                    const styleSheet = document.createElement('style');
+                    let cssText = '';
+                    if (props.beforeContent) {
+                        cssText += `.${props.className || props.type}:nth-child(${index + 2})::before { content: "${props.beforeContent}"; } `;
+                    }
+                    if (props.afterContent) {
+                        cssText += `.${props.className || props.type}:nth-child(${index + 2})::after { content: "${props.afterContent}"; } `;
+                    }
+                    styleSheet.textContent = cssText;
+                    document.head.appendChild(styleSheet);
+                }
+
+                hologram.appendChild(element);
+            });
+
+            let outputText = `${serial}\n${currentCode}`;
+            if (message) outputText += `\nMessage: ${message}`;
+            if (fileData) {
+                outputText += `\nAttached file: <a href="${fileData.data}" download="${fileData.name}" style="color: #00ff00;">${fileData.name}</a> (${fileData.type}, ${formatFileSize(fileData.size)})`;
+            }
+            consoleOutput.innerHTML = outputText;
+
+            setTimeout(() => {
+                hologram.classList.add('revealed');
+            }, 100);
+        }
+
+        async function generateGrid() {
+            try {
+                let newCode;
+                do {
+                    newCode = generateCrypticCode();
+                } while (newCode === currentCode);
+                currentCode = newCode;
+                currentSerial = generateSerialNumber();
+
+                const compressedData = await encryptData(consoleInput.value, currentFile, currentSerial);
+                const cssProperties = encodeDataInCSS(compressedData);
+
+                let fileData = null;
+                if (currentFile) {
+                    const arrayBuffer = await currentFile.arrayBuffer();
+                    const blob = new Blob([arrayBuffer], { type: currentFile.type });
+                    fileData = {
+                        name: sanitizeFileName(currentFile.name),
+                        type: currentFile.type,
+                        size: currentFile.size,
+                        data: URL.createObjectURL(blob)
+                    };
+                }
+
+                generateImageFromSeed(currentCode, currentSerial, cssProperties, consoleInput.value, fileData);
+            } catch (error) {
+                alert(error.message);
+                clearConsole();
+            }
+        }
+
+        async function downloadFile() {
+            try {
+                const compressed = decodeDataFromCSS(hologram);
+                const data = await decryptData(compressed, currentSerial);
+                if (data.file) {
+                    const blob = new Blob([new Uint8Array(data.file.data)], { type: data.file.type });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = data.file.name;
+                    link.click();
+                }
+            } catch (error) {
+                alert('Error downloading file: ' + error.message);
+            }
+        }
+
+        function showExecutePopup() {
+            executeInput.value = '';
+            executePopup.style.display = 'block';
+            executeOverlay.style.display = 'block';
+        }
+
+        function closeExecutePopup() {
+            executePopup.style.display = 'none';
+            executeOverlay.style.display = 'none';
+        }
+
+        async function executeGrid() {
+            const userInput = executeInput.value;
+            if (userInput) {
+                try {
+                    currentSerial = userInput;
+                    currentCode = generateCrypticCode();
+
+                    // Generate grid with empty data to decode CSS
+                    const cssProperties = encodeDataInCSS(new Uint8Array());
+                    generateImageFromSeed(currentCode, currentSerial, cssProperties);
+
+                    const compressed = decodeDataFromCSS(hologram);
+                    const data = await decryptData(compressed, currentSerial);
+                    let fileData = null;
+                    if (data.file) {
+                        const blob = new Blob([new Uint8Array(data.file.data)], { type: data.file.type });
+                        fileData = {
+                            name: data.file.name,
+                            type: data.file.type,
+                            size: data.file.size,
+                            data: URL.createObjectURL(blob)
+                        };
+                        currentFile = fileData;
+                    }
+
+                    generateImageFromSeed(currentCode, currentSerial, cssProperties, data.message, fileData);
+                    closeExecutePopup();
+                } catch (error) {
+                    alert('Error: ' + error.message);
+                    consoleOutput.textContent = '';
+                }
+            } else {
+                alert('Please enter a serial number!');
+                consoleOutput.textContent = '';
+            }
+        }
+
+        function copyCode() {
+            if (currentSerial && currentCode) {
+                const code = `${currentSerial}\n${currentCode}`;
+                navigator.clipboard.writeText(code).then(() => {
+                    alert('Code copied: ' + code);
+                }).catch(err => {
+                    alert('Failed to copy: ' + err);
+                });
+            } else {
+                alert('Generate or execute a grid first!');
+            }
+        }
+
+        function clearConsole() {
+            consoleInput.value = '';
+            fileInput.value = '';
+            fileNameDisplay.textContent = '';
+            consoleOutput.textContent = '';
+            currentFile = null;
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                currentFile = e.target.files[0];
+                const maxSize = 20 * 1024 * 1024; // 20 MB
+                if (currentFile.size > maxSize) {
+                    alert(`File too large! Maximum size is ${formatFileSize(maxSize)}.`);
+                    fileInput.value = '';
+                    currentFile = null;
+                    fileNameDisplay.textContent = '';
+                } else {
+                    fileNameDisplay.textContent = `${sanitizeFileName(currentFile.name)} (${formatFileSize(currentFile.size)})`;
+                }
+            } else {
+                currentFile = null;
+                fileNameDisplay.textContent = '';
+            }
+        });
+
+        window.addEventListener('load', () => {
+            const initCode = generateCrypticCode();
+            const initSerial = `HOLO-000000-INIT`;
+            generateImageFromSeed(initCode, initSerial, []);
+            consoleOutput.textContent = `${initSerial}\n${initCode}`;
+            currentSerial = initSerial;
+            currentCode = initCode;
+        });
+    </script>
+</body>
+</html>
