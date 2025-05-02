@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grid Locker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #000000;
+            font-family: 'Courier New', monospace;
+            color: #00ff00;
+            min-height: 100vh;
+        }
+        .app-container {
+            width: 100%;
+            max-width: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+        }
+        .hologram-container {
+            width: 220px;
+            height: 180px;
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        canvas {
+            width: 220px;
+            height: 180px;
+        }
+        .button-container {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0;
+            z-index: 1;
+        }
+        .btn {
+            padding: 8px 14px;
+            font-size: 12px;
+            color: #000000;
+            background: #00ff00;
+            border: none;
+            cursor: pointer;
+        }
+        .console-section {
+            width: 100%;
+            max-width: 200px;
+            margin: 10px 0;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .console-section textarea {
+            width: 180%;
+            height: 1200%;
+            padding: 10px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: none;
+            margin-top: 10px;
+            margin-left: -80px;
+            margin-right: -80px;
+        }
+        .console-section button {
+            padding: 6px 12px;
+            background: #00ff00;
+            color: #000000;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        .console-section #consoleOutput {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #00ff00;
+            word-wrap: break-word;
+        }
+        .file-upload {
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        .file-upload label {
+            padding: 6px 12px;
+            background: #00ff00;
+            color: #000000;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .file-upload span {
+            font-size: 12px;
+            color: #00ff00;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 180px;
+            padding: 12px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .popup h3 {
+            margin: 0 0 10px;
+            font-size: 14px;
+        }
+        .popup input {
+            width: 100%;
+            padding: 6px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .popup .btn {
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px 14px;
+        }
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+        }
+        footer {
+            width: 100%;
+            max-width: 200px;
+            text-align: center;
+            font-size: 10px;
+            color: #00ff00;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="hologram-container">
+            <canvas id="hologram"></canvas>
+        </div>
+        <div class="console-section">
+            <textarea id="consoleInput" placeholder="Enter message"></textarea>
+            <div class="file-upload">
+                <label for="fileInput" class="btn">Upload File</label>
+                <input type="file" id="fileInput">
+                <span id="fileName"></span>
+            </div>
+            <button onclick="clearConsole()">Clear</button>
+            <div id="consoleOutput"></div>
+        </div>
+        <div class="button-container">
+            <button class="btn" onclick="generateGrid()">Generate</button>
+            <button class="btn" onclick="copyCode()">Copy</button>
+            <button class="btn" onclick="showExecutePopup()">Execute</button>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="executeOverlay"></div>
+    <div class="popup" id="executePopup">
+        <h3>Execute Grid</h3>
+        <input type="text" id="executeInput" placeholder="Enter serial (e.g., HOLO-123456-XYZ-6G-2000000)">
+        <button class="btn" onclick="executeGrid()">Submit</button>
+        <button class="btn" onclick="closeExecutePopup()">Cancel</button>
+    </div>
+
+    <footer>
+        © WebXOS 2025<br>
+        Usage: Generate embeds encrypted message and file in WebGL grid with 64 neural dots, regenerable from serial key. Copy saves serial. Execute loads grid and decodes data. Use at your own risk.
+    </footer>
+
+    <script>
+        const canvas = document.getElementById('hologram');
+        const consoleInput = document.getElementById('consoleInput');
+        const consoleOutput = document.getElementById('consoleOutput');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileName');
+        const executePopup = document.getElementById('executePopup');
+        const executeOverlay = document.getElementById('executeOverlay');
+        const executeInput = document.getElementById('executeInput');
+        let currentSerial = '';
+        let currentCode = '';
+        let currentFile = null;
+
+        // WebGL Setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 220 / 180, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+        renderer.setSize(220, 180);
+        camera.position.z = 200;
+
+        function hashCode(str) {
+            let hash = 2166136261;
+            for (let i = 0; i < str.length; i++) {
+                hash ^= str.charCodeAt(i);
+                hash = (hash * 16777619) >>> 0;
+            }
+            return hash;
+        }
+
+        function xorshift128plus(seed) {
+            let x = hashCode(seed) ^ 0x12345678;
+            let y = hashCode(seed + 'salt') ^ 0x87654321;
+            return function() {
+                x ^= x << 23;
+                x ^= x >>> 17;
+                x ^= y ^ (y >>> 26);
+                const t = x + y;
+                y = x;
+                x = t;
+                return (t >>> 0) / 0x100000000;
+            };
+        }
+
+        function generateCrypticCode() {
+            const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=><';
+            let code = '';
+            for (let i = 0; i < 12; i++) {
+                code += glyphs.charAt(Math.floor(Math.random() * glyphs.length));
+            }
+            return `Ω-CODE: ${code}`;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            else if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            else return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function sanitizeFileName(name) {
+            return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        }
+
+        function encodeDate(date) {
+            const dateStr = date.toISOString().slice(0, 10);
+            const binary = Array.from(dateStr).map(c => c.charCodeAt(0).toString(2).padStart(8, '0')).join('');
+            return binary.padEnd(64, '0').slice(0, 64).split('').map(Number);
+        }
+
+        async function encryptData(message, file, serial, date) {
+            const datePattern = encodeDate(date);
+            const data = { message: message || '', date: datePattern };
+            if (file) {
+                const maxSize = 12 * 1024 * 1024 * 1024;
+                if (file.size > maxSize) throw new Error(`File too large! Max: ${formatFileSize(maxSize)}.`);
+                const arrayBuffer = await file.arrayBuffer();
+                data.file = {
+                    name: sanitizeFileName(file.name),
+                    type: file.type,
+                    size: file.size,
+                    data: Array.from(new Uint8Array(arrayBuffer))
+                };
+            }
+            const jsonString = JSON.stringify(data);
+            const encrypted = CryptoJS.AES.encrypt(jsonString, serial).toString();
+            const compressed = pako.gzip(encrypted);
+            return compressed;
+        }
+
+        async function decryptData(compressed, serial) {
+            try {
+                const decompressed = pako.ungzip(compressed);
+                const encryptedString = new TextDecoder().decode(decompressed);
+                const decrypted = CryptoJS.AES.decrypt(encryptedString, serial);
+                const jsonString = decrypted.toString(CryptoJS.enc.Utf8);
+                return JSON.parse(jsonString);
+            } catch (e) {
+                throw new Error('Decryption failed: ' + e.message);
+            }
+        }
+
+        function encodeDataInCSS(compressedData, date, serial) {
+            const bytes = Array.from(compressedData);
+            const properties = [];
+            let byteIndex = 0;
+            const datePattern = encodeDate(date);
+            const prng = xorshift128plus(serial);
+            const totalElements = 2000000;
+
+            // Generate 6 GB by repeating 1 GB base data
+            const baseBytes = bytes.length < 1000000000 ? bytes.concat(new Array(1000000000 - bytes.length).fill(0)) : bytes.slice(0, 1000000000);
+            const fullBytes = [];
+            for (let i = 0; i < 6; i++) {
+                fullBytes.push(...baseBytes.map((b, idx) => b ^ (prng() * 255)));
+            }
+
+            for (let i = 0; i < totalElements && byteIndex < fullBytes.length; i++) {
+                const props = { neuralDots: [], connections: [], rotations: {}, keyframes: [] };
+                const system = Math.floor(i / 250000) + 1;
+                const type = `grid-system-${system}`;
+                const zIndex = (i % 250000) * 0.001 - 125;
+
+                // Grid Properties (80 bytes)
+                props.rotateX = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 360 : prng() * 360;
+                props.rotateY = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 360 : prng() * 360;
+                props.translateZ = byteIndex < fullBytes.length ? zIndex + (fullBytes[byteIndex++] / 255) * 5 : zIndex + prng() * 5;
+                props.translateX = byteIndex < fullBytes.length ? -50 + (fullBytes[byteIndex++] / 255) * 100 : prng() * 100 - 50;
+                props.translateY = byteIndex < fullBytes.length ? -50 + (fullBytes[byteIndex++] / 255) * 100 : prng() * 100 - 50;
+                props.scale = byteIndex < fullBytes.length ? 0.5 + (fullBytes[byteIndex++] / 255) : prng() + 0.5;
+                props.opacity = byteIndex < fullBytes.length ? fullBytes[byteIndex++] / 255 : prng();
+                props.colorR = byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50;
+                props.colorG = system % 2 === 1 ? (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56) : (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50);
+                props.colorB = system % 2 === 1 ? (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50) : (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56);
+                props.borderColorR = byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50;
+                props.borderColorG = system % 2 === 1 ? (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56) : (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50);
+                props.borderColorB = system % 2 === 1 ? (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50) : (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56);
+                props.width = system === 5 ? (byteIndex < fullBytes.length ? 20 + (fullBytes[byteIndex++] % 80) : 20 + prng() * 80) : 180;
+                props.height = system === 5 ? (byteIndex < fullBytes.length ? 20 + (fullBytes[byteIndex++] % 80) : 20 + prng() * 80) : 180;
+                props.left = system === 5 ? (byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 100 : prng() * 100) : 0;
+                props.top = system === 5 ? (byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 100 : prng() * 100) : 0;
+                props.gradientAngle = (system === 1 || system === 6) ? (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 360 : prng() * 360) : 0;
+                props.borderWidth = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 5 : prng() * 5;
+                props.margin = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 10 : prng() * 10;
+                props.padding = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 10 : prng() * 10;
+                props.blur = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 5 : prng() * 5;
+                props.brightness = byteIndex < fullBytes.length ? 0.8 + (fullBytes[byteIndex++] / 255) * 0.4 : 0.8 + prng() * 0.4;
+                props.pseudoBefore = String.fromCharCode(...Array(6).fill().map(() => byteIndex < fullBytes.length ? 65 + (fullBytes[byteIndex++] % 26) : 65 + Math.floor(prng() * 26)));
+                props.pseudoAfter = String.fromCharCode(...Array(6).fill().map(() => byteIndex < fullBytes.length ? 65 + (fullBytes[byteIndex++] % 26) : 65 + Math.floor(prng() * 26)));
+                props.className = `data-${Array(6).fill().map(() => (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 16 : Math.floor(prng() * 16)).toString(16)).join('')}`;
+
+                // Neural Dots (512 bytes)
+                for (let j = 0; j < 64; j++) {
+                    const dot = {};
+                    dot.x = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 180 : ((j % 8) * 22.5);
+                    dot.y = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 180 : (Math.floor(j / 8) * 22.5);
+                    dot.colorR = byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50;
+                    dot.colorG = system % 2 === 1 ? (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56) : (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50);
+                    dot.colorB = system % 2 === 1 ? (byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 50 : prng() * 50) : (byteIndex < fullBytes.length ? 200 + (fullBytes[byteIndex++] % 56) : 200 + prng() * 56);
+                    dot.opacity = byteIndex < fullBytes.length ? fullBytes[byteIndex++] / 255 : datePattern[j % 64];
+                    dot.animX = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 5 : prng() * 5;
+                    dot.animY = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 5 : prng() * 5;
+                    dot.animOpacity = byteIndex < fullBytes.length ? fullBytes[byteIndex++] / 255 : prng();
+                    props.neuralDots.push(dot);
+                }
+
+                // Connections (36 bytes)
+                for (let j = 0; j < 64; j++) {
+                    for (let k = j + 1; k < Math.min(j + 5, 64); k++) {
+                        if (props.connections.length < 256 && byteIndex < fullBytes.length) {
+                            const angle = (fullBytes[byteIndex++] % 16) * (360 / 16);
+                            props.connections.push({ from: j, to: k, angle });
+                        }
+                    }
+                }
+
+                // Rotations (12 bytes)
+                props.rotationX = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 90 : prng() * 90;
+                props.rotationY = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 90 : prng() * 90;
+                props.rotationSpeed = byteIndex < fullBytes.length ? 5 + (fullBytes[byteIndex++] % 10) : 5 + prng() * 10;
+                props.keyframe1 = byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 100 : prng() * 100;
+
+                // Keyframes (360 bytes)
+                for (let k = 0; k < 10; k++) {
+                    const kf = {};
+                    kf.percentage = byteIndex < fullBytes.length ? fullBytes[byteIndex++] % 100 : prng() * 100;
+                    kf.rotateX = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 360 : prng() * 360;
+                    kf.translateZ = byteIndex < fullBytes.length ? (fullBytes[byteIndex++] / 255) * 20 : prng() * 20;
+                    kf.opacity = byteIndex < fullBytes.length ? fullBytes[byteIndex++] / 255 : prng();
+                    props.keyframes.push(kf);
+                }
+
+                props.type = type;
+                props.className = `grid-element-${i}`;
+                properties.push(props);
+            }
+
+            return properties;
+        }
+
+        function decodeDataFromCSS(properties) {
+            const bytes = [];
+
+            properties.forEach((props, index) => {
+                // Grid Properties
+                bytes.push(Math.round((props.rotateX / 360) * 255));
+                bytes.push(Math.round((props.rotateY / 360) * 255));
+                bytes.push(Math.round(((props.translateZ - ((index % 250000) * 0.001 - 125)) / 5) * 255));
+                bytes.push(Math.round(((props.translateX + 50) / 100) * 255));
+                bytes.push(Math.round(((props.translateY + 50) / 100) * 255));
+                bytes.push(Math.round((props.scale - 0.5) * 255));
+                bytes.push(Math.round(props.opacity * 255));
+                bytes.push(props.colorR);
+                bytes.push(props.colorG);
+                bytes.push(props.colorB);
+                bytes.push(props.borderColorR);
+                bytes.push(props.borderColorG);
+                bytes.push(props.borderColorB);
+                if (props.type === 'grid-system-5') {
+                    bytes.push(Math.round(props.width - 20));
+                    bytes.push(Math.round(props.height - 20));
+                    bytes.push(Math.round((props.left / 100) * 255));
+                    bytes.push(Math.round((props.top / 100) * 255));
+                }
+                if (props.type === 'grid-system-1' || props.type === 'grid-system-6') {
+                    bytes.push(props.gradientAngle);
+                }
+                bytes.push(Math.round((props.borderWidth / 5) * 255));
+                bytes.push(Math.round((props.margin / 10) * 255));
+                bytes.push(Math.round((props.padding / 10) * 255));
+                bytes.push(Math.round((props.blur / 5) * 255));
+                bytes.push(Math.round(((props.brightness - 0.8) / 0.4) * 255));
+                for (let i = 0; i < 6; i++) bytes.push(props.pseudoBefore.charCodeAt(i) - 65);
+                for (let i = 0; i < 6; i++) bytes.push(props.pseudoAfter.charCodeAt(i) - 65);
+                const classMatch = props.className.match(/data-([0-9a-f]+)/);
+                if (classMatch) {
+                    const hex = classMatch[1];
+                    for (let i = 0; i < hex.length; i += 2) {
+                        bytes.push(parseInt(hex.slice(i, i + 2), 16));
+                    }
+                }
+
+                // Neural Dots
+                props.neuralDots.forEach(dot => {
+                    bytes.push(Math.round((dot.x / 180) * 255));
+                    bytes.push(Math.round((dot.y / 180) * 255));
+                    bytes.push(dot.colorR);
+                    bytes.push(dot.colorG);
+                    bytes.push(dot.colorB);
+                    bytes.push(Math.round(dot.opacity * 255));
+                    bytes.push(Math.round((dot.animX / 5) * 255));
+                    bytes.push(Math.round((dot.animY / 5) * 255));
+                    bytes.push(Math.round(dot.animOpacity * 255));
+                });
+
+                // Connections
+                props.connections.forEach(conn => {
+                    bytes.push(Math.round((conn.angle / 360) * 16));
+                });
+
+                // Rotations
+                bytes.push(Math.round((props.rotationX / 90) * 255));
+                bytes.push(Math.round((props.rotationY / 90) * 255));
+                bytes.push(Math.round((props.rotationSpeed - 5) / 10 * 255));
+                bytes.push(props.keyframe1);
+
+                // Keyframes
+                props.keyframes.forEach(kf => {
+                    bytes.push(kf.percentage);
+                    bytes.push(Math.round((kf.rotateX / 360) * 255));
+                    bytes.push(Math.round((kf.translateZ / 20) * 255));
+                    bytes.push(Math.round(kf.opacity * 255));
+                });
+            });
+
+            // Reconstruct 6 GB by reversing repetition
+            const baseBytes = bytes.slice(0, 1000000000);
+            const fullBytes = [];
+            const prng = xorshift128plus(currentSerial);
+            for (let i = 0; i < 6; i++) {
+                fullBytes.push(...baseBytes.map((b, idx) => b ^ Math.floor(prng() * 255)));
+            }
+            return new Uint8Array(fullBytes);
+        }
+
+        function generateSerialNumber() {
+            const counter = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+            const suffix = Math.random().toString(36).substr(2, 3).toUpperCase();
+            return `HOLO-${counter}-${suffix}-6G-2000000`;
+        }
+
+        function generateImageFromSeed(serial, properties, date) {
+            scene.clear();
+
+            const gridBaseGeo = new THREE.PlaneGeometry(180, 180);
+            const gridBaseMat = new THREE.MeshBasicMaterial({
+                color: 0x00cc00,
+                opacity: 0.5,
+                transparent: true
+            });
+            const gridBase = new THREE.Mesh(gridBaseGeo, gridBaseMat);
+            scene.add(gridBase);
+
+            const dotGeometry = new THREE.BufferGeometry();
+            const dotPositions = [];
+            const dotColors = [];
+            const lineGeometry = new THREE.BufferGeometry();
+            const linePositions = [];
+
+            properties.forEach((props, index) => {
+                const system = parseInt(props.type.split('-')[2]);
+                const color = new THREE.Color(`rgb(${props.colorR},${props.colorG},${props.colorB})`);
+                const planeGeo = new THREE.PlaneGeometry(props.width, props.height);
+                const planeMat = new THREE.MeshBasicMaterial({
+                    color,
+                    opacity: props.opacity,
+                    transparent: true,
+                    side: THREE.DoubleSide
+                });
+                const plane = new THREE.Mesh(planeGeo, planeMat);
+                plane.position.set(
+                    props.translateX + (props.left || 0) * 1.8,
+                    props.translateY + (props.top || 0) * 1.8,
+                    props.translateZ
+                );
+                plane.rotation.set(
+                    props.rotateX * Math.PI / 180,
+                    props.rotateY * Math.PI / 180,
+                    0
+                );
+                plane.scale.set(props.scale, props.scale, props.scale);
+                scene.add(plane);
+
+                // Neural Dots
+                props.neuralDots.forEach(dot => {
+                    dotPositions.push(dot.x - 90, dot.y - 90, props.translateZ);
+                    dotColors.push(dot.colorR / 255, dot.colorG / 255, dot.colorB / 255);
+                });
+
+                // Connections
+                props.connections.forEach(conn => {
+                    const from = props.neuralDots[conn.from];
+                    const to = props.neuralDots[conn.to];
+                    linePositions.push(from.x - 90, from.y - 90, props.translateZ);
+                    linePositions.push(to.x - 90, to.y - 90, props.translateZ);
+                });
+            });
+
+            dotGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dotPositions, 3));
+            dotGeometry.setAttribute('color', new THREE.Float32BufferAttribute(dotColors, 3));
+            const dotMaterial = new THREE.PointsMaterial({
+                size: 0.3,
+                vertexColors: true,
+                transparent: true
+            });
+            const dots = new THREE.Points(dotGeometry, dotMaterial);
+            scene.add(dots);
+
+            lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+            const lineMaterial = new THREE.LineBasicMaterial({
+                color: 0x00ff00,
+                opacity: 0.3,
+                transparent: true
+            });
+            const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+            scene.add(lines);
+
+            function animate() {
+                requestAnimationFrame(animate);
+                scene.rotation.y += 0.005;
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        async function generateGrid() {
+            try {
+                const message = consoleInput.value;
+                const file = fileInput.files[0];
+                if (file) fileNameDisplay.textContent = `${file.name} (${formatFileSize(file.size)})`;
+                else fileNameDisplay.textContent = '';
+
+                const serial = generateSerialNumber();
+                const date = new Date();
+                const compressedData = await encryptData(message, file, serial, date);
+                const cssProperties = encodeDataInCSS(compressedData, date, serial);
+
+                currentSerial = serial;
+                currentCode = generateCrypticCode();
+                consoleOutput.textContent = `Serial: ${serial}\nCode: ${currentCode}\nData embedded in grid.`;
+                generateImageFromSeed(serial, cssProperties, date);
+            } catch (e) {
+                consoleOutput.textContent = 'Error generating grid: ' + e.message;
+            }
+        }
+
+        function copyCode() {
+            if (currentSerial && currentCode) {
+                const text = `Serial: ${currentSerial}\nCode: ${currentCode}`;
+                navigator.clipboard.writeText(text).then(() => {
+                    consoleOutput.textContent = 'Serial and code copied to clipboard!';
+                }).catch(err => {
+                    consoleOutput.textContent = 'Error copying to clipboard: ' + err;
+                });
+            } else {
+                consoleOutput.textContent = 'No grid generated yet!';
+            }
+        }
+
+        function showExecutePopup() {
+            executePopup.style.display = 'block';
+            executeOverlay.style.display = 'block';
+            executeInput.value = '';
+        }
+
+        function closeExecutePopup() {
+            executePopup.style.display = 'none';
+            executeOverlay.style.display = 'none';
+        }
+
+        async function executeGrid() {
+            const serial = executeInput.value.trim();
+            if (!serial) {
+                consoleOutput.textContent = 'Please enter a serial number.';
+                return;
+            }
+
+            try {
+                const date = new Date();
+                const properties = encodeDataInCSS(new Uint8Array(), date, serial);
+                const bytes = decodeDataFromCSS(properties);
+                const data = await decryptData(bytes, serial);
+                consoleOutput.textContent = `Message: ${data.message}\nDate: ${new Date(data.date.join('')).toISOString().slice(0, 10)}`;
+                if (data.file) {
+                    consoleOutput.textContent += `\nFile: ${data.file.name} (${formatFileSize(data.file.size)})`;
+                    const blob = new Blob([new Uint8Array(data.file.data)], { type: data.file.type });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = data.file.name;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+                closeExecutePopup();
+            } catch (e) {
+                consoleOutput.textContent = 'Error executing grid: ' + e.message;
+            }
+        }
+
+        function clearConsole() {
+            consoleInput.value = '';
+            consoleOutput.textContent = '';
+            fileInput.value = '';
+            fileNameDisplay.textContent = '';
+            scene.clear();
+            currentSerial = '';
+            currentCode = '';
+            currentFile = null;
+        }
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) {
+                fileNameDisplay.textContent = `${file.name} (${formatFileSize(file.size)})`;
+            } else {
+                fileNameDisplay.textContent = '';
+            }
+        });
+    </script>
+</body>
+</html>
