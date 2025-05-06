@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exoskeleton AI</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+            color: #0f0;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header {
+            width: 100%;
+            max-width: 360px;
+            text-align: center;
+            padding: 8px;
+            font-size: 16px;
+            background: rgba(0,0,0,0.8);
+            position: fixed;
+            top: 0;
+            z-index: 20;
+        }
+        .app-container {
+            width: 100%;
+            max-width: 360px;
+            height: 360px;
+            margin-top: 40px;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+        .hologram-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            perspective: 1000px;
+            overflow: visible;
+        }
+        .hologram {
+            width: 320px;
+            height: 320px;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            transform-style: preserve-3d;
+            animation: rotateHologram 30s infinite linear;
+            z-index: 2;
+        }
+        .grid-square {
+            position: absolute;
+            background: rgba(0,255,0,0.6);
+            border: 1px solid #0f0;
+            box-shadow: 0 0 5px #0f0;
+            animation: pulseSquare 4s infinite;
+            min-width: 10px;
+            min-height: 10px;
+            z-index: 3;
+        }
+        .neural-overlay {
+            position: absolute;
+            width: 320px;
+            height: 320px;
+            top: 20px;
+            left: 20px;
+            z-index: 5;
+        }
+        .neural-overlay canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .signature-layer {
+            position: absolute;
+            width: 200px;
+            height: 100px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.6;
+            z-index: 10;
+            filter: drop-shadow(0 0 5px #0f0);
+        }
+        .signature-layer canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .bottom-section {
+            width: 100%;
+            max-width: 360px;
+            position: fixed;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            border-top: 1px solid #0f0;
+            z-index: 10;
+            height: calc(100vh - 410px);
+            display: flex;
+            flex-direction: column;
+        }
+        .console-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #console {
+            width: 100%;
+            flex: 1;
+            overflow-y: auto;
+            font-size: 14px;
+            padding: 8px;
+            background: rgba(0,0,0,0.8);
+            border: 1px solid #0f0;
+            scroll-behavior: smooth;
+        }
+        .entry { margin: 4px 0; word-wrap: break-word; }
+        .timestamp { color: #080; margin-right: 8px; }
+        .agent-message { color: #0ff; }
+        .input-area {
+            display: flex;
+            gap: 6px;
+            padding: 8px;
+            background: rgba(0,0,0,0.8);
+        }
+        input {
+            flex: 1;
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 8px;
+        }
+        button {
+            background: rgba(0,255,0,0.1);
+            color: #0f0;
+            border: 2px solid #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 8px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0f0;
+            color: #000;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            padding: 12px;
+            background: #000;
+            border: 1px solid #0f0;
+            color: #0f0;
+            z-index: 1000;
+        }
+        .popup h3 { margin: 0 0 10px; font-size: 14px; }
+        .popup canvas {
+            width: 100%;
+            height: 150px;
+            background: #000;
+            border: 1px solid #0f0;
+            margin-bottom: 8px;
+        }
+        .popup .btn {
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px;
+            background: rgba(0,255,0,0.1);
+            color: #0f0;
+            border: 2px solid #0f0;
+            cursor: pointer;
+        }
+        .popup .btn:hover {
+            background: #0f0;
+            color: #000;
+        }
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+        }
+        footer {
+            width: 100%;
+            text-align: center;
+            font-size: 10px;
+            padding: 4px;
+            background: rgba(0,0,0,0.8);
+        }
+        @media (max-width: 480px) {
+            .header, .app-container, .bottom-section { max-width: 100%; }
+            .app-container { height: 300px; margin-top: 36px; }
+            .hologram { width: 280px; height: 280px; left: 10px; top: 10px; }
+            .neural-overlay { width: 280px; height: 280px; left: 10px; top: 10px; }
+            .signature-layer { width: 150px; height: 75px; }
+            .bottom-section { height: calc(100vh - 346px); }
+            #console, input, button { font-size: 12px; padding: 6px; }
+            .popup { width: 260px; }
+        }
+        @keyframes rotateHologram {
+            0% { transform: rotateY(0deg) rotateX(15deg); }
+            100% { transform: rotateY(360deg) rotateX(15deg); }
+        }
+        @keyframes pulseSquare {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 0.9; transform: scale(1.05); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">Exoskeleton AI</div>
+    <div class="app-container">
+        <div class="hologram-container">
+            <div class="hologram" id="hologram"></div>
+            <div class="neural-overlay"><canvas id="neuralCanvas"></canvas></div>
+        </div>
+    </div>
+    <div class="bottom-section">
+        <div class="console-section">
+            <div id="console"></div>
+        </div>
+        <div class="input-area">
+            <input type="text" id="commandInput" placeholder="Enter command...">
+            <button onclick="executeCommand()">Execute</button>
+            <button onclick="clearConsole()">Clear</button>
+        </div>
+        <footer>WebXOS 2025</footer>
+    </div>
+    <div class="popup-overlay" id="signOverlay"></div>
+    <div class="popup" id="signPopup">
+        <h3>Sign Exoskeleton AI</h3>
+        <canvas id="signCanvas"></canvas>
+        <button class="btn" onclick="submitSignature()">Submit</button>
+        <button class="btn" onclick="closeSignPopup()">Cancel</button>
+    </div>
+    <script>
+        const encryptionWorkerScript = `
+            importScripts('https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js');
+            importScripts('https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js');
+            self.onmessage = function(e) {
+                const { entries, signature, serial, hashCode } = e.data;
+                function compressDatabase(entries, signature) {
+                    const data = {
+                        entries: entries.map(entry => ({ text: entry.text, time: entry.time, isSignature: entry.isSignature || false, miniSignature: entry.miniSignature || '' })),
+                        signature: signature || null
+                    };
+                    return LZString.compressToBase64(JSON.stringify(data));
+                }
+                try {
+                    const compressed = compressDatabase(entries, signature);
+                    const key = CryptoJS.PBKDF2(serial + 'ExoAI2025', CryptoJS.enc.Utf8.parse(hashCode.toString()), { keySize: 256 / 32, iterations: 500 });
+                    const iv = CryptoJS.lib.WordArray.random(16);
+                    const encrypted = CryptoJS.AES.encrypt(compressed, key, { iv: iv }).toString();
+                    const integrityHash = CryptoJS.SHA256(JSON.stringify(entries) + serial + (signature || '') + 'ExoIntegrity').toString();
+                    self.postMessage({ encrypted, iv: iv.toString(), integrityHash });
+                } catch (error) {
+                    self.postMessage({ error: error.message });
+                }
+            };
+        `;
+
+        const blob = new Blob([encryptionWorkerScript], { type: 'application/javascript' });
+        const workerURL = URL.createObjectURL(blob);
+        const encryptionWorker = new Worker(workerURL);
+
+        const ExoskeletonAI = {
+            database: [],
+            currentSerial: '',
+            currentCode: '',
+            currentSignature: null,
+            serialCounter: 1,
+            serialMap: new Map(),
+            neuralLayers: [[], [], []],
+            gridSquares: [],
+            strokes: [],
+            hologram: document.getElementById('hologram'),
+            neuralCanvas: document.getElementById('neuralCanvas'),
+            neuralCtx: document.getElementById('neuralCanvas').getContext('2d'),
+            consoleDiv: document.getElementById('console'),
+            commandInput: document.getElementById('commandInput'),
+            signCanvas: document.getElementById('signCanvas'),
+            signCtx: document.getElementById('signCanvas').getContext('2d'),
+            signPopup: document.getElementById('signPopup'),
+            signOverlay: document.getElementById('signOverlay'),
+            painting: false,
+            currentStroke: [],
+
+            initialize() {
+                try {
+                    this.neuralCanvas.width = 320;
+                    this.neuralCanvas.height = 320;
+                    this.signCanvas.width = 280;
+                    this.signCanvas.height = 150;
+                    this.signCtx.lineWidth = 3;
+                    this.signCtx.lineCap = 'round';
+                    this.signCtx.strokeStyle = '#0f0';
+                    this.log('Exoskeleton has initialized system');
+                    this.loadState();
+                    const initSerial = `HOLO-${String(this.serialCounter).padStart(6,'0')}-INIT`;
+                    const initCode = this.generateCrypticCode('INIT' + this.serialCounter);
+                    this.serialMap.set(initSerial, { code: initCode, encryptedDatabase: '', neuralLayers: [[], [], []], gridSquares: [], signature: null, integrityHash: '', strokes: [] });
+                    this.currentSerial = initSerial;
+                    this.currentCode = initCode;
+                    this.encodeDataToVisualization(this.database, null);
+                    this.generateVisualization(initSerial, { entries: this.database, code: initCode });
+                    this.log(`Exoskeleton has initialized grid with serial ${this.shortenSerial(initSerial)}`);
+                    this.displayHelp();
+                    this.animateNeuralNetwork();
+                    this.setupSignatureEvents();
+                    this.setupInputEvents();
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to initialize: ${error.message}`);
+                }
+            },
+
+            log(message) {
+                const entry = document.createElement('div');
+                entry.className = 'entry';
+                entry.innerHTML = `<span class="timestamp">[${new Date().toLocaleString()}]</span><span class="agent-message">${message}</span>`;
+                this.consoleDiv.appendChild(entry);
+                this.consoleDiv.scrollTop = this.consoleDiv.scrollHeight;
+            },
+
+            shortenSerial(serial) {
+                return serial.slice(0, 12) + '...';
+            },
+
+            shortenCode(code) {
+                return code.slice(0, 14) + '...';
+            },
+
+            hashCode(str) {
+                return parseInt(CryptoJS.SHA256(str + 'ExoAI2025').toString().slice(0, 16), 16);
+            },
+
+            generateIntegrityHash(data, serial, signature) {
+                return CryptoJS.SHA256(JSON.stringify(data) + serial + (signature || '') + 'ExoIntegrity').toString();
+            },
+
+            seededRandom(seed) {
+                let x = Math.sin(seed++) * 10000;
+                return x - Math.floor(x);
+            },
+
+            saveState() {
+                try {
+                    localStorage.setItem('exoskeletonAISerialMap', JSON.stringify([...this.serialMap]));
+                    localStorage.setItem('exoskeletonAISerialCounter', this.serialCounter);
+                    this.log('Exoskeleton has saved state securely');
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to save state: ${error.message}`);
+                }
+            },
+
+            loadState() {
+                try {
+                    const savedMap = localStorage.getItem('exoskeletonAISerialMap');
+                    const savedCounter = localStorage.getItem('exoskeletonAISerialCounter');
+                    if (savedMap) this.serialMap = new Map(JSON.parse(savedMap));
+                    this.serialCounter = parseInt(savedCounter) || 1;
+                    this.log('Exoskeleton has loaded state');
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to load state: ${error.message}`);
+                }
+            },
+
+            compressDatabase(entries, signature) {
+                const data = {
+                    entries: entries.map(entry => ({ text: entry.text, time: entry.time.toISOString(), isSignature: entry.isSignature || false, miniSignature: entry.miniSignature || '' })),
+                    signature: signature || null
+                };
+                return LZString.compressToBase64(JSON.stringify(data));
+            },
+
+            decompressDatabase(compressed) {
+                try {
+                    const json = LZString.decompressFromBase64(compressed);
+                    const data = JSON.parse(json);
+                    return {
+                        entries: data.entries.map(entry => ({
+                            text: entry.text,
+                            time: new Date(entry.time),
+                            isSignature: entry.isSignature || false,
+                            miniSignature: entry.miniSignature || ''
+                        })),
+                        signature: data.signature || null
+                    };
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to decompress: ${error.message}`);
+                    return { entries: [], signature: null };
+                }
+            },
+
+            async encryptDatabase(entries, signature, serial) {
+                return new Promise((resolve, reject) => {
+                    encryptionWorker.onmessage = (e) => {
+                        if (e.data.error) {
+                            this.log(`Exoskeleton has failed to encrypt: ${e.data.error}`);
+                            reject(new Error(e.data.error));
+                        } else {
+                            this.log('Exoskeleton has encrypted data');
+                            resolve(e.data);
+                        }
+                    };
+                    encryptionWorker.postMessage({
+                        entries: entries.map(entry => ({
+                            text: entry.text,
+                            time: entry.time.toISOString(),
+                            isSignature: entry.isSignature || false,
+                            miniSignature: entry.miniSignature || ''
+                        })),
+                        signature,
+                        serial,
+                        hashCode: this.hashCode(serial)
+                    });
+                });
+            },
+
+            decryptDatabase(encryptedObj, serial) {
+                try {
+                    const { encrypted, iv, integrityHash } = encryptedObj;
+                    const key = CryptoJS.PBKDF2(serial + 'ExoAI2025', CryptoJS.enc.Utf8.parse(this.hashCode(serial).toString()), { keySize: 256 / 32, iterations: 500 });
+                    const decrypted = CryptoJS.AES.decrypt(encrypted, key, { iv: CryptoJS.enc.Hex.parse(iv) });
+                    const compressed = decrypted.toString(CryptoJS.enc.Utf8);
+                    const data = this.decompressDatabase(compressed);
+                    if (this.generateIntegrityHash(data.entries, serial, data.signature) !== integrityHash) {
+                        throw new Error('Integrity check failed');
+                    }
+                    return data;
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to decrypt: ${error.message}`);
+                    return { entries: [], signature: null };
+                }
+            },
+
+            generateRandomSuffix() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let suffix = '';
+                for (let i = 0; i < 4; i++) {
+                    suffix += chars.charAt(Math.floor(this.seededRandom(this.hashCode(suffix + i)) * chars.length));
+                }
+                return suffix;
+            },
+
+            async generateSerialNumber(code, neuralState, gridState, signature, strokes) {
+                let serial;
+                do {
+                    if (this.serialCounter > 999999) this.serialCounter = 1;
+                    serial = `HOLO-${String(this.serialCounter++).padStart(6, '0')}-${this.generateRandomSuffix()}`;
+                } while (this.serialMap.has(serial));
+                const encryptedData = await this.encryptDatabase(this.database, signature, serial);
+                this.serialMap.set(serial, {
+                    code,
+                    encryptedDatabase: encryptedData.encrypted,
+                    iv: encryptedData.iv,
+                    integrityHash: encryptedData.integrityHash,
+                    neuralLayers: neuralState,
+                    gridSquares: gridState,
+                    signature,
+                    strokes
+                });
+                this.saveState();
+                this.log(`Exoskeleton has generated serial: ${this.shortenSerial(serial)}`);
+                return serial;
+            },
+
+            generateCrypticCode(seed) {
+                const glyphs = 'ΔΩΨΘΣΦΩΓΛΞΠΩ0123456789#@&%*+-=<>';
+                let code = '';
+                const seedValue = this.hashCode(seed);
+                for (let i = 0; i < 12; i++) {
+                    code += glyphs.charAt(Math.floor(this.seededRandom(seedValue + i) * glyphs.length));
+                }
+                return `Ω-CODE: ${code}`;
+            },
+
+            generateCodeSign(serial, timestamp) {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let sign = '';
+                const seedValue = this.hashCode(serial + timestamp);
+                for (let i = 0; i < 8; i++) {
+                    sign += chars.charAt(Math.floor(this.seededRandom(seedValue + i) * chars.length));
+                    if (i === 3) sign += '-';
+                }
+                return `Ω-SIGN: ${sign}`;
+            },
+
+            createStrokeReplica(codesign) {
+                const glyphMap = { 'A': 'Λ', 'B': 'β', 'C': 'C', 'D': 'Δ', 'E': 'Σ', 'F': 'F', 'G': 'Γ', 'H': 'H', 'I': 'I', 'J': 'J', 'K': 'K', 'L': 'L', 'M': 'M', 'N': 'N', 'O': 'O', 'P': 'Π', 'Q': 'Q', 'R': 'R', 'S': 'S', 'T': 'T', 'U': 'U', 'V': 'V', 'W': 'W', 'X': 'X', 'Y': 'Y', 'Z': 'Z', '0': '0', '1': '|', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9', '-': '-' };
+                return codesign.replace(/./g, c => glyphMap[c] || c);
+            },
+
+            encodeDataToVisualization(entries, signature) {
+                this.neuralLayers = [[], [], []];
+                this.gridSquares = [];
+                const dataString = entries.length > 0 ? JSON.stringify(entries.map(entry => ({
+                    text: CryptoJS.SHA256(entry.text).toString().slice(0, 16),
+                    time: entry.time.getTime(),
+                    isSignature: entry.isSignature || false
+                }))) : 'DEFAULT';
+                const dataHash = this.hashCode(dataString);
+                let seedValue = dataHash;
+                const rand = (min, max) => {
+                    seedValue = (seedValue * 9301 + 49297) % 233280;
+                    return min + Math.floor((seedValue / 233280) * (max - min + 1));
+                };
+                const randFloat = (min, max) => {
+                    seedValue = (seedValue * 9301 + 49297) % 233280;
+                    return min + (seedValue / 233280) * (max - min);
+                };
+                const squareCount = Math.min(Math.max(entries.length * 2 + 10, 20), 50);
+                let charIndex = 0;
+                for (let i = 0; i < squareCount; i++) {
+                    const char = charIndex < dataString.length ? dataString.charCodeAt(charIndex) : rand(65, 90);
+                    const size = 20 + (char % 20);
+                    const left = charIndex < dataString.length ? ((char * 7) % 300) : randFloat(0, 320 - size);
+                    const top = charIndex < dataString.length ? ((char * 9) % 300) : randFloat(0, 320 - size);
+                    const z = randFloat(-80, 80);
+                    const rotateX = randFloat(-20, 20);
+                    const rotateY = randFloat(-20, 20);
+                    this.gridSquares.push({ size, left, top, z, rotateX, rotateY, opacity: 0.6, char });
+                    charIndex++;
+                    if (charIndex >= dataString.length) charIndex = 0;
+                }
+                const nodeCount = Math.min(Math.max(entries.length * 2 + 8, 15), 30);
+                charIndex = 0;
+                for (let i = 0; i < nodeCount; i++) {
+                    for (let layer = 0; layer < 3; layer++) {
+                        const char = charIndex < dataString.length ? dataString.charCodeAt(charIndex) : rand(65, 90);
+                        const angle = randFloat(0, Math.PI * 2);
+                        const radius = 20 + (char % 30);
+                        const x = 160 + Math.cos(angle) * radius;
+                        const y = 160 + Math.sin(angle) * radius;
+                        const z = randFloat(-40 + layer * 40, 40 + layer * 40);
+                        const connections = [];
+                        for (let j = 0; j < this.neuralLayers[layer].length; j++) {
+                            if (rand(0, 100) < 20) connections.push(j);
+                        }
+                        this.neuralLayers[layer].push({ x, y, z, dataIndex: i % entries.length, connections, char });
+                        charIndex++;
+                        if (charIndex >= dataString.length) charIndex = 0;
+                    }
+                }
+                for (let layer = 0; layer < 2; layer++) {
+                    this.neuralLayers[layer].forEach((node, i) => {
+                        for (let j = 0; j < this.neuralLayers[layer + 1].length; j++) {
+                            if (rand(0, 100) < 20) {
+                                node.connections.push({ layer: layer + 1, index: j });
+                            }
+                        }
+                    });
+                }
+            },
+
+            generateVisualization(serial, { entries, code, signature }) {
+                this.encodeDataToVisualization(entries, signature);
+                const fragment = document.createDocumentFragment();
+                this.gridSquares.forEach(square => {
+                    const div = document.createElement('div');
+                    div.className = 'grid-square';
+                    div.style.width = `${square.size}px`;
+                    div.style.height = `${square.size}px`;
+                    div.style.left = `${square.left}px`;
+                    div.style.top = `${square.top}px`;
+                    div.style.transform = `translateZ(${square.z}px) rotateX(${square.rotateX}deg) rotateY(${square.rotateY}deg)`;
+                    div.style.opacity = square.opacity;
+                    fragment.appendChild(div);
+                });
+                const strokes = this.serialMap.get(serial)?.strokes || [];
+                if (strokes.length > 0) {
+                    const sigLayer = document.createElement('div');
+                    sigLayer.className = 'signature-layer';
+                    const sigCanvas = document.createElement('canvas');
+                    sigCanvas.width = 200;
+                    sigCanvas.height = 100;
+                    const sigCtx = sigCanvas.getContext('2d');
+                    this.drawSignatureStrokes(sigCanvas, sigCtx, strokes, 200, 100);
+                    sigLayer.appendChild(sigCanvas);
+                    fragment.appendChild(sigLayer);
+                }
+                this.hologram.innerHTML = '';
+                this.hologram.appendChild(fragment);
+                this.saveState();
+                this.log(`Exoskeleton has generated visualization for ${this.shortenSerial(serial)}`);
+            },
+
+            drawSignatureStrokes(canvas, ctx, strokes, width, height) {
+                ctx.clearRect(0, 0, width, height);
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.strokeStyle = '#0f0';
+                strokes.forEach(stroke => {
+                    if (stroke.length < 2) return;
+                    ctx.beginPath();
+                    stroke.forEach((point, idx) => {
+                        const x = (point.x / 280) * width;
+                        const y = (point.y / 150) * height;
+                        if (idx === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.stroke();
+                });
+            },
+
+            animateNeuralNetwork() {
+                this.neuralCtx.clearRect(0, 0, this.neuralCanvas.width, this.neuralCanvas.height);
+                const colors = ['#0f0', '#0ff', '#f0f'];
+                this.neuralLayers.forEach((layer, layerIdx) => {
+                    this.neuralCtx.fillStyle = colors[layerIdx];
+                    this.neuralCtx.strokeStyle = `rgba(${layerIdx === 0 ? '0,255,0' : layerIdx === 1 ? '0,255,255' : '255,0,255'},0.3)`;
+                    this.neuralCtx.lineWidth = 1;
+                    layer.forEach((node, idx) => {
+                        node.connections.forEach(conn => {
+                            let target;
+                            if (typeof conn === 'number') {
+                                target = layer[conn];
+                            } else {
+                                target = this.neuralLayers[conn.layer][conn.index];
+                            }
+                            this.neuralCtx.beginPath();
+                            this.neuralCtx.moveTo(node.x, node.y);
+                            this.neuralCtx.lineTo(target.x, target.y);
+                            this.neuralCtx.stroke();
+                        });
+                        this.neuralCtx.beginPath();
+                        this.neuralCtx.arc(node.x, node.y, 3, 0, Math.PI * 2);
+                        this.neuralCtx.fill();
+                    });
+                });
+                requestAnimationFrame(() => this.animateNeuralNetwork());
+            },
+
+            setupSignatureEvents() {
+                const startPainting = (e) => {
+                    this.painting = true;
+                    const rect = this.signCanvas.getBoundingClientRect();
+                    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+                    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+                    this.currentStroke = [{ x, y }];
+                    this.signCtx.beginPath();
+                    this.signCtx.moveTo(x, y);
+                };
+                const stopPainting = () => {
+                    if (this.painting) {
+                        this.painting = false;
+                        if (this.currentStroke.length > 1) this.strokes.push([...this.currentStroke]);
+                        this.currentStroke = [];
+                        this.signCtx.beginPath();
+                    }
+                };
+                const draw = (e) => {
+                    if (!this.painting) return;
+                    e.preventDefault();
+                    const rect = this.signCanvas.getBoundingClientRect();
+                    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+                    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+                    this.currentStroke.push({ x, y });
+                    this.signCtx.lineTo(x, y);
+                    this.signCtx.stroke();
+                    this.signCtx.beginPath();
+                    this.signCtx.moveTo(x, y);
+                };
+                this.signCanvas.addEventListener('mousedown', startPainting);
+                this.signCanvas.addEventListener('mouseup', stopPainting);
+                this.signCanvas.addEventListener('mousemove', draw);
+                this.signCanvas.addEventListener('touchstart', startPainting);
+                this.signCanvas.addEventListener('touchend', stopPainting);
+                this.signCanvas.addEventListener('touchmove', draw);
+                this.signCanvas.addEventListener('mouseleave', stopPainting);
+            },
+
+            setupInputEvents() {
+                this.commandInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        this.executeCommand();
+                    }
+                });
+            },
+
+            clearSignCanvas() {
+                this.signCtx.clearRect(0, 0, this.signCanvas.width, this.signCanvas.height);
+                this.strokes = [];
+                this.currentStroke = [];
+                this.painting = false;
+            },
+
+            showSignPopup() {
+                if (this.database.some(entry => entry.isSignature)) {
+                    this.log('Exoskeleton has detected existing signature');
+                    return;
+                }
+                this.clearSignCanvas();
+                this.signPopup.style.display = 'block';
+                this.signOverlay.style.display = 'block';
+            },
+
+            closeSignPopup() {
+                this.signPopup.style.display = 'none';
+                this.signOverlay.style.display = 'none';
+                this.clearSignCanvas();
+            },
+
+            submitSignature() {
+                if (this.strokes.length === 0 && this.currentStroke.length <= 1) {
+                    this.log('Exoskeleton has rejected empty signature');
+                    return;
+                }
+                if (this.currentStroke.length > 1) this.strokes.push([...this.currentStroke]);
+                const timestamp = Date.now().toString();
+                const codesign = this.generateCodeSign(this.currentSerial, timestamp);
+                const strokeReplica = this.createStrokeReplica(codesign);
+                const fullImage = this.signCanvas.toDataURL('image/png');
+                const miniCanvas = document.createElement('canvas');
+                miniCanvas.width = 50;
+                miniCanvas.height = 50;
+                const miniCtx = miniCanvas.getContext('2d');
+                this.drawSignatureStrokes(miniCanvas, miniCtx, this.strokes, 50, 50);
+                const miniImage = miniCanvas.toDataURL('image/png');
+                this.database.push({
+                    text: `Signed by: ${fullImage} ${codesign} (${strokeReplica})`,
+                    time: new Date(),
+                    isSignature: true,
+                    miniSignature: miniImage
+                });
+                this.serialMap.get(this.currentSerial).strokes = this.strokes;
+                this.saveState();
+                this.log(`Exoskeleton has added signature: ${codesign}`);
+                this.closeSignPopup();
+                this.generateVisualization(this.currentSerial, { entries: this.database, code: this.currentCode, signature: this.currentSignature });
+            },
+
+            addData(data) {
+                if (!data.trim()) {
+                    this.log('Exoskeleton has rejected empty data');
+                    return;
+                }
+                this.database.push({ text: data, time: new Date(), isSignature: false, miniSignature: '' });
+                this.log('Exoskeleton has added data to database');
+                this.generateVisualization(this.currentSerial, { entries: this.database, code: this.currentCode, signature: this.currentSignature });
+            },
+
+            replaceData(index, data) {
+                if (isNaN(index) || index < 0 || index >= this.database.length) {
+                    this.log(`Exoskeleton has rejected invalid index: ${index}`);
+                    return;
+                }
+                if (!data.trim()) {
+                    this.log('Exoskeleton has rejected empty data');
+                    return;
+                }
+                if (this.database[index].isSignature) {
+                    this.log('Exoskeleton has rejected signature replacement');
+                    return;
+                }
+                this.database[index] = { text: data, time: new Date(), isSignature: false, miniSignature: '' };
+                this.log(`Exoskeleton has replaced entry at index ${index}`);
+                this.generateVisualization(this.currentSerial, { entries: this.database, code: this.currentINTERFACE Code, signature: this.currentSignature });
+            },
+
+            generateHTML() {
+                if (this.database.length === 0) {
+                    this.log('Exoskeleton has no data for HTML generation');
+                    return;
+                }
+                let listContent = 'Exoskeleton AI Data Sheet\n------------------\n';
+                this.database.forEach((entry, index) => {
+                    const time = entry.time.toLocaleTimeString();
+                    const date = entry.time.toISOString().split('T')[0];
+                    const text = entry.isSignature ? `<img src="${entry.text.split(' ')[2]}" alt="Signature" width="100">` : entry.text;
+                    listContent += `${index}. Time: ${time}  Date: ${date}  Data: ${text}\n`;
+                });
+                const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exoskeleton AI Data Sheet</title>
+    <style>
+        body { background: #000; color: #0f0; font-family: 'Courier New', monospace; margin: 20px; }
+        pre { font-size: 14px; white-space: pre-wrap; max-width: 800px; }
+        h1 { font-size: 20px; text-align: center; }
+        img { vertical-align: middle; }
+    </style>
+</head>
+<body>
+    <h1>WebXOS 2025 Exoskeleton AI</h1>
+    <pre>${listContent}</pre>
+</body>
+</html>`;
+                navigator.clipboard.writeText(htmlContent).then(() => {
+                    this.log('Exoskeleton has copied HTML to clipboard');
+                }).catch(() => {
+                    this.log('Exoskeleton has failed to copy HTML');
+                });
+            },
+
+            async generateDatabase() {
+                if (this.database.length === 0) {
+                    this.log('Exoskeleton has no data to generate');
+                    return;
+                }
+                const newCode = this.generateCrypticCode(JSON.stringify(this.neuralLayers) + Date.now());
+                const serial = await this.generateSerialNumber(newCode, this.neuralLayers, this.gridSquares, this.currentSignature, this.strokes);
+                if (!serial) return;
+                this.currentSerial = serial;
+                this.currentCode = newCode;
+                this.log(`Exoskeleton has generated grid - Serial: ${this.shortenSerial(serial)}`);
+                navigator.clipboard.writeText(`${serial}\n${newCode}`).then(() => {
+                    this.log('Exoskeleton has copied serial and code to clipboard');
+                }).catch(() => {
+                    this.log('Exoskeleton has failed to copy serial and code');
+                });
+                this.generateVisualization(serial, { entries: this.database, code: newCode, signature: this.currentSignature });
+            },
+
+            loadGridFromSerial(userSerial, userCode) {
+                if (!this.serialMap.has(userSerial) || this.serialMap.get(userSerial).code !== userCode) {
+                    this.log(`Exoskeleton has rejected invalid serial or code`);
+                    return;
+                }
+                const { encryptedDatabase, iv, integrityHash, neuralLayers, gridSquares, signature, strokes } = this.serialMap.get(userSerial);
+                const decryptedData = this.decryptDatabase({ encrypted: encryptedDatabase, iv, integrityHash }, userSerial);
+                this.database = decryptedData.entries;
+                this.currentSignature = decryptedData.signature;
+                this.neuralLayers = neuralLayers;
+                this.gridSquares = gridSquares;
+                this.strokes = strokes;
+                this.currentSerial = userSerial;
+                this.currentCode = userCode;
+                this.generateVisualization(userSerial, { entries: this.database, code: userCode, signature: this.currentSignature });
+                this.log(`Exoskeleton has loaded grid - Serial: ${this.shortenSerial(userSerial)}`);
+                this.displayEntries(this.database, `Exoskeleton has loaded database contents:`);
+            },
+
+            displayEntries(entries, prefix) {
+                if (entries.length === 0) {
+                    this.log(`${prefix} No entries`);
+                    return;
+                }
+                entries.forEach((entry, index) => {
+                    const displayText = entry.isSignature ? `Signature ${entry.text.split(' ').slice(3).join(' ')}` : entry.text;
+                    this.log(`${prefix} [${index}] ${displayText} (Time: ${entry.time.toLocaleString()})`);
+                });
+            },
+
+            displayHelp() {
+                this.log('Exoskeleton has displayed command help');
+                ['Available Commands:', 'ADD [data] - Add entry', 'VIEW - Show entries', 'SEARCH [term] - Search entries', 'SIGN - Add signature', 'REPLACE# [data] - Replace entry at index #', 'HTML - Generate HTML data sheet', 'GENERATE - Generate grid', 'CLEAR - Clear session', 'HELP - Show this help', 'Enter [serial] [code] to load grid'].forEach(line => this.log(line));
+            },
+
+            clearConsole() {
+                this.database = [];
+                this.currentSerial = '';
+                this.currentCode = '';
+                this.currentSignature = null;
+                this.neuralLayers = [[], [], []];
+                this.gridSquares = [];
+                this.strokes = [];
+                this.consoleDiv.innerHTML = '';
+                this.initialize();
+                this.log('Exoskeleton has cleared console and session');
+            },
+
+            executeCommand() {
+                const input = this.commandInput.value.trim();
+                this.commandInput.value = '';
+                if (!input) {
+                    this.log('Exoskeleton has rejected empty command');
+                    return;
+                }
+                console.log('Executing command:', input); // Debug log
+                const parts = input.split(' ');
+                let command, args;
+                if (parts[0].match(/^HOLO-\d{6}-[A-Z0-9]{4}$/)) {
+                    command = 'LOAD';
+                    args = [parts[0], parts.slice(1).join(' ')];
+                } else {
+                    command = parts[0].toUpperCase();
+                    args = parts.slice(1).join(' ');
+                }
+                try {
+                    switch (command) {
+                        case 'ADD':
+                            this.addData(args);
+                            break;
+                        case 'VIEW':
+                            this.displayEntries(this.database, 'Exoskeleton has retrieved:');
+                            break;
+                        case 'SEARCH':
+                            const results = this.database.filter(entry => entry.text.toLowerCase().includes(args.toLowerCase()));
+                            this.displayEntries(results, `Exoskeleton has found results for "${args}":`);
+                            break;
+                        case 'SIGN':
+                            this.showSignPopup();
+                            break;
+                        case 'REPLACE':
+                            const match = input.match(/^REPLACE(\d+)\s+(.+)$/i);
+                            if (!match) {
+                                this.log('Exoskeleton has rejected invalid REPLACE format');
+                                return;
+                            }
+                            this.replaceData(parseInt(match[1]), match[2]);
+                            break;
+                        case 'HTML':
+                            this.generateHTML();
+                            break;
+                        case 'GENERATE':
+                            this.generateDatabase();
+                            break;
+                        case 'CLEAR':
+                            this.clearConsole();
+                            break;
+                        case 'HELP':
+                            this.displayHelp();
+                            break;
+                        case 'LOAD':
+                            this.loadGridFromSerial(args[0], args[1]);
+                            break;
+                        default:
+                            this.log(`Exoskeleton has rejected unknown command: ${command}`);
+                            this.displayHelp();
+                            break;
+                    }
+                } catch (error) {
+                    this.log(`Exoskeleton has failed to execute command: ${error.message}`);
+                }
+            }
+        };
+
+        document.addEventListener('touchmove', (e) => {
+            if (!e.target.closest('#console') && !e.target.closest('.input-area') && !e.target.closest('.popup')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        ExoskeletonAI.initialize();
+
+        function executeCommand() {
+            ExoskeletonAI.executeCommand();
+        }
+
+        function clearConsole() {
+            ExoskeletonAI.clearConsole();
+        }
+
+        function submitSignature() {
+            ExoskeletonAI.submitSignature();
+        }
+
+        function closeSignPopup() {
+            ExoskeletonAI.closeSignPopup();
+        }
+
+        window.addEventListener('unload', () => {
+            encryptionWorker.terminate();
+            URL.revokeObjectURL(workerURL);
+        });
+    </script>
+</body>
+</html>
