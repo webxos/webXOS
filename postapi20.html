@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post API</title>
+    <style>
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        h1, h2 { text-align: center; }
+        .container { max-width: 800px; margin: auto; }
+        .wizard, .board { display: none; }
+        .wizard.active, .board.active { display: block; }
+        input, button {
+            background: #111;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 8px;
+            margin: 5px;
+            font-family: 'Courier New', monospace;
+        }
+        button:hover { background: #0f0; color: #000; }
+        .post-card {
+            background: #111;
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #111;
+            border: 1px solid #0f0;
+            padding: 10px;
+            display: none;
+        }
+        .toast.active { display: block; }
+        footer {
+            text-align: center;
+            margin-top: auto;
+            padding: 20px;
+            color: #0f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Post API</h1>
+        <div class="wizard active">
+            <h2>Setup Wizard</h2>
+            <p>Ensure you're on HTTPS or localhost for full functionality.</p>
+            <button onclick="initApp()">Initialize App</button>
+            <p class="error" id="setup-error"></p>
+        </div>
+        <div class="board">
+            <h2>Bulletin Board</h2>
+            <div>
+                <button onclick="showCreateForm()">Create Bulletin</button>
+                <button onclick="showJoinForm()">Join Bulletin</button>
+                <button onclick="showDiagnose()">Diagnose</button>
+            </div>
+            <div id="create-form" style="display: none;">
+                <input type="text" id="bulletin-name" placeholder="Bulletin Name">
+                <input type="checkbox" id="is-private"> Private
+                <input type="password" id="bulletin-password" placeholder="Password (for private)" style="display: none;">
+                <button onclick="createBulletin()">Create</button>
+            </div>
+            <div id="join-form" style="display: none;">
+                <input type="text" id="join-board-id" placeholder="Board ID">
+                <input type="password" id="join-password" placeholder="Password (if private)">
+                <button onclick="joinBulletin()">Join</button>
+            </div>
+            <div id="board-content" style="display: none;">
+                <h3 id="board-title"></h3>
+                <p>API Endpoint: <span id="api-endpoint"></span></p>
+                <p>Share Token: <span id="share-token"></span></p>
+                <input type="text" id="post-content" placeholder="Write a post...">
+                <input type="file" id="post-file">
+                <button onclick="addPost()">Post</button>
+                <div id="posts"></div>
+            </div>
+        </div>
+        <div class="toast" id="toast"></div>
+    </div>
+    <footer>© WebXOS 2025</footer>
+
+    <script>
+        // Virtual Service Worker Code (Embedded)
+        const virtualWorkerCode = `
+            const handlers = {
+                async handleFetch(request) {
+                    const url = new URL(request.url);
+                    if (url.pathname === '/api/public-bulletins') {
+                        return await getPublicBulletins();
+                    } else if (url.pathname.startsWith('/api/')) {
+                        const [, , boardId, token] = url.pathname.split('/');
+                        return await getBulletinData(boardId, token);
+                    }
+                    return { status: 404, data: { error: 'Not Found' } };
+                },
+                async getPublicBulletins() {
+                    const db = await openDB();
+                    const bulletins = await db.getAll('bulletins');
+                    const publicBulletins = bulletins.filter(b => !b.isPrivate);
+                    return { status: 200, data: publicBulletins.map(b => ({ id: b.id, name: b.name })) };
+                },
+                async getBulletinData(boardId, token) {
+                    const db = await openDB();
+                    const bulletin = await db.get('bulletins', boardId);
+                    if (!bulletin || bulletin.token !== token || (bulletin.isPrivate && !validatePassword(bulletin))) {
+                        return { status: 403, data: { error: 'Unauthorized' } };
+                    }
+                    const posts = await db.getAllFromIndex('posts', 'boardId', boardId);
+                    return { status: 200, data: { bulletin, posts } };
+                },
+                async validatePassword(bulletin) {
+                    // Password validation handled via WebRTC signaling
+                    return true; // Simplified for demo
+                }
+            };
+
+            self.addEventListener('message', async (event) => {
+                if (event.data.type === 'fetch') {
+                    const response = await handlers.handleFetch(event.data.request);
+                    event.ports[0].postMessage(response);
+                }
+            });
+        `;
+
+        // IndexedDB Setup
+        async function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('post-api', 1);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    db.createObjectStore('bulletins', { keyPath: 'id' });
+                    const postStore = db.createObjectStore('posts', { keyPath: 'id', autoIncrement: true });
+                    postStore.createIndex('boardId', 'boardId', { unique: false });
+                    db.createObjectStore('errors', { keyPath: 'id', autoIncrement: true });
+                };
+                request.onsuccess = (event) => resolve(event.target.result);
+                request.onerror = (event) => reject(event.target.error);
+            });
+        }
+
+        // Virtual Worker Emulation
+        let virtualWorkerPort;
+        async function initVirtualWorker() {
+            const channel = new MessageChannel();
+            virtualWorkerPort = channel.port1;
+            const workerContext = { addEventListener: (type, handler) => {
+                channel.port2.onmessage = handler;
+            }};
+            // Execute virtual worker code in a new context
+            const workerFunction = new Function('self', virtualWorkerCode);
+            workerFunction(workerContext);
+        }
+
+        async function virtualFetch(url) {
+            return new Promise((resolve) => {
+                virtualWorkerPort.postMessage({ type: 'fetch', request: { url } }, [new MessageChannel().port2]);
+                virtualWorkerPort.onmessage = (event) => {
+                    resolve(event.data);
+                };
+            });
+        }
+
+        // WebRTC Setup
+        let peerConnection;
+        let dataChannel;
+        async function initWebRTC(boardId, isCreator) {
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            dataChannel = peerConnection.createDataChannel('posts');
+            dataChannel.onmessage = async (event) => {
+                const { type, data } = JSON.parse(event.data);
+                if (type === 'post') {
+                    await savePost(data);
+                    renderPosts(boardId);
+                }
+            };
+            if (isCreator) {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                // Manual SDP exchange (simplified for demo)
+                console.log('Share this SDP:', btoa(JSON.stringify(offer)));
+            } else {
+                const sdp = prompt('Enter SDP from creator:');
+                await peerConnection.setRemoteDescription(JSON.parse(atob(sdp)));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                console.log('Share this SDP:', btoa(JSON.stringify(answer)));
+            }
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) console.log('ICE Candidate:', btoa(JSON.stringify(event.candidate)));
+            };
+        }
+
+        // App Logic
+        async function initApp() {
+            try {
+                if (!window.isSecureContext) {
+                    throw new Error('App requires HTTPS or localhost.');
+                }
+                await initVirtualWorker();
+                document.querySelector('.wizard').classList.remove('active');
+                document.querySelector('.board').classList.add('active');
+            } catch (error) {
+                logError(error);
+                document.getElementById('setup-error').textContent = error.message;
+            }
+        }
+
+        function showCreateForm() {
+            document.getElementById('create-form').style.display = 'block';
+            document.getElementById('join-form').style.display = 'none';
+            document.getElementById('is-private').onchange = () => {
+                document.getElementById('bulletin-password').style.display = document.getElementById('is-private').checked ? 'block' : 'none';
+            };
+        }
+
+        function showJoinForm() {
+            document.getElementById('join-form').style.display = 'block';
+            document.getElementById('create-form').style.display = 'none';
+        }
+
+        async function createBulletin() {
+            try {
+                const name = document.getElementById('bulletin-name').value;
+                const isPrivate = document.getElementById('is-private').checked;
+                const password = document.getElementById('bulletin-password').value;
+                const boardId = crypto.randomUUID();
+                const token = crypto.randomUUID();
+                const db = await openDB();
+                await db.put('bulletins', { id: boardId, name, isPrivate, password, token });
+                await initWebRTC(boardId, true);
+                showBoard(boardId, token, name);
+            } catch (error) {
+                logError(error);
+            }
+        }
+
+        async function joinBulletin() {
+            try {
+                const boardId = document.getElementById('join-board-id').value;
+                const password = document.getElementById('join-password').value;
+                const response = await virtualFetch(`/api/${boardId}/${crypto.randomUUID()}`);
+                if (response.status !== 200) throw new Error(response.data.error);
+                if (response.data.bulletin.isPrivate && response.data.bulletin.password !== password) {
+                    throw new Error('Invalid password');
+                }
+                await initWebRTC(boardId, false);
+                showBoard(boardId, response.data.bulletin.token, response.data.bulletin.name);
+            } catch (error) {
+                logError(error);
+            }
+        }
+
+        async function addPost() {
+            try {
+                const content = document.getElementById('post-content').value;
+                const file = document.getElementById('post-file').files[0];
+                const boardId = document.getElementById('board-content').dataset.boardId;
+                let fileData = null;
+                if (file) {
+                    fileData = await file.arrayBuffer();
+                    // Limit to 10MB
+                    if (fileData.byteLength > 10 * 1024 * 1024) throw new Error('File too large');
+                }
+                const post = { boardId, content, file: fileData, timestamp: Date.now() };
+                await savePost(post);
+                dataChannel.send(JSON.stringify({ type: 'post', data: post }));
+                renderPosts(boardId);
+            } catch (error) {
+                logError(error);
+            }
+        }
+
+        async function savePost(post) {
+            const db = await openDB();
+            await db.add('posts', post);
+        }
+
+        async function renderPosts(boardId) {
+            const db = await openDB();
+            const posts = await db.getAllFromIndex('posts', 'boardId', boardId);
+            const postsDiv = document.getElementById('posts');
+            postsDiv.innerHTML = posts.map(p => `
+                <div class="post-card">
+                    <p>${p.content}</p>
+                    ${p.file ? `<p>File: ${p.file.byteLength} bytes</p>` : ''}
+                    <p>${new Date(p.timestamp).toLocaleString()}</p>
+                </div>
+            `).join('');
+        }
+
+        async function showBoard(boardId, token, name) {
+            document.getElementById('create-form').style.display = 'none';
+            document.getElementById('join-form').style.display = 'none';
+            const boardContent = document.getElementById('board-content');
+            boardContent.style.display = 'block';
+            boardContent.dataset.boardId = boardId;
+            document.getElementById('board-title').textContent = name;
+            document.getElementById('api-endpoint').textContent = `/api/${boardId}/${token}`;
+            document.getElementById('share-token').textContent = token;
+            renderPosts(boardId);
+        }
+
+        async function logError(error) {
+            const db = await openDB();
+            await db.add('errors', { message: error.message, timestamp: Date.now() });
+            const toast = document.getElementById('toast');
+            toast.textContent = `Error: ${error.message}`;
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        async function showDiagnose() {
+            const db = await openDB();
+            const errors = await db.getAll('errors');
+            const toast = document.getElementById('toast');
+            toast.textContent = errors.length ? errors.map(e => `${e.timestamp}: ${e.message}`).join('\n') : 'No errors';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 5000);
+        }
+
+        // Cleanup on Page Unload
+        window.addEventListener('unload', async () => {
+            const db = await openDB();
+            await db.clear('bulletins');
+            await db.clear('posts');
+            await db.clear('errors');
+            if (dataChannel) dataChannel.close();
+            if (peerConnection) peerConnection.close();
+        });
+    </script>
+</body>
+</html>
