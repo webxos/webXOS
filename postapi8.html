@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="description" content="Post API: API-driven bulletin board for posting messages and files via a virtual server.">
+    <title>Post API</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-size: 3vw;
+        }
+        h1 {
+            font-size: 5vw;
+            text-align: center;
+            text-shadow: 0 0 3px #0f0;
+            margin: 2px 0;
+        }
+        #start-menu, #container, #setup-wizard {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-height: 100vh;
+            overflow: hidden;
+            width: 100%;
+            padding: 5px;
+        }
+        #container, #setup-wizard { display: none; }
+        button {
+            background: #111;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+            font-size: 3.5vw;
+            cursor: pointer;
+            border-radius: 3px;
+            width: 90%;
+            max-width: 200px;
+            margin: 2px 0;
+            transition: background 0.3s, color 0.3s;
+        }
+        button:hover { background: #0f0; color: #000; }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; }
+        button.loading::after { content: ' ⏳'; }
+        #public-boards-list {
+            width: 90%;
+            max-width: 200px;
+            margin: 5px 0;
+            text-align: center;
+        }
+        #public-boards-list h3 { font-size: 3.5vw; margin: 2px 0; }
+        #public-boards-list ul {
+            list-style: none;
+            max-height: 15vh;
+            overflow-y: auto;
+            padding: 0;
+            margin: 0;
+        }
+        #public-boards-list li {
+            background: #111;
+            border: 1px solid #0f0;
+            padding: 3px;
+            margin: 2px 0;
+            border-radius: 3px;
+            font-size: 3vw;
+            cursor: pointer;
+        }
+        #public-boards-list li:hover { background: #0f0; color: #000; }
+        #modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #modal-content {
+            background: #111;
+            padding: 10px;
+            border: 1px solid #0f0;
+            border-radius: 3px;
+            width: 90%;
+            max-width: 300px;
+            text-align: center;
+        }
+        #modal-content input, #modal-content select {
+            background: #222;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+            margin: 2px 0;
+            font-family: 'Courier New', monospace;
+            width: 100%;
+            font-size: 3.5vw;
+            border-radius: 3px;
+        }
+        #modal-content input[type="checkbox"] { width: auto; margin: 5px 3px; }
+        #board, #profile {
+            width: 100%;
+            border: 1px solid #0f0;
+            padding: 5px;
+            border-radius: 3px;
+            margin: 2px 0;
+        }
+        #profile { font-size: 2.5vw; padding: 3px; }
+        #board-posts {
+            height: 50vh;
+            overflow-y: auto;
+            border: 1px solid #0f0;
+            padding: 5px;
+            margin-bottom: 5px;
+            background: #111;
+            flex-grow: 1;
+        }
+        .post { margin: 3px 0; word-wrap: break-word; font-size: 3vw; }
+        .post img { max-width: 60%; border-radius: 3px; margin: 3px 0; }
+        .post a { color: #0f0; text-decoration: underline; }
+        #board input {
+            background: #222;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+            margin: 2px 0;
+            font-family: 'Courier New', monospace;
+            width: 100%;
+            font-size: 3.5vw;
+            border-radius: 3px;
+        }
+        #file-input { padding: 3px; }
+        #toast {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            padding: 10px;
+            border-radius: 3px;
+            display: none;
+            z-index: 1000;
+            font-size: 3vw;
+        }
+        #toast.error { background: #222; color: #f00; border: 1px solid #f00; }
+        #toast.success { background: #222; color: #0f0; border: 1px solid #0f0; }
+        #setup-wizard p { font-size: 3vw; margin: 5px 0; text-align: center; }
+        @media (min-width: 768px) {
+            body { font-size: 16px; }
+            h1 { font-size: 24px; }
+            button { font-size: 14px; max-width: 250px; padding: 8px; }
+            #modal-content input, #modal-content select, #board input { font-size: 14px; }
+            #public-boards-list h3 { font-size: 16px; }
+            #public-boards-list li { font-size: 12px; }
+            #profile { font-size: 12px; }
+            .post, #toast { font-size: 14px; }
+            #setup-wizard p { font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="setup-wizard">
+        <h1>Post API Setup</h1>
+        <p id="setup-status">Checking environment...</p>
+        <p><strong>Fix setup issues:</strong></p>
+        <p>1. Serve via HTTPS (e.g., Netlify, GitHub Pages).</p>
+        <p>2. Or, locally: <code>python -m http.server 8000</code> and visit <code>http://localhost:8000</code>.</p>
+        <p>3. Use Chrome, Firefox, or Edge.</p>
+        <p>4. Reload after fixing.</p>
+        <button id="retry-btn">Retry Setup</button>
+        <button id="diagnose-btn">Diagnose</button>
+        <button id="download-btn">Download Logs</button>
+    </div>
+    <div id="start-menu">
+        <h1>Post API</h1>
+        <button id="create-btn" disabled>Create Bulletin</button>
+        <button id="join-btn" disabled>Join Bulletin</button>
+        <div id="public-boards-list">
+            <h3>Public Bulletins</h3>
+            <ul id="public-boards"></ul>
+            <button id="refresh-btn">Refresh</button>
+        </div>
+    </div>
+    <div id="modal">
+        <div id="modal-content">
+            <h2 id="modal-title">Create Bulletin</h2>
+            <input type="text" id="creator-input" placeholder="Your Name">
+            <input type="password" id="password-input" placeholder="Password (optional)">
+            <input type="text" id="board-id-input" placeholder="Bulletin ID" readonly style="display: none;">
+            <label><input type="checkbox" id="public-checkbox" checked> Public</label>
+            <select id="public-boards-select" style="display: none;">
+                <option value="">Select Public Bulletin</option>
+            </select>
+            <button id="modal-action">Create</button>
+        </div>
+    </div></div>
+    <div id="container">
+        <h1>Post API</h1>
+        <div id="profile">
+            <div>Session: <span id="session-id"></span></div>
+            <div>Bulletin: <span id="board-id"></span> <button onclick="copyBoardId()">Copy ID</button></div>
+            <div>API: <span id="api-key"></span> <button onclick="copyApiKey()">Copy API</button></div>
+            <button id="leave-btn">Leave</button></div>
+        </div>
+        <div id="board">
+            <div id="board-posts"></div>
+            <input type="text" id="post-input" placeholder="Post message...">
+            <input type="file" id="file-input" accept="image/*,*">
+            <button id="post-btn">Post</button>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script>
+        let boardId = localStorage.getItem('boardId');
+        let sessionId = localStorage.getItem('sessionId');
+        let currentBoard = '';
+        let isCreator = false;
+        let token = '';
+        let swReady = false;
+        let logs = [];
+
+        function log(message, error = null) {
+            const entry = `${new Date().toISOString()}: ${message}${error ? ` | Error: ${error.message}` : ''}`;
+            logs.push(entry);
+            console.log(entry);
+        }
+
+        const swCode = btoa(`
+            const virtualServer = {
+                bulletins: [],
+                posts: [],
+                files: [],
+                tokens: [],
+            };
+
+            self.addEventListener('fetch', event => {
+                const url = new URL(event.request.url);
+                if (url.pathname === '/api/public-b') {
+                    const publicBulletins = virtualServer.bulletins
+                        .filter(b => b.public)
+                        .map(b => ({ id: b.id, creator: b.creator, createdAt: b.createdAt }));
+                    event.respondWith(new Response(JSON.stringify(publicBulletins), {
+                        headers: { 'Content-Type': 'application/json' }
+                    }));
+                } else {
+                    const match = url.pathname.match(/^\\/api\\/([^\\/]+)\\/([^\\/]+)/);
+                    if (match) {
+                        const [, boardId, token] = match;
+                        const tokenData = virtualServer.tokens.find(t => t.boardId === boardId);
+                        if (!tokenData || tokenData.token !== token) {
+                            return event.respondWith(new Response(JSON.stringify({ error: 'Invalid token' }), { status: 403 }));
+                        }
+                        const posts = virtualServer.posts.filter(p => p.boardId === boardId);
+                        const files = virtualServer.files.filter(f => f.boardId === data.boardId);
+                        event.respondWith(new Response(JSON.stringify({ posts, files }), {
+                            headers: { 'Content-Type': 'application/json' }
+                        }));
+                    }
+                }
+            });
+
+            self.addEventListener('message', event => {
+                const data = event.data;
+                if (data.type === 'save') {
+                    const item = data.item;
+                    if (item.type === 'bulletin') virtualServer.bulletins.push(item);
+                    else if (item.type === 'post') virtualServer.posts.push(item);
+                    else if (item.type === 'file') virtualServer.files.push(item);
+                    else if (item.type === 'token') virtualServer.tokens.push(item);
+                } else if (data.type === 'delete' && data.boardId) {
+                    virtualServer.bulletins = virtualServer.bulletins.filter(b => b.id !== data.boardId);
+                    virtualServer.posts = virtualServer.posts.filter(p => p.boardId !== data.boardId);
+                    virtualServer.files = virtualServer.files.filter(f => f.boardId !== data.boardId);
+                    virtualServer.tokens = virtualServer.tokens.filter(t => t.boardId !== data.boardId);
+                } else if (data.type === 'get-bulletins') {
+                    event.source.postMessage({ type: 'bulletins', data: virtualServer.bulletins });
+                } else if (data.type === 'get-data' && data.boardId) {
+                    const posts = virtualServer.posts.filter(p => p.boardId === data.boardId);
+                    const files = virtualServer.files.filter(f => f.boardId === data.boardId);
+                    event.source.postMessage({ type: 'data', data: { posts, files } });
+                } else if (data.type === 'get-tokens') {
+                    event.source.postMessage({ type: 'tokens', data: virtualServer.tokens });
+                }
+            });
+
+            self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+            self.addEventListener('activate', event => event.waitUntil(clients.claim()));
+        `);
+
+        async function registerServiceWorker() {
+            log('Registering Service Worker');
+            if (!navigator.serviceWorker) throw new Error('Service Workers not supported');
+            const blob = new Blob([atob(swCode)], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const reg = await navigator.serviceWorker.register(url, { scope: '/' });
+            URL.revokeObjectURL(url);
+            await new Promise(resolve => {
+                if (navigator.serviceWorker.controller) resolve();
+                else navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+            });
+            log('Service Worker registered');
+            return reg;
+        }
+
+        async function initServiceWorker() {
+            const status = document.getElementById('setup-status');
+            status.textContent = 'Initializing Service Worker...';
+            try {
+                if (!location.protocol.includes('https') && !location.hostname.includes('localhost')) {
+                    throw new Error('Requires HTTPS or localhost');
+                }
+                const reg = await registerServiceWorker();
+                swReady = true;
+                document.getElementById('setup-wizard').style.display = 'none';
+                document.getElementById('start-menu').style.display = 'flex';
+                document.getElementById('create-btn').disabled = false;
+                document.getElementById('join-btn').disabled = false;
+                log('Service Worker ready');
+                return reg;
+            } catch (error) {
+                log('Service Worker init failed', error);
+                status.textContent = error.message;
+                document.getElementById('start-menu').style.display = 'none';
+                document.getElementById('setup-wizard').style.display = 'flex';
+                throw error;
+            }
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        function generateToken() {
+            return 'api_' + Math.random().toString(36).substr(2, 16);
+        }
+
+        async function handleCreateBoard() {
+            log('Creating bulletin');
+            const btn = document.getElementById('modal-action');
+            btn.classList.add('loading');
+            try {
+                if (!swReady) throw new Error('Service Worker not ready');
+                const creator = document.getElementById('creator-input').value.trim();
+                const password = document.getElementById('password-input').value.trim();
+                const isPublic = document.getElementById('public-checkbox').checked;
+                if (!creator) throw new Error('Enter a name');
+
+                sessionId = `Session_${Math.random().toString(36).substr(2, 8)}`;
+                boardId = generateUUID();
+                localStorage.setItem('boardId', boardId);
+                localStorage.setItem('sessionId', sessionId);
+                currentBoard = boardId;
+                isCreator = true;
+
+                token = generateToken();
+                const bulletin = { type: 'bulletin', id: boardId, creator, creatorSessionId: sessionId, public: isPublic, password: isPublic ? '' : password, createdAt: Date.now() };
+                const tokenData = { type: 'token', boardId, token };
+                navigator.serviceWorker.controller?.postMessage({ type: 'save', data: bulletin });
+                navigator.serviceWorker.controller?.postMessage({ type: 'save', data: tokenData });
+
+                initApp();
+                document.getElementById('modal').style.display = 'none';
+                showToast(`Bulletin created: /api/${boardId}/${token}`, true);
+                log('Bulletin created');
+            } catch (error) {
+                log('Create error', error);
+                showToast(error.message);
+            } finally {
+                btn.classList.remove('loading');
+            }
+        }
+
+        async function handleJoinBoard() {
+            log('Joining bulletin');
+            const btn = document.getElementById('modal-action');
+            btn.classList.add('loading');
+            try {
+                if (!swReady) throw new Error('Service Worker not ready');
+                const creator = document.getElementById('creator-input').value.trim();
+                const password = document.getElementById('password-input').value.trim();
+                const boardIdInput = document.getElementById('public-boards-select').value || document.getElementById('board-id-input').value.trim();
+                if (!boardIdInput) throw new Error('Select or enter a bulletin ID');
+
+                const bulletin = await new Promise(resolve => {
+                    navigator.serviceWorker.controller?.postMessage({ type: 'get-bulletin' });
+                    navigator.serviceWorker.addEventListener('message', function handler(event) {
+                        if (event.data.type === 'bulletins') {
+                            resolve(event.data.data.find(b => b.id === boardIdInput));
+                            navigator.serviceWorker.removeEventListener('message', handler);
+                        });
+                    });
+                });
+                if (!bulletin) throw new Error('Bulletin not found');
+                if (!bulletin.public && (bulletin.password !== password || bulletin.creator !== creator)) {
+                    throw new Error('Invalid credentials');
+                }
+
+                sessionId = `Session_${Math.random().toString(36).substr(2, 8)}`;
+                boardId = boardIdInput;
+                localStorage.setItem('boardId', boardId);
+                localStorage.setItem('sessionId', sessionId);
+                currentBoard = boardId;
+                isCreator = false;
+
+                const tokenData = await new Promise(resolve => {
+                    navigator.serviceWorker.controller?.postMessage({ type: 'get-tokens' });
+                    navigator.serviceWorker.addEventListener('message', function handler(event) {
+                        if (event.data.type === 'tokens') {
+                            resolve(event.data.data.find(t => t.boardId === boardId));
+                            navigator.serviceWorker.removeEventListener('message', handler);
+                        });
+                    });
+                });
+                token = tokenData?.token || '';
+                initApp();
+                document.getElementById('modal').style.display = 'none';
+                showToast('Joined bulletin', true);
+                log('Joined bulletin');
+            } catch (error) {
+                log('Join error', error);
+                showToast(error.message);
+            } finally {
+                btn.classList.remove('loading');
+            }
+        }
+
+        function initApp() {
+            document.getElementById('start-menu').style.display = 'none';
+            document.getElementById('modal').style.display = 'none';
+            document.getElementById('container').style.display = 'flex';
+            document.getElementById('session-id').textContent = sessionId;
+            document.getElementById('board-id').textContent = boardId.slice(0, 8);
+            document.getElementById('api-key').textContent = `/api/${boardId}/${token}`;
+            loadPosts();
+        }
+
+        async function leaveBoard() {
+            log('Leaving bulletin');
+            try {
+                if (isCreator) {
+                    navigator.serviceWorker.controller?.postMessage({ type: 'delete', boardId });
+                }
+                localStorage.removeItem('boardId');
+                localStorage.removeItem('sessionId');
+                currentBoard = '';
+                sessionId = '';
+                boardId = '';
+                isCreator = false;
+                token = '';
+                document.getElementById('container').style.display = 'none';
+                document.getElementById('start-menu').style.display = 'flex';
+                loadPublicBoardsList();
+                log('Left bulletin');
+            } catch (error) {
+                log('Leave error', error);
+                showToast('Failed to leave');
+            }
+        }
+
+        function copyBoardId() {
+            navigator.clipboard.writeText(boardId).then(() => showToast('ID copied', true)).catch(() => showToast('Copy failed'));
+        }
+
+        function copyApiKey() {
+            navigator.clipboard.writeText(`/api/${boardId}/${token}`).then(() => showToast('API copied', true)).catch(() => showToast('Copy failed'));
+        }
+
+        async function submitPost() {
+            log('Submitting post');
+            try {
+                const input = document.getElementById('post-input');
+                const fileInput = document.getElementById('file-input');
+                if (!currentBoard) throw new Error('Join a bulletin');
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const fileData = { type: 'file', id: generateUUID(), sessionId, boardId: currentBoard, fileName: file.name, fileData: reader.result, timestamp: Date.now() };
+                        navigator.serviceWorker.controller?.postMessage({ type: 'save', data: fileData });
+                        fileInput.value = '';
+                        loadPosts();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    const message = input.value.trim();
+                    if (!message) throw new Error('Enter a message');
+                    const post = { type: 'post', id: generateUUID(), sessionId, content: message, boardId: currentBoard, timestamp: Date.now() };
+                    navigator.serviceWorker.controller?.postMessage({ type: 'save', data: post });
+                    input.value = '';
+                    loadPosts();
+                }
+                showToast('Posted', true);
+            } catch (error) {
+                log('Post error', error);
+                showToast(error.message);
+            }
+        }
+
+        function appendPost(text) {
+            const posts = document.getElementById('board-posts');
+            const div = document.createElement('div');
+            div.className = 'post';
+            div.textContent = text;
+            posts.appendChild(div);
+            posts.scrollTop = posts.scrollHeight;
+        }
+
+        function appendFile(file) {
+            const posts = document.getElementById('board-posts');
+            const div = document.createElement('div');
+            div.className = 'post';
+            if (file.fileData.startsWith('data:image/')) {
+                const img = document.createElement('img');
+                img.src = file.fileData;
+                div.textContent = `${file.sessionId} shared image:`;
+                div.appendChild(img);
+            } else {
+                const link = document.createElement('a');
+                link.href = file.fileData;
+                link.download = file.fileName;
+                link.textContent = file.fileName;
+                div.textContent = `${file.sessionId} shared file: `;
+                div.appendChild(link);
+            }
+            posts.appendChild(div);
+            posts.scrollTop = posts.scrollHeight;
+        }
+
+        async function loadPosts() {
+            try {
+                const data = await new Promise(resolve => {
+                    navigator.serviceWorker.controller?.postMessage({ type: 'get-data', boardId: currentBoard });
+                    navigator.serviceWorker.addEventListener('message', function handler(event) {
+                        if (event.data.type === 'data') {
+                            resolve(event.data.data);
+                            navigator.serviceWorker.removeEventListener('message', handler);
+                        }
+                    });
+                });
+                const postsDiv = document.getElementById('board-posts');
+                postsDiv.innerHTML = '';
+                (data.posts || []).sort((a, b) => a.timestamp - b.timestamp).forEach(post => appendPost(`${post.sessionId}: ${post.content}`));
+                (data.files || []).sort((a, b) => a.timestamp - b.timestamp).forEach(appendFile);
+            } catch (error) {
+                log('Load posts error', error);
+            }
+        }
+
+        async function loadPublicBoardsList() {
+            try {
+                const bulletins = await fetch('/api/public-b').then(res => res.json());
+                const list = document.getElementById('public-boards');
+                list.innerHTML = bulletins.length ? '' : '<li>No public bulletins</li>';
+                bulletins.forEach(bulletin => {
+                    const li = document.createElement('li');
+                    li.textContent = `By ${bulletin.creator} (${bulletin.id.slice(0, 8)})`;
+                    li.addEventListener('click', () => {
+                        document.getElementById('public-boards-select').value = bulletin.id;
+                        document.getElementById('board-id-input').value = bulletin.id;
+                        showModal('join');
+                    });
+                    list.appendChild(li);
+                });
+            } catch (error) {
+                log('Load public boards error', error);
+            }
+        }
+
+        async function loadPublicBoards() {
+            try {
+                const bulletins = await fetch('/api/public-b').then(res => res.json());
+                const select = document.getElementById('public-boards-select');
+                select.innerHTML = '<option value="">Select Public Bulletin</option>';
+                bulletins.forEach(bulletin => {
+                    const option = document.createElement('option');
+                    option.value = bulletin.id;
+                    option.textContent = `By ${bulletin.creator} (${bulletin.id.slice(0, 8)})`;
+                    select.appendChild(option);
+                });
+                select.onchange = () => {
+                    const id = select.value;
+                    document.getElementById('board-id-input').style.display = id ? 'none' : 'block';
+                    if (id) document.getElementById('board-id-input').value = id;
+                };
+            } catch (error) {
+                log('Load public boards error', error);
+            }
+        }
+
+        function showModal(mode) {
+            log(`Showing ${mode} modal`);
+            const modal = document.getElementById('modal');
+            if (!modal) return showToast('UI error');
+            document.getElementById('modal-title').textContent = mode === 'create' ? 'Create Bulletin' : 'Join Bulletin';
+            document.getElementById('modal-action').textContent = mode === 'create' ? 'Create' : 'Join';
+            document.getElementById('board-id-input').value = mode === 'create' ? generateUUID() : '';
+            document.getElementById('creator-input').value = '';
+            document.getElementById('password-input').value = '';
+            document.getElementById('public-checkbox').checked = mode === 'create';
+            document.getElementById('public-boards-select').style.display = mode === 'create' ? 'none' : 'block';
+            document.getElementById('board-id-input').style.display = mode === 'create' ? 'none' : 'block';
+            modal.style.display = 'flex';
+            document.getElementById('modal-action').onclick = mode === 'create' ? handleCreateBoard : handleJoinBoard;
+            if (mode === 'join') loadPublicBoards();
+        }
+
+        function showToast(message, success = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${success ? 'success' : 'error'}`;
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+
+        function downloadLogs() {
+            const blob = new Blob([logs.join('\n')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `post-api-logs-${new Date().toISOString()}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async function diagnose() {
+            log('Diagnosing setup');
+            const status = document.getElementById('setup-status');
+            status.textContent = 'Checking setup...';
+            const checks = [];
+            checks.push(`Protocol: ${location.protocol} (${location.protocol.includes('https') ? 'OK' : 'Use HTTPS'})`);
+            checks.push(`Host: ${location.hostname} (${location.hostname.includes('localhost') ? 'OK' : 'Use localhost or HTTPS'})`);
+            checks.push(`ServiceWorker: ${'serviceWorker' in navigator ? 'Supported' : 'Not supported'}`);
+            try {
+                await navigator.serviceWorker.getRegistrations();
+                checks.push('Registration: OK');
+            } catch (error) {
+                checks.push(`Registration: Failed (${error.message})`);
+            }
+            status.textContent = checks.join('\n');
+            showToast('Diagnosis complete');
+        }
+
+        async function checkLogin() {
+            log('Checking login');
+            try {
+                if (boardId && sessionId) {
+                    const bulletin = await new Promise(resolve => {
+                        navigator.serviceWorker.controller?.postMessage({ type: 'get-bulletins' });
+                        navigator.serviceWorker.addEventListener('message', function handler(event) {
+                            if (event.data.type === 'bulletins') {
+                                resolve(event.data.data.find(b => b.id === boardId));
+                                navigator.serviceWorker.removeEventListener('message', handler);
+                            }
+                        });
+                    });
+                    if (bulletin) {
+                        currentBoard = boardId;
+                        isCreator = bulletin.creatorSessionId === sessionId;
+                        const tokenData = await new Promise(resolve => {
+                            navigator.serviceWorker.controller?.postMessage({ type: 'get-tokens' });
+                            navigator.serviceWorker.addEventListener('message', function handler(event) {
+                                if (event.data.type === 'tokens') {
+                                    resolve(event.data.data.find(t => t.boardId === boardId));
+                                    navigator.serviceWorker.removeEventListener('message', handler);
+                                }
+                            });
+                        });
+                        token = tokenData?.token || '';
+                        initApp();
+                    } else {
+                        document.getElementById('start-menu').style.display = 'flex';
+                        loadPublicBoardsList();
+                    }
+                } else {
+                    document.getElementById('start-menu').style.display = 'flex';
+                    loadPublicBoardsList();
+                }
+            } catch (error) {
+                log('Login check error', error);
+                document.getElementById('start-menu').style.display = 'flex';
+                loadPublicBoardsList();
+            }
+        }
+
+        function init() {
+            log('Initializing app');
+            document.getElementById('create-btn').textContent = 'Loading...';
+            document.getElementById('join-btn').textContent = 'Loading...';
+            initServiceWorker().then(() => {
+                checkLogin();
+                document.getElementById('create-btn').textContent = 'Create Bulletin';
+                document.getElementById('join-btn').textContent = 'Join Bulletin';
+                document.getElementById('create-btn').addEventListener('click', () => showModal('create'));
+                document.getElementById('join-btn').addEventListener('click', () => showModal('join'));
+                document.getElementById('refresh-btn').addEventListener('click', loadPublicBoardsList);
+                document.getElementById('retry-btn').addEventListener('click', () => {
+                    document.getElementById('setup-wizard').style.display = 'none';
+                    init();
+                });
+                document.getElementById('diagnose-btn').addEventListener('click', diagnose);
+                document.getElementById('download-btn').addEventListener('click', downloadLogs);
+                document.getElementById('leave-btn').addEventListener('click', leaveBoard);
+                document.getElementById('post-btn').addEventListener('click', submitPost);
+                log('App initialized');
+            }).catch(error => {
+                log('Initialization failed', error);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
