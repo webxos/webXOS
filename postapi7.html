@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post API</title>
+    <style>
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            flex: 1;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2em;
+            text-shadow: 0 0 10px #0f0;
+        }
+        .setup-wizard, .bulletin-board {
+            display: none;
+            background: #111;
+            padding: 20px;
+            border: 2px solid #0f0;
+            border-radius: 5px;
+            box-shadow: 0 0 15px #0f0;
+        }
+        .setup-wizard.active, .bulletin-board.active {
+            display: block;
+        }
+        input, button {
+            background: #222;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin: 5px;
+            font-family: 'Courier New', monospace;
+            border-radius: 3px;
+            width: calc(100% - 32px);
+            box-sizing: border-box;
+        }
+        button:hover {
+            background: #0f0;
+            color: #000;
+            cursor: pointer;
+        }
+        .post-card, .history-card {
+            background: #111;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #0f0;
+            border-radius: 3px;
+        }
+        .history-log {
+            margin-top: 20px;
+        }
+        .history-log h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+        }
+        .error-toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #f00;
+            color: #fff;
+            padding: 10px;
+            border-radius: 3px;
+            display: none;
+        }
+        .error-toast.active {
+            display: block;
+        }
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.8em;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
+            input, button {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Post API</h1>
+        <div class="setup-wizard active">
+            <h2>Setup Wizard</h2>
+            <p>Run this app on HTTPS or localhost for full functionality. Offline mode is supported.</p>
+            <button onclick="initApp()">Initialize App</button>
+            <div class="create-bulletin">
+                <h3>Create Bulletin</h3>
+                <input type="text" id="bulletinName" placeholder="Bulletin Name">
+                <input type="checkbox" id="isPublic" checked> <label for="isPublic">Public</label>
+                <input type="password" id="bulletinPassword" placeholder="Password (optional, for private)">
+                <button onclick="createBulletin()">Create</button>
+            </div>
+            <div class="join-bulletin">
+                <h3>Join Bulletin</h3>
+                <input type="text" id="joinBoardId" placeholder="Board ID">
+                <input type="text" id="joinToken" placeholder="Access Token">
+                <input type="password" id="joinPassword" placeholder="Password (if private)">
+                <button onclick="joinBulletin()">Join</button>
+            </div>
+        </div>
+        <div class="bulletin-board">
+            <h2 id="boardTitle"></h2>
+            <p>Board ID: <span id="boardId"></span></p>
+            <p>Access Token: <span id="accessToken"></span></p>
+            <div class="post-form">
+                <input type="text" id="postContent" placeholder="Write a post...">
+                <input type="file" id="postFile">
+                <button onclick="submitPost()">Post</button>
+            </div>
+            <div id="posts"></div>
+            <div class="history-log">
+                <h3>History Log</h3>
+                <div id="history"></div>
+            </div>
+            <button onclick="refreshBoard()">Refresh</button>
+        </div>
+        <div class="error-toast" id="errorToast"></div>
+    </div>
+    <footer>© 2025 WebXOS</footer>
+
+    <script>
+        // Virtual Worker Emulation
+        let virtualWorkerPort = null;
+        const channel = new MessageChannel();
+        const dbName = 'post-api';
+        let db = null;
+        let peerConnection = null;
+        let dataChannel = null;
+        let currentBoardId = null;
+        let accessToken = null;
+        const signalingStore = new Map(); // Simulated signaling server
+
+        // Initialize IndexedDB
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName, 2);
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    if (event.oldVersion < 1) {
+                        db.createObjectStore('bulletins', { keyPath: 'id' });
+                        db.createObjectStore('posts', { keyPath: 'id', autoIncrement: true });
+                        db.createObjectStore('files', { keyPath: 'id' });
+                        db.createObjectStore('errors', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (event.oldVersion < 2) {
+                        db.createObjectStore('history', { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve();
+                };
+                request.onerror = () => reject('Failed to initialize IndexedDB');
+            });
+        }
+
+        // Virtual Worker Logic
+        function startVirtualWorker() {
+            virtualWorkerPort = channel.port1;
+            virtualWorkerPort.onmessage = handleWorkerMessage;
+
+            function handleWorkerMessage(event) {
+                const { type, path, boardId, token, data } = event.data;
+                if (type === 'fetch') {
+                    if (path === '/api/public-bulletins') {
+                        getPublicBulletins().then(bulletins => {
+                            virtualWorkerPort.postMessage({ type: 'response', data: bulletins });
+                        }).catch(err => showError(err.message));
+                    } else if (path.startsWith('/api/') && boardId && token) {
+                        validateToken(boardId, token).then(valid => {
+                            if (valid) {
+                                getPosts(boardId).then(posts => {
+                                    virtualWorkerPort.postMessage({ type: 'response', data: posts });
+                                }).catch(err => showError(err.message));
+                            } else {
+                                virtualWorkerPort.postMessage({ type: 'error', message: 'Invalid token' });
+                            }
+                        }).catch(err => showError(err.message));
+                    }
+                } else if (type === 'post') {
+                    savePost(boardId, data).then(async () => {
+                        const contentSummary = data.content ? data.content.substring(0, 50) + (data.content.length > 50 ? '...' : '') : 'No content';
+                        await logAction(boardId, data.file ? 'File uploaded' : 'Post created', contentSummary);
+                        syncPost(data);
+                        virtualWorkerPort.postMessage({ type: 'post-success' });
+                    }).catch(err => showError(err.message));
+                } else if (type === 'history') {
+                    saveHistory(boardId, data).then(() => {
+                        syncHistory(data);
+                        renderHistory(boardId);
+                    }).catch(err => showError(err.message));
+                }
+            }
+        }
+
+        // IndexedDB Operations
+        async function saveBulletin(bulletin) {
+            const tx = db.transaction('bulletins', 'readwrite');
+            const store = tx.objectStore('bulletins');
+            await store.put(bulletin);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save bulletin');
+            });
+        }
+
+        async function getPublicBulletins() {
+            const tx = db.transaction('bulletins', 'readonly');
+            const store = tx.objectStore('bulletins');
+            const request = store.getAll();
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result.filter(b => b.isPublic));
+                request.onerror = () => reject('Failed to fetch bulletins');
+            });
+        }
+
+        async function validateToken(boardId, token) {
+            const tx = db.transaction('bulletins', 'readonly');
+            const store = tx.objectStore('bulletins');
+            const request = store.get(boardId);
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const bulletin = request.result;
+                    resolve(bulletin && bulletin.token === token && (!bulletin.password || bulletin.isPublic));
+                };
+                request.onerror = () => reject('Failed to validate token');
+            });
+        }
+
+        async function savePost(boardId, post) {
+            const tx = db.transaction('posts', 'readwrite');
+            const store = tx.objectStore('posts');
+            post.boardId = boardId;
+            post.timestamp = Date.now();
+            await store.add(post);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save post');
+            });
+        }
+
+        async function getPosts(boardId) {
+            const tx = db.transaction('posts', 'readonly');
+            const store = tx.objectStore('posts');
+            const request = store.getAll();
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const posts = request.result.filter(p => p.boardId === boardId);
+                    resolve(posts);
+                };
+                request.onerror = () => reject('Failed to fetch posts');
+            });
+        }
+
+        async function saveError(error) {
+            const tx = db.transaction('errors', 'readwrite');
+            const store = tx.objectStore('errors');
+            await store.add({ message: error, timestamp: Date.now() });
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save error');
+            });
+        }
+
+        async function saveHistory(boardId, logEntry) {
+            const tx = db.transaction('history', 'readwrite');
+            const store = tx.objectStore('history');
+            logEntry.boardId = boardId;
+            logEntry.timestamp = Date.now();
+            await store.add(logEntry);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save history log');
+            });
+        }
+
+        async function getHistory(boardId) {
+            const tx = db.transaction('history', 'readonly');
+            const store = tx.objectStore('history');
+            const request = store.getAll();
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const logs = request.result.filter(l => l.boardId === boardId);
+                    resolve(logs);
+                };
+                request.onerror = () => reject('Failed to fetch history');
+            });
+        }
+
+        async function logAction(boardId, action, details) {
+            const logEntry = { action, details };
+            await saveHistory(boardId, logEntry);
+            virtualWorkerPort.postMessage({ type: 'history', boardId, data: logEntry });
+            await renderHistory(boardId);
+        }
+
+        // WebRTC for Cross-Device Sync
+        function initWebRTC(boardId, isCreator) {
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+
+            // Handle ICE candidates
+            const iceCandidates = [];
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    iceCandidates.push(event.candidate);
+                    broadcastOffer(boardId, { sdp: peerConnection.localDescription, ice: iceCandidates });
+                }
+            };
+
+            // Create data channel for creator
+            if (isCreator) {
+                dataChannel = peerConnection.createDataChannel('posts');
+                setupDataChannel(boardId);
+                peerConnection.createOffer().then(offer => {
+                    return peerConnection.setLocalDescription(offer);
+                }).then(() => {
+                    broadcastOffer(boardId, { sdp: peerConnection.localDescription, ice: iceCandidates });
+                }).catch(err => showError('WebRTC offer creation failed: ' + err.message));
+            } else {
+                // For joiners, wait for data channel to be assigned
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel(boardId);
+                };
+            }
+
+            // Handle connection state changes
+            peerConnection.onconnectionstatechange = () => {
+                if (peerConnection.connectionState === 'connected') {
+                    showToast('WebRTC connection established');
+                } else if (peerConnection.connectionState === 'failed') {
+                    showError('WebRTC connection failed');
+                }
+            };
+        }
+
+        function setupDataChannel(boardId) {
+            dataChannel.onopen = () => {
+                console.log('Data channel open');
+                showToast('Data channel connected');
+            };
+            dataChannel.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'post') {
+                    savePost(boardId, message.data).then(() => renderPosts(boardId));
+                } else if (message.type === 'history') {
+                    saveHistory(boardId, message.data).then(() => renderHistory(boardId));
+                }
+            };
+            dataChannel.onerror = (err) => showError('Data channel error: ' + err.message);
+        }
+
+        function broadcastOffer(boardId, offer) {
+            signalingStore.set(boardId, offer);
+            console.log(`Offer for board ${boardId}:`, JSON.stringify(offer));
+            showToast(`Share this board ID: ${boardId} with peers`);
+        }
+
+        function joinWebRTC(boardId, offer) {
+            if (!signalingStore.has(boardId)) {
+                showError('Invalid board ID or no offer available');
+                return;
+            }
+            const storedOffer = signalingStore.get(boardId);
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+
+            // Handle ICE candidates for joiner
+            const iceCandidates = [];
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    iceCandidates.push(event.candidate);
+                    console.log(`Answer ICE candidates:`, JSON.stringify(iceCandidates));
+                }
+            };
+
+            peerConnection.ondatachannel = (event) => {
+                dataChannel = event.channel;
+                setupDataChannel(boardId);
+            };
+
+            peerConnection.setRemoteDescription(new RTCSessionDescription(storedOffer.sdp)).then(() => {
+                return peerConnection.createAnswer();
+            }).then(answer => {
+                return peerConnection.setLocalDescription(answer);
+            }).then(() => {
+                storedOffer.ice.forEach(candidate => {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(err => showError('ICE candidate error: ' + err.message));
+                });
+                console.log(`Answer:`, JSON.stringify(peerConnection.localDescription));
+            }).catch(err => showError('WebRTC join failed: ' + err.message));
+        }
+
+        function syncPost(post) {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(JSON.stringify({ type: 'post', data: post }));
+            }
+        }
+
+        function syncHistory(logEntry) {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(JSON.stringify({ type: 'history', data: logEntry }));
+            }
+        }
+
+        // UI and App Logic
+        async function initApp() {
+            try {
+                await initDB();
+                startVirtualWorker();
+                document.querySelector('.setup-wizard').classList.add('active');
+                showToast('App initialized successfully');
+            } catch (error) {
+                showError('Initialization failed: ' + error.message);
+            }
+        }
+
+        async function createBulletin() {
+            try {
+                const name = document.getElementById('bulletinName').value;
+                const isPublic = document.getElementById('isPublic').checked;
+                const password = document.getElementById('bulletinPassword').value;
+                if (!name) throw new Error('Bulletin name is required');
+                currentBoardId = crypto.randomUUID();
+                accessToken = crypto.randomUUID();
+                const bulletin = { id: currentBoardId, name, isPublic, password, token: accessToken };
+                await saveBulletin(bulletin);
+                await logAction(currentBoardId, 'Bulletin created', name);
+                initWebRTC(currentBoardId, true);
+                showBulletinBoard(name, currentBoardId, accessToken);
+                if (isPublic) {
+                    virtualWorkerPort.postMessage({ type: 'fetch', path: '/api/public-bulletins' });
+                }
+            } catch (error) {
+                showError('Failed to create bulletin: ' + error.message);
+            }
+        }
+
+        async function joinBulletin() {
+            try {
+                const boardId = document.getElementById('joinBoardId').value;
+                const token = document.getElementById('joinToken').value;
+                const password = document.getElementById('joinPassword').value;
+                if (!boardId || !token) throw new Error('Board ID and token are required');
+                const isValid = await validateToken(boardId, token);
+                if (!isValid) throw new Error('Invalid board ID or token');
+                currentBoardId = boardId;
+                accessToken = token;
+                joinWebRTC(boardId, null); // Offer is fetched from signalingStore
+                showBulletinBoard('Joined Bulletin', boardId, token);
+                virtualWorkerPort.postMessage({ type: 'fetch', path: `/api/${boardId}/${token}` });
+            } catch (error) {
+                showError('Failed to join bulletin: ' + error.message);
+            }
+        }
+
+        async function submitPost() {
+            try {
+                const content = document.getElementById('postContent').value;
+                const fileInput = document.getElementById('postFile');
+                let fileData = null;
+                let fileName = null;
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    if (file.size > 10 * 1024 * 1024) throw new Error('File size exceeds 10MB');
+                    fileData = await file.arrayBuffer();
+                    fileName = file.name;
+                }
+                const post = { content, file: fileData ? Array.from(new Uint8Array(fileData)) : null };
+                virtualWorkerPort.postMessage({ type: 'post', boardId: currentBoardId, data: post });
+                if (fileName) {
+                    await logAction(currentBoardId, 'File uploaded', `File: ${fileName}`);
+                } else if (content) {
+                    await logAction(currentBoardId, 'Post created', content.substring(0, 50) + (content.length > 50 ? '...' : ''));
+                }
+                document.getElementById('postContent').value = '';
+                fileInput.value = '';
+            } catch (error) {
+                showError('Failed to submit post: ' + error.message);
+            }
+        }
+
+        async function renderPosts(boardId) {
+            try {
+                const posts = await getPosts(boardId);
+                const postsDiv = document.getElementById('posts');
+                postsDiv.innerHTML = posts.map(post => `
+                    <div class="post-card">
+                        <p>${post.content || 'No content'}</p>
+                        ${post.file ? '<p>File attached</p>' : ''}
+                        <small>${new Date(post.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError('Failed to render posts: ' + error.message);
+            }
+        }
+
+        async function renderHistory(boardId) {
+            try {
+                const logs = await getHistory(boardId);
+                const historyDiv = document.getElementById('history');
+                historyDiv.innerHTML = logs.map(log => `
+                    <div class="history-card">
+                        <p>${log.action}: ${log.details}</p>
+                        <small>${new Date(log.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError('Failed to render history: ' + error.message);
+            }
+        }
+
+        async function refreshBoard() {
+            if (currentBoardId && accessToken) {
+                try {
+                    await renderPosts(currentBoardId);
+                    await renderHistory(currentBoardId);
+                    virtualWorkerPort.postMessage({ type: 'fetch', path: `/api/${currentBoardId}/${accessToken}` });
+                    showToast('Board refreshed');
+                } catch (error) {
+                    showError('Failed to refresh board: ' + error.message);
+                }
+            } else {
+                showError('No active board to refresh');
+            }
+        }
+
+        function showBulletinBoard(name, boardId, token) {
+            document.querySelector('.setup-wizard').classList.remove('active');
+            document.querySelector('.bulletin-board').classList.add('active');
+            document.getElementById('boardTitle').textContent = name;
+            document.getElementById('boardId').textContent = boardId;
+            document.getElementById('accessToken').textContent = token;
+            renderPosts(boardId);
+            renderHistory(boardId);
+        }
+
+        function showError(message) {
+            saveError(message);
+            const toast = document.getElementById('errorToast');
+            toast.textContent = message;
+            toast.style.background = '#f00';
+            toast.style.color = '#fff';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('errorToast');
+            toast.textContent = message;
+            toast.style.background = '#0f0';
+            toast.style.color = '#000';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        // Clean up on page unload
+        window.addEventListener('unload', () => {
+            if (db) db.close();
+            if (peerConnection) peerConnection.close();
+        });
+
+        // Python-inspired functional pipeline for API responses
+        function processAPIResponse(data) {
+            return data
+                .filter(item => item.timestamp > Date.now() - 24 * 60 * 60 * 1000)
+                .map(item => ({ ...item, formattedTime: new Date(item.timestamp).toLocaleString() }))
+                .reduce((acc, item) => ({ ...acc, [item.id]: item }), {});
+        }
+
+        // Initialize app on load
+        window.addEventListener('load', () => {
+            if (!window.isSecureContext) {
+                showError('Please run on HTTPS or localhost for full functionality');
+            }
+        });
+    </script>
+</body>
+</html>
