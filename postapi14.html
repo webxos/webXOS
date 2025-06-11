@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post API</title>
+    <style>
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            flex: 1;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2em;
+            text-shadow: 0 0 10px #0f0;
+        }
+        .setup-wizard, .bulletin-board {
+            display: none;
+            background: #111;
+            padding: 20px;
+            border: 2px solid #0f0;
+            border-radius: 5px;
+            box-shadow: 0 0 15px #0f0;
+        }
+        .setup-wizard.active, .bulletin-board.active {
+            display: block;
+        }
+        input, button {
+            background: #222;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin: 5px;
+            font-family: 'Courier New', monospace;
+            border-radius: 3px;
+            width: calc(100% - 32px);
+            box-sizing: border-box;
+        }
+        button:hover {
+            background: #0f0;
+            color: #000;
+            cursor: pointer;
+        }
+        .post-card, .history-card {
+            background: #111;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #0f0;
+            border-radius: 3px;
+        }
+        .history-log {
+            margin-top: 20px;
+        }
+        .history-log h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+        }
+        .error-toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #f00;
+            color: #fff;
+            padding: 10px;
+            border-radius: 3px;
+            display: none;
+        }
+        .error-toast.active {
+            display: block;
+        }
+        .api-key-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #apiKeyDisplay {
+            flex-grow: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 70%;
+        }
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.8em;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
+            input, button {
+                font-size: 0.9em;
+            }
+            #apiKeyDisplay {
+                max-width: 60%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Post API</h1>
+        <div class="setup-wizard active">
+            <h2>Setup Wizard</h2>
+            <p>Run this app on HTTPS or localhost for full functionality. Offline mode is supported.</p>
+            <button onclick="initApp()">Initialize App</button>
+            <div class="create-bulletin">
+                <h3>Create Bulletin</h3>
+                <input type="text" id="bulletinName" placeholder="Bulletin Name">
+                <input type="text" id="bulletinSerial" placeholder="Serial (API-XXXX)">
+                <input type="checkbox" id="isPublic" checked> <label for="isPublic">Public</label>
+                <input type="password" id="bulletinPassword" placeholder="Password (optional, for private)">
+                <button onclick="createBulletin()">Create</button>
+            </div>
+            <div class="join-bulletin">
+                <h3>Join Bulletin</h3>
+                <input type="text" id="apiKey" placeholder="API Key (API-xxxxxx)">
+                <input type="text" id="joinSerial" placeholder="Serial (API-XXXX)">
+                <input type="password" id="joinPassword" placeholder="Password (if private)">
+                <button onclick="joinBulletin()">Join</button>
+            </div>
+        </div>
+        <div class="bulletin-board">
+            <h2 id="boardTitle"></h2>
+            <p>API Key: <span class="api-key-container"><span id="apiKeyDisplay"></span><button onclick="copyApiKey()">Copy API Key</button></span></p>
+            <div class="post-form">
+                <input type="text" id="postContent" placeholder="Write a post...">
+                <input type="file" id="postFile">
+                <button onclick="submitPost()">Post</button>
+            </div>
+            <div id="posts"></div>
+            <div class="history-log">
+                <h3>History Log</h3>
+                <div id="history"></div>
+            </div>
+            <button onclick="refreshBoard()">Refresh</button>
+        </div>
+        <div class="error-toast" id="errorToast"></div>
+    </div>
+    <footer>© 2025 WebXOS</footer>
+
+    <script>
+        // Virtual Worker and Signaling Server Emulation
+        let virtualWorkerPort = null;
+        const channel = new MessageChannel();
+        const dbName = 'post-api';
+        let db = null;
+        let peerConnections = new Map();
+        let dataChannels = new Map();
+        let currentBoardId = null;
+        let currentApiKey = null;
+        let accessToken = null;
+        let currentSerial = null;
+        let isCreator = false;
+
+        // Initialize IndexedDB
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName, 7);
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    if (event.oldVersion < 1) {
+                        db.createObjectStore('bulletins', { keyPath: 'id' });
+                        db.createObjectStore('posts', { keyPath: 'id', autoIncrement: true });
+                        db.createObjectStore('files', { keyPath: 'id' });
+                        db.createObjectStore('errors', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (event.oldVersion < 2) {
+                        db.createObjectStore('history', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (event.oldVersion < 3) {
+                        db.createObjectStore('apiKeys', { keyPath: 'boardId' });
+                    }
+                    if (event.oldVersion < 4) {
+                        db.createObjectStore('signaling', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (event.oldVersion < 5) {
+                        db.createObjectStore('keys', { keyPath: 'id' });
+                    }
+                    if (event.oldVersion < 6) {
+                        const apiKeysStore = db.objectStoreNames.contains('apiKeys') ? event.target.transaction.objectStore('apiKeys') : db.createObjectStore('apiKeys', { keyPath: 'boardId' });
+                        apiKeysStore.createIndex('serial', 'serial', { unique: false });
+                    }
+                    if (event.oldVersion < 7) {
+                        const keysStore = db.objectStoreNames.contains('keys') ? event.target.transaction.objectStore('keys') : db.createObjectStore('keys', { keyPath: 'id' });
+                        keysStore.createIndex('serial', 'serial', { unique: true });
+                    }
+                };
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve();
+                };
+                request.onerror = () => reject('Failed to initialize IndexedDB');
+            });
+        }
+
+        // Derive AES key from serial using PBKDF2
+        async function deriveKeyFromSerial(serial) {
+            if (!serial || !serial.startsWith('API-') || serial.length < 8) {
+                throw new Error('Invalid serial format: Must be API- followed by at least 4 characters');
+            }
+            const encoder = new TextEncoder();
+            const serialData = encoder.encode(serial);
+            const salt = encoder.encode('post-api-salt-v2'); // Updated salt for consistency
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                serialData,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveKey']
+            );
+            const key = await crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                true,
+                ['encrypt', 'decrypt']
+            );
+            // Store the key for offline use
+            await storeCryptoKey(serial, key);
+            return key;
+        }
+
+        // Store cryptographic key in IndexedDB for offline access
+        async function storeCryptoKey(serial, key) {
+            const exportedKey = await crypto.subtle.exportKey('raw', key);
+            const tx = db.transaction('keys', 'readwrite');
+            const store = tx.objectStore('keys');
+            await store.put({ id: serial, key: Array.from(new Uint8Array(exportedKey)), serial });
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to store cryptographic key');
+            });
+        }
+
+        // Retrieve cryptographic key from IndexedDB
+        async function getCryptoKey(serial) {
+            const tx = db.transaction('keys', 'readonly');
+            const store = tx.objectStore('keys');
+            const request = store.get(serial);
+            return new Promise((resolve, reject) => {
+                request.onsuccess = async () => {
+                    if (request.result) {
+                        const keyData = new Uint8Array(request.result.key);
+                        const key = await crypto.subtle.importKey(
+                            'raw',
+                            keyData,
+                            { name: 'AES-GCM', length: 256 },
+                            true,
+                            ['encrypt', 'decrypt']
+                        );
+                        resolve(key);
+                    } else {
+                        resolve(null);
+                    }
+                };
+                request.onerror = () => reject('Failed to fetch cryptographic key');
+            });
+        }
+
+        // AES Encryption for API Key
+        async function generateApiKey(boardId, token, serial) {
+            try {
+                let key = await getCryptoKey(serial);
+                if (!key) {
+                    key = await deriveKeyFromSerial(serial);
+                }
+                const encoder = new TextEncoder();
+                const data = encoder.encode(`${boardId}:${token}:${Date.now()}`);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+                const combined = new Uint8Array(iv.length + encrypted.byteLength);
+                combined.set(iv, 0);
+                combined.set(new Uint8Array(encrypted), iv.length);
+                const apiKey = `API-${btoa(String.fromCharCode(...combined))}`;
+                await saveApiKey(boardId, apiKey, serial);
+                return apiKey;
+            } catch (err) {
+                throw new Error(`Failed to generate API key: ${err.message}`);
+            }
+        }
+
+        // AES Decryption for API Key
+        async function decryptApiKey(apiKey, serial) {
+            try {
+                if (!apiKey.startsWith('API-')) throw new Error('Invalid API key format');
+                let key = await getCryptoKey(serial);
+                if (!key) {
+                    key = await deriveKeyFromSerial(serial);
+                }
+                const keyData = atob(apiKey.replace('API-', ''));
+                const keyDataArray = new Uint8Array(keyData.split('').map(c => c.charCodeAt(0)));
+                const iv = keyDataArray.slice(0, 12);
+                const encrypted = keyDataArray.slice(12);
+                const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted);
+                const decoder = new TextDecoder();
+                return decoder.decode(decrypted).split(':');
+            } catch (err) {
+                throw new Error(`API key decryption failed: ${err.message}`);
+            }
+        }
+
+        // Generate Post Code
+        async function generatePostCode(postId, boardId) {
+            try {
+                let key = await getCryptoKey(currentSerial);
+                if (!key) {
+                    key = await deriveKeyFromSerial(currentSerial);
+                }
+                const encoder = new TextEncoder();
+                const data = encoder.encode(`${postId}:${boardId}:${Date.now()}`);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+                const combined = new Uint8Array(iv.length + encrypted.byteLength);
+                combined.set(iv, 0);
+                combined.set(new Uint8Array(encrypted), iv.length);
+                return btoa(String.fromCharCode(...combined));
+            } catch (err) {
+                throw new Error(`Failed to generate post code: ${err.message}`);
+            }
+        }
+
+        // In-Browser Signaling Server
+        async function startSignalingServer(boardId) {
+            async function saveSignalingMessage(message) {
+                const tx = db.transaction('signaling', 'readwrite');
+                const store = tx.objectStore('signaling');
+                const serializedMessage = {
+                    ...message,
+                    sdp: message.sdp ? { type: message.sdp.type, sdp: message.sdp.sdp } : null,
+                    candidate: message.candidate ? { candidate: message.candidate.candidate } : null,
+                    timestamp: Date.now()
+                };
+                await store.add({ boardId, ...serializedMessage });
+                return new Promise((resolve, reject) => {
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject('Failed to save signaling message');
+                });
+            }
+
+            async function getSignalingMessages(boardId, peerId) {
+                const tx = db.transaction('signaling', 'readonly');
+                const store = tx.objectStore('signaling');
+                const request = store.getAll();
+                return new Promise((resolve, reject) => {
+                    request.onsuccess = () => {
+                        const messages = request.result.filter(m => m.boardId === boardId && m.to === peerId);
+                        resolve(messages);
+                    };
+                    request.onerror = () => reject('Failed to fetch signaling messages');
+                });
+            }
+
+            async function clearOldSignalingMessages() {
+                const tx = db.transaction('signaling', 'readwrite');
+                const store = tx.objectStore('signaling');
+                const request = store.getAll();
+                return new Promise((resolve, reject) => {
+                    request.onsuccess = async () => {
+                        const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24 hours
+                        const oldMessages = request.result.filter(m => m.timestamp < cutoff);
+                        for (const msg of oldMessages) {
+                            await store.delete(msg.id);
+                        }
+                        resolve();
+                    };
+                    request.onerror = () => reject('Failed to clear old signaling messages');
+                });
+            }
+
+            function broadcastSignalingMessage(message) {
+                for (const [peerId, dataChannel] of dataChannels) {
+                    if (dataChannel.readyState === 'open' && message.to === peerId) {
+                        const serializedMessage = {
+                            type: message.type,
+                            from: message.from,
+                            to: message.to,
+                            sdp: message.sdp ? { type: message.sdp.type, sdp: message.sdp.sdp } : null,
+                            candidate: message.candidate ? { candidate: message.candidate.candidate } : null
+                        };
+                        dataChannel.send(JSON.stringify({ type: 'signaling', data: serializedMessage }));
+                    }
+                }
+            }
+
+            async function handleSignalingMessage(message) {
+                const { type, from, to, sdp, candidate } = message;
+                const pc = peerConnections.get(to);
+                if (pc) {
+                    try {
+                        if (type === 'offer' || type === 'answer') {
+                            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                            if (type === 'offer') {
+                                const answer = await pc.createAnswer();
+                                await pc.setLocalDescription(answer);
+                                broadcastSignalingMessage({
+                                    type: 'answer',
+                                    from: to,
+                                    to: from,
+                                    sdp: { type: answer.type, sdp: answer.sdp }
+                                });
+                            }
+                        } else if (type === 'candidate') {
+                            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        }
+                    } catch (err) {
+                        showError(`Signaling error: ${err.message}`);
+                    }
+                }
+            }
+
+            await clearOldSignalingMessages();
+            return { saveSignalingMessage, getSignalingMessages, broadcastSignalingMessage, handleSignalingMessage };
+        }
+
+        // Virtual Worker Logic
+        async function startVirtualWorker() {
+            virtualWorkerPort = channel.port1;
+            virtualWorkerPort.onmessage = async (event) => {
+                const { type, path, apiKey, data } = event.data;
+                if (type === 'fetch') {
+                    if (path === '/api/public-bulletins') {
+                        getPublicBulletins().then(bulletins => {
+                            virtualWorkerPort.postMessage({ type: 'response', data: bulletins });
+                        }).catch(err => showError(err.message));
+                    } else if (path.startsWith('/api/') && apiKey) {
+                        try {
+                            const serial = await getSerialForBoard(currentBoardId);
+                            if (!serial) throw new Error('Serial not found for board');
+                            const [boardId, token] = await decryptApiKey(apiKey, serial);
+                            const valid = await validateToken(boardId, token);
+                            if (valid) {
+                                getPosts(boardId).then(posts => {
+                                    virtualWorkerPort.postMessage({ type: 'response', data: posts });
+                                }).catch(err => showError(err.message));
+                            } else {
+                                virtualWorkerPort.postMessage({ type: 'error', message: 'Invalid API key or access denied' });
+                            }
+                        } catch (err) {
+                            showError('API key decryption failed: ' + err.message);
+                        }
+                    }
+                } else if (type === 'post') {
+                    try {
+                        const post = data;
+                        post.code = await generatePostCode(post.id, currentBoardId);
+                        await savePost(currentBoardId, post);
+                        const contentSummary = post.content ? post.content.substring(0, 50) + (post.content.length > 50 ? '...' : '') : 'No content';
+                        await logAction(currentBoardId, post.file ? 'File uploaded' : 'Post created', contentSummary);
+                        currentApiKey = await generateApiKey(currentBoardId, accessToken, currentSerial);
+                        await saveApiKey(currentBoardId, currentApiKey, currentSerial);
+                        syncApiKey(currentApiKey);
+                        syncPost(post);
+                        virtualWorkerPort.postMessage({ type: 'post-success' });
+                        document.getElementById('apiKeyDisplay').textContent = currentApiKey;
+                    } catch (err) {
+                        showError(err.message);
+                    }
+                } else if (type === 'history') {
+                    saveHistory(currentBoardId, data).then(() => {
+                        syncHistory(data);
+                        renderHistory(currentBoardId);
+                    }).catch(err => showError(err.message));
+                }
+            };
+        }
+
+        // IndexedDB Operations
+        async function saveBulletin(bulletin) {
+            const tx = db.transaction('bulletins', 'readwrite');
+            const store = tx.objectStore('bulletins');
+            await store.put(bulletin);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save bulletin');
+            });
+        }
+
+        async function getBulletin(boardId) {
+            const tx = db.transaction('bulletins', 'readonly');
+            const store = tx.objectStore('bulletins');
+            const request = store.get(boardId);
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject('Failed to fetch bulletin');
+            });
+        }
+
+        async function saveApiKey(boardId, apiKey, serial) {
+            const tx = db.transaction('apiKeys', 'readwrite');
+            const store = tx.objectStore('apiKeys');
+            await store.put({ boardId, apiKey, serial });
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save API key');
+            });
+        }
+
+        async function getApiKey(boardId) {
+            const tx = db.transaction('apiKeys', 'readonly');
+            const store = tx.objectStore('apiKeys');
+            const request = store.get(boardId);
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result ? { apiKey: request.result.apiKey, serial: request.result.serial } : null);
+                request.onerror = () => reject('Failed to fetch API key');
+            });
+        }
+
+        async function getSerialForBoard(boardId) {
+            const apiKeyData = await getApiKey(boardId);
+            return apiKeyData?.serial || null;
+        }
+
+        async function getPublicBulletins() {
+            const tx = db.transaction('bulletins', 'readonly');
+            const store = tx.objectStore('bulletins');
+            const request = store.getAll();
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result.filter(b => b.isPublic));
+                request.onerror = () => reject('Failed to fetch bulletins');
+            });
+        }
+
+        async function validateToken(boardId, token, password = '') {
+            const bulletin = await getBulletin(boardId);
+            if (!bulletin) return false;
+            return bulletin.token === token && (bulletin.isPublic || bulletin.password === password);
+        }
+
+        async function savePost(boardId, post) {
+            const tx = db.transaction(['posts', 'files'], 'readwrite');
+            const postStore = tx.objectStore('posts');
+            post.boardId = boardId;
+            post.timestamp = Date.now();
+            const request = await postStore.add(post);
+            post.id = request;
+            if (post.file) {
+                const fileStore = tx.objectStore('files');
+                await fileStore.add({ id: post.id, data: post.file });
+            }
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save post');
+            });
+        }
+
+        async function getPosts(boardId) {
+            const tx = db.transaction(['posts', 'files'], 'readonly');
+            const postStore = tx.objectStore('posts');
+            const fileStore = tx.objectStore('files');
+            const postRequest = postStore.getAll();
+            return new Promise((resolve, reject) => {
+                postRequest.onsuccess = async () => {
+                    const posts = postRequest.result.filter(p => p.boardId === boardId);
+                    for (const post of posts) {
+                        const fileRequest = fileStore.get(post.id);
+                        fileRequest.onsuccess = () => {
+                            if (fileRequest.result) post.file = fileRequest.result.data;
+                        };
+                    }
+                    resolve(posts);
+                };
+                postRequest.onerror = () => reject('Failed to fetch posts');
+            });
+        }
+
+        async function saveError(error) {
+            const tx = db.transaction('errors', 'readwrite');
+            const store = tx.objectStore('errors');
+            await store.add({ message: error, timestamp: Date.now() });
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save error');
+            });
+        }
+
+        async function saveHistory(boardId, logEntry) {
+            const tx = db.transaction('history', 'readwrite');
+            const store = tx.objectStore('history');
+            logEntry.boardId = boardId;
+            logEntry.timestamp = Date.now();
+            await store.add(logEntry);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject('Failed to save history log');
+            });
+        }
+
+        async function getHistory(boardId) {
+            const tx = db.transaction('history', 'readonly');
+            const store = tx.objectStore('history');
+            const request = store.getAll();
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const logs = request.result.filter(l => l.boardId === boardId);
+                    resolve(logs);
+                };
+                request.onerror = () => reject('Failed to fetch history');
+            });
+        }
+
+        async function logAction(boardId, action, details) {
+            const logEntry = { action, details };
+            await saveHistory(boardId, logEntry);
+            virtualWorkerPort.postMessage({ type: 'history', boardId, data: logEntry });
+            await renderHistory(boardId);
+        }
+
+        // WebRTC for Cross-Device Sync
+        async function initWebRTC(boardId, isCreator, peerId) {
+            const signalingServer = await startSignalingServer(boardId);
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            peerConnections.set(peerId, pc);
+
+            pc.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    const message = { 
+                        type: 'candidate', 
+                        from: peerId, 
+                        to: isCreator ? 'all' : 'creator', 
+                        candidate: { candidate: event.candidate.candidate },
+                        apiKey: currentApiKey,
+                        serial: currentSerial
+                    };
+                    await signalingServer.saveSignalingMessage(message);
+                    signalingServer.broadcastSignalingMessage(message);
+                }
+            };
+
+            if (isCreator) {
+                const dc = pc.createDataChannel('posts');
+                dataChannels.set(peerId, dc);
+                setupDataChannel(boardId, dc, peerId);
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    const message = {
+                        type: 'offer',
+                        from: peerId,
+                        to: 'all',
+                        sdp: { type: offer.type, sdp: offer.sdp },
+                        apiKey: currentApiKey,
+                        serial: currentSerial
+                    };
+                    await signalingServer.saveSignalingMessage(message);
+                    signalingServer.broadcastSignalingMessage(message);
+                } catch (err) {
+                    showError(`WebRTC offer creation failed: ${err.message}`);
+                }
+            } else {
+                pc.ondatachannel = (event) => {
+                    const dc = event.channel;
+                    dataChannels.set(peerId, dc);
+                    setupDataChannel(boardId, dc, peerId);
+                };
+                try {
+                    const messages = await signalingServer.getSignalingMessages(boardId, peerId);
+                    for (const message of messages) {
+                        if (message.apiKey && message.serial) {
+                            await saveApiKey(boardId, message.apiKey, message.serial);
+                            currentApiKey = message.apiKey;
+                            currentSerial = message.serial;
+                            document.getElementById('apiKeyDisplay').textContent = currentApiKey;
+                        }
+                        await signalingServer.handleSignalingMessage(message);
+                    }
+                } catch (err) {
+                    showError(`WebRTC signaling failed: ${err.message}`);
+                }
+            }
+
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'connected') {
+                    showToast(`WebRTC connection established with ${peerId}`);
+                    if (currentApiKey && currentSerial) {
+                        syncApiKey(currentApiKey, currentSerial);
+                    }
+                } else if (pc.connectionState === 'failed') {
+                    showError(`WebRTC connection failed with ${peerId}`);
+                }
+            };
+
+            return pc;
+        }
+
+        function setupDataChannel(boardId, dataChannel, peerId) {
+            dataChannel.onopen = () => {
+                console.log(`Data channel open with ${peerId}`);
+                showToast(`Data channel connected with ${peerId}`);
+                if (currentApiKey && currentSerial) {
+                    syncApiKey(currentApiKey, currentSerial);
+                }
+            };
+            dataChannel.onmessage = async (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'post') {
+                    const post = message.data;
+                    post.boardId = boardId;
+                    await savePost(boardId, post);
+                    renderPosts(boardId);
+                } else if (message.type === 'history') {
+                    await saveHistory(boardId, message.data);
+                    renderHistory(boardId);
+                } else if (message.type === 'apiKey') {
+                    currentApiKey = message.data.apiKey;
+                    currentSerial = message.data.serial;
+                    await saveApiKey(boardId, currentApiKey, currentSerial);
+                    document.getElementById('apiKeyDisplay').textContent = currentApiKey;
+                } else if (message.type === 'signaling') {
+                    const signalingServer = await startSignalingServer(boardId);
+                    await signalingServer.handleSignalingMessage(message.data);
+                }
+            };
+            dataChannel.onerror = (err) => showError(`Data channel error with ${peerId}: ${err.message}`);
+        }
+
+        function syncPost(post) {
+            for (const [peerId, dataChannel] of dataChannels) {
+                if (dataChannel.readyState === 'open') {
+                    dataChannel.send(JSON.stringify({ type: 'post', data: post }));
+                }
+            }
+        }
+
+        function syncHistory(logEntry) {
+            for (const [peerId, dataChannel] of dataChannels) {
+                if (dataChannel.readyState === 'open') {
+                    dataChannel.send(JSON.stringify({ type: 'history', data: logEntry }));
+                }
+            }
+        }
+
+        function syncApiKey(apiKey, serial) {
+            for (const [peerId, dataChannel] of dataChannels) {
+                if (dataChannel.readyState === 'open') {
+                    dataChannel.send(JSON.stringify({ type: 'apiKey', data: { apiKey, serial } }));
+                }
+            }
+        }
+
+        // UI and App Logic
+        async function initApp() {
+            try {
+                await initDB();
+                startVirtualWorker();
+                document.querySelector('.setup-wizard').classList.add('active');
+                showToast('App initialized successfully');
+            } catch (error) {
+                showError('Initialization failed: ' + error.message);
+            }
+        }
+
+        async function createBulletin() {
+            try {
+                const name = document.getElementById('bulletinName').value;
+                const serial = document.getElementById('bulletinSerial').value;
+                const isPublic = document.getElementById('isPublic').checked;
+                const password = document.getElementById('bulletinPassword').value;
+                if (!name) throw new Error('Bulletin name is required');
+                if (!serial || !serial.startsWith('API-') || serial.length < 8) {
+                    throw new Error('Invalid serial format: Must be API- followed by at least 4 characters');
+                }
+                currentBoardId = crypto.randomUUID();
+                accessToken = crypto.randomUUID();
+                currentSerial = serial;
+                currentApiKey = await generateApiKey(currentBoardId, accessToken, currentSerial);
+                isCreator = true;
+                const bulletin = { id: currentBoardId, name, isPublic, password, token: accessToken };
+                await saveBulletin(bulletin);
+                await saveApiKey(currentBoardId, currentApiKey, currentSerial);
+                await logAction(currentBoardId, 'Bulletin created', name);
+                await initWebRTC(currentBoardId, true, 'creator');
+                showBulletinBoard(name, currentBoardId, currentApiKey);
+                if (isPublic) {
+                    virtualWorkerPort.postMessage({ type: 'fetch', path: '/api/public-bulletins' });
+                }
+            } catch (error) {
+                showError('Failed to create bulletin: ' + error.message);
+            }
+        }
+
+        async function joinBulletin() {
+            try {
+                const apiKey = document.getElementById('apiKey').value;
+                const serial = document.getElementById('joinSerial').value;
+                const password = document.getElementById('joinPassword').value;
+                if (!apiKey) throw new Error('API key is required');
+                if (!serial || !serial.startsWith('API-') || serial.length < 8) {
+                    throw new Error('Invalid serial format: Must be API- followed by at least 4 characters');
+                }
+                const [boardId, token] = await decryptApiKey(apiKey, serial);
+                const isValid = await validateToken(boardId, token, password);
+                if (!isValid) throw new Error('Invalid API key or password');
+                const bulletin = await getBulletin(boardId);
+                if (!bulletin) throw new Error('Bulletin not found');
+                currentBoardId = boardId;
+                accessToken = token;
+                currentApiKey = apiKey;
+                currentSerial = serial;
+                isCreator = false;
+                await saveApiKey(currentBoardId, currentApiKey, currentSerial);
+                const peerId = crypto.randomUUID();
+                await initWebRTC(boardId, false, peerId);
+                showBulletinBoard(bulletin.name, boardId, apiKey);
+                virtualWorkerPort.postMessage({ type: 'fetch', path: `/api/${apiKey}` });
+            } catch (error) {
+                showError(`Failed to join bulletin: ${error.message}`);
+            }
+        }
+
+        async function submitPost() {
+            try {
+                const content = document.getElementById('postContent').value;
+                const fileInput = document.getElementById('postFile');
+                let fileData = null;
+                let fileName = null;
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    if (file.size > 10 * 1024 * 1024) throw new Error('File size exceeds 10MB');
+                    fileData = await file.arrayBuffer();
+                    fileName = file.name;
+                }
+                if (!content && !fileData) throw new Error('Please provide content or a file');
+                const post = { content, file: fileData ? Array.from(new Uint8Array(fileData)) : null };
+                virtualWorkerPort.postMessage({ type: 'post', boardId: currentBoardId, data: post });
+                await logAction(currentBoardId, fileData ? 'File uploaded' : 'Post created', content || `File: ${fileName}`);
+                currentApiKey = await generateApiKey(currentBoardId, accessToken, currentSerial);
+                await saveApiKey(currentBoardId, currentApiKey, currentSerial);
+                syncApiKey(currentApiKey, currentSerial);
+                document.getElementById('apiKeyDisplay').textContent = currentApiKey;
+                document.getElementById('postContent').value = '';
+                fileInput.value = '';
+                await renderPosts(currentBoardId);
+            } catch (error) {
+                showError('Failed to submit post: ' + error.message);
+            }
+        }
+
+        async function renderPosts(boardId) {
+            try {
+                const posts = await getPosts(boardId);
+                const postsDiv = document.getElementById('posts');
+                postsDiv.innerHTML = posts.map(post => `
+                    <div class="post-card">
+                        <p>${post.content || 'No content'}</p>
+                        ${post.file ? `<p>File attached (Code: ${post.code})</p>` : ''}
+                        <small>${new Date(post.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError('Failed to render posts: ' + error.message);
+            }
+        }
+
+        async function renderHistory(boardId) {
+            try {
+                const logs = await getHistory(boardId);
+                const historyDiv = document.getElementById('history');
+                historyDiv.innerHTML = logs.map(log => `
+                    <div class="history-card">
+                        <p>${log.action}: ${log.details}</p>
+                        <small>${new Date(log.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError('Failed to render history: ' + error.message);
+            }
+        }
+
+        async function refreshBoard() {
+            if (currentBoardId && currentApiKey) {
+                try {
+                    await renderPosts(currentBoardId);
+                    await renderHistory(currentBoardId);
+                    virtualWorkerPort.postMessage({ type: 'fetch', path: `/api/${currentApiKey}` });
+                    showToast('Board refreshed');
+                } catch (error) {
+                    showError('Failed to refresh board: ' + error.message);
+                }
+            } else {
+                showError('No active board to refresh');
+            }
+        }
+
+        function showBulletinBoard(name, boardId, apiKey) {
+            document.querySelector('.setup-wizard').classList.remove('active');
+            document.querySelector('.bulletin-board').classList.add('active');
+            document.getElementById('boardTitle').textContent = name;
+            document.getElementById('apiKeyDisplay').textContent = apiKey;
+            renderPosts(boardId);
+            renderHistory(boardId);
+        }
+
+        function showError(message) {
+            saveError(message);
+            const toast = document.getElementById('errorToast');
+            toast.textContent = message;
+            toast.style.background = '#f00';
+            toast.style.color = '#fff';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('errorToast');
+            toast.textContent = message;
+            toast.style.background = '#0f0';
+            toast.style.color = '#000';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        function copyApiKey() {
+            const apiKey = document.getElementById('apiKeyDisplay').textContent;
+            navigator.clipboard.writeText(apiKey).then(() => {
+                showToast('API Key copied to clipboard!');
+            }).catch(err => {
+                showError('Failed to copy API Key: ' + err.message);
+            });
+        }
+
+        // Clean up on page unload
+        window.addEventListener('unload', () => {
+            if (db) db.close();
+            for (const [peerId, pc] of peerConnections) {
+                pc.close();
+            }
+        });
+
+        // Initialize app on load
+        window.addEventListener('load', () => {
+            if (!window.isSecureContext) {
+                showError('Please run on HTTPS or localhost for full functionality');
+            }
+        });
+    </script>
+</body>
+</html>
