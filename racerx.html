@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RacerX - Drone Racing Simulator by WebXOS</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body {
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #raceCanvas {
+      flex: 1;
+      width: 100%;
+      touch-action: none;
+      position: relative;
+    }
+    .controls {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background: rgba(20, 20, 50, 0.9);
+      padding: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      backdrop-filter: blur(5px);
+      z-index: 10;
+    }
+    .control-item {
+      flex: 1;
+      min-width: 80px;
+      text-align: center;
+    }
+    button {
+      background: #4a90e2;
+      border: none;
+      padding: 10px 20px;
+      color: white;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: transform 0.2s, background 0.2s;
+    }
+    button:hover {
+      background: #357abd;
+    }
+    button.active {
+      background: #ff4444;
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    .prompt {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 14px;
+      max-width: 90%;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s;
+      z-index: 5;
+    }
+    .prompt.active {
+      opacity: 1;
+    }
+    .hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.4;
+      z-index: 1;
+    }
+    .hud::before {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      right: 10%;
+      bottom: 10%;
+      border: 2px solid rgba(74, 144, 226, 0);
+      border-radius: 20px;
+      box-shadow: none;
+    }
+    .hud::after {
+      content: '+';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #4a90e2;
+      font-size: 24px;
+    }
+    .throttle-indicator {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #4a90e2;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 5;
+    }
+    .throttle-indicator.active {
+      opacity: 1;
+    }
+    .status-overlay {
+      position: absolute;
+      top: 0;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 5px 10px;
+      font-size: 12px;
+      text-align: left;
+      color: #fff;
+      text-shadow: 0 0 2px #000;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .console {
+      position: absolute;
+      bottom: 60px;
+      width: 100%;
+      height: 25%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      z-index: 5;
+      padding: 5px;
+    }
+    .console-log {
+      flex: 1;
+      overflow-y: auto;
+      font-size: 12px;
+      color: #fff;
+      text-shadow: 0 0 2px #000;
+      padding: 5px;
+    }
+    .console-log p {
+      margin: 2px 0;
+    }
+    .console-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid #4a90e2;
+      color: #fff;
+      padding: 5px;
+      font-size: 12px;
+      outline: none;
+    }
+    .console-input::placeholder {
+      color: #aaa;
+    }
+    .console::-webkit-scrollbar {
+      width: 8px;
+    }
+    .console::-webkit-scrollbar-thumb {
+      background: #4a90e2;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="raceCanvas">
+    <div class="hud"></div>
+    <div id="statusOverlay" class="status-overlay"></div>
+    <div id="throttleIndicator" class="throttle-indicator"></div>
+    <div id="console" class="console">
+      <div id="consoleLog" class="console-log"></div>
+      <input id="consoleInput" class="console-input" type="text" placeholder="Type /help for commands..." autocomplete="off">
+    </div>
+  </div>
+  <div class="controls">
+    <div class="control-item">
+      <button id="throttleBtn">Full Throttle</button>
+    </div>
+    <div class="control-item">
+      <button id="startRaceBtn">Start Race</button>
+    </div>
+    <div class="control-item">
+      <button id="stopRaceBtn">Stop Race</button>
+    </div>
+    <div class="control-item">
+      <button id="addCheckpoint">Add Checkpoint</button>
+    </div>
+    <div class="control-item">
+      <button id="autopilotBtn">Autopilot</button>
+    </div>
+    <div class="control-item">
+      <button id="resetBtn">Reset</button>
+    </div>
+  </div>
+  <div id="prompt" class="prompt"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    window.onload = () => {
+      try {
+        // Scene setup
+        if (!window.THREE) throw new Error('Three.js not loaded');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 10000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 1);
+        const canvas = document.getElementById('raceCanvas');
+        if (!canvas) throw new Error('Canvas element not found');
+        canvas.appendChild(renderer.domElement);
+
+        camera.position.set(0, 0, 0);
+        const frustum = new THREE.Frustum();
+        const cameraMatrix = new THREE.Matrix4();
+
+        // Shared resources
+        const sharedMaterials = {
+          checkpoint: new THREE.MeshBasicMaterial({ color: 0xff33cc, wireframe: true }),
+          line: new THREE.LineBasicMaterial({ color: 0x00ff00 }),
+          obstacle: new THREE.MeshBasicMaterial({ color: 0x4a90e2, wireframe: true })
+        };
+        const sharedGeometries = {
+          checkpoint: new THREE.TorusGeometry(20, 2, 8, 16), // Ring for checkpoints
+          obstacle: new THREE.TorusGeometry(30, 3, 8, 16) // Larger ring for obstacles
+        };
+
+        // Entities
+        let checkpoints = [];
+        let obstacles = [];
+        let checkpointLines = [];
+        let throttle = 0;
+        let rotation = { pitch: 0, yaw: 0 };
+        let rotationVelocity = { pitch: 0, yaw: 0 };
+        let velocity = new THREE.Vector3(0, 0, 0);
+        let lastTime = performance.now();
+        let raceActive = false;
+        let raceStartTime = 0;
+        let currentCheckpointIndex = 0;
+        let autopilotActive = false;
+        let entityCount = 0;
+
+        // Stopwatch
+        let stopwatchInterval = null;
+
+        // Console and status
+        const statusOverlay = document.getElementById('statusOverlay');
+        const consoleLog = document.getElementById('consoleLog');
+        const consoleInput = document.getElementById('consoleInput');
+        const maxLogMessages = 50;
+        let logMessages = [];
+
+        function addConsoleMessage(message) {
+          const timestamp = new Date().toLocaleTimeString();
+          logMessages.push(`[${timestamp}] ${message}`);
+          if (logMessages.length > maxLogMessages) {
+            logMessages.shift();
+          }
+          consoleLog.innerHTML = logMessages.map(msg => `<p>${msg}</p>`).join('');
+          consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        function updateStatusOverlay() {
+          const time = raceActive ? ((performance.now() - raceStartTime) / 1000).toFixed(2) : '0.00';
+          statusOverlay.textContent = `Checkpoints: ${checkpoints.length} | Time: ${time}s | Throttle: ${throttle} | Autopilot: ${autopilotActive ? 'On' : 'Off'}`;
+        }
+
+        // Keyboard controls
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        window.addEventListener('keydown', e => {
+          if (e.key in keys) {
+            keys[e.key] = true;
+            e.preventDefault();
+          }
+        });
+        window.addEventListener('keyup', e => {
+          if (e.key in keys) keys[e.key] = false;
+        });
+
+        // Console commands
+        function handleCommand(input) {
+          const cmd = input.trim().toLowerCase();
+          if (!cmd.startsWith('/')) {
+            addConsoleMessage('Commands must start with "/". Type /help for commands.');
+            return;
+          }
+          const parts = cmd.slice(1).split(' ');
+          const command = parts[0];
+          const args = parts.slice(1);
+
+          switch (command) {
+            case 'help':
+              addConsoleMessage('Commands: /start, /stop, /checkpoint, /reset, /throttle, /autopilot');
+              break;
+            case 'start':
+              startRace();
+              break;
+            case 'stop':
+              stopRace();
+              break;
+            case 'checkpoint':
+              addCheckpoint();
+              break;
+            case 'reset':
+              reset();
+              break;
+            case 'throttle':
+              if (autopilotActive) {
+                addConsoleMessage('Cannot toggle throttle during autopilot.');
+              } else {
+                toggleThrottle();
+              }
+              break;
+            case 'autopilot':
+              toggleAutopilot();
+              break;
+            default:
+              addConsoleMessage('Unknown command. Type /help for commands.');
+          }
+        }
+
+        consoleInput.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            const input = consoleInput.value;
+            if (input) {
+              addConsoleMessage(`> ${input}`);
+              handleCommand(input);
+              consoleInput.value = '';
+            }
+          }
+        });
+
+        // Object pools
+        const checkpointPool = [];
+        const obstaclePool = [];
+        function getCheckpointFromPool() {
+          if (checkpointPool.length > 0) {
+            const checkpoint = checkpointPool.pop();
+            checkpoint.visible = true;
+            return checkpoint;
+          }
+          return new THREE.Mesh(sharedGeometries.checkpoint, sharedMaterials.checkpoint);
+        }
+        function getObstacleFromPool() {
+          if (obstaclePool.length > 0) {
+            const obstacle = obstaclePool.pop();
+            obstacle.visible = true;
+            return obstacle;
+          }
+          return new THREE.Mesh(sharedGeometries.obstacle, sharedMaterials.obstacle);
+        }
+
+        // Add checkpoint
+        function addCheckpoint() {
+          const checkpoint = getCheckpointFromPool();
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          const offset = new THREE.Vector3(
+            (Math.random() - 0.5) * 100,
+            (Math.random() - 0.5) * 100,
+            (Math.random() - 0.5) * 100
+          );
+          checkpoint.position.copy(camera.position).add(forward.multiplyScalar(300)).add(offset);
+          checkpoint.userData = { type: 'checkpoint', passed: false };
+          scene.add(checkpoint);
+          checkpoints.push(checkpoint);
+          entityCount++;
+
+          if (checkpoints.length > 1) {
+            const prevCheckpoint = checkpoints[checkpoints.length - 2];
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+              prevCheckpoint.position,
+              checkpoint.position
+            ]);
+            const line = new THREE.Line(geometry, sharedMaterials.line);
+            scene.add(line);
+            checkpointLines.push(line);
+          }
+
+          if (entityCount > 500) showPrompt(6);
+          showPrompt(1);
+          addConsoleMessage('Checkpoint added to course.');
+          updateStatusOverlay();
+        }
+
+        // Add obstacles
+        function addObstacles(count = 10) {
+          for (let i = 0; i < count; i++) {
+            const obstacle = getObstacleFromPool();
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const offset = new THREE.Vector3(
+              (Math.random() - 0.5) * 200,
+              (Math.random() - 0.5) * 200,
+              (Math.random() - 0.5) * 200
+            );
+            obstacle.position.copy(camera.position).add(forward.multiplyScalar(500 + i * 200)).add(offset);
+            obstacle.userData = { type: 'obstacle' };
+            scene.add(obstacle);
+            obstacles.push(obstacle);
+            entityCount++;
+          }
+          addConsoleMessage(`${count} obstacles added to course.`);
+          updateStatusOverlay();
+        }
+
+        // Race controls
+        function startRace() {
+          if (checkpoints.length < 2) {
+            showPrompt(5);
+            addConsoleMessage('Need at least 2 checkpoints to start race.');
+            return;
+          }
+          if (!raceActive) {
+            raceActive = true;
+            raceStartTime = performance.now();
+            currentCheckpointIndex = 0;
+            checkpoints.forEach(cp => cp.userData.passed = false);
+            addObstacles(10); // Add obstacles when race starts
+            showPrompt(2);
+            addConsoleMessage('Race started! Navigate through checkpoints.');
+            updateStatusOverlay();
+          }
+        }
+
+        function stopRace() {
+          if (raceActive) {
+            raceActive = false;
+            const raceTime = ((performance.now() - raceStartTime) / 1000).toFixed(2);
+            showPrompt(3);
+            addConsoleMessage(`Race stopped. Final time: ${raceTime}s`);
+            updateStatusOverlay();
+          }
+        }
+
+        // Reset
+        function reset() {
+          checkpoints.forEach(checkpoint => {
+            checkpoint.visible = false;
+            checkpointPool.push(checkpoint);
+            scene.remove(checkpoint);
+          });
+          obstacles.forEach(obstacle => {
+            obstacle.visible = false;
+            obstaclePool.push(obstacle);
+            scene.remove(obstacle);
+          });
+          checkpointLines.forEach(line => scene.remove(line));
+          checkpoints = [];
+          obstacles = [];
+          checkpointLines = [];
+          raceActive = false;
+          autopilotActive = false;
+          currentCheckpointIndex = 0;
+          throttle = 0;
+          entityCount = 0;
+          const autopilotBtn = document.getElementById('autopilotBtn');
+          if (autopilotBtn) autopilotBtn.classList.remove('active');
+          const throttleBtn = document.getElementById('throttleBtn');
+          if (throttleBtn) throttleBtn.classList.remove('active');
+          const throttleIndicator = document.getElementById('throttleIndicator');
+          if (throttleIndicator) {
+            throttleIndicator.textContent = '';
+            throttleIndicator.classList.remove('active');
+          }
+          showPrompt(4);
+          addConsoleMessage('Course reset.');
+          updateStatusOverlay();
+        }
+
+        // Throttle toggle
+        function toggleThrottle() {
+          throttle = throttle === 0 ? 150 : 0;
+          const throttleBtn = document.getElementById('throttleBtn');
+          if (throttleBtn) throttleBtn.classList.toggle('active', throttle > 0);
+          const throttleIndicator = document.getElementById('throttleIndicator');
+          if (throttleIndicator) {
+            throttleIndicator.textContent = throttle > 0 ? `Thrust: ${throttle}` : '';
+            throttleIndicator.classList.toggle('active', throttle > 0);
+          }
+          showPrompt(0);
+          addConsoleMessage(throttle > 0 ? 'Manual throttle engaged!' : 'Throttle disengaged.');
+          updateStatusOverlay();
+        }
+
+        // Autopilot
+        function toggleAutopilot() {
+          if (checkpoints.length < 2) {
+            showPrompt(5);
+            addConsoleMessage('Need at least 2 checkpoints for autopilot.');
+            return;
+          }
+          autopilotActive = !autopilotActive;
+          const autopilotBtn = document.getElementById('autopilotBtn');
+          if (autopilotBtn) autopilotBtn.classList.toggle('active', autopilotActive);
+          if (autopilotActive) {
+            throttle = 0;
+            const throttleBtn = document.getElementById('throttleBtn');
+            if (throttleBtn) throttleBtn.classList.remove('active');
+            const throttleIndicator = document.getElementById('throttleIndicator');
+            if (throttleIndicator) {
+              throttleIndicator.textContent = '';
+              throttleIndicator.classList.remove('active');
+            }
+            currentCheckpointIndex = 0;
+            showPrompt(7);
+            addConsoleMessage('Autopilot engaged! Navigating checkpoints.');
+          } else {
+            showPrompt(0);
+            addConsoleMessage('Autopilot disengaged.');
+          }
+          updateStatusOverlay();
+        }
+
+        function updateAutopilot(deltaTime) {
+          if (!autopilotActive || checkpoints.length === 0) return;
+
+          const targetCheckpoint = checkpoints[currentCheckpointIndex];
+          const direction = targetCheckpoint.position.clone().sub(camera.position);
+          const distance = direction.length();
+
+          if (distance < 30) {
+            targetCheckpoint.userData.passed = true;
+            currentCheckpointIndex = (currentCheckpointIndex + 1) % checkpoints.length;
+            addConsoleMessage(`Reached checkpoint ${currentCheckpointIndex + 1}.`);
+            if (raceActive && currentCheckpointIndex === 0) {
+              const raceTime = ((performance.now() - raceStartTime) / 1000).toFixed(2);
+              raceActive = false;
+              autopilotActive = false;
+              const autopilotBtn = document.getElementById('autopilotBtn');
+              if (autopilotBtn) autopilotBtn.classList.remove('active');
+              showPrompt(8);
+              addConsoleMessage(`Race completed! Final time: ${raceTime}s`);
+              updateStatusOverlay();
+            }
+          }
+
+          direction.normalize();
+          const speed = 150;
+          velocity.copy(direction.multiplyScalar(speed));
+          camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+          camera.lookAt(targetCheckpoint.position);
+        }
+
+        // Viewing controls
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+
+        function updateRotation(deltaX, deltaY) {
+          if (autopilotActive) return;
+          rotationVelocity.yaw -= deltaX * 0.01;
+          rotationVelocity.pitch -= deltaY * 0.01;
+        }
+
+        renderer.domElement.addEventListener('mousedown', e => {
+          if (autopilotActive) return;
+          isDragging = true;
+          previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+
+        renderer.domElement.addEventListener('mousemove', e => {
+          if (isDragging && !autopilotActive) {
+            const deltaX = e.clientX - previousMousePosition.x;
+            const deltaY = e.clientY - previousMousePosition.y;
+            updateRotation(deltaX, deltaY);
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+          }
+        });
+
+        renderer.domElement.addEventListener('mouseup', () => {
+          isDragging = false;
+        });
+
+        renderer.domElement.addEventListener('touchstart', e => {
+          if (autopilotActive) return;
+          e.preventDefault();
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        });
+
+        renderer.domElement.addEventListener('touchmove', e => {
+          if (autopilotActive) return;
+          e.preventDefault();
+          const deltaX = e.touches[0].clientX - previousMousePosition.x;
+          const deltaY = e.touches[0].clientY - previousMousePosition.y;
+          updateRotation(deltaX, deltaY);
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        });
+
+        // Animation loop
+        function animate() {
+          requestAnimationFrame(animate);
+
+          const now = performance.now();
+          const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
+          lastTime = now;
+
+          if (!autopilotActive) {
+            if (keys.ArrowLeft) rotationVelocity.yaw += 0.05;
+            if (keys.ArrowRight) rotationVelocity.yaw -= 0.05;
+            if (keys.ArrowUp) rotationVelocity.pitch -= 0.05;
+            if (keys.ArrowDown) rotationVelocity.pitch += 0.05;
+
+            rotation.pitch += rotationVelocity.pitch * deltaTime;
+            rotation.yaw += rotationVelocity.yaw * deltaTime;
+            rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+            rotationVelocity.pitch *= 0.95;
+            rotationVelocity.yaw *= 0.95;
+
+            camera.quaternion.setFromEuler(new THREE.Euler(rotation.pitch, rotation.yaw, 0, 'YXZ'));
+          }
+
+          if (!autopilotActive) {
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            velocity.copy(forward.multiplyScalar(throttle));
+            camera.position.add(velocity.clone().multiplyScalar(deltaTime));
+          } else {
+            updateAutopilot(deltaTime);
+          }
+
+          cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+          frustum.setFromProjectionMatrix(cameraMatrix);
+
+          checkpoints.forEach(checkpoint => {
+            checkpoint.visible = frustum.containsPoint(checkpoint.position);
+          });
+
+          obstacles.forEach(obstacle => {
+            obstacle.visible = frustum.containsPoint(obstacle.position);
+          });
+
+          checkpointLines.forEach((line, i) => {
+            if (i < checkpoints.length - 1) {
+              const geometry = new THREE.BufferGeometry().setFromPoints([
+                checkpoints[i].position,
+                checkpoints[i + 1].position
+              ]);
+              line.geometry.dispose();
+              line.geometry = geometry;
+            }
+          });
+
+          // Collision detection
+          if (raceActive) {
+            obstacles.forEach(obstacle => {
+              const distance = camera.position.distanceTo(obstacle.position);
+              if (distance < 30) {
+                raceActive = false;
+                const raceTime = ((performance.now() - raceStartTime) / 1000).toFixed(2);
+                showPrompt(9);
+                addConsoleMessage(`Crashed into obstacle! Race ended. Time: ${raceTime}s`);
+                updateStatusOverlay();
+              }
+            });
+
+            const currentCheckpoint = checkpoints[currentCheckpointIndex];
+            if (currentCheckpoint && !currentCheckpoint.userData.passed) {
+              const distance = camera.position.distanceTo(currentCheckpoint.position);
+              if (distance < 30) {
+                currentCheckpoint.userData.passed = true;
+                currentCheckpointIndex = (currentCheckpointIndex + 1) % checkpoints.length;
+                addConsoleMessage(`Checkpoint ${currentCheckpointIndex} passed.`);
+                if (currentCheckpointIndex === 0) {
+                  const raceTime = ((performance.now() - raceStartTime) / 1000).toFixed(2);
+                  raceActive = false;
+                  showPrompt(8);
+                  addConsoleMessage(`Race completed! Final time: ${raceTime}s`);
+                }
+                updateStatusOverlay();
+              }
+            }
+          }
+
+          renderer.render(scene, camera);
+        }
+
+        // Controls
+        try {
+          const throttleBtn = document.getElementById('throttleBtn');
+          const startRaceBtn = document.getElementById('startRaceBtn');
+          const stopRaceBtn = document.getElementById('stopRaceBtn');
+          const addCheckpointBtn = document.getElementById('addCheckpoint');
+          const autopilotBtn = document.getElementById('autopilotBtn');
+          const resetBtn = document.getElementById('resetBtn');
+          const throttleIndicator = document.getElementById('throttleIndicator');
+          const prompt = document.getElementById('prompt');
+
+          if (!throttleBtn || !startRaceBtn || !stopRaceBtn || !addCheckpointBtn || !autopilotBtn || !resetBtn || !prompt || !throttleIndicator) {
+            throw new Error('One or more control elements not found');
+          }
+
+          throttleBtn.addEventListener('click', () => {
+            if (autopilotActive) return;
+            toggleThrottle();
+          });
+
+          startRaceBtn.addEventListener('click', startRace);
+          stopRaceBtn.addEventListener('click', stopRace);
+          addCheckpointBtn.addEventListener('click', addCheckpoint);
+          autopilotBtn.addEventListener('click', toggleAutopilot);
+          resetBtn.addEventListener('click', reset);
+
+          const prompts = [
+            "Manual throttle engaged!",
+            "Checkpoint added to course.",
+            "Race started! Navigate through checkpoints.",
+            "Race stopped.",
+            "Course reset.",
+            "Need at least 2 checkpoints for race or autopilot!",
+            "Warning: Too many checkpoints may slow performance!",
+            "Autopilot engaged! Navigating checkpoints.",
+            "Race completed!",
+            "Crashed into obstacle!"
+          ];
+
+          function showPrompt(index) {
+            prompt.textContent = prompts[index];
+            prompt.classList.add('active');
+            setTimeout(() => prompt.classList.remove('active'), 2000);
+          }
+        } catch (e) {
+          console.error('Control setup error:', e);
+        }
+
+        // Initialize
+        try {
+          addConsoleMessage('RacerX initialized. Type /help for commands.');
+          updateStatusOverlay();
+          animate();
+        } catch (e) {
+          console.error('Initialization error:', e);
+        }
+
+        // Resize
+        window.addEventListener('resize', () => {
+          try {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+          } catch (e) {
+            console.error('Resize error:', e);
+          }
+        });
+      } catch (e) {
+        console.error('Main script error:', e);
+      }
+    };
+  </script>
+</body>
+</html>
