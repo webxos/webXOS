@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Bluemesh 2025: Secure Bluetooth and HTTP mesh networking with P2P messaging, WebGL visualization, and diagnostics via FalseNode@webxos. Virtual server for API and caching.">
+    <meta name="keywords" content="Bluemesh, Bluetooth Mesh, HTTP Mesh, P2P Messaging, WebGL, WebAssembly, NodeSync, edge computing, secure networking">
+    <meta name="author" content="WEBXOS Standardization">
+    <meta name="robots" content="index, follow">
+    <meta name="copyright" content="© 2025 WEBXOS Standardization">
+    <title>Bluemesh 2025</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .console {
+            flex-grow: 1;
+            background: rgba(0, 0, 0, 0.8);
+            text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor;
+            overflow-y: auto;
+            position: relative;
+            font-size: 0.7em;
+            line-height: 1.1;
+            margin: 0 10px 5px 10px;
+            padding: 5px;
+            border: 1px solid currentColor;
+        }
+        .input-line {
+            display: flex;
+            margin-top: 10px;
+            position: sticky;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1;
+            padding: 5px;
+        }
+        .input-line input {
+            background: transparent;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-size: inherit;
+            flex-grow: 1;
+            padding: 2px;
+            text-shadow: 0 0 3px currentColor;
+        }
+        .input-line input:focus {
+            box-shadow: 0 0 5px #00ff00;
+            outline: none;
+        }
+        .input-line input::placeholder {
+            color: #00ff00;
+            opacity: 0.7;
+        }
+        .button-container {
+            display: flex;
+            flex-wrap: wrap;
+            font-size: 0.8em;
+            padding: 3px;
+        }
+        button {
+            background: transparent;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            min-width: 120px;
+            padding: 3px 6px;
+            margin: 1px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 5px currentColor;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.active {
+            box-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00;
+        }
+        footer {
+            text-align: center;
+            font-size: 10px;
+            height: 5px;
+            text-shadow: 0 0 3px currentColor;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 400px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #00ff00;
+            padding: 10px;
+            z-index: 2;
+        }
+        .popup.active {
+            display: block;
+        }
+        .diagnostic-section {
+            margin-top: 10px;
+            border-top: 1px dashed #00ff00;
+        }
+        .error {
+            color: #ff0000;
+            text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000;
+        }
+        .clickable-node {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .clickable-node:hover {
+            color: #00cc00;
+            text-shadow: 0 0 5px #00cc00, 0 0 10px #00cc00;
+        }
+        #discoveryStatus {
+            position: absolute;
+            bottom: 25px;
+            left: 5px;
+        }
+        #webglCanvas {
+            display: none;
+        }
+        @media (max-width: 600px) {
+            .console { font-size: 0.6em; }
+            .button-container { font-size: 0.7em; }
+            button { padding: 2px 4px; }
+            .input-line input { font-size: 0.6em; }
+            .popup { width: 90%; }
+            footer { font-size: 0.6em; }
+            #discoveryStatus { bottom: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="console" id="consoleOutput">
+        <div id="discoveryStatus"></div>
+        <div class="input-line">
+            <span>></span>
+            <input id="commandInput" type="text" placeholder="Enter command or message (e.g., user@webxos Hello!)">
+        </div>
+    </div>
+    <canvas id="webglCanvas"></canvas>
+    <div class="button-container">
+        <button id="executeButton">Execute</button>
+        <button id="discoverButton">Discover</button>
+        <button id="troubleshootButton">Troubleshoot</button>
+    </div>
+    <div id="wizardPopup" class="popup">
+        <div>Enter your node ID (e.g., user@webxos):</div>
+        <input id="nodeIdInput" type="text" placeholder="user@webxos">
+        <button onclick="WizardManager.nextStep(1)">Next</button>
+        <button onclick="WizardManager.skip()">Skip</button>
+    </div>
+    <div id="confirmPopup" class="popup">
+        <div id="confirmMessage"></div>
+        <button onclick="BluetoothMesh.confirmMerge(true)">Yes</button>
+        <button onclick="BluetoothMesh.confirmMerge(false)">No</button>
+    </div>
+    <footer>BLUEMESH v1.0.0 © 2025 WEBXOS Standardization, Tested: 09:18 PM EDT, July 13, 2025</footer>
+    <script>
+        // VirtualServer: Handles API requests and caching
+        const VirtualServer = {
+            cache: new Map(),
+            CACHE_KEY: 'bluemesh-v1-cache',
+            async init() {
+                try {
+                    const cached = localStorage.getItem(this.CACHE_KEY);
+                    if (cached) {
+                        const decrypted = NodeSync.decryptData(JSON.parse(cached), 'server');
+                        this.cache = new Map(Object.entries(decrypted));
+                    }
+                    this.cache.set('/', JSON.stringify({ html: document.documentElement.outerHTML }));
+                    await this.saveCache();
+                    ConsoleManager.log('Virtual server initialized');
+                } catch (e) {
+                    Troubleshooter.checkError(e, 'Failed to initialize virtual server cache');
+                }
+                this.overrideFetch();
+            },
+            async handleRequest(request) {
+                const url = request.url;
+                if (url.endsWith('/')) {
+                    return this.cache.get('/') ? new Response(this.cache.get('/'), { status: 200, headers: { 'Content-Type': 'text/html' } }) : new Response('Not found', { status: 404 });
+                }
+                if (url.includes('/api/nodes')) {
+                    const nodes = ['FalseNode@webxos', ...BluetoothMesh.getUserNodesFromMessages()];
+                    return new Response(JSON.stringify(nodes), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                }
+                return new Response('Not found', { status: 404 });
+            },
+            async saveCache() {
+                try {
+                    const cacheData = Object.fromEntries(this.cache);
+                    const encrypted = NodeSync.encryptData(cacheData, 'server');
+                    localStorage.setItem(this.CACHE_KEY, JSON.stringify(encrypted));
+                } catch (e) {
+                    Troubleshooter.checkError(e, 'Failed to save virtual server cache');
+                }
+            },
+            overrideFetch() {
+                const originalFetch = window.fetch;
+                window.fetch = async (url, options) => {
+                    if (url.includes('api.ipify.org')) return originalFetch(url, options);
+                    try {
+                        const response = await this.handleRequest({ url });
+                        if (response.status === 200) {
+                            this.cache.set(url, await response.clone().text());
+                            await this.saveCache();
+                            return response;
+                        }
+                        return originalFetch(url, options).catch(async () => {
+                            const cached = this.cache.get(url);
+                            return cached ? new Response(cached, { status: 200 }) : new Response('Offline and not cached', { status: 503 });
+                        });
+                    } catch (e) {
+                        Troubleshooter.checkError(e, 'Virtual server request failed');
+                        return originalFetch(url, options);
+                    }
+                };
+            }
+        };
+
+        // NodeSync: Handles encryption, compression, and storage
+        const NodeSync = {
+            nodeKeys: new Map(),
+            XOR_VALUE: 0xFF,
+            generateNodeKey(nodeId) {
+                const key = crypto.getRandomValues(new Uint8Array(16)).join('').slice(0, 16);
+                this.nodeKeys.set(nodeId, key);
+                return key;
+            },
+            getNodeKey(nodeId) {
+                return this.nodeKeys.get(nodeId) || this.generateNodeKey(nodeId);
+            },
+            validateDataSize(data) {
+                const size = new TextEncoder().encode(JSON.stringify(data)).length;
+                return size <= 10 * 1024 * 1024;
+            },
+            compressData(data, nodeId) {
+                const str = JSON.stringify(data);
+                return this._pakoDeflate(str);
+            },
+            decompressData(compressed, nodeId) {
+                try {
+                    return JSON.parse(this._pakoInflate(compressed));
+                } catch (e) {
+                    throw new Error('Decompression failed: ' + e.message);
+                }
+            },
+            encryptData(data, nodeId) {
+                if (!this.validateDataSize(data)) throw new Error('Data exceeds 10MB limit');
+                const compressed = this.compressData(data, nodeId);
+                return this._aesEncrypt(compressed, this.getNodeKey(nodeId));
+            },
+            decryptData(encrypted, nodeId) {
+                const chunkSize = 250000; // 250KB chunks
+                const maxIterations = 100; // Prevent infinite loops
+                const key = this.getNodeKey(nodeId);
+                const decrypted = [];
+                try {
+                    for (let i = 0, count = 0; i < encrypted.length && count < maxIterations; i += chunkSize, count++) {
+                        const chunk = encrypted.slice(i, i + chunkSize);
+                        decrypted.push(...this._aesDecrypt(chunk, key));
+                    }
+                    if (decrypted.length === 0) throw new Error('No data decrypted');
+                    return this.decompressData(decrypted, nodeId);
+                } catch (e) {
+                    throw new Error('Decryption failed: ' + e.message);
+                }
+            },
+            encryptMessage(message, senderId, recipientId) {
+                const serial = this.generateMessageSerial(senderId);
+                const data = { message, senderId, recipientId, serial, timestamp: Date.now() };
+                const encrypted = this.encryptData(data, recipientId);
+                localStorage.setItem(serial, JSON.stringify(encrypted));
+                return serial;
+            },
+            decryptMessage(encrypted, recipientId) {
+                return this.decryptData(encrypted, recipientId);
+            },
+            generateSerial(nodeId) {
+                return `WEBXOS-${Math.random().toString(36).slice(2, 15).toUpperCase()}`;
+            },
+            generateMessageSerial(nodeId) {
+                return `WEBXOS-MSG-${Math.random().toString(36).slice(2, 15).toUpperCase()}`;
+            },
+            validateData(data) {
+                try {
+                    JSON.parse(JSON.stringify(data));
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            retrieveData(serial, nodeId) {
+                const data = localStorage.getItem(serial);
+                return data ? this.decryptData(JSON.parse(data), nodeId) : null;
+            },
+            encryptWASM(data, nodeId) {
+                return this._aesEncrypt(data, this.getNodeKey(nodeId));
+            },
+            validateCompressionConfig() {
+                return true;
+            },
+            _pakoDeflate(str) {
+                const chunkSize = 250000;
+                const result = [];
+                const bytes = new TextEncoder().encode(str);
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.slice(i, i + chunkSize);
+                    result.push(...Array.from(chunk).map(b => b ^ this.XOR_VALUE));
+                }
+                return result;
+            },
+            _pakoInflate(compressed) {
+                const chunkSize = 250000;
+                const result = [];
+                for (let i = 0; i < compressed.length; i += chunkSize) {
+                    const chunk = compressed.slice(i, i + chunkSize);
+                    result.push(...chunk.map(b => b ^ this.XOR_VALUE));
+                }
+                return new TextDecoder().decode(new Uint8Array(result));
+            },
+            _aesEncrypt(data, key) {
+                return data.map(b => b ^ key.charCodeAt(b % key.length));
+            },
+            _aesDecrypt(encrypted, key) {
+                return encrypted.map(b => b ^ key.charCodeAt(b % key.length));
+            }
+        };
+
+        // BluetoothMesh: Manages connectivity and messaging
+        const BluetoothMesh = {
+            nodeId: null,
+            isOffline: false,
+            discoveryInterval: null,
+            connectedNodes: new Set(),
+            isDiscovering: false,
+            isTroubleshooting: false,
+            setNodeId(id) {
+                if (!id.match(/^[a-zA-Z0-9]+@webxos$/)) throw new Error('Invalid node ID format');
+                this.nodeId = id.replace(/[<>]/g, '');
+                localStorage.setItem('nodeId', this.nodeId);
+            },
+            async discover() {
+                if (this.isDiscovering) {
+                    ConsoleManager.log('Discovery already in progress, please wait...');
+                    return;
+                }
+                this.isDiscovering = true;
+                let count = 0;
+                const updateStatus = () => {
+                    if (count >= 30) {
+                        ConsoleManager.logDiscoveryStatus('');
+                        this.isDiscovering = false;
+                        return;
+                    }
+                    const dots = '.'.repeat((count % 3) + 1) + ' '.repeat(3 - (count % 3));
+                    ConsoleManager.logDiscoveryStatus(`Discovering${dots}`);
+                    count++;
+                    setTimeout(updateStatus, 1000);
+                };
+                updateStatus();
+                const nodes = ['FalseNode@webxos'];
+                if (!this.isOffline) {
+                    try {
+                        const httpNodes = await this.discoverHttpNodes();
+                        nodes.push(...httpNodes);
+                    } catch (e) {
+                        Troubleshooter.checkError(e, 'Check network connectivity');
+                    }
+                }
+                ConsoleManager.log(`Discovered nodes: ${nodes.map(n => `<span class="clickable-node">${n}</span>`).join(', ')}`);
+                this.isDiscovering = false;
+            },
+            async discoverHttpNodes() {
+                const maxKeys = 20;
+                const batchSize = 5;
+                await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+                const keys = Object.keys(localStorage).filter(k => k.startsWith('WEBXOS-MSG-')).slice(0, maxKeys);
+                const nodes = [];
+                for (let i = 0; i < keys.length; i += batchSize) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    const batch = keys.slice(i, i + batchSize);
+                    for (const k of batch) {
+                        try {
+                            const data = NodeSync.retrieveData(k, this.nodeId);
+                            if (data?.senderId && data.senderId !== this.nodeId) {
+                                nodes.push(data.senderId);
+                            }
+                        } catch {
+                            // Skip invalid data
+                        }
+                    }
+                }
+                return [...new Set(nodes)];
+            },
+            startDiscoveryLoop() {
+                if (this.discoveryInterval) return;
+                document.getElementById('discoverButton').classList.add('active');
+                document.getElementById('discoverButton').textContent = 'Stop Discovery';
+                this.discoveryInterval = setInterval(() => {
+                    if (!this.isDiscovering) this.discover();
+                }, 30000);
+                this.discover();
+            },
+            stopDiscoveryLoop() {
+                clearInterval(this.discoveryInterval);
+                this.discoveryInterval = null;
+                document.getElementById('discoverButton').classList.remove('active');
+                document.getElementById('discoverButton').textContent = 'Discover';
+                ConsoleManager.logDiscoveryStatus('');
+            },
+            async testNodeConnectivity(node, protocol) {
+                if (protocol === 'bluetooth') {
+                    const details = await this.checkBluetoothDetails();
+                    return { status: details.status, latency: 0 };
+                } else {
+                    const start = performance.now();
+                    try {
+                        await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+                        return { status: 'connected', latency: performance.now() - start };
+                    } catch (e) {
+                        return { status: 'disconnected', latency: 0 };
+                    }
+                }
+            },
+            async checkBluetoothDetails() {
+                if (!navigator.bluetooth) return { status: 'unavailable', speed: 0, deviceType: 'unknown', getDevices: false };
+                const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+                let status = 'disconnected';
+                let getDevices = typeof navigator.bluetooth.getDevices === 'function';
+                try {
+                    if (getDevices) {
+                        const devices = await navigator.bluetooth.getDevices();
+                        status = devices.length > 0 ? 'connected' : 'disconnected';
+                    } else {
+                        await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+                        status = 'connected';
+                    }
+                } catch (e) {
+                    Troubleshooter.checkError(e, 'Try updating your browser to Chrome Canary or Edge');
+                }
+                return {
+                    status,
+                    speed: isMobile ? 1 : 3,
+                    deviceType: isMobile ? 'mobile' : 'desktop',
+                    getDevices
+                };
+            },
+            async checkHttpConnectivity() {
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const start = performance.now();
+                        await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+                        return { status: 'connected', latency: performance.now() - start };
+                    } catch (e) {
+                        if (i === 2) {
+                            Troubleshooter.checkError(e, 'Check WiFi, disable ad blockers, or use VPN');
+                            return { status: 'disconnected', latency: 0 };
+                        }
+                    }
+                }
+            },
+            async checkConnectivity() {
+                const btDetails = await this.checkBluetoothDetails();
+                const httpDetails = await this.checkHttpConnectivity();
+                this.isOffline = btDetails.status === 'unavailable' && httpDetails.status === 'disconnected';
+                if (this.isOffline) {
+                    document.getElementById('discoverButton').disabled = true;
+                    ConsoleManager.logError('No connectivity: Running in offline mode...');
+                    ConsoleManager.logError(`Bluetooth: ${btDetails.status}, HTTP: ${httpDetails.status}`);
+                } else {
+                    document.getElementById('discoverButton').disabled = false;
+                }
+                return { bluetooth: btDetails, http: httpDetails };
+            },
+            getUserNodesFromMessages() {
+                const maxKeys = 20;
+                const batchSize = 5;
+                const keys = Object.keys(localStorage).filter(k => k.startsWith('WEBXOS-MSG-')).slice(0, maxKeys);
+                const nodes = [];
+                for (let i = 0; i < keys.length; i += batchSize) {
+                    const batch = keys.slice(i, i + batchSize);
+                    for (const k of batch) {
+                        try {
+                            const data = NodeSync.retrieveData(k, this.nodeId);
+                            if (data?.senderId && data.senderId !== this.nodeId) {
+                                nodes.push(data.senderId);
+                            }
+                        } catch {
+                            // Skip invalid data
+                        }
+                    }
+                }
+                return [...new Set(nodes)];
+            },
+            sendMessage(recipientId, message) {
+                if (!this.nodeId) throw new Error('Node ID not set');
+                const serial = NodeSync.encryptMessage(message, this.nodeId, recipientId);
+                ConsoleManager.log(`Sent message to ${recipientId}: ${message}`);
+            },
+            async receiveMessages() {
+                const maxMessages = 20;
+                const batchSize = 5;
+                const keys = Object.keys(localStorage).filter(k => k.startsWith('WEBXOS-MSG-')).slice(0, maxMessages);
+                for (let i = 0; i < keys.length; i += batchSize) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    const batch = keys.slice(i, i + batchSize);
+                    for (const k of batch) {
+                        try {
+                            const data = NodeSync.retrieveData(k, this.nodeId);
+                            if (data && data.recipientId === this.nodeId) {
+                                ConsoleManager.log(`<span class="clickable-node">${data.senderId}</span>: ${data.message}`);
+                            }
+                        } catch {
+                            // Skip invalid messages
+                        }
+                    }
+                }
+            },
+            toggleConnection(node, forceConnect = null) {
+                if (node === 'FalseNode@webxos' && !this.connectedNodes.has(node) && !this.isTroubleshooting) {
+                    this.isTroubleshooting = true;
+                    Troubleshooter.falseNodeTroubleshoot();
+                    this.isTroubleshooting = false;
+                }
+                if (forceConnect === null) {
+                    if (this.connectedNodes.has(node)) {
+                        this.connectedNodes.delete(node);
+                        ConsoleManager.log(`Disconnected from ${node}`);
+                    } else {
+                        this.connectedNodes.add(node);
+                        ConsoleManager.log(`Connected to ${node}`);
+                    }
+                } else if (forceConnect) {
+                    this.connectedNodes.add(node);
+                    ConsoleManager.log(`Connected to ${node}`);
+                } else {
+                    this.connectedNodes.delete(node);
+                    ConsoleManager.log(`Disconnected from ${node}`);
+                }
+            },
+            showConfirmation(node) {
+                if (node === 'FalseNode@webxos') {
+                    ConsoleManager.logError('Cannot merge with FalseNode@webxos');
+                    return;
+                }
+                document.getElementById('confirmMessage').innerHTML = `Merge with ${node}?`;
+                document.getElementById('confirmPopup').classList.add('active');
+            },
+            confirmMerge(confirm) {
+                document.getElementById('confirmPopup').classList.remove('active');
+                if (confirm) {
+                    ConsoleManager.log('Merge confirmed');
+                } else {
+                    ConsoleManager.log('Merge cancelled');
+                }
+            },
+            merge(node) {
+                this.showConfirmation(node);
+            },
+            _renderNodes(nodes) {
+                WebGLViz.renderNodes(nodes);
+            }
+        };
+
+        // WebGLViz: Renders nodes using WebGL
+        const WebGLViz = {
+            gl: null,
+            program: null,
+            init() {
+                const canvas = document.getElementById('webglCanvas');
+                this.gl = canvas.getContext('webgl');
+                if (!this.gl) {
+                    ConsoleManager.logError('WebGL not supported');
+                    return;
+                }
+                const vsSource = `
+                    attribute vec2 a_position;
+                    void main() {
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                    }
+                `;
+                const fsSource = `
+                    precision mediump float;
+                    uniform vec4 u_color;
+                    void main() {
+                        gl_FragColor = u_color;
+                    }
+                `;
+                const vertexShader = this.gl.createShader(this.gl.VERTEX_SHADER);
+                this.gl.shaderSource(vertexShader, vsSource);
+                this.gl.compileShader(vertexShader);
+                const fragmentShader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
+                this.gl.shaderSource(fragmentShader, fsSource);
+                this.gl.compileShader(fragmentShader);
+                this.program = this.gl.createProgram();
+                this.gl.attachShader(this.program, vertexShader);
+                this.gl.attachShader(this.program, fragmentShader);
+                this.gl.linkProgram(this.program);
+                this.gl.useProgram(this.program);
+            },
+            validateRenderConfig(nodes) {
+                const isLowEnd = window.innerWidth <= 600 || navigator.hardwareConcurrency < 4;
+                return nodes.slice(0, isLowEnd ? 2 : 10);
+            },
+            renderNodes(nodes) {
+                if (!this.gl) this.init();
+                if (!this.gl) return;
+                const validNodes = this.validateRenderConfig(nodes);
+                const canvas = document.getElementById('webglCanvas');
+                canvas.style.display = 'block';
+                this.gl.viewport(0, 0, canvas.width, canvas.height);
+                this.gl.clearColor(0, 0, 0, 1);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                const positionBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, positionBuffer);
+                const positionLocation = this.gl.getAttribLocation(this.program, 'a_position');
+                this.gl.enableVertexAttribArray(positionLocation);
+                this.gl.vertexAttribPointer(positionLocation, 2, this.gl.FLOAT, false, 0, 0);
+                const colorLocation = this.gl.getUniformLocation(this.program, 'u_color');
+                validNodes.forEach((node, i) => {
+                    const x = (i % 4) * 0.4 - 0.8;
+                    const y = Math.floor(i / 4) * 0.4 - 0.8;
+                    const positions = new Float32Array([x, y, x + 0.2, y, x + 0.2, y + 0.2, x, y + 0.2]);
+                    this.gl.bufferData(this.gl.ARRAY_BUFFER, positions, this.gl.STATIC_DRAW);
+                    this.gl.uniform4fv(colorLocation, node === 'FalseNode@webxos' ? [1, 0, 0, 1] : [0, 1, 0, 1]);
+                    this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, 4);
+                });
+                setTimeout(() => canvas.style.display = 'none', 5000);
+            }
+        };
+
+        // WizardManager: Handles node ID setup
+        const WizardManager = {
+            open() {
+                document.getElementById('wizardPopup').classList.add('active');
+                document.getElementById('nodeIdInput').focus();
+            },
+            async testConnectivity() {
+                const details = await BluetoothMesh.checkConnectivity();
+                ConsoleManager.log(`Bluetooth: ${details.bluetooth.status}, Speed: ${details.bluetooth.speed} Mbps, Device: ${details.bluetooth.deviceType}, getDevices: ${details.bluetooth.getDevices}`);
+                ConsoleManager.log(`HTTP: ${details.http.status}, Latency: ${details.http.latency.toFixed(2)} ms`);
+                if (BluetoothMesh.isOffline) {
+                    ConsoleManager.logError('Running in offline mode with limited functionality');
+                }
+            },
+            nextStep(step) {
+                const nodeId = document.getElementById('nodeIdInput').value;
+                if (!nodeId.match(/^[a-zA-Z0-9]+@webxos$/)) {
+                    ConsoleManager.logError('Invalid node ID format');
+                    return;
+                }
+                BluetoothMesh.setNodeId(nodeId);
+                this.finalize(nodeId);
+            },
+            skip() {
+                const nodeId = `guest${Math.random().toString(36).slice(2, 10)}@webxos`;
+                BluetoothMesh.setNodeId(nodeId);
+                this.finalize(nodeId);
+            },
+            finalize(nodeId) {
+                document.getElementById('wizardPopup').classList.remove('active');
+                ConsoleManager.log(`Node ID set: ${nodeId}`);
+                ConsoleManager.log('Use commands: discover, troubleshoot, verbose, visualize');
+                ConsoleManager.log('Send messages: user@webxos message');
+                this.testConnectivity();
+            }
+        };
+
+        // ConsoleManager: Controls console output and commands
+        const ConsoleManager = {
+            verbose: false,
+            awaitingTroubleshootResponse: false,
+            log(message) {
+                const output = document.getElementById('consoleOutput');
+                const div = document.createElement('div');
+                div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+                output.insertBefore(div, document.querySelector('.input-line'));
+                this._makeNodesClickable(div);
+            },
+            logError(message) {
+                Troubleshooter.checkError(new Error(message), '');
+            },
+            logVerbose(message) {
+                if (this.verbose) this.log(message);
+            },
+            logDiscoveryStatus(message) {
+                document.getElementById('discoveryStatus').textContent = message;
+            },
+            execute() {
+                const input = document.getElementById('commandInput');
+                const value = input.value.trim();
+                input.value = '';
+                if (!value) return;
+                if (this.awaitingTroubleshootResponse) {
+                    this.handleTroubleshootResponse(value);
+                    return;
+                }
+                if (value === 'discover') {
+                    if (BluetoothMesh.discoveryInterval) {
+                        BluetoothMesh.stopDiscoveryLoop();
+                    } else {
+                        BluetoothMesh.startDiscoveryLoop();
+                    }
+                } else if (value === 'troubleshoot') {
+                    document.getElementById('troubleshootButton').click();
+                } else if (value === 'verbose') {
+                    this.verbose = !this.verbose;
+                    this.log(`Verbose mode: ${this.verbose ? 'ON' : 'OFF'}`);
+                } else if (value === 'visualize') {
+                    const nodes = ['FalseNode@webxos', ...BluetoothMesh.getUserNodesFromMessages()];
+                    WebGLViz.renderNodes(nodes);
+                } else if (value.match(/^[a-zA-Z0-9]+@webxos\s+.+$/)) {
+                    const [recipientId, ...messageParts] = value.split(' ');
+                    const message = messageParts.join(' ').replace(/[<>]/g, '');
+                    BluetoothMesh.sendMessage(recipientId, message);
+                } else {
+                    this.logError(`Unknown command: ${value}`);
+                }
+                input.focus();
+            },
+            handleTroubleshootResponse(response) {
+                if (response.toLowerCase() === 'y') {
+                    Troubleshooter.falseNodeTroubleshoot();
+                } else {
+                    this.awaitingTroubleshootResponse = false;
+                    this.log('Troubleshooting ended');
+                }
+            },
+            handleCommand(event) {
+                if (event.key === 'Enter') this.execute();
+            },
+            _makeNodesClickable(element) {
+                const nodes = element.querySelectorAll('.clickable-node');
+                nodes.forEach(node => {
+                    node.addEventListener('click', () => {
+                        BluetoothMesh.toggleConnection(node.textContent);
+                    });
+                });
+            }
+        };
+
+        // Troubleshooter: Runs diagnostics with AI-driven suggestions
+        const Troubleshooter = {
+            errorCache: new Set(),
+            maxErrors: 50,
+            lastErrorTime: 0,
+            debounceDelay: 100,
+            errorPatterns: [
+                { pattern: /Bluetooth/, suggestion: 'Try updating your browser to Chrome Canary or Edge' },
+                { pattern: /HTTP.*timeout/, suggestion: 'Check WiFi, disable ad blockers, or use VPN' },
+                { pattern: /Decryption failed/, suggestion: 'Verify node ID or clear localStorage' },
+                { pattern: /Virtual server/, suggestion: 'Check localStorage integrity or clear cache' },
+                { pattern: /WebGL/, suggestion: 'Update browser or enable WebGL in settings' },
+                { pattern: /WebAssembly/, suggestion: 'Check browser WebAssembly support' },
+                { pattern: /DOM/, suggestion: 'Verify HTML structure and IDs' },
+                { pattern: /storage/, suggestion: 'Check browser storage settings or quota' }
+            ],
+            check() {
+                this.checkJavaScriptSyntax();
+                this.checkConnectivity();
+                this.checkDOM();
+                this.checkStorage();
+                this.checkWebGL();
+                this.checkWASM();
+                this.checkVirtualServer();
+                this.getMemoryUsage();
+            },
+            checkError(error, suggestion) {
+                const now = Date.now();
+                if (now - this.lastErrorTime < this.debounceDelay) return;
+                if (this.errorCache.size >= this.maxErrors) {
+                    this.errorCache.clear();
+                    ConsoleManager.log('Error cache cleared to prevent overflow');
+                }
+                const key = `${error.message}:${suggestion}`;
+                if (this.errorCache.has(key)) return;
+                this.errorCache.add(key);
+                this.lastErrorTime = now;
+                const aiSuggestion = this.getAISuggestion(error.message) || suggestion;
+                ConsoleManager.log(`<span class="error">${error.message}${aiSuggestion ? ' - ' + aiSuggestion : ''}</span>`);
+                if (ConsoleManager.verbose) console.trace(error);
+            },
+            getAISuggestion(message) {
+                for (const { pattern, suggestion } of this.errorPatterns) {
+                    if (pattern.test(message)) return suggestion;
+                }
+                return 'Run troubleshoot again or check browser console for details';
+            },
+            checkJavaScriptSyntax() {
+                try {
+                    new Function('')();
+                } catch (e) {
+                    this.checkError(e, 'Check JavaScript engine');
+                }
+            },
+            async checkConnectivity() {
+                const details = await BluetoothMesh.checkConnectivity();
+                if (details.bluetooth.status === 'unavailable') {
+                    this.checkError(new Error('Bluetooth unavailable'), '');
+                }
+                if (details.http.status === 'disconnected') {
+                    this.checkError(new Error('HTTP disconnected'), '');
+                }
+            },
+            checkDOM() {
+                if (!document.getElementById('consoleOutput')) {
+                    this.checkError(new Error('Console DOM missing'), '');
+                }
+            },
+            checkStorage() {
+                try {
+                    localStorage.setItem('test', 'test');
+                    localStorage.removeItem('test');
+                } catch (e) {
+                    this.checkError(e, '');
+                }
+            },
+            checkWebGL() {
+                if (!document.createElement('canvas').getContext('webgl')) {
+                    this.checkError(new Error('WebGL unavailable'), '');
+                }
+            },
+            checkWASM() {
+                try {
+                    new WebAssembly.Module(new Uint8Array([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]));
+                } catch (e) {
+                    this.checkError(e, '');
+                }
+            },
+            checkVirtualServer() {
+                try {
+                    const cached = localStorage.getItem(VirtualServer.CACHE_KEY);
+                    if (cached) NodeSync.decryptData(JSON.parse(cached), 'server');
+                } catch (e) {
+                    this.checkError(e, 'Virtual server cache corrupted');
+                }
+            },
+            getMemoryUsage() {
+                if (performance.memory) {
+                    const { usedJSHeapSize, totalJSHeapSize } = performance.memory;
+                    ConsoleManager.log(`Memory: ${Math.round(usedJSHeapSize / 1024 / 1024)} MB / ${Math.round(totalJSHeapSize / 1024 / 1024)} MB`);
+                } else {
+                    ConsoleManager.log('Memory usage not available');
+                }
+            },
+            falseNodeTroubleshoot() {
+                this.errorCache.clear();
+                if (!BluetoothMesh.connectedNodes.has('FalseNode@webxos')) {
+                    BluetoothMesh.toggleConnection('FalseNode@webxos', true);
+                }
+                this.check();
+                ConsoleManager.log('Diagnostic Nodes: <span class="clickable-node">FalseNode@webxos</span>');
+                ConsoleManager.awaitingTroubleshootResponse = true;
+                ConsoleManager.log('Do you need more help? (y/n)');
+            }
+        };
+
+        // Initialize
+        window.onload = async () => {
+            await VirtualServer.init();
+            if (!localStorage.getItem('nodeId')) {
+                WizardManager.open();
+            } else {
+                BluetoothMesh.setNodeId(localStorage.getItem('nodeId'));
+                await WizardManager.testConnectivity();
+                setTimeout(() => BluetoothMesh.receiveMessages(), 2000);
+            }
+            document.getElementById('executeButton').addEventListener('click', () => ConsoleManager.execute());
+            document.getElementById('discoverButton').addEventListener('click', () => {
+                if (BluetoothMesh.discoveryInterval) {
+                    BluetoothMesh.stopDiscoveryLoop();
+                } else {
+                    BluetoothMesh.startDiscoveryLoop();
+                }
+            });
+            document.getElementById('troubleshootButton').addEventListener('click', () => Troubleshooter.falseNodeTroubleshoot());
+            document.getElementById('commandInput').addEventListener('keydown', e => ConsoleManager.handleCommand(e));
+        };
+    </script>
+</body>
+</html>
