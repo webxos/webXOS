@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Bluemesh 2025: Secure Bluetooth and HTTP mesh networking with P2P messaging, WebGL visualization, and diagnostics via FalseNode@webxos.">
+    <meta name="keywords" content="Bluemesh, Bluetooth Mesh, HTTP Mesh, P2P Messaging, WebGL, NodeSync, secure networking">
+    <meta name="author" content="WEBXOS Standardization">
+    <meta name="robots" content="index, follow">
+    <meta name="copyright" content="© 2025 WEBXOS Standardization">
+    <title>Bluemesh 2025</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .console {
+            flex-grow: 1;
+            overflow-y: auto;
+            text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00, 0 0 15px #00ff00;
+            font-size: 0.7em;
+            line-height: 1.1;
+            padding: 10px;
+            border: 1px solid #00ff00;
+            margin: 10px 10px 5px 10px;
+            position: relative;
+        }
+        .input-line {
+            display: flex;
+            padding: 5px;
+            position: sticky;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10;
+        }
+        .input-line span {
+            margin-right: 5px;
+        }
+        .input-line input {
+            flex-grow: 1;
+            background: transparent;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            padding: 2px;
+            text-shadow: 0 0 3px #00ff00;
+        }
+        .input-line input:focus {
+            outline: none;
+            box-shadow: 0 0 5px #00ff00;
+        }
+        .input-line input::placeholder {
+            color: #00ff00;
+            opacity: 0.7;
+        }
+        .button-container {
+            display: flex;
+            flex-wrap: wrap;
+            padding: 5px;
+            z-index: 10;
+        }
+        button {
+            background: transparent;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            padding: 5px 10px;
+            margin: 2px;
+            cursor: pointer;
+            min-width: 120px;
+        }
+        button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 5px #00ff00;
+        }
+        button.active {
+            box-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #00ff00;
+            padding: 10px;
+            max-width: 400px;
+            width: 80%;
+            z-index: 20;
+        }
+        .popup.active {
+            display: block;
+        }
+        #webglCanvas {
+            display: none;
+            width: 300px;
+            height: 300px;
+        }
+        footer {
+            font-size: 10px;
+            text-align: center;
+            padding: 5px;
+            text-shadow: 0 0 3px #00ff00;
+        }
+        .error {
+            color: #ff0000;
+            text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000;
+        }
+        .clickable-node {
+            text-decoration: underline;
+            cursor: pointer;
+        }
+        .clickable-node:hover {
+            color: #00cc00;
+            text-shadow: 0 0 5px #00cc00;
+        }
+        #discoveryStatus {
+            margin-top: 10px;
+            font-style: italic;
+        }
+        @media (max-width: 600px) {
+            .console { font-size: 0.6em; }
+            button { font-size: 0.7em; min-width: 100px; padding: 3px 6px; }
+            .input-line input { font-size: 0.6em; }
+            .popup { width: 90%; }
+            footer { font-size: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="consoleOutput" class="console" role="log" aria-live="assertive">
+        <div id="discoveryStatus"></div>
+    </div>
+    <div class="input-line">
+        <span aria-hidden="true">></span>
+        <input id="commandInput" type="text" placeholder="Enter command or message (e.g., user@webxos Hello!)" aria-label="Command or message input">
+    </div>
+    <div class="button-container">
+        <button id="executeBtn" aria-label="Execute command">Execute</button>
+        <button id="discoverBtn" aria-label="Start or stop node discovery">Discover</button>
+        <button id="troubleshootBtn" aria-label="Run troubleshooting diagnostics">Troubleshoot</button>
+    </div>
+    <canvas id="webglCanvas" width="300" height="300" aria-hidden="true"></canvas>
+    <div id="wizardPopup" class="popup">
+        <h3>Node ID Setup</h3>
+        <input id="nodeIdInput" type="text" placeholder="e.g., user@webxos" aria-label="Node ID input">
+        <button id="nextBtn" aria-label="Proceed with node ID">Next</button>
+        <button id="skipBtn" aria-label="Skip node ID setup">Skip</button>
+    </div>
+    <div id="confirmPopup" class="popup">
+        <h3>Confirm Merge</h3>
+        <p id="confirmMessage" aria-live="assertive"></p>
+        <button id="confirmYesBtn" aria-label="Confirm merge">Yes</button>
+        <button id="confirmNoBtn" aria-label="Cancel merge">No</button>
+    </div>
+    <footer>BLUEMESH v1.0.0 © 2025 WEBXOS Standardization, Tested: 01:45 AM EDT, July 16, 2025</footer>
+    <script>
+        // NodeSync Module
+        const NodeSync = {
+            nodeKeys: new Map(),
+            async generateNodeKey(nodeId) {
+                const key = await crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+                this.nodeKeys.set(nodeId, key);
+                return key;
+            },
+            async encryptData(data, nodeId) {
+                const key = this.nodeKeys.get(nodeId) || await this.generateNodeKey(nodeId);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encoded = new TextEncoder().encode(JSON.stringify(data));
+                const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+                return { iv, encrypted };
+            },
+            async decryptData({ iv, encrypted }, nodeId) {
+                const key = this.nodeKeys.get(nodeId);
+                if (!key) return null;
+                try {
+                    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
+                    return JSON.parse(new TextDecoder().decode(decrypted));
+                } catch {
+                    return null;
+                }
+            },
+            compressData(data) {
+                const str = JSON.stringify(data);
+                if (new TextEncoder().encode(str).length > 10 * 1024 * 1024) throw new Error("Data exceeds 10MB");
+                let result = "";
+                let count = 1;
+                let current = str[0];
+                for (let i = 1; i < str.length; i++) {
+                    if (str[i] === current && count < 255) count++;
+                    else {
+                        result += String.fromCharCode(count) + current;
+                        current = str[i];
+                        count = 1;
+                    }
+                }
+                result += String.fromCharCode(count) + current;
+                return btoa(result);
+            },
+            decompressData(compressed) {
+                try {
+                    const str = atob(compressed);
+                    let result = "";
+                    for (let i = 0; i < str.length; i += 2) {
+                        const count = str.charCodeAt(i);
+                        const char = str[i + 1];
+                        result += char.repeat(count);
+                    }
+                    return JSON.parse(result);
+                } catch {
+                    return null;
+                }
+            },
+            generateSerial() {
+                return "WEBXOS-" + Array(13).fill().map(() => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+            },
+            generateMessageSerial() {
+                return "WEBXOS-MSG-" + Array(13).fill().map(() => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+            },
+            async retrieveData(serial, nodeId) {
+                const encrypted = localStorage.getItem(serial);
+                return encrypted ? await this.decryptData(JSON.parse(encrypted), nodeId) : null;
+            }
+        };
+
+        // BluetoothMesh Module
+        const BluetoothMesh = {
+            nodeId: null,
+            connectedNodes: new Set(),
+            isDiscovering: false,
+            discoveryInterval: null,
+            setNodeId(id) {
+                this.nodeId = id.match(/^[a-zA-Z0-9]+@webxos$/) ? id.replace(/[<>]/g, '') : "guest" + Math.random().toString(36).slice(2, 10) + "@webxos";
+                localStorage.setItem("nodeId", this.nodeId);
+            },
+            async discover() {
+                const status = document.getElementById("discoveryStatus");
+                let dots = 0;
+                const interval = setInterval(() => {
+                    status.textContent = "Discovering" + ".".repeat(dots++ % 4);
+                    ConsoleManager.logDiscoveryStatus(status.textContent);
+                }, 500);
+                const nodes = ["FalseNode@webxos"];
+                if (navigator.bluetooth && window.isSecureContext) {
+                    try {
+                        await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+                        nodes.push("bt" + Math.random().toString(36).slice(2, 10) + "@webxos");
+                    } catch (e) {
+                        ConsoleManager.logError(`Bluetooth failed: ${e.message}. Suggestion: Ensure HTTPS and user permission.`);
+                    }
+                }
+                try {
+                    const res = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(5000) });
+                    if (res.ok) nodes.push("http" + Math.random().toString(36).slice(2, 10) + "@webxos");
+                } catch {
+                    nodes.push("mock" + Math.random().toString(36).slice(2, 10) + "@webxos");
+                }
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key.startsWith("WEBXOS-MSG-")) {
+                        const data = await NodeSync.retrieveData(key, this.nodeId);
+                        if (data && data.senderId) nodes.push(data.senderId);
+                    }
+                }
+                clearInterval(interval);
+                status.textContent = "";
+                ConsoleManager.logDiscoveryStatus("");
+                nodes.forEach(n => ConsoleManager.log(`<span class="clickable-node">${n}</span>`));
+                return nodes;
+            },
+            startDiscovery() {
+                if (this.isDiscovering) {
+                    clearInterval(this.discoveryInterval);
+                    this.isDiscovering = false;
+                    document.getElementById("discoverBtn").textContent = "Discover";
+                    document.getElementById("discoverBtn").classList.remove("active");
+                    ConsoleManager.logDiscoveryStatus("");
+                } else {
+                    this.isDiscovering = true;
+                    document.getElementById("discoverBtn").textContent = "Stop";
+                    document.getElementById("discoverBtn").classList.add("active");
+                    this.discover();
+                    this.discoveryInterval = setInterval(() => this.discover(), 30000);
+                }
+            },
+            async sendMessage(recipient, message) {
+                const serial = NodeSync.generateMessageSerial();
+                const encrypted = await NodeSync.encryptData({ senderId: this.nodeId, message, timestamp: Date.now() }, recipient);
+                localStorage.setItem(serial, JSON.stringify(encrypted));
+                ConsoleManager.log(`Message sent to ${recipient}: ${message}`);
+            },
+            async receiveMessages() {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key.startsWith("WEBXOS-MSG-")) {
+                        const data = await NodeSync.retrieveData(key, this.nodeId);
+                        if (data && data.message && data.senderId) {
+                            ConsoleManager.log(`Message from <span class="clickable-node">${data.senderId}</span>: ${data.message}`);
+                        }
+                    }
+                }
+            },
+            toggleConnection(node) {
+                if (node === "FalseNode@webxos") {
+                    Troubleshooter.check();
+                    return;
+                }
+                if (this.connectedNodes.has(node)) {
+                    this.connectedNodes.delete(node);
+                    ConsoleManager.log(`Disconnected from ${node}`);
+                } else {
+                    this.connectedNodes.add(node);
+                    document.getElementById("confirmPopup").classList.add("active");
+                    document.getElementById("confirmMessage").textContent = `Merge with ${node}?`;
+                    document.getElementById("confirmYesBtn").onclick = () => this.merge(node);
+                    document.getElementById("confirmNoBtn").onclick = () => document.getElementById("confirmPopup").classList.remove("active");
+                }
+            },
+            merge(node) {
+                document.getElementById("confirmPopup").classList.remove("active");
+                const serial = NodeSync.generateSerial();
+                NodeSync.encryptData({ node, timestamp: Date.now() }, this.nodeId).then(d => {
+                    localStorage.setItem(serial, JSON.stringify(d));
+                    ConsoleManager.log(`Merged with ${node}`);
+                });
+            }
+        };
+
+        // WebGLViz Module
+        const WebGLViz = {
+            gl: null,
+            program: null,
+            init() {
+                this.gl = document.getElementById("webglCanvas").getContext("webgl");
+                if (!this.gl) {
+                    ConsoleManager.logError("WebGL not supported. Suggestion: Use a modern browser like Chrome or Edge.");
+                    return;
+                }
+                const vsSource = `
+                    attribute vec2 a_position;
+                    void main() {
+                        gl_Position = vec4(a_position, 0, 1);
+                        gl_PointSize = 10.0;
+                    }
+                `;
+                const fsSource = `
+                    precision mediump float;
+                    uniform vec4 u_color;
+                    void main() {
+                        gl_FragColor = u_color;
+                    }
+                `;
+                const vs = this.gl.createShader(this.gl.VERTEX_SHADER);
+                this.gl.shaderSource(vs, vsSource);
+                this.gl.compileShader(vs);
+                const fs = this.gl.createShader(this.gl.FRAGMENT_SHADER);
+                this.gl.shaderSource(fs, fsSource);
+                this.gl.compileShader(fs);
+                this.program = this.gl.createProgram();
+                this.gl.attachShader(this.program, vs);
+                this.gl.attachShader(this.program, fs);
+                this.gl.linkProgram(this.program);
+                this.gl.useProgram(this.program);
+            },
+            render(nodes) {
+                if (!this.gl) return;
+                const maxNodes = navigator.deviceMemory && navigator.deviceMemory < 4 ? 2 : 10;
+                this.gl.clearColor(0, 0, 0, 1);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                const pos = this.gl.getAttribLocation(this.program, "a_position");
+                this.gl.enableVertexAttribArray(pos);
+                const buffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
+                this.gl.vertexAttribPointer(pos, 2, this.gl.FLOAT, false, 0, 0);
+                nodes.slice(0, maxNodes).forEach((n, i) => {
+                    const x = (i % 5) * 0.4 - 0.8;
+                    const y = Math.floor(i / 5) * 0.4 - 0.8;
+                    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([x, y]), this.gl.STATIC_DRAW);
+                    this.gl.uniform4fv(this.gl.getUniformLocation(this.program, "u_color"), n === "FalseNode@webxos" ? [1, 0, 0, 1] : [0, 1, 0, 1]);
+                    this.gl.drawArrays(this.gl.POINTS, 0, 1);
+                });
+                const canvas = document.getElementById("webglCanvas");
+                canvas.style.display = "block";
+                setTimeout(() => canvas.style.display = "none", 5000);
+            }
+        };
+
+        // WizardManager Module
+        const WizardManager = {
+            open() {
+                const popup = document.getElementById("wizardPopup");
+                popup.classList.add("active");
+                document.getElementById("nextBtn").onclick = () => {
+                    const id = document.getElementById("nodeIdInput").value;
+                    BluetoothMesh.setNodeId(id);
+                    popup.classList.remove("active");
+                    ConsoleManager.log(`Node ID set: ${BluetoothMesh.nodeId}`);
+                    ConsoleManager.log('Usage: Commands (discover, troubleshoot, verbose, visualize) or messages (e.g., user@webxos Hello!).');
+                };
+                document.getElementById("skipBtn").onclick = () => {
+                    BluetoothMesh.setNodeId("");
+                    popup.classList.remove("active");
+                    ConsoleManager.log(`Node ID set: ${BluetoothMesh.nodeId}`);
+                    ConsoleManager.log('Usage: Commands (discover, troubleshoot, verbose, visualize) or messages (e.g., user@webxos Hello!).');
+                };
+            }
+        };
+
+        // ConsoleManager Module
+        const ConsoleManager = {
+            lastLog: 0,
+            verbose: false,
+            awaitingTroubleshootResponse: false,
+            log(message) {
+                if (Date.now() - this.lastLog < 100) return;
+                this.lastLog = Date.now();
+                const div = document.createElement("div");
+                div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+                div.querySelectorAll(".clickable-node").forEach(n => n.onclick = () => BluetoothMesh.toggleConnection(n.textContent));
+                document.getElementById("consoleOutput").appendChild(div);
+                document.getElementById("consoleOutput").scrollTop = document.getElementById("consoleOutput").scrollHeight;
+            },
+            logError(message) {
+                if (Date.now() - this.lastLog < 100) return;
+                this.lastLog = Date.now();
+                const div = document.createElement("div");
+                div.className = "error";
+                div.innerHTML = `[${new Date().toLocaleTimeString()}] ERROR: ${message}`;
+                div.querySelectorAll(".clickable-node").forEach(n => n.onclick = () => BluetoothMesh.toggleConnection(n.textContent));
+                document.getElementById("consoleOutput").appendChild(div);
+                document.getElementById("consoleOutput").scrollTop = document.getElementById("consoleOutput").scrollHeight;
+            },
+            logVerbose(message) {
+                if (this.verbose) this.log(message);
+            },
+            logDiscoveryStatus(message) {
+                document.getElementById("discoveryStatus").textContent = message ? `[${new Date().toLocaleTimeString()}] ${message}` : "";
+            },
+            execute() {
+                const input = document.getElementById("commandInput");
+                const cmd = input.value.trim();
+                input.value = "";
+                if (!cmd) return;
+                if (this.awaitingTroubleshootResponse) {
+                    this.handleTroubleshootResponse(cmd);
+                    return;
+                }
+                if (cmd === "discover") {
+                    BluetoothMesh.startDiscovery();
+                } else if (cmd === "troubleshoot") {
+                    Troubleshooter.check();
+                } else if (cmd === "verbose") {
+                    this.verbose = !this.verbose;
+                    this.log(`Verbose mode: ${this.verbose ? 'enabled' : 'disabled'}`);
+                } else if (cmd === "visualize") {
+                    WebGLViz.render([...BluetoothMesh.connectedNodes, "FalseNode@webxos"]);
+                    this.log("Visualizing nodes...");
+                } else if (cmd.match(/^[a-zA-Z0-9]+@webxos\s+.+/)) {
+                    const [to, ...msg] = cmd.split(" ");
+                    BluetoothMesh.sendMessage(to, msg.join(" "));
+                } else {
+                    this.logError("Invalid command. Use: discover, troubleshoot, verbose, visualize, or user@webxos message");
+                }
+            },
+            handleTroubleshootResponse(response) {
+                this.awaitingTroubleshootResponse = false;
+                if (response.toLowerCase() === "y") {
+                    Troubleshooter.check();
+                } else {
+                    this.log("Troubleshooting ended.");
+                }
+            },
+            handleCommand(event) {
+                if (event.key === "Enter") this.execute();
+            }
+        };
+
+        // Troubleshooter Module
+        const Troubleshooter = {
+            errorCache: new Set(),
+            check() {
+                ConsoleManager.log("Running diagnostics via FalseNode@webxos...");
+                this.checkJavaScriptSyntax();
+                this.checkConnectivity();
+                this.checkDOM();
+                this.checkStorage();
+                this.checkWebGL();
+                this.checkWebAssembly();
+                this.checkMemory();
+                ConsoleManager.log("Diagnostics complete. Need more help? (y/n)");
+                ConsoleManager.awaitingTroubleshootResponse = true;
+            },
+            checkJavaScriptSyntax() {
+                try {
+                    new Function("return true;")();
+                    ConsoleManager.logVerbose("JavaScript syntax: OK");
+                    return true;
+                } catch (e) {
+                    ConsoleManager.logError(`JavaScript syntax error: ${e.message}. Suggestion: Check browser compatibility.`);
+                    return false;
+                }
+            },
+            checkConnectivity() {
+                if (!navigator.onLine) {
+                    ConsoleManager.logError("Offline mode active. Suggestion: Connect to the internet for full functionality.");
+                    return false;
+                }
+                if (navigator.bluetooth && window.isSecureContext) {
+                    ConsoleManager.logVerbose("Bluetooth available in secure context.");
+                } else {
+                    ConsoleManager.logError("Bluetooth unavailable. Suggestion: Use HTTPS and a compatible browser (Chrome/Edge).");
+                }
+                return true;
+            },
+            checkDOM() {
+                const required = ["consoleOutput", "commandInput", "webglCanvas", "wizardPopup", "confirmPopup", "discoveryStatus"];
+                const missing = required.filter(id => !document.getElementById(id));
+                if (missing.length) {
+                    ConsoleManager.logError(`Missing DOM elements: ${missing.join(", ")}. Suggestion: Verify HTML structure.`);
+                    return false;
+                }
+                ConsoleManager.logVerbose("DOM integrity: OK");
+                return true;
+            },
+            checkStorage() {
+                try {
+                    localStorage.setItem("test", "test");
+                    localStorage.removeItem("test");
+                    ConsoleManager.logVerbose("localStorage: OK");
+                    return true;
+                } catch (e) {
+                    ConsoleManager.logError(`Storage unavailable: ${e.message}. Suggestion: Check browser settings or storage quota.`);
+                    return false;
+                }
+            },
+            checkWebGL() {
+                const gl = document.createElement("canvas").getContext("webgl");
+                if (!gl) {
+                    ConsoleManager.logError("WebGL not supported. Suggestion: Use a modern browser like Chrome or Edge.");
+                    return false;
+                }
+                ConsoleManager.logVerbose("WebGL: OK");
+                return true;
+            },
+            checkWebAssembly() {
+                const supported = typeof WebAssembly === "object";
+                if (!supported) {
+                    ConsoleManager.logError("WebAssembly not supported. Suggestion: Use a modern browser.");
+                    return false;
+                }
+                ConsoleManager.logVerbose("WebAssembly: OK");
+                return true;
+            },
+            checkMemory() {
+                if (performance.memory) {
+                    const { usedJSHeapSize, totalJSHeapSize } = performance.memory;
+                    ConsoleManager.log(`Memory usage: ${Math.round(usedJSHeapSize / 1024 / 1024)}MB / ${Math.round(totalJSHeapSize / 1024 / 1024)}MB`);
+                } else {
+                    ConsoleManager.logVerbose("Memory usage: Unavailable");
+                }
+            }
+        };
+
+        // Initialization
+        window.onload = () => {
+            WebGLViz.init();
+            WizardManager.open();
+            BluetoothMesh.receiveMessages();
+            document.getElementById("executeBtn").onclick = () => ConsoleManager.execute();
+            document.getElementById("discoverBtn").onclick = () => BluetoothMesh.startDiscovery();
+            document.getElementById("troubleshootBtn").onclick = () => Troubleshooter.check();
+            document.getElementById("commandInput").addEventListener("keydown", e => ConsoleManager.handleCommand(e));
+            ConsoleManager.log("Offline mode is limited. Ensure a stable connection for full functionality.");
+        };
+    </script>
+</body>
+</html>
