@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Injector 3D - Swarm Simulator</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #00FF00;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #console {
+      flex-grow: 1;
+      padding: 10px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+    #input-area {
+      display: flex;
+      padding: 10px;
+      background: #111;
+    }
+    #command-input {
+      flex-grow: 1;
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      padding: 5px;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+    }
+    .button {
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      padding: 5px 10px;
+      margin: 0 5px;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+      transition: all 0.2s;
+    }
+    .button:hover {
+      background: #00FF00;
+      color: #000;
+      box-shadow: 0 0 10px #00FF00;
+    }
+    #py-popup {
+      display: none;
+      position: fixed;
+      top: 20%;
+      left: 20%;
+      width: 60%;
+      height: 60%;
+      background: #111;
+      border: 1px solid #00FF00;
+      padding: 10px;
+      box-shadow: 0 0 15px #00FF00;
+      z-index: 1000;
+    }
+    #py-input {
+      width: 100%;
+      height: 80%;
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+    }
+    #three-popup {
+      display: none;
+      position: fixed;
+      top: 10%;
+      left: 10%;
+      width: 80%;
+      height: 80%;
+      background: #000;
+      border: 1px solid #00FF00;
+      z-index: 1000;
+      box-shadow: 0 0 15px #00FF00;
+    }
+    #three-canvas {
+      width: 100%;
+      height: 100%;
+    }
+    #close-three {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: transparent;
+      border: none;
+      color: #FF0000;
+      font-size: 20px;
+      cursor: pointer;
+      text-shadow: 0 0 5px #FF0000;
+    }
+    #close-three:hover {
+      color: #FF5555;
+      text-shadow: 0 0 10px #FF5555;
+    }
+    footer {
+      text-align: center;
+      padding: 5px;
+      font-size: 12px;
+      color: #00FF00;
+      text-shadow: 0 0 5px #00FF00;
+    }
+  </style>
+</head>
+<body>
+  <div id="console"></div>
+  <div id="input-area">
+    <input id="command-input" type="text" placeholder="Enter command (e.g., run swarm_sphere)" onkeypress="if(event.key === 'Enter') executeCommand()">
+    <button class="button" onclick="executeCommand()">Execute</button>
+    <button class="button" onclick="showPyPopup()">Inject</button>
+    <button class="button" onclick="ejectPyConsole()">Eject</button>
+    <button class="button" onclick="troubleshoot()">Troubleshoot</button>
+    <button class="button" onclick="showThreePopup()">3D View</button>
+  </div>
+  <div id="py-popup">
+    <textarea id="py-input" placeholder="Enter Python script (e.g., import swarm; swarm.sphere(1000))"></textarea>
+    <button class="button" onclick="injectPyScript()">Inject Script</button>
+    <button class="button" onclick="closePyPopup()">Close</button>
+  </div>
+  <div id="three-popup">
+    <canvas id="three-canvas"></canvas>
+    <button id="close-three" onclick="closeThreePopup()">✖</button>
+  </div>
+  <footer>WebXOS 2025 - Swarm Enhanced</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    // Console output utility
+    const consoleDiv = document.getElementById('console');
+    function logToConsole(message, type = 'info') {
+      const p = document.createElement('p');
+      p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : '#00FF00';
+      p.textContent = `[${type.toUpperCase()}] ${message}`;
+      consoleDiv.appendChild(p);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    }
+
+    // Global variables
+    let isWaitingForInput = false;
+    let inputResolver = null;
+    let threeScene, threeCamera, threeRenderer, threeObjects = [];
+    let swarmInstance = null;
+
+    // Initialize Three.js
+    function initThree() {
+      if (typeof THREE === 'undefined') {
+        logToConsole('Three.js failed to load. Check CDN or browser support.', 'error');
+        return false;
+      }
+      const canvas = document.getElementById('three-canvas');
+      threeScene = new THREE.Scene();
+      threeCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
+      threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+      threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+      threeCamera.position.set(0, 50, 200);
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+      threeScene.add(ambientLight);
+      const pointLight = new THREE.PointLight(0xffffff, 1, 1000);
+      pointLight.position.set(10, 10, 10);
+      threeScene.add(pointLight);
+      window.addEventListener('resize', () => {
+        threeCamera.aspect = canvas.clientWidth / canvas.clientHeight;
+        threeCamera.updateProjectionMatrix();
+        threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+      });
+      animateThree();
+      return true;
+    }
+
+    function animateThree() {
+      if (!threeRenderer) return;
+      requestAnimationFrame(animateThree);
+      if (swarmInstance && swarmInstance.update) {
+        swarmInstance.update(performance.now() / 1000);
+      }
+      threeObjects.forEach(obj => {
+        if (obj.userData.animate) {
+          obj.rotation.y += 0.01;
+          obj.rotation.x += 0.005;
+        }
+      });
+      threeRenderer.render(threeScene, threeCamera);
+    }
+
+    // Skulpt configuration
+    Sk.configure({
+      output: (msg) => logToConsole(msg, 'info'),
+      read: (filename) => {
+        if (Sk.builtinFiles === undefined || Sk.builtinFiles.files[filename] === undefined) {
+          throw new Error(`File not found: ${filename}`);
+        }
+        return Sk.builtinFiles.files[filename];
+      },
+      inputfun: (prompt) => {
+        isWaitingForInput = true;
+        logToConsole(prompt, 'input');
+        return new Promise((resolve) => {
+          inputResolver = resolve;
+        });
+      }
+    });
+
+    // Three.js module for Skulpt
+    const threeModule = {
+      cube: function() {
+        const geometry = new THREE.BoxGeometry();
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.userData = { animate: true };
+        threeScene.add(cube);
+        threeObjects.push(cube);
+        return Sk.ffi.remapToPy('Cube created');
+      },
+      sphere: function(radius) {
+        const r = radius && Sk.ffi.remapToJs(radius) || 1;
+        if (r <= 0) throw new Error('Radius must be positive');
+        const geometry = new THREE.SphereGeometry(r, 32, 32);
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+        const sphere = new THREE.Mesh(geometry, material);
+        sphere.userData = { animate: true };
+        threeScene.add(sphere);
+        threeObjects.push(sphere);
+        return Sk.ffi.remapToPy('Sphere created');
+      },
+      particles: function(count) {
+        const c = count && Sk.ffi.remapToJs(count) || 1000;
+        if (c <= 0) throw new Error('Particle count must be positive');
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(c * 3);
+        for (let i = 0; i < c * 3; i += 3) {
+          positions[i] = (Math.random() - 0.5) * 10;
+          positions[i + 1] = (Math.random() - 0.5) * 10;
+          positions[i + 2] = (Math.random() - 0.5) * 10;
+        }
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({ color: 0x00ff00, size: 0.1 });
+        const particles = new THREE.Points(geometry, material);
+        particles.userData = { animate: true };
+        threeScene.add(particles);
+        threeObjects.push(particles);
+        return Sk.ffi.remapToPy('Particle system created');
+      },
+      clear: function() {
+        threeObjects.forEach(obj => threeScene.remove(obj));
+        threeObjects = [];
+        if (swarmInstance) {
+          swarmInstance.clear();
+          swarmInstance = null;
+        }
+        return Sk.ffi.remapToPy('Scene cleared');
+      }
+    };
+
+    Sk.builtinFiles.files['three.py'] = `
+def cube():
+    import js
+    return js.threeModule.cube()
+
+def sphere(radius=1):
+    import js
+    return js.threeModule.sphere(radius)
+
+def particles(count=1000):
+    import js
+    return js.threeModule.particles(count)
+
+def clear():
+    import js
+    return js.threeModule.clear()
+    `;
+
+    Sk.builtin.threeModule = threeModule;
+
+    // Swarm module placeholder
+    Sk.builtinFiles.files['swarm.py'] = ''; // Populated by swarm.py below
+
+    Sk.builtinFiles.files['skulptor3d.py'] = `
+import swarm
+def swarm_sphere():
+    try:
+        swarm.clear()
+        result = swarm.sphere(1000)
+        print("Swarm Sphere: " + result + " - 1000 drones in sphere formation")
+    except Exception as e:
+        print("Error in swarm_sphere: " + str(e))
+
+def swarm_cube():
+    try:
+        swarm.clear()
+        result = swarm.cube(1000)
+        print("Swarm Cube: " + result + " - 1000 drones in cube formation")
+    except Exception as e:
+        print("Error in swarm_cube: " + str(e))
+
+def swarm_pyramid():
+    try:
+        swarm.clear()
+        result = swarm.pyramid(1000)
+        print("Swarm Pyramid: " + result + " - 1000 drones in pyramid formation")
+    except Exception as e:
+        print("Error in swarm_pyramid: " + str(e))
+
+def swarm_ring():
+    try:
+        swarm.clear()
+        result = swarm.ring(1000)
+        print("Swarm Ring: " + result + " - 1000 drones in ring formation")
+    except Exception as e:
+        print("Error in swarm_ring: " + str(e))
+
+def swarm_ufo():
+    try:
+        swarm.clear()
+        result = swarm.ufo(1000)
+        print("Swarm UFO: " + result + " - 1000 drones in UFO formation")
+    except Exception as e:
+        print("Error in swarm_ufo: " + str(e))
+
+def swarm_smiley():
+    try:
+        swarm.clear()
+        result = swarm.smiley(1000)
+        print("Swarm Smiley: " + result + " - 1000 drones in smiley face formation")
+    except Exception as e:
+        print("Error in swarm_smiley: " + str(e))
+
+def swarm_webxos():
+    try:
+        swarm.clear()
+        result = swarm.webxos(1000)
+        print("Swarm WebXOS: " + result + " - 1000 drones in WebXOS text formation")
+    except Exception as e:
+        print("Error in swarm_webxos: " + str(e))
+
+def swarm_spiral():
+    try:
+        swarm.clear()
+        result = swarm.spiral(1000)
+        print("Swarm Spiral: " + result + " - 1000 drones in spiral formation")
+    except Exception as e:
+        print("Error in swarm_spiral: " + str(e))
+
+def swarm_lissajous():
+    try:
+        swarm.clear()
+        result = swarm.lissajous(1000)
+        print("Swarm Lissajous: " + result + " - 1000 drones in lissajous orbital")
+    except Exception as e:
+        print("Error in swarm_lissajous: " + str(e))
+
+def swarm_toroidal():
+    try:
+        swarm.clear()
+        result = swarm.toroidal(1000)
+        print("Swarm Toroidal: " + result + " - 1000 drones in toroidal orbital")
+    except Exception as e:
+        print("Error in swarm_toroidal: " + str(e))
+
+def swarm_rose():
+    try:
+        swarm.clear()
+        result = swarm.rose(1000)
+        print("Swarm Rose: " + result + " - 1000 drones in rose orbital")
+    except Exception as e:
+        print("Error in swarm_rose: " + str(e))
+
+def swarm_spherical():
+    try:
+        swarm.clear()
+        result = swarm.spherical(1000)
+        print("Swarm Spherical: " + result + " - 1000 drones in spherical orbital")
+    except Exception as e:
+        print("Error in swarm_spherical: " + str(e))
+
+def swarm_dna():
+    try:
+        swarm.clear()
+        result = swarm.dna(1000)
+        print("Swarm DNA: " + result + " - 1000 drones in DNA orbital")
+    except Exception as e:
+        print("Error in swarm_dna: " + str(e))
+
+def swarm_slinky():
+    try:
+        swarm.clear()
+        result = swarm.slinky(1000)
+        print("Swarm Slinky: " + result + " - 1000 drones in slinky orbital")
+    except Exception as e:
+        print("Error in swarm_slinky: " + str(e))
+
+def swarm_sinewave():
+    try:
+        swarm.clear()
+        result = swarm.sinewave(1000)
+        print("Swarm Sinewave: " + result + " - 1000 drones in sinewave orbital")
+    except Exception as e:
+        print("Error in swarm_sinewave: " + str(e))
+
+def list_tests():
+    print("Available swarm tests:")
+    print("  swarm_sphere: 1000 drones in sphere formation")
+    print("  swarm_cube: 1000 drones in cube formation")
+    print("  swarm_pyramid: 1000 drones in pyramid formation")
+    print("  swarm_ring: 1000 drones in ring formation")
+    print("  swarm_ufo: 1000 drones in UFO formation")
+    print("  swarm_smiley: 1000 drones in smiley face formation")
+    print("  swarm_webxos: 1000 drones in WebXOS text formation")
+    print("  swarm_spiral: 1000 drones in spiral formation")
+    print("  swarm_lissajous: 1000 drones in lissajous orbital")
+    print("  swarm_toroidal: 1000 drones in toroidal orbital")
+    print("  swarm_rose: 1000 drones in rose orbital")
+    print("  swarm_spherical: 1000 drones in spherical orbital")
+    print("  swarm_dna: 1000 drones in DNA orbital")
+    print("  swarm_slinky: 1000 drones in slinky orbital")
+    print("  swarm_sinewave: 1000 drones in sinewave orbital")
+    `;
+
+    Sk.builtinFiles.files['skulptor3d'] = Sk.builtinFiles.files['skulptor3d.py'];
+
+    // Troubleshoot function
+    function troubleshoot() {
+      logToConsole('Running Swarm diagnostics...', 'info');
+      try {
+        const pyCode = document.getElementById('py-input').value || document.getElementById('command-input').value;
+        if (!pyCode) {
+          logToConsole('No Python code to analyze.', 'error');
+          return;
+        }
+        if (pyCode.includes('input(') && !isWaitingForInput) {
+          logToConsole('Script uses input(). Ensure interactive execution.', 'info');
+        }
+        if (pyCode.includes('import ') && !pyCode.match(/import (random|re|turtle|three|swarm|skulptor3d)/)) {
+          logToConsole('Warning: Only random, re, turtle, three, swarm, and skulptor3d modules supported.', 'error');
+        }
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+          .catch((err) => {
+            const errMsg = err.toString();
+            let suggestion = 'Check syntax or use Troubleshoot.';
+            if (errMsg.includes('NameError')) suggestion = 'Ensure variables/functions defined.';
+            else if (errMsg.includes('SyntaxError')) suggestion = 'Check syntax (colons, indentation).';
+            else if (errMsg.includes('ImportError')) suggestion = 'Ensure module is supported (random, re, turtle, three, swarm, skulptor3d).';
+            logToConsole(`Python error: ${errMsg}. Suggestion: ${suggestion}`, 'error');
+          });
+        const gl = document.getElementById('three-canvas').getContext('webgl');
+        if (!gl) logToConsole('WebGL not supported. Check browser settings.', 'error');
+        else logToConsole('WebGL and Three.js validated.', 'info');
+        if (typeof THREE === 'undefined') logToConsole('Three.js not loaded. Check CDN.', 'error');
+      } catch (e) {
+        logToConsole(`Error AI: ${e.message}. Suggestion: Check script format.`, 'error');
+      }
+    }
+
+    // Execute command or provide input
+    function executeCommand() {
+      const input = document.getElementById('command-input').value.trim();
+      if (isWaitingForInput && inputResolver) {
+        inputResolver(input);
+        isWaitingForInput = false;
+        inputResolver = null;
+        document.getElementById('command-input').value = '';
+        document.getElementById('command-input').focus();
+        return;
+      }
+      try {
+        if (input === 'clear') {
+          consoleDiv.innerHTML = '';
+          logToConsole('Console cleared.', 'info');
+        } else if (input.startsWith('run ')) {
+          const testName = input.slice(4).trim();
+          const validTests = [
+            'swarm_sphere', 'swarm_cube', 'swarm_pyramid', 'swarm_ring',
+            'swarm_ufo', 'swarm_smiley', 'swarm_webxos', 'swarm_spiral',
+            'swarm_lissajous', 'swarm_toroidal', 'swarm_rose', 'swarm_spherical',
+            'swarm_dna', 'swarm_slinky', 'swarm_sinewave', 'list_tests'
+          ];
+          if (validTests.includes(testName)) {
+            const pyCode = `import skulptor3d\nskulptor3d.${testName}()`;
+            Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+              .then(() => logToConsole(`Test ${testName} executed.`, 'info'))
+              .catch((err) => logToConsole(`Test error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
+            showThreePopup();
+          } else {
+            logToConsole(`Invalid test: ${testName}. Use: ${validTests.join(', ')}`, 'error');
+          }
+        } else {
+          Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, input, true))
+            .then(() => logToConsole('Python script executed successfully.', 'info'))
+            .catch((err) => logToConsole(`Python error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
+        }
+      } catch (e) {
+        logToConsole(`Command error: ${e.message}. Suggestion: Use 'clear', 'run <test>', or valid Python.`, 'error');
+      }
+      document.getElementById('command-input').value = '';
+      document.getElementById('command-input').focus();
+    }
+
+    // Popup controls
+    function showPyPopup() {
+      document.getElementById('py-popup').style.display = 'block';
+    }
+
+    function closePyPopup() {
+      document.getElementById('py-popup').style.display = 'none';
+    }
+
+    function showThreePopup() {
+      if (!threeRenderer && !initThree()) return;
+      document.getElementById('three-popup').style.display = 'block';
+    }
+
+    function closeThreePopup() {
+      document.getElementById('three-popup').style.display = 'none';
+    }
+
+    function injectPyScript() {
+      const pyCode = document.getElementById('py-input').value;
+      isWaitingForInput = false;
+      inputResolver = null;
+      try {
+        const wrappedCode = `
+def run_injected():
+${pyCode.replace(/^/gm, '    ')}
+run_injected()
+        `;
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, wrappedCode, true))
+          .then(() => logToConsole('Python script executed successfully.', 'info'))
+          .catch((err) => logToConsole(`Python error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
+      } catch (e) {
+        logToConsole(`Error AI: ${e.message}. Suggestion: Verify Python script format.`, 'error');
+      }
+      closePyPopup();
+      showThreePopup();
+    }
+
+    function ejectPyConsole() {
+      document.getElementById('py-input').value = '';
+      consoleDiv.innerHTML = '';
+      isWaitingForInput = false;
+      inputResolver = null;
+      threeObjects.forEach(obj => threeScene.remove(obj));
+      threeObjects = [];
+      if (swarmInstance) {
+        swarmInstance.clear();
+        swarmInstance = null;
+      }
+      logToConsole('Python console and 3D scene ejected.', 'info');
+    }
+
+    // Initialize
+    logToConsole('Injector by WebXOS 2025 Initialized. Click Inject to inject swarm.py or run swarm tests...', 'info');
+  </script>
+</body>
+</html>
