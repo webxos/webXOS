@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,7 +100,7 @@
 <body>
   <div id="console"></div>
   <div id="input-area">
-    <input id="command-input" type="text" placeholder="Enter command (e.g., run list_tests)" onkeypress="if(event.key === 'Enter') executeCommand()">
+    <input id="command-input" type="text" placeholder="Enter command (e.g., run swarm)" onkeypress="if(event.key === 'Enter') executeCommand()">
     <button class="button" onclick="executeCommand()">Execute</button>
     <button class="button" onclick="showPyPopup()">Inject</button>
     <button class="button" onclick="ejectPyConsole()">Eject</button>
@@ -109,22 +108,26 @@
     <button class="button" onclick="showThreePopup()">3D View</button>
   </div>
   <div id="py-popup">
-    <textarea id="py-input" placeholder="Enter Python script (e.g., import skulptor3d; skulptor3d.list_tests())"></textarea>
+    <textarea id="py-input" placeholder="Enter Python script (e.g., import swarm; swarm.run())"></textarea>
     <button class="button" onclick="injectPyScript()">Inject Script</button>
     <button class="button" onclick="closePyPopup()">Close</button>
   </div>
   <div id="three-popup">
     <canvas id="three-canvas"></canvas>
-    <button class="button" onclick="closeThreePopup()">Close 3D</button>
+    <button class="button" onclick="closeThreePopup()" style="position: absolute; top: 10px; right: 10px;">X</button>
   </div>
   <footer>WebXOS 2025 - Skulptor3D Enhanced</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script>
-    // Console output utility
     const consoleDiv = document.getElementById('console');
+    let isWaitingForInput = false;
+    let inputResolver = null;
+    let threeScene, threeCamera, threeRenderer, threeObjects = [];
+    let swarmInstance = null;
+
     function logToConsole(message, type = 'info') {
       const p = document.createElement('p');
       p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : '#00FF00';
@@ -133,26 +136,19 @@
       consoleDiv.scrollTop = consoleDiv.scrollHeight;
     }
 
-    // Global variables
-    let isWaitingForInput = false;
-    let inputResolver = null;
-    let threeScene, threeCamera, threeRenderer, threeObjects = [];
-
-    // Initialize Three.js
     function initThree() {
       if (typeof THREE === 'undefined') {
-        logToConsole('Three.js failed to load. Check CDN or browser support.', 'error');
+        logToConsole('Three.js failed to load.', 'error');
         return false;
       }
       const canvas = document.getElementById('three-canvas');
       threeScene = new THREE.Scene();
-      threeCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-      threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      threeCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
+      threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
       threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
-      threeCamera.position.z = 5;
-      const light = new THREE.PointLight(0xffffff, 1, 100);
-      light.position.set(10, 10, 10);
-      threeScene.add(light);
+      threeCamera.position.set(0, 50, 200);
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+      threeScene.add(ambientLight);
       window.addEventListener('resize', () => {
         threeCamera.aspect = canvas.clientWidth / canvas.clientHeight;
         threeCamera.updateProjectionMatrix();
@@ -165,63 +161,12 @@
     function animateThree() {
       if (!threeRenderer) return;
       requestAnimationFrame(animateThree);
-      threeObjects.forEach(obj => {
-        if (obj.userData.animate) {
-          obj.rotation.y += 0.01;
-          obj.rotation.x += 0.005;
-        }
-      });
+      if (swarmInstance && swarmInstance.animate) {
+        swarmInstance.animate();
+      }
       threeRenderer.render(threeScene, threeCamera);
     }
 
-    // Three.js module for Skulpt
-    const threeModule = {
-      cube: function() {
-        const geometry = new THREE.BoxGeometry();
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
-        const cube = new THREE.Mesh(geometry, material);
-        cube.userData = { animate: true };
-        threeScene.add(cube);
-        threeObjects.push(cube);
-        return Sk.ffi.remapToPy('Cube created');
-      },
-      sphere: function(radius) {
-        const r = radius && Sk.ffi.remapToJs(radius) || 1;
-        if (r <= 0) throw new Error('Radius must be positive');
-        const geometry = new THREE.SphereGeometry(r, 32, 32);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
-        const sphere = new THREE.Mesh(geometry, material);
-        sphere.userData = { animate: true };
-        threeScene.add(sphere);
-        threeObjects.push(sphere);
-        return Sk.ffi.remapToPy('Sphere created');
-      },
-      particles: function(count) {
-        const c = count && Sk.ffi.remapToJs(count) || 1000;
-        if (c <= 0) throw new Error('Particle count must be positive');
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(c * 3);
-        for (let i = 0; i < c * 3; i += 3) {
-          positions[i] = (Math.random() - 0.5) * 10;
-          positions[i + 1] = (Math.random() - 0.5) * 10;
-          positions[i + 2] = (Math.random() - 0.5) * 10;
-        }
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const material = new THREE.PointsMaterial({ color: 0x00ff00, size: 0.1 });
-        const particles = new THREE.Points(geometry, material);
-        particles.userData = { animate: true };
-        threeScene.add(particles);
-        threeObjects.push(particles);
-        return Sk.ffi.remapToPy('Particle system created');
-      },
-      clear: function() {
-        threeObjects.forEach(obj => threeScene.remove(obj));
-        threeObjects = [];
-        return Sk.ffi.remapToPy('Scene cleared');
-      }
-    };
-
-    // Configure Skulpt
     Sk.configure({
       output: (msg) => logToConsole(msg, 'info'),
       read: (filename) => {
@@ -239,95 +184,6 @@
       }
     });
 
-    // Preload modules
-    Sk.builtinFiles.files['three.py'] = `
-def cube():
-    import js
-    return js.threeModule.cube()
-
-def sphere(radius=1):
-    import js
-    return js.threeModule.sphere(radius)
-
-def particles(count=1000):
-    import js
-    return js.threeModule.particles(count)
-
-def clear():
-    import js
-    return js.threeModule.clear()
-    `;
-
-    Sk.builtinFiles.files['skulptor3d.py'] = `
-import three
-def test_cube():
-    try:
-        three.clear()
-        result = three.cube()
-        print("Test Cube: " + result + " - Neon-green wireframe cube rendered")
-    except Exception as e:
-        print("Error in test_cube: " + str(e))
-
-def test_sphere():
-    try:
-        three.clear()
-        result = three.sphere(0.5)
-        print("Test Sphere: " + result + " - Neon-green wireframe sphere (radius 0.5) rendered")
-    except Exception as e:
-        print("Error in test_sphere: " + str(e))
-
-def test_visualizer():
-    try:
-        three.clear()
-        result = three.particles(2000)
-        print("Test Visualizer: " + result + " - Neon-green particle system (2000 particles) rendered")
-    except Exception as e:
-        print("Error in test_visualizer: " + str(e))
-
-def list_tests():
-    print("Available 3D tests:")
-    print("  test_cube: Renders a rotating neon-green wireframe cube")
-    print("  test_sphere: Renders a rotating neon-green wireframe sphere (radius 0.5)")
-    print("  test_visualizer: Renders a neon-green particle system with 2000 particles")
-    `;
-
-    Sk.builtin.threeModule = threeModule;
-    Sk.builtinFiles.files['skulptor3d'] = Sk.builtinFiles.files['skulptor3d.py'];
-
-    // Enhanced troubleshooting
-    function troubleshoot() {
-      logToConsole('Running Skulptor3D diagnostics...', 'info');
-      try {
-        const pyCode = document.getElementById('py-input').value || document.getElementById('command-input').value;
-        if (!pyCode) {
-          logToConsole('No Python code to analyze.', 'error');
-          return;
-        }
-        if (pyCode.includes('input(') && !isWaitingForInput) {
-          logToConsole('Script uses input(). Ensure interactive execution.', 'info');
-        }
-        if (pyCode.includes('import ') && !pyCode.match(/import (random|re|turtle|three|skulptor3d)/)) {
-          logToConsole('Warning: Only random, re, turtle, three, and skulptor3d modules supported.', 'error');
-        }
-        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
-          .catch((err) => {
-            const errMsg = err.toString();
-            let suggestion = 'Check syntax or use Troubleshoot.';
-            if (errMsg.includes('NameError')) suggestion = 'Ensure variables/functions defined.';
-            else if (errMsg.includes('SyntaxError')) suggestion = 'Check syntax (colons, indentation).';
-            else if (errMsg.includes('ImportError')) suggestion = 'Ensure module is supported (random, re, turtle, three, skulptor3d).';
-            logToConsole(`Python error: ${errMsg}. Suggestion: ${suggestion}`, 'error');
-          });
-        const gl = document.getElementById('three-canvas').getContext('webgl');
-        if (!gl) logToConsole('WebGL not supported. Check browser settings.', 'error');
-        else logToConsole('WebGL and Three.js validated.', 'info');
-        if (typeof THREE === 'undefined') logToConsole('Three.js not loaded. Check CDN.', 'error');
-      } catch (e) {
-        logToConsole(`Error AI: ${e.message}. Suggestion: Check script format.`, 'error');
-      }
-    }
-
-    // Execute command or provide input
     function executeCommand() {
       const input = document.getElementById('command-input').value.trim();
       if (isWaitingForInput && inputResolver) {
@@ -342,31 +198,24 @@ def list_tests():
         if (input === 'clear') {
           consoleDiv.innerHTML = '';
           logToConsole('Console cleared.', 'info');
-        } else if (input.startsWith('run ')) {
-          const testName = input.slice(4).trim();
-          const validTests = ['test_cube', 'test_sphere', 'test_visualizer', 'list_tests'];
-          if (validTests.includes(testName)) {
-            const pyCode = `import skulptor3d\nskulptor3d.${testName}()`;
-            Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
-              .then(() => logToConsole(`Test ${testName} executed.`, 'info'))
-              .catch((err) => logToConsole(`Test error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
-            showThreePopup();
-          } else {
-            logToConsole(`Invalid test: ${testName}. Use: ${validTests.join(', ')}`, 'error');
-          }
+        } else if (input === 'run swarm') {
+          const pyCode = `import swarm\nswarm.run()`;
+          Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+            .then(() => logToConsole('Swarm executed.', 'info'))
+            .catch((err) => logToConsole(`Swarm error: ${err.toString()}.`, 'error'));
+          showThreePopup();
         } else {
           Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, input, true))
-            .then(() => logToConsole('Python script executed successfully.', 'info'))
-            .catch((err) => logToConsole(`Python error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
+            .then(() => logToConsole('Python script executed.', 'info'))
+            .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
         }
       } catch (e) {
-        logToConsole(`Command error: ${e.message}. Suggestion: Use 'clear', 'run <test>', or valid Python.`, 'error');
+        logToConsole(`Command error: ${e.message}.`, 'error');
       }
       document.getElementById('command-input').value = '';
       document.getElementById('command-input').focus();
     }
 
-    // Popup controls
     function showPyPopup() {
       document.getElementById('py-popup').style.display = 'block';
     }
@@ -395,10 +244,10 @@ ${pyCode.replace(/^/gm, '    ')}
 run_injected()
         `;
         Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, wrappedCode, true))
-          .then(() => logToConsole('Python script executed successfully.', 'info'))
-          .catch((err) => logToConsole(`Python error: ${err.toString()}. Suggestion: Check syntax or use Troubleshoot.`, 'error'));
+          .then(() => logToConsole('Python script executed.', 'info'))
+          .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
       } catch (e) {
-        logToConsole(`Error AI: ${e.message}. Suggestion: Verify Python script format.`, 'error');
+        logToConsole(`Error AI: ${e.message}.`, 'error');
       }
       closePyPopup();
       showThreePopup();
@@ -411,10 +260,42 @@ run_injected()
       inputResolver = null;
       threeObjects.forEach(obj => threeScene.remove(obj));
       threeObjects = [];
+      swarmInstance = null;
       logToConsole('Python console and 3D scene ejected.', 'info');
     }
 
-    // Initialize
+    function troubleshoot() {
+      logToConsole('Running diagnostics...', 'info');
+      try {
+        const pyCode = document.getElementById('py-input').value || document.getElementById('command-input').value;
+        if (!pyCode) {
+          logToConsole('No Python code to analyze.', 'error');
+          return;
+        }
+        if (pyCode.includes('input(') && !isWaitingForInput) {
+          logToConsole('Script uses input(). Ensure interactive execution.', 'info');
+        }
+        if (pyCode.includes('import ') && !pyCode.match(/import (random|re|turtle|three|swarm)/)) {
+          logToConsole('Warning: Only random, re, turtle, three, swarm modules supported.', 'error');
+        }
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+          .catch((err) => {
+            const errMsg = err.toString();
+            let suggestion = 'Check syntax or use Troubleshoot.';
+            if (errMsg.includes('NameError')) suggestion = 'Ensure variables/functions defined.';
+            else if (errMsg.includes('SyntaxError')) suggestion = 'Check syntax (colons, indentation).';
+            else if (errMsg.includes('ImportError')) suggestion = 'Ensure module is supported (random, re, turtle, three, swarm).';
+            logToConsole(`Python error: ${errMsg}. Suggestion: ${suggestion}`, 'error');
+          });
+        const gl = document.getElementById('three-canvas').getContext('webgl');
+        if (!gl) logToConsole('WebGL not supported.', 'error');
+        else logToConsole('WebGL and Three.js validated.', 'info');
+        if (typeof THREE === 'undefined') logToConsole('Three.js not loaded.', 'error');
+      } catch (e) {
+        logToConsole(`Error AI: ${e.message}.`, 'error');
+      }
+    }
+
     logToConsole('Injector by WebXOS 2025 Initialized. Click Inject to inject a .py code into the console...', 'info');
   </script>
 </body>
