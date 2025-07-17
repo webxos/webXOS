@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Injector 3D</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #00FF00;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #console {
+      flex-grow: 1;
+      padding: 10px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+    #input-area {
+      display: flex;
+      padding: 10px;
+      background: #111;
+    }
+    #command-input {
+      flex-grow: 1;
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      padding: 5px;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+    }
+    .button {
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      padding: 5px 10px;
+      margin: 0 5px;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+      transition: all 0.2s;
+    }
+    .button:hover {
+      background: #00FF00;
+      color: #000;
+      box-shadow: 0 0 10px #00FF00;
+    }
+    #py-popup {
+      display: none;
+      position: fixed;
+      top: 20%;
+      left: 20%;
+      width: 60%;
+      height: 60%;
+      background: #111;
+      border: 1px solid #00FF00;
+      padding: 10px;
+      box-shadow: 0 0 15px #00FF00;
+    }
+    #py-input {
+      width: 100%;
+      height: 80%;
+      background: #000;
+      color: #00FF00;
+      border: 1px solid #00FF00;
+      font-family: inherit;
+      box-shadow: 0 0 5px #00FF00;
+    }
+    #three-popup {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      border: none;
+      z-index: 1000;
+    }
+    #three-canvas {
+      width: 100%;
+      height: 100%;
+    }
+    .controls {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      padding: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .control-item {
+      flex: 1;
+      min-width: 70px;
+      text-align: center;
+    }
+    select {
+      background: #00FF00;
+      border: 3px solid #00FF00;
+      padding: 10px;
+      color: #000000;
+      border-radius: 15px;
+      font-size: 14px;
+      width: 100%;
+      cursor: pointer;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      touch-action: manipulation;
+      transition: background 0.2s;
+    }
+    select:hover {
+      background: #00CC00;
+    }
+    button {
+      background: #00FF00;
+      border: 3px solid #00FF00;
+      padding: 10px 14px;
+      color: #000000;
+      border-radius: 15px;
+      cursor: pointer;
+      font-size: 14px;
+      width: 100%;
+      touch-action: manipulation;
+      transition: transform 0.2s, background 0.2s;
+    }
+    button:hover {
+      background: #00CC00;
+    }
+    button.active {
+      background: #FF0000;
+      border-color: #FF0000;
+      color: #FFFFFF;
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    .prompt {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9);
+      padding: 10px;
+      border: 2px solid #00FF00;
+      border-radius: 12px;
+      font-size: 14px;
+      max-width: 90%;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s;
+      z-index: 20;
+    }
+    .prompt.active {
+      opacity: 1;
+    }
+    .hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.4;
+      z-index: 5;
+    }
+    .hud::before {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      right: 10%;
+      bottom: 10%;
+      border: 2px solid #00FF00;
+      border-radius: 25px;
+    }
+    .hud::after {
+      content: '+';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #00FF00;
+      font-size: 20px;
+    }
+    footer {
+      text-align: center;
+      padding: 5px;
+      font-size: 12px;
+      color: #00FF00;
+      text-shadow: 0 0 5px #00FF00;
+    }
+    @media (max-width: 600px) {
+      .controls {
+        gap: 8px;
+        padding: 8px;
+      }
+      .control-item {
+        min-width: 60px;
+      }
+      button, select {
+        font-size: 12px;
+        padding: 8px 12px;
+      }
+      .prompt {
+        font-size: 12px;
+        padding: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="console"></div>
+  <div id="input-area">
+    <input id="command-input" type="text" placeholder="Enter command (e.g., run list_tests)" onkeypress="if(event.key === 'Enter') executeCommand()">
+    <button class="button" onclick="executeCommand()">Execute</button>
+    <button class="button" onclick="showPyPopup()">Inject</button>
+    <button class="button" onclick="ejectPyConsole()">Eject</button>
+    <button class="button" onclick="troubleshoot()">Troubleshoot</button>
+    <button class="button" onclick="showThreePopup()">3D View</button>
+  </div>
+  <div id="py-popup">
+    <textarea id="py-input" placeholder="Enter Python script (e.g., import skulptor3d; skulptor3d.list_tests())"></textarea>
+    <button class="button" onclick="injectPyScript()">Inject Script</button>
+    <button class="button" onclick="closePyPopup()">Close</button>
+  </div>
+  <div id="three-popup">
+    <canvas id="three-canvas"></canvas>
+    <div class="controls">
+      <div class="control-item">
+        <button id="swarmBtn">Swarm</button>
+      </div>
+      <div class="control-item">
+        <button id="protectBtn">Protect</button>
+      </div>
+      <div class="control-item">
+        <button id="throttleBtn">Full Throttle</button>
+      </div>
+      <div class="control-item">
+        <button id="pauseBtn">Pause Swarm</button>
+      </div>
+      <div class="control-item">
+        <select id="shapeSelect">
+          <option value="sphere">Sphere</option>
+          <option value="cube">Cube</option>
+          <option value="pyramid">Pyramid</option>
+          <option value="ring">Ring</option>
+          <option value="ufo">UFO Craft</option>
+          <option value="smiley">Smiley Face</option>
+          <option value="webxos">WebXOS Text</option>
+          <option value="spiral">Random Spiral</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <select id="orbitalSelect">
+          <option value="lissajous">Lissajous Knot</option>
+          <option value="toroidal">Toroidal Helix</option>
+          <option value="rose">Rose Curve</option>
+          <option value="spherical">Spherical Wave</option>
+          <option value="dna">DNA Strains</option>
+          <option value="slinky">Slinky Orbit</option>
+          <option value="sinewave">Sine Wave</option>
+        </select>
+      </div>
+    </div>
+    <div id="prompt" class="prompt"></div>
+    <div class="hud"></div>
+    <button class="button" onclick="closeThreePopup()" style="position: absolute; top: 10px; right: 10px;">Close 3D</button>
+  </div>
+  <footer>WebXOS 2025 - Skulptor3D Enhanced</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    const consoleDiv = document.getElementById('console');
+    function logToConsole(message, type = 'info') {
+      const p = document.createElement('p');
+      p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : '#00FF00';
+      p.textContent = `[${type.toUpperCase()}] ${message}`;
+      consoleDiv.appendChild(p);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    }
+
+    let isWaitingForInput = false;
+    let inputResolver = null;
+    let threeScene, threeCamera, threeRenderer, threeObjects = [];
+    let swarmInitialized = false;
+
+    function initThree() {
+      if (typeof THREE === 'undefined') {
+        logToConsole('Three.js failed to load. Check CDN or browser support.', 'error');
+        return false;
+      }
+      const canvas = document.getElementById('three-canvas');
+      threeScene = new THREE.Scene();
+      threeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+      threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power' });
+      threeRenderer.setSize(window.innerWidth, window.innerHeight);
+      threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      threeCamera.position.set(0, 50, 200);
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+      threeScene.add(ambientLight);
+      window.addEventListener('resize', () => {
+        threeCamera.aspect = window.innerWidth / window.innerHeight;
+        threeCamera.updateProjectionMatrix();
+        threeRenderer.setSize(window.innerWidth, window.innerHeight);
+      });
+      threeRenderer.domElement.addEventListener('webglcontextlost', () => {
+        logToConsole('WebGL context lost. Please reload.', 'error');
+      });
+      return true;
+    }
+
+    function animateThree() {
+      if (!threeRenderer) return;
+      requestAnimationFrame(animateThree);
+      threeObjects.forEach(obj => {
+        if (obj.userData && obj.userData.animate) {
+          obj.rotation.y += 0.01;
+          obj.rotation.x += 0.005;
+        }
+      });
+      threeRenderer.render(threeScene, threeCamera);
+    }
+
+    Sk.configure({
+      output: (msg) => logToConsole(msg, 'info'),
+      read: (filename) => {
+        if (Sk.builtinFiles === undefined || Sk.builtinFiles.files[filename] === undefined) {
+          throw new Error(`File not found: ${filename}`);
+        }
+        return Sk.builtinFiles.files[filename];
+      },
+      inputfun: (prompt) => {
+        isWaitingForInput = true;
+        logToConsole(prompt, 'input');
+        return new Promise((resolve) => {
+          inputResolver = resolve;
+        });
+      }
+    });
+
+    Sk.builtinFiles.files['skulptor3d.py'] = `
+import three
+def test_cube():
+    try:
+        three.clear()
+        result = three.cube()
+        print("Test Cube: " + result + " - Neon-green wireframe cube rendered")
+    except Exception as e:
+        print("Error in test_cube: " + str(e))
+
+def test_sphere():
+    try:
+        three.clear()
+        result = three.sphere(0.5)
+        print("Test Sphere: " + result + " - Neon-green wireframe sphere (radius 0.5) rendered")
+    except Exception as e:
+        print("Error in test_sphere: " + str(e))
+
+def test_visualizer():
+    try:
+        three.clear()
+        result = three.particles(2000)
+        print("Test Visualizer: " + result + " - Neon-green particle system (2000 particles) rendered")
+    except Exception as e:
+        print("Error in test_visualizer: " + str(e))
+
+def list_tests():
+    print("Available 3D tests:")
+    print("  test_cube: Renders a rotating neon-green wireframe cube")
+    print("  test_sphere: Renders a rotating neon-green wireframe sphere (radius 0.5)")
+    print("  test_visualizer: Renders a neon-green particle system with 2000 particles")
+    print("  swarm: Initializes the SWARM Drone Simulator")
+    `;
+
+    Sk.builtinFiles.files['three.py'] = `
+def cube():
+    import js
+    return js.threeModule.cube()
+
+def sphere(radius=1):
+    import js
+    return js.threeModule.sphere(radius)
+
+def particles(count=1000):
+    import js
+    return js.threeModule.particles(count)
+
+def clear():
+    import js
+    return js.threeModule.clear()
+    `;
+
+    const threeModule = {
+      cube: function() {
+        const geometry = new THREE.BoxGeometry();
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.userData = { animate: true };
+        threeScene.add(cube);
+        threeObjects.push(cube);
+        return Sk.ffi.remapToPy('Cube created');
+      },
+      sphere: function(radius) {
+        const r = radius && Sk.ffi.remapToJs(radius) || 1;
+        if (r <= 0) throw new Error('Radius must be positive');
+        const geometry = new THREE.SphereGeometry(r, 32, 32);
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+        const sphere = new THREE.Mesh(geometry, material);
+        sphere.userData = { animate: true };
+        threeScene.add(sphere);
+        threeObjects.push(sphere);
+        return Sk.ffi.remapToPy('Sphere created');
+      },
+      particles: function(count) {
+        const c = count && Sk.ffi.remapToJs(count) || 1000;
+        if (c <= 0) throw new Error('Particle count must be positive');
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(c * 3);
+        for (let i = 0; i < c * 3; i += 3) {
+          positions[i] = (Math.random() - 0.5) * 10;
+          positions[i + 1] = (Math.random() - 0.5) * 10;
+          positions[i + 2] = (Math.random() - 0.5) * 10;
+        }
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({ color: 0x00ff00, size: 0.1 });
+        const particles = new THREE.Points(geometry, material);
+        particles.userData = { animate: true };
+        threeScene.add(particles);
+        threeObjects.push(particles);
+        return Sk.ffi.remapToPy('Particle system created');
+      },
+      clear: function() {
+        threeObjects.forEach(obj => threeScene.remove(obj));
+        threeObjects = [];
+        return Sk.ffi.remapToPy('Scene cleared');
+      }
+    };
+
+    Sk.builtin.threeModule = threeModule;
+    Sk.builtin.js = { THREE: window.THREE, document: window.document, window: window };
+
+    function showPyPopup() {
+      document.getElementById('py-popup').style.display = 'block';
+    }
+
+    function closePyPopup() {
+      document.getElementById('py-popup').style.display = 'none';
+    }
+
+    function showThreePopup() {
+      if (!threeRenderer && !initThree()) return;
+      document.getElementById('three-popup').style.display = 'block';
+      if (!swarmInitialized) {
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, 'import swarm\nswarm.init()', true))
+          .then(() => {
+            swarmInitialized = true;
+            logToConsole('Swarm initialized in 3D view.', 'info');
+          })
+          .catch((err) => logToConsole(`Swarm init error: ${err.toString()}`, 'error'));
+      }
+      animateThree();
+    }
+
+    function closeThreePopup() {
+      document.getElementById('three-popup').style.display = 'none';
+    }
+
+    function executeCommand() {
+      const input = document.getElementById('command-input').value.trim();
+      if (isWaitingForInput && inputResolver) {
+        inputResolver(input);
+        isWaitingForInput = false;
+        inputResolver = null;
+        document.getElementById('command-input').value = '';
+        document.getElementById('command-input').focus();
+        return;
+      }
+      try {
+        if (input === 'clear') {
+          consoleDiv.innerHTML = '';
+          logToConsole('Console cleared.', 'info');
+        } else if (input.startsWith('run ')) {
+          const testName = input.slice(4).trim();
+          const validTests = ['test_cube', 'test_sphere', 'test_visualizer', 'list_tests', 'swarm'];
+          if (validTests.includes(testName)) {
+            const pyCode = testName === 'swarm' ? `import swarm\nswarm.init()` : `import skulptor3d\nskulptor3d.${testName}()`;
+            Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+              .then(() => logToConsole(`Test ${testName} executed.`, 'info'))
+              .catch((err) => logToConsole(`Test error: ${err.toString()}.`, 'error'));
+            showThreePopup();
+          } else {
+            logToConsole(`Invalid test: ${testName}. Use: ${validTests.join(', ')}`, 'error');
+          }
+        } else {
+          Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, input, true))
+            .then(() => logToConsole('Python script executed successfully.', 'info'))
+            .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
+        }
+      } catch (e) {
+        logToConsole(`Command error: ${e.message}.`, 'error');
+      }
+      document.getElementById('command-input').value = '';
+      document.getElementById('command-input').focus();
+    }
+
+    function troubleshoot() {
+      logToConsole('Running Skulptor3D diagnostics...', 'info');
+      try {
+        const pyCode = document.getElementById('py-input').value || document.getElementById('command-input').value;
+        if (!pyCode) {
+          logToConsole('No Python code to analyze.', 'error');
+          return;
+        }
+        if (pyCode.includes('input(')) {
+          logToConsole('Script uses input(). Ensure interactive execution.', 'info');
+        }
+        if (pyCode.includes('import ') && !pyCode.match(/import (random|re|turtle|three|skulptor3d|swarm)/)) {
+          logToConsole('Warning: Only random, re, turtle, three, skulptor3d, swarm modules supported.', 'error');
+        }
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+          .catch((err) => {
+            const errMsg = err.toString();
+            let suggestion = 'Check syntax or use Troubleshoot.';
+            if (errMsg.includes('NameError')) suggestion = 'Ensure variables/functions defined.';
+            else if (errMsg.includes('SyntaxError')) suggestion = 'Check syntax (colons, indentation).';
+            else if (errMsg.includes('ImportError')) suggestion = 'Ensure module is supported (random, re, turtle, three, skulptor3d, swarm).';
+            logToConsole(`Python error: ${errMsg}. Suggestion: ${suggestion}`, 'error');
+          });
+        const gl = document.getElementById('three-canvas').getContext('webgl');
+        if (!gl) logToConsole('WebGL not supported.', 'error');
+        else logToConsole('WebGL and Three.js validated.', 'info');
+      } catch (e) {
+        logToConsole(`Error AI: ${e.message}.`, 'error');
+      }
+    }
+
+    function injectPyScript() {
+      const pyCode = document.getElementById('py-input').value;
+      isWaitingForInput = false;
+      inputResolver = null;
+      try {
+        const wrappedCode = `
+def run_injected():
+${pyCode.replace(/^/gm, '    ')}
+run_injected()
+        `;
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, wrappedCode, true))
+          .then(() => logToConsole('Python script executed successfully.', 'info'))
+          .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
+      } catch (e) {
+        logToConsole(`Error AI: ${e.message}.`, 'error');
+      }
+      closePyPopup();
+      showThreePopup();
+    }
+
+    function ejectPyConsole() {
+      document.getElementById('py-input').value = '';
+      consoleDiv.innerHTML = '';
+      isWaitingForInput = false;
+      inputResolver = null;
+      threeObjects.forEach(obj => threeScene.remove(obj));
+      threeObjects = [];
+      logToConsole('Python console and 3D scene ejected.', 'info');
+    }
+
+    logToConsole('Injector by WebXOS 2025 Initialized. Click Inject to inject a .py code into the console...', 'info');
+  </script>
+</body>
+</html>
