@@ -80,13 +80,19 @@
       width: 80%;
       height: 80%;
       background: #000;
-      border: 1px solid #00FF00;
+      border: 2px solid #00FF00; /* Crisp, complete border */
+      box-sizing: border-box; /* Ensure border is included in dimensions */
+      overflow: hidden; /* Prevent content from bleeding outside */
+      padding: 15px; /* Add padding to accommodate close button */
       z-index: 1000;
       box-shadow: 0 0 15px #00FF00;
+      transition: width 0.3s, height 0.3s; /* Smooth resizing */
     }
     #three-canvas {
       width: 100%;
       height: 100%;
+      border: none; /* Explicitly remove canvas border */
+      display: block; /* Ensure proper layout */
     }
     footer {
       text-align: center;
@@ -113,8 +119,8 @@
     <button class="button" onclick="closePyPopup()">Close</button>
   </div>
   <div id="three-popup">
-    <canvas id="three-canvas"></canvas>
-    <button class="button" onclick="closeThreePopup()" style="position: absolute; top: 10px; right: 10px;">X</button>
+    <canvas id="three-canvas" width="800" height="600"></canvas>
+    <button class="button" onclick="closeThreePopup()" style="position: absolute; right: 10px; top: 10px; z-index: 1001;">X</button>
   </div>
   <footer>WebXOS 2025 - Skulptor3D Enhanced</footer>
 
@@ -138,15 +144,19 @@
 
     function initThree() {
       if (typeof THREE === 'undefined') {
-        logToConsole('Three.js failed to load.', 'error');
+        logToConsole('Critical Error: Three.js failed to load. Verify network access to https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js and refresh.', 'error');
         return false;
       }
       const canvas = document.getElementById('three-canvas');
       threeScene = new THREE.Scene();
-      threeCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
+      threeCamera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
       threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
-      threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
-      threeCamera.position.set(0, 50, 200);
+      if (!threeRenderer) {
+        logToConsole('Critical Error: WebGL context creation failed. Check browser WebGL support at https://get.webgl.org/ or disable hardware acceleration.', 'error');
+        return false;
+      }
+      threeRenderer.setSize(canvas.width, canvas.height);
+      threeCamera.position.z = 500;
       const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
       threeScene.add(ambientLight);
       window.addEventListener('resize', () => {
@@ -155,6 +165,7 @@
         threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
       });
       animateThree();
+      logToConsole('Three.js initialized successfully.', 'info');
       return true;
     }
 
@@ -202,15 +213,15 @@
           const pyCode = `import swarm\nswarm.run()`;
           Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
             .then(() => logToConsole('Swarm executed.', 'info'))
-            .catch((err) => logToConsole(`Swarm error: ${err.toString()}.`, 'error'));
+            .catch((err) => logToConsole(`Execution Error: ${err.toString()}. Run 'troubleshoot' for details.`, 'error'));
           showThreePopup();
         } else {
           Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, input, true))
             .then(() => logToConsole('Python script executed.', 'info'))
-            .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
+            .catch((err) => logToConsole(`Execution Error: ${err.toString()}. Run 'troubleshoot' for details.`, 'error'));
         }
       } catch (e) {
-        logToConsole(`Command error: ${e.message}.`, 'error');
+        logToConsole(`Runtime Error: ${e.message}. Ensure Skulpt and Three.js are loaded. Use 'troubleshoot' for diagnostics.`, 'error');
       }
       document.getElementById('command-input').value = '';
       document.getElementById('command-input').focus();
@@ -226,7 +237,14 @@
 
     function showThreePopup() {
       if (!threeRenderer && !initThree()) return;
-      document.getElementById('three-popup').style.display = 'block';
+      const popup = document.getElementById('three-popup');
+      popup.style.display = 'block';
+      const canvas = document.getElementById('three-canvas');
+      canvas.width = canvas.clientWidth - 30; // Adjust for padding and border
+      canvas.height = canvas.clientHeight - 30;
+      threeRenderer.setSize(canvas.width, canvas.height);
+      threeCamera.aspect = canvas.width / canvas.height;
+      threeCamera.updateProjectionMatrix();
     }
 
     function closeThreePopup() {
@@ -238,19 +256,23 @@
       isWaitingForInput = false;
       inputResolver = null;
       try {
+        showThreePopup(); // Ensure 3D context is initialized
+        if (!threeScene || !threeCamera || !threeRenderer) {
+          logToConsole('Critical Error: Three.js not initialized. Initialize via "3D View" or check Three.js loading.', 'error');
+          return;
+        }
         const wrappedCode = `
 def run_injected():
-${pyCode.replace(/^/gm, '    ')}
+    ${pyCode.replace(/^/gm, '    ')}
 run_injected()
         `;
         Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, wrappedCode, true))
           .then(() => logToConsole('Python script executed.', 'info'))
-          .catch((err) => logToConsole(`Python error: ${err.toString()}.`, 'error'));
+          .catch((err) => logToConsole(`Script Execution Error: ${err.toString()}. Run 'troubleshoot' for detailed diagnostics.`, 'error'));
       } catch (e) {
-        logToConsole(`Error AI: ${e.message}.`, 'error');
+        logToConsole(`Injection Error: ${e.message}. Verify script syntax and Skulpt environment. Use 'troubleshoot' for analysis.`, 'error');
       }
       closePyPopup();
-      showThreePopup();
     }
 
     function ejectPyConsole() {
@@ -265,38 +287,76 @@ run_injected()
     }
 
     function troubleshoot() {
-      logToConsole('Running diagnostics...', 'info');
+      logToConsole('Running comprehensive diagnostics...', 'info');
       try {
         const pyCode = document.getElementById('py-input').value || document.getElementById('command-input').value;
         if (!pyCode) {
-          logToConsole('No Python code to analyze.', 'error');
+          logToConsole('Warning: No Python code to analyze. Enter a script to diagnose.', 'info');
           return;
         }
-        if (pyCode.includes('input(') && !isWaitingForInput) {
-          logToConsole('Script uses input(). Ensure interactive execution.', 'info');
+
+        // Check Skulpt environment
+        if (typeof Sk === 'undefined') {
+          logToConsole('Critical Error: Skulpt not loaded. Verify https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js is accessible and refresh.', 'error');
+          return;
         }
-        if (pyCode.includes('import ') && !pyCode.match(/import (random|re|turtle|three|swarm)/)) {
-          logToConsole('Warning: Only random, re, turtle, three, swarm modules supported.', 'error');
+
+        // Analyze script syntax and imports
+        if (pyCode.includes('import ')) {
+          const supportedModules = ['random', 're', 'turtle', 'three', 'swarm', 'math'];
+          const imports = pyCode.match(/import\s+([\w]+)/g)?.map(m => m.split(' ')[1]) || [];
+          const unsupported = imports.filter(m => !supportedModules.includes(m));
+          if (unsupported.length) {
+            logToConsole(`Error: Unsupported imports detected: ${unsupported.join(', ')}. Use only ${supportedModules.join(', ')}.`, 'error');
+          }
         }
+
+        // Test script execution
         Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
           .catch((err) => {
             const errMsg = err.toString();
-            let suggestion = 'Check syntax or use Troubleshoot.';
-            if (errMsg.includes('NameError')) suggestion = 'Ensure variables/functions defined.';
-            else if (errMsg.includes('SyntaxError')) suggestion = 'Check syntax (colons, indentation).';
-            else if (errMsg.includes('ImportError')) suggestion = 'Ensure module is supported (random, re, turtle, three, swarm).';
-            logToConsole(`Python error: ${errMsg}. Suggestion: ${suggestion}`, 'error');
+            let detailedSuggestion = 'Check script and retry.';
+            if (errMsg.includes('NameError')) {
+              detailedSuggestion = 'Error: Undefined variable or function. Declare all variables/functions before use.';
+            } else if (errMsg.includes('SyntaxError')) {
+              detailedSuggestion = 'Error: Syntax issue. Verify colons, indentation, and parentheses.';
+            } else if (errMsg.includes('ImportError')) {
+              detailedSuggestion = 'Error: Import failed. Ensure module is supported (random, re, turtle, three, swarm, math).';
+            } else if (errMsg.includes('TypeError')) {
+              detailedSuggestion = 'Error: Type mismatch. Check argument types and method calls.';
+            } else if (errMsg.includes('ReferenceError')) {
+              detailedSuggestion = 'Error: JavaScript reference issue. Ensure Three.js globals (threeScene, threeCamera, etc.) are initialized.';
+            }
+            logToConsole(`Script Error: ${errMsg}. Suggestion: ${detailedSuggestion} Run 'test 3d' if 3D-related.`, 'error');
           });
-        const gl = document.getElementById('three-canvas').getContext('webgl');
-        if (!gl) logToConsole('WebGL not supported.', 'error');
-        else logToConsole('WebGL and Three.js validated.', 'info');
-        if (typeof THREE === 'undefined') logToConsole('Three.js not loaded.', 'error');
+
+        // Check Three.js and WebGL
+        if (pyCode.includes('THREE') || pyCode.includes('threeScene')) {
+          if (typeof THREE === 'undefined') {
+            logToConsole('Critical Error: Three.js not loaded. Verify https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js and refresh.', 'error');
+          } else {
+            const gl = document.getElementById('three-canvas').getContext('webgl');
+            if (!gl) {
+              logToConsole('Critical Error: WebGL not supported. Enable WebGL at https://get.webgl.org/ or use a compatible browser (e.g., Chrome, Firefox).', 'error');
+            } else {
+              logToConsole('WebGL and Three.js validated successfully.', 'info');
+            }
+          }
+        }
+
+        // Check for input usage
+        if (pyCode.includes('input(') && !isWaitingForInput) {
+          logToConsole('Warning: Script uses input(). Use interactive mode or handle input via console.', 'info');
+        }
+
+        logToConsole('Diagnostics completed. Review messages above for issues.', 'info');
       } catch (e) {
-        logToConsole(`Error AI: ${e.message}.`, 'error');
+        logToConsole(`Diagnostic Error: ${e.message}. Ensure Skulpt, Three.js, and script are valid.`, 'error');
       }
     }
 
     logToConsole('Injector by WebXOS 2025 Initialized. Click Inject to inject a .py code into the console...', 'info');
+    initThree(); // Initialize Three.js on page load
   </script>
 </body>
 </html>
