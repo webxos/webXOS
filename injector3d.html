@@ -80,19 +80,19 @@
       width: 80%;
       height: 80%;
       background: #000;
-      border: 2px solid #00FF00; /* Crisp, complete border */
-      box-sizing: border-box; /* Ensure border is included in dimensions */
-      overflow: hidden; /* Prevent content from bleeding outside */
-      padding: 15px; /* Add padding to accommodate close button */
+      border: 2px solid #00FF00;
+      box-sizing: border-box;
+      overflow: hidden;
+      padding: 15px;
       z-index: 1000;
       box-shadow: 0 0 15px #00FF00;
-      transition: width 0.3s, height 0.3s; /* Smooth resizing */
+      transition: width 0.3s, height 0.3s;
     }
     #three-canvas {
       width: 100%;
       height: 100%;
-      border: none; /* Explicitly remove canvas border */
-      display: block; /* Ensure proper layout */
+      border: none;
+      display: block;
     }
     footer {
       text-align: center;
@@ -100,6 +100,10 @@
       font-size: 12px;
       color: #00FF00;
       text-shadow: 0 0 5px #00FF00;
+    }
+    @media (max-width: 600px) {
+      #three-popup { width: 95%; height: 70%; top: 5%; left: 2.5%; }
+      #console { font-size: 12px; }
     }
   </style>
 </head>
@@ -119,84 +123,203 @@
     <button class="button" onclick="closePyPopup()">Close</button>
   </div>
   <div id="three-popup">
-    <canvas id="three-canvas" width="800" height="600"></canvas>
+    <canvas id="three-canvas"></canvas>
     <button class="button" onclick="closeThreePopup()" style="position: absolute; right: 10px; top: 10px; z-index: 1001;">X</button>
   </div>
   <footer>WebXOS 2025 - Skulptor3D Enhanced</footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script>
     const consoleDiv = document.getElementById('console');
     let isWaitingForInput = false;
     let inputResolver = null;
     let threeScene, threeCamera, threeRenderer, threeObjects = [];
     let swarmInstance = null;
+    let isThreeReady = false;
+    let eventListeners = [];
+    let lastFrame = 0;
 
     function logToConsole(message, type = 'info') {
       const p = document.createElement('p');
-      p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : '#00FF00';
+      const colors = { error: '#FF5555', warning: '#FFFF00', info: '#00FF00' };
+      p.style.color = colors[type] || '#00FF00';
       p.textContent = `[${type.toUpperCase()}] ${message}`;
+      if (type === 'error') {
+        p.textContent += ' Action: Run "troubleshoot" or check browser console (F12).';
+      }
       consoleDiv.appendChild(p);
       consoleDiv.scrollTop = consoleDiv.scrollHeight;
     }
 
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
+
+    function addTrackedEventListener(element, event, handler) {
+      const debouncedHandler = debounce(handler, 16);
+      element.addEventListener(event, debouncedHandler);
+      eventListeners.push({ element, event, handler: debouncedHandler });
+    }
+
+    function checkSkulptLoaded() {
+      if (typeof Sk === 'undefined') {
+        logToConsole('Critical Error: Skulpt not loaded. Check CDN or host scripts locally.', 'error');
+        return false;
+      }
+      if (Sk.version !== '1.2.0') {
+        logToConsole('Warning: Skulpt version mismatch. Expected 1.2.0, found ' + Sk.version, 'warning');
+      }
+      return true;
+    }
+
+    function checkWebGLSupport() {
+      const gl = document.createElement('canvas').getContext('webgl');
+      if (!gl) {
+        logToConsole('Critical Error: WebGL not supported. Enable hardware acceleration in browser settings (Chrome: chrome://settings/?search=hardware, Firefox: about:config -> webgl.disabled=false) or use a compatible browser (Chrome, Firefox, Edge). Test at https://get.webgl.org/.', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    function loadScriptWithFallback(src, fallbackSrc, callback) {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onerror = () => {
+        script.src = fallbackSrc;
+        document.head.appendChild(script);
+        logToConsole(`CDN failed for ${src}, using local fallback.`, 'info');
+      };
+      script.onload = callback;
+      document.head.appendChild(script);
+    }
+
     function initThree() {
+      if (!checkWebGLSupport()) return false;
       if (typeof THREE === 'undefined') {
         logToConsole('Critical Error: Three.js failed to load. Verify network access to https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js and refresh.', 'error');
         return false;
       }
       const canvas = document.getElementById('three-canvas');
       threeScene = new THREE.Scene();
-      threeCamera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
+      threeCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
       threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
       if (!threeRenderer) {
-        logToConsole('Critical Error: WebGL context creation failed. Check browser WebGL support at https://get.webgl.org/ or disable hardware acceleration.', 'error');
+        logToConsole('Critical Error: WebGL context creation failed. Check browser WebGL support at https://get.webgl.org/.', 'error');
         return false;
       }
-      threeRenderer.setSize(canvas.width, canvas.height);
+      threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
       threeCamera.position.z = 500;
       const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
       threeScene.add(ambientLight);
+      setupTouchControls();
       window.addEventListener('resize', () => {
-        threeCamera.aspect = canvas.clientWidth / canvas.clientHeight;
+        const popup = document.getElementById('three-popup');
+        const rect = popup.getBoundingClientRect();
+        canvas.width = rect.width - 30;
+        canvas.height = rect.height - 30;
+        threeRenderer.setSize(canvas.width, canvas.height);
+        threeCamera.aspect = canvas.width / canvas.height;
         threeCamera.updateProjectionMatrix();
-        threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
       });
+      isThreeReady = true;
+      logToConsole('3D environment ready. Run "run swarm" or inject swarm.py.', 'info');
       animateThree();
-      logToConsole('Three.js initialized successfully.', 'info');
       return true;
     }
 
-    function animateThree() {
-      if (!threeRenderer) return;
-      requestAnimationFrame(animateThree);
-      if (swarmInstance && swarmInstance.animate) {
-        swarmInstance.animate();
-      }
-      threeRenderer.render(threeScene, threeCamera);
+    function setupTouchControls() {
+      const canvas = document.getElementById('three-canvas');
+      addTrackedEventListener(canvas, 'touchstart', (e) => {
+        if (swarmInstance) {
+          swarmInstance.is_dragging = true;
+          swarmInstance.previous_mouse_position = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      });
+      addTrackedEventListener(canvas, 'touchmove', (e) => {
+        if (swarmInstance && swarmInstance.is_dragging) {
+          const deltaX = e.touches[0].clientX - swarmInstance.previous_mouse_position.x;
+          const deltaY = e.touches[0].clientY - swarmInstance.previous_mouse_position.y;
+          swarmInstance.previous_mouse_position = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          if (swarmInstance.update_camera) {
+            swarmInstance.update_camera(deltaX, deltaY);
+          }
+        }
+      });
+      addTrackedEventListener(canvas, 'touchend', () => {
+        if (swarmInstance) swarmInstance.is_dragging = false;
+      });
     }
 
-    Sk.configure({
-      output: (msg) => logToConsole(msg, 'info'),
-      read: (filename) => {
-        if (Sk.builtinFiles === undefined || Sk.builtinFiles.files[filename] === undefined) {
-          throw new Error(`File not found: ${filename}`);
+    function animateThree(timestamp) {
+      if (!threeRenderer) return;
+      const delta = timestamp - lastFrame;
+      if (delta >= 1000 / 30) {
+        lastFrame = timestamp - (delta % (1000 / 30));
+        if (swarmInstance && swarmInstance.animate) {
+          swarmInstance.animate();
         }
-        return Sk.builtinFiles.files[filename];
-      },
-      inputfun: (prompt) => {
-        isWaitingForInput = true;
-        logToConsole(prompt, 'input');
-        return new Promise((resolve) => {
-          inputResolver = resolve;
-        });
+        threeRenderer.render(threeScene, threeCamera);
       }
-    });
+      requestAnimationFrame(animateThree);
+    }
+
+    function normalizeIndentation(code) {
+      const lines = code.split('\n');
+      return lines.map(line => line.replace(/^\t+/, m => '    '.repeat(m.length))).join('\n');
+    }
+
+    function executeWithTimeout(code) {
+      return Promise.race([
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, code, true)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Script execution timed out after 5s')), 5000))
+      ]);
+    }
+
+    loadScriptWithFallback(
+      'https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js',
+      './skulpt.min.js',
+      () => loadScriptWithFallback(
+        'https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js',
+        './skulpt-stdlib.js',
+        () => {
+          if (checkSkulptLoaded()) {
+            Sk.configure({
+              output: (msg) => logToConsole(msg, 'info'),
+              read: (filename) => {
+                if (Sk.builtinFiles === undefined || Sk.builtinFiles.files[filename] === undefined) {
+                  throw new Error(`File not found: ${filename}`);
+                }
+                return Sk.builtinFiles.files[filename];
+              },
+              inputfun: (prompt) => {
+                isWaitingForInput = true;
+                logToConsole(prompt, 'input');
+                return new Promise((resolve) => {
+                  inputResolver = resolve;
+                });
+              }
+            });
+            logToConsole('Skulpt environment loaded successfully.', 'info');
+          }
+        }
+      )
+    );
+
+    loadScriptWithFallback(
+      'https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js',
+      './three.min.js',
+      () => initThree()
+    );
 
     function executeCommand() {
       const input = document.getElementById('command-input').value.trim();
+      if (!isThreeReady && input.includes('swarm')) {
+        logToConsole('Error: 3D environment not ready. Click "3D View" first.', 'error');
+        return;
+      }
       if (isWaitingForInput && inputResolver) {
         inputResolver(input);
         isWaitingForInput = false;
@@ -211,12 +334,12 @@
           logToConsole('Console cleared.', 'info');
         } else if (input === 'run swarm') {
           const pyCode = `import swarm\nswarm.run()`;
-          Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+          executeWithTimeout(pyCode)
             .then(() => logToConsole('Swarm executed.', 'info'))
             .catch((err) => logToConsole(`Execution Error: ${err.toString()}. Run 'troubleshoot' for details.`, 'error'));
           showThreePopup();
         } else {
-          Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, input, true))
+          executeWithTimeout(input)
             .then(() => logToConsole('Python script executed.', 'info'))
             .catch((err) => logToConsole(`Execution Error: ${err.toString()}. Run 'troubleshoot' for details.`, 'error'));
         }
@@ -240,8 +363,9 @@
       const popup = document.getElementById('three-popup');
       popup.style.display = 'block';
       const canvas = document.getElementById('three-canvas');
-      canvas.width = canvas.clientWidth - 30; // Adjust for padding and border
-      canvas.height = canvas.clientHeight - 30;
+      const rect = popup.getBoundingClientRect();
+      canvas.width = rect.width - 30;
+      canvas.height = rect.height - 30;
       threeRenderer.setSize(canvas.width, canvas.height);
       threeCamera.aspect = canvas.width / canvas.height;
       threeCamera.updateProjectionMatrix();
@@ -253,20 +377,29 @@
 
     function injectPyScript() {
       const pyCode = document.getElementById('py-input').value;
+      if (pyCode.length > 10000 || pyCode.split('\n').length > 1000) {
+        logToConsole('Error: Injected script too large (>10KB or >1000 lines). Simplify and retry.', 'error');
+        return;
+      }
+      if (pyCode.includes('eval') || pyCode.includes('exec') || pyCode.includes('__import__')) {
+        logToConsole('Error: Unsafe code detected (eval, exec, __import__). Remove and retry.', 'error');
+        return;
+      }
       isWaitingForInput = false;
       inputResolver = null;
       try {
-        showThreePopup(); // Ensure 3D context is initialized
+        showThreePopup();
         if (!threeScene || !threeCamera || !threeRenderer) {
           logToConsole('Critical Error: Three.js not initialized. Initialize via "3D View" or check Three.js loading.', 'error');
           return;
         }
+        const normalizedCode = normalizeIndentation(pyCode);
         const wrappedCode = `
 def run_injected():
-    ${pyCode.replace(/^/gm, '    ')}
+${normalizedCode.split('\n').map(line => '    ' + line).join('\n')}
 run_injected()
         `;
-        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, wrappedCode, true))
+        executeWithTimeout(wrappedCode)
           .then(() => logToConsole('Python script executed.', 'info'))
           .catch((err) => logToConsole(`Script Execution Error: ${err.toString()}. Run 'troubleshoot' for detailed diagnostics.`, 'error'));
       } catch (e) {
@@ -280,8 +413,19 @@ run_injected()
       consoleDiv.innerHTML = '';
       isWaitingForInput = false;
       inputResolver = null;
-      threeObjects.forEach(obj => threeScene.remove(obj));
-      threeObjects = [];
+      if (threeScene) {
+        while (threeScene.children.length > 0) {
+          const obj = threeScene.children[0];
+          threeScene.remove(obj);
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) obj.material.dispose();
+        }
+        threeObjects = [];
+      }
+      eventListeners.forEach(({ element, event, handler }) => {
+        element.removeEventListener(event, handler);
+      });
+      eventListeners = [];
       swarmInstance = null;
       logToConsole('Python console and 3D scene ejected.', 'info');
     }
@@ -294,14 +438,7 @@ run_injected()
           logToConsole('Warning: No Python code to analyze. Enter a script to diagnose.', 'info');
           return;
         }
-
-        // Check Skulpt environment
-        if (typeof Sk === 'undefined') {
-          logToConsole('Critical Error: Skulpt not loaded. Verify https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js is accessible and refresh.', 'error');
-          return;
-        }
-
-        // Analyze script syntax and imports
+        if (!checkSkulptLoaded()) return;
         if (pyCode.includes('import ')) {
           const supportedModules = ['random', 're', 'turtle', 'three', 'swarm', 'math'];
           const imports = pyCode.match(/import\s+([\w]+)/g)?.map(m => m.split(' ')[1]) || [];
@@ -310,9 +447,7 @@ run_injected()
             logToConsole(`Error: Unsupported imports detected: ${unsupported.join(', ')}. Use only ${supportedModules.join(', ')}.`, 'error');
           }
         }
-
-        // Test script execution
-        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
+        executeWithTimeout(pyCode)
           .catch((err) => {
             const errMsg = err.toString();
             let detailedSuggestion = 'Check script and retry.';
@@ -329,8 +464,6 @@ run_injected()
             }
             logToConsole(`Script Error: ${errMsg}. Suggestion: ${detailedSuggestion} Run 'test 3d' if 3D-related.`, 'error');
           });
-
-        // Check Three.js and WebGL
         if (pyCode.includes('THREE') || pyCode.includes('threeScene')) {
           if (typeof THREE === 'undefined') {
             logToConsole('Critical Error: Three.js not loaded. Verify https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js and refresh.', 'error');
@@ -343,12 +476,9 @@ run_injected()
             }
           }
         }
-
-        // Check for input usage
         if (pyCode.includes('input(') && !isWaitingForInput) {
           logToConsole('Warning: Script uses input(). Use interactive mode or handle input via console.', 'info');
         }
-
         logToConsole('Diagnostics completed. Review messages above for issues.', 'info');
       } catch (e) {
         logToConsole(`Diagnostic Error: ${e.message}. Ensure Skulpt, Three.js, and script are valid.`, 'error');
@@ -356,7 +486,6 @@ run_injected()
     }
 
     logToConsole('Injector by WebXOS 2025 Initialized. Click Inject to inject a .py code into the console...', 'info');
-    initThree(); // Initialize Three.js on page load
   </script>
 </body>
 </html>
