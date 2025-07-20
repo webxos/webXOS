@@ -1,6 +1,6 @@
 # Webxos Roadmap
 
-**Webxos** is a forward-thinking framework for decentralized, single-page HTML applications, powering eco-friendly apps, retro games, and AI agents like FalseNode@webxos. This roadmap outlines our vision for advancing Webxos’s modular, sustainable ecosystem, as showcased at [webxos.netlify.app](https://webxos.netlify.app). Contributions are welcome—see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Webxos** is a forward-thinking framework for decentralized, single-page HTML applications, powering eco-friendly apps, retro games, and AI agents. This roadmap outlines our vision for advancing Webxos’s modular, sustainable ecosystem, as showcased at [webxos.netlify.app](https://webxos.netlify.app). Contributions are welcome—see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Q3 2025
 
@@ -24,7 +24,6 @@
   - Reduce app size via AI-driven code minification.
 - **Community**:
   - Launch a developer portal with tutorials and AI prompt guides.
-  - Host a hackathon on [@webxos](https://x.com/webxos) to crowdsource `.html` apps.
 
 ## Q1 2026
 
