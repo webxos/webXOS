@@ -1,6 +1,6 @@
 # Webxos: Decentralized Web Operating System
 
-**Webxos** is an innovative framework for developing standalone, single-page HTML applications tailored for decentralized web environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [webxos/webxos](https://github.com/webxos/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents like FalseNode@webxos, all designed to operate seamlessly in the browser.
+**Webxos** is an innovative framework for developing standalone, single-page HTML applications tailored for decentralized web environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [webxos/webxos](https://github.com/webxos/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
 
 Each Webxos app is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness AI-driven tools such as Grok, ChatGPT, Claude, and Cursor to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, Webxos empowers developers to build the future of the web.
 
@@ -17,7 +17,7 @@ Each Webxos app is a self-contained `.html` file, embedding all HTML, CSS, JavaS
 Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.app) and in the `apps/` directory of our [GitHub repository](https://github.com/webxos/webxos):
 - **Eco-Friendly Apps**: PWAs for file sharing, data visualization, and task management, optimized for mobile and offline use.
 - **Retro Games**: HTML5 games using WebGL and Stuart rendering for high-performance, nostalgic experiences.
-- **AI Agents**: Client-side tools like FalseNode@webxos, offering browser-based diagnostics and analytics with a focus on privacy.
+- **AI Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
 - **P2P Applications**: Decentralized tools for secure networking and data exchange, built for performance and scalability.
 
 ## Getting Started
