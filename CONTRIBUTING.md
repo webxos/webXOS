@@ -1,6 +1,6 @@
 # Contributing to Webxos
 
-**Webxos** builds lightweight, standalone HTML apps for the decentralized web, using native JavaScript, WebGL, Three.js, and WebAssembly (WASM). Apps like those on [webxos.netlify.app](https://webxos.netlify.app) (e.g., eco-friendly tools, retro games, AI agents like FalseNode@webxos) are single `.html` files, ensuring modularity and performance. Here’s how to contribute a new app.
+**Webxos** builds lightweight, standalone HTML apps for the decentralized web, using native JavaScript, WebGL, Three.js, and WebAssembly (WASM). Apps like those on [webxos.netlify.app](https://webxos.netlify.app) (e.g., eco-friendly tools, retro games, AI agents) are single `.html` files, ensuring modularity and performance. Here’s how to contribute a new app.
 
 ## How to Contribute
 
