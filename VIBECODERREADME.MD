@@ -5,7 +5,7 @@
 **License:** MIT  
 **Live Demo:** [webxos.netlify.app](https://webxos.netlify.app)  
 **Source:** [github.com/webxos/webxos](https://github.com/webxos/webxos)  
-**Community:** [@injector_ai on X](https://x.com/injector_ai)
+**Community:** [@webxos on X](https://x.com/webxos)
 
 VibeCoder.py is a lightweight, offline-capable, zero-dependency AI agent for the [WebXOS 2025](https://github.com/webxos/webxos) modular framework. It empowers developers to craft effective prompts, analyze coding psychology, and optimize workflows—all from a vibrant, emoji-driven console.
 
@@ -53,7 +53,7 @@ VibeCoder.py is a lightweight, offline-capable, zero-dependency AI agent for the
 - Open-source under MIT—PRs, issues, and feature requests welcome!
 - Discuss ideas in [GitHub Discussions](https://github.com/webxos/webxos/discussions)
 - Good first issues and help wanted labels enabled
-- Engage on X [@injector_ai](https://x.com/injector_ai)
+- Engage on X [@webxos](https://x.com/webxos)
 
 ---
 
