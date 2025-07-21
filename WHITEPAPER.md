@@ -37,7 +37,7 @@ This approach accelerates prototyping and ensures modularity.
 Webxos’s ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app), includes:
 - **Eco-Friendly Apps**: PWAs for file sharing, visualization, and task management, optimized for minimal resource use.
 - **Retro Games**: WebGL-based games with Stuart rendering for nostalgic, high-performance experiences.
-- **AI Agents**: Client-side tools like FalseNode@webxos for diagnostics, ensuring privacy by running in the browser.
+- **AI Agents**: Client-side tools for diagnostics, ensuring privacy by running in the browser.
 - **P2P Applications**: Tools for decentralized networking, leveraging IPFS and Web3.
 
 ## 4. Use Cases
@@ -52,7 +52,7 @@ Webxos’s ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.a
 - **WebGPU Support**: Introduced for next-generation graphics rendering, enhancing performance for WebGL apps.[](https://github.com/explore)
 - **AI Tooling**: Expanded prompt libraries for LLMs to streamline modular code generation.
 - **IPFS Integration**: Enhanced for faster, more reliable P2P file sharing.
-- **GitHub Actions**: Added for automated testing and deployment of `.html` apps.[](https://github.com/features)
+- **GitHub Actions**: Added for automated testing and deployment of `.html` apps.
 
 ## 6. Future Vision
 
@@ -64,7 +64,7 @@ Webxos aims to redefine web development by:
 
 ## 7. Community & Contribution
 
-Webxos thrives on community contributions. Developers can submit standalone `.html` apps via [CONTRIBUTING.md](CONTRIBUTING.md), leveraging AI tools for innovative designs. Join discussions at [GitHub Discussions](https://github.com/webxos/webxos/discussions) or follow [@webxos](https://x.com/webxos).
+Webxos thrives on community contributions. Developers can submit standalone `.html` apps via [CONTRIBUTING.md](CONTRIBUTING.md), leveraging AI tools for innovative designs. Follow us on X! [@webxos](https://x.com/webxos).
 
 ## 8. Conclusion
 
