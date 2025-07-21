@@ -1,6 +1,6 @@
 # Using Webxos
 
-**Webxos** builds lightweight, single-page HTML apps for the decentralized web, using native JavaScript, WebGL, Three.js, and WebAssembly (WASM). Apps on [webxos.netlify.app](https://webxos.netlify.app) (e.g., eco-friendly tools, retro games, AI agents like FalseNode@webxos) are standalone `.html` files. This guide shows how to create and edit Webxos apps.
+**Webxos** builds lightweight, single-page HTML apps for the decentralized web, using native JavaScript, WebGL, Three.js, and WebAssembly (WASM). Apps on [webxos.netlify.app](https://webxos.netlify.app) (e.g., eco-friendly tools, retro games, AI agents) are standalone `.html` files. This guide shows how to create and edit Webxos apps.
 
 ## Creating an App
 
@@ -83,4 +83,4 @@ Save as `apps/WebGLDemo.html` and test in Chrome.
 
 - Explore apps at [webxos.netlify.app](https://webxos.netlify.app).
 - Check `apps/` in [webxos/webxos](https://github.com/webxos/webxos).
-- Join [@webxos](https://x.com/webxos) or [GitHub Discussions](https://github.com/webxos/webxos/discussions).
+- [@webxos](https://x.com/webxos)
