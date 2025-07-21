@@ -1,10 +1,10 @@
-# Webxos: Decentralized Web Operating System
+# webXOS: Decentralized Web Operating System
 
-**Webxos** is an innovative framework for developing standalone, single-page HTML applications tailored for decentralized web environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [webxos/webxos](https://github.com/webxos/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
+**webXOS** is an innovative framework for developing standalone, single-page HTML applications tailored for decentralized web environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [webxos/webxos](https://github.com/webxos/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
 
-Each Webxos app is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness AI-driven tools such as Grok, ChatGPT, Claude, and Cursor to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, Webxos empowers developers to build the future of the web.
+Each webXOS app is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness AI-driven tools such as Grok, ChatGPT, Claude, and Cursor to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, Webxos empowers developers to build the future of the web.
 
-## Why Webxos?
+## Why webXOS?
 
 - **Standalone HTML Architecture**: Single `.html` files encapsulate all code and assets, ensuring portability and ease of deployment.
 - **Decentralized Design**: Supports P2P protocols like IPFS and Web3 for resilient, serverless applications ideal for edge computing.
@@ -12,7 +12,7 @@ Each Webxos app is a self-contained `.html` file, embedding all HTML, CSS, JavaS
 - **High Performance & Modularity**: Native JavaScript, WebGL, Three.js, and WASM enable lightweight, reusable components.
 - **Eco-Friendly & PWA-Ready**: Optimized for low-end devices (≥320px screens), offline functionality, and minimal resource consumption.
 
-## Webxos Ecosystem
+## webXOS Ecosystem
 
 Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.app) and in the `apps/` directory of our [GitHub repository](https://github.com/webxos/webxos):
 - **Eco-Friendly Apps**: PWAs for file sharing, data visualization, and task management, optimized for mobile and offline use.
