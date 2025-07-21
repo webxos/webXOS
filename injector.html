@@ -86,6 +86,10 @@
       color: #FF5555;
       white-space: pre-wrap;
     }
+    .security-alert {
+      color: #FFAA00;
+      font-weight: bold;
+    }
     @media (min-width: 768px) {
       #console {
         padding: 10px;
@@ -129,7 +133,7 @@
     <button class="button" onclick="troubleshoot()">Troubleshoot</button>
   </div>
   <div id="py-popup">
-    <textarea id="py-input" placeholder="Enter Python script (e.g., Mars Trail game)"></textarea>
+    <textarea id="py-input" placeholder="Enter Python script (e.g., Cherish.py)"></textarea>
     <button class="button" onclick="injectPyScript()">Inject Script</button>
     <button class="button" onclick="closePyPopup()">Close</button>
   </div>
@@ -140,27 +144,17 @@
   <script>
     const consoleDiv = document.getElementById('console');
     let errorLog = [];
+    let threatLog = [];
 
     function logToConsole(message, type = 'info') {
       const p = document.createElement('p');
-      p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : '#00FF00';
+      p.style.color = type === 'error' ? '#FF5555' : type === 'input' ? '#FFFF00' : type === 'security' ? '#FFAA00' : '#00FF00';
       p.textContent = `[${type.toUpperCase()}] ${message}`;
-      if (type === 'error') {
-        p.classList.add('error-details');
-        errorLog.push(`[${new Date().toISOString()}] ${message}`);
+      if (type === 'error' || type === 'security') {
+        (type === 'error' ? errorLog : threatLog).push(`[${new Date().toISOString()}] ${message}`);
       }
       consoleDiv.appendChild(p);
       consoleDiv.scrollTop = consoleDiv.scrollHeight;
-    }
-
-    function downloadErrorLog() {
-      const blob = new Blob([errorLog.join('\n')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'injector_error_log.txt';
-      a.click();
-      URL.revokeObjectURL(url);
     }
 
     let isWaitingForInput = false;
@@ -195,7 +189,6 @@
         const lines = pyCode.split('\n');
         let issues = [];
 
-        // Enhanced syntax and semantic checks
         let indentLevel = 0;
         let openBrackets = 0;
         let inString = false;
@@ -204,11 +197,8 @@
         lines.forEach((line, i) => {
           const lineNum = i + 1;
           const trimmedLine = line.trim();
-
-          // Skip empty or comment lines
           if (!trimmedLine || trimmedLine.startsWith('#')) return;
 
-          // Check indentation
           const indentMatch = line.match(/^\s*/);
           const currentIndent = indentMatch[0].length / 4;
           if (currentIndent % 1 !== 0) {
@@ -218,7 +208,6 @@
           }
           indentLevel = trimmedLine.match(/^(def|class|if|elif|else|for|while|try|except|finally)\b/) ? currentIndent + 1 : currentIndent;
 
-          // Check for unbalanced brackets
           for (let char of line) {
             if (inString) {
               if (char === stringChar) inString = false;
@@ -238,20 +227,17 @@
             }
           }
 
-          // Check for input() usage
           if (trimmedLine.includes('input(') && !isWaitingForInput) {
             issues.push(`Line ${lineNum}: input() detected. Ensure interactive input is provided via console.`);
           }
 
-          // Check for unsupported modules
           if (trimmedLine.match(/import\s+([^\s]+)/)) {
             const module = RegExp.$1.split(',')[0].trim();
-            if (!['random', 're'].includes(module)) {
-              issues.push(`Line ${lineNum}: Module '${module}' is not supported by Skulpt 1.2.0. Use only 'random' or 're'.`);
+            if (!['random', 're', 'time', 'datetime'].includes(module)) {
+              issues.push(`Line ${lineNum}: Module '${module}' is not supported by Skulpt 1.2.0. Use only 'random', 're', 'time', or 'datetime'.`);
             }
           }
 
-          // Check for reserved name conflicts
           if (trimmedLine.match(/def\s+([^\s(]+)/)) {
             const funcName = RegExp.$1;
             if (['help', 'print', 'input', 'len', 'str', 'int', 'float'].includes(funcName)) {
@@ -259,7 +245,6 @@
             }
           }
 
-          // Check for undefined variables
           if (trimmedLine.match(/([^\s=]+)\s*=/) && !trimmedLine.match(/^\s*(def|class)\s/)) {
             const varName = RegExp.$1;
             if (!lines.slice(0, i).some(l => l.match(new RegExp(`\\b${varName}\\b`))) &&
@@ -268,25 +253,30 @@
             }
           }
 
-          // Check for missing colons
           if (trimmedLine.match(/^(if|elif|else|for|while|def|class|try|except|finally)\b/) && !trimmedLine.endsWith(':')) {
             issues.push(`Line ${lineNum}: Missing colon at end of statement.`);
           }
+
+          if (trimmedLine.match(/re\.match|re\.search|re\.find/) && trimmedLine.match(/r?['"].*?\b\+.*?\b/)) {
+            issues.push(`Line ${lineNum}: Potential invalid regex pattern (e.g., \\b+). Skulpt 1.2.0 does not support complex regex like lookaheads or quantified boundaries.`);
+            logToConsole(`Security Alert: Suspicious regex pattern on line ${lineNum}.`, 'security');
+          }
+          if (trimmedLine.match(/eval\(|exec\(/)) {
+            issues.push(`Line ${lineNum}: Use of eval() or exec() detected. Avoid for security reasons.`);
+            logToConsole(`Security Alert: Unsafe function detected on line ${lineNum}.`, 'security');
+          }
         });
 
-        // Check for unclosed brackets
         if (openBrackets > 0) {
           issues.push(`Script: Unclosed brackets detected. Check for matching (), [], or {}.`);
         }
 
-        // Report issues
         if (issues.length > 0) {
           issues.forEach(issue => logToConsole(issue, 'error'));
         } else {
           logToConsole('No syntax or semantic issues detected.', 'info');
         }
 
-        // Test script execution with detailed error handling
         Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<stdin>', false, pyCode, true))
           .catch((err) => {
             const errMsg = err.toString();
@@ -294,28 +284,27 @@
             let context = '';
 
             if (errMsg.includes('NameError')) {
-              suggestion = 'Undefined variable or function. Verify all names are defined before use.';
+              suggestion = 'Undefined variable or function. Verify all names are defined.';
               context = errMsg.match(/name '([^']+)'/) ? `Variable/function '${RegExp.$1}' not found.` : '';
             } else if (errMsg.includes('SyntaxError')) {
               suggestion = 'Syntax error. Check for missing colons, incorrect indentation, or invalid syntax.';
               context = errMsg.match(/line (\d+)/) ? `Error on line ${RegExp.$1}.` : '';
             } else if (errMsg.includes('TypeError')) {
-              suggestion = 'Type mismatch. Ensure correct data types for operations (e.g., strings vs. numbers).';
+              suggestion = 'Type mismatch. Ensure correct data types for operations.';
               context = errMsg.match(/'([^']+)'/) ? `Operation on '${RegExp.$1}' caused error.` : '';
             } else if (errMsg.includes('NotImplementedError')) {
-              suggestion = 'Feature not supported by Skulpt. Avoid unsupported functions or reserved names.';
+              suggestion = 'Feature not supported by Skulpt. Avoid unsupported functions.';
             } else if (errMsg.includes('ImportError')) {
-              suggestion = 'Module import failed. Only random and re modules are supported.';
+              suggestion = 'Module import failed. Only random, re, time, and datetime modules are supported.';
               context = errMsg.match(/No module named '([^']+)'/) ? `Module '${RegExp.$1}' not found.` : '';
-            } else if (errMsg.includes('IndentationError')) {
-              suggestion = 'Incorrect indentation. Use 4 spaces consistently for each level.';
-              context = errMsg.match(/line (\d+)/) ? `Error on line ${RegExp.$1}.` : '';
+            } else if (errMsg.includes('Invalid regular expression')) {
+              suggestion = 'Invalid regex pattern. Skulpt 1.2.0 supports only basic regex; avoid lookaheads or complex quantifiers.';
+              context = errMsg.match(/: ([^:]+)/) ? `Pattern: ${RegExp.$1}` : '';
             }
 
             logToConsole(`Python error: ${errMsg}\nContext: ${context}\nSuggestion: ${suggestion}`, 'error');
           });
 
-        // Validate environment
         logToConsole('Validating JavaScript runtime...', 'info');
         const testJs = () => { throw new Error('Test JS error'); };
         try {
@@ -330,19 +319,6 @@
           logToConsole('CSS error: Missing body styling. Add body rules.', 'error');
         } else {
           logToConsole('CSS validated successfully.', 'info');
-        }
-
-        // Error log download prompt
-        if (errorLog.length > 0) {
-          logToConsole('Errors detected. Download error log for detailed review.', 'info');
-          const existingButton = document.querySelector('#input-area button[onclick="downloadErrorLog()"]');
-          if (!existingButton) {
-            const downloadButton = document.createElement('button');
-            downloadButton.className = 'button';
-            downloadButton.textContent = 'Download Error Log';
-            downloadButton.onclick = downloadErrorLog;
-            document.getElementById('input-area').appendChild(downloadButton);
-          }
         }
       } catch (e) {
         logToConsole(`Injector AI Error: ${e.message}\nSuggestion: Verify script format or contact support at https://x.ai.`, 'error');
@@ -383,8 +359,11 @@
               } else if (errMsg.includes('NotImplementedError')) {
                 suggestion = 'Feature not supported by Skulpt. Avoid unsupported functions.';
               } else if (errMsg.includes('ImportError')) {
-                suggestion = 'Module import failed. Only random and re modules are supported.';
+                suggestion = 'Module import failed. Only random, re, time, and datetime modules are supported.';
                 context = errMsg.match(/No module named '([^']+)'/) ? `Module '${RegExp.$1}' not found.` : '';
+              } else if (errMsg.includes('Invalid regular expression')) {
+                suggestion = 'Invalid regex pattern. Skulpt 1.2.0 supports only basic regex; avoid lookaheads or complex quantifiers.';
+                context = errMsg.match(/: ([^:]+)/) ? `Pattern: ${RegExp.$1}` : '';
               }
 
               logToConsole(`Python error: ${errMsg}\nContext: ${context}\nSuggestion: ${suggestion}`, 'error');
@@ -434,8 +413,11 @@ run_injected()
             } else if (errMsg.includes('NotImplementedError')) {
               suggestion = 'Feature not supported by Skulpt. Avoid unsupported functions.';
             } else if (errMsg.includes('ImportError')) {
-              suggestion = 'Module import failed. Only random and re modules are supported.';
+              suggestion = 'Module import failed. Only random, re, time, and datetime modules are supported.';
               context = errMsg.match(/No module named '([^']+)'/) ? `Module '${RegExp.$1}' not found.` : '';
+            } else if (errMsg.includes('Invalid regular expression')) {
+              suggestion = 'Invalid regex pattern. Skulpt 1.2.0 supports only basic regex; avoid lookaheads or complex quantifiers.';
+              context = errMsg.match(/: ([^:]+)/) ? `Pattern: ${RegExp.$1}` : '';
             }
 
             logToConsole(`Python error: ${errMsg}\nContext: ${context}\nSuggestion: ${suggestion}`, 'error');
@@ -452,8 +434,7 @@ run_injected()
       isWaitingForInput = false;
       inputResolver = null;
       errorLog = [];
-      const existingDownloadButton = document.querySelector('#input-area button[onclick="downloadErrorLog()"]');
-      if (existingDownloadButton) existingDownloadButton.remove();
+      threatLog = [];
       logToConsole('Python console ejected. Ready for new commands.', 'info');
     }
 
