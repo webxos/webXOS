@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Allow clipboard access for copy functionality -->
+    <meta http-equiv="Permissions-Policy" content="clipboard-write=(self)">
+    <title>Skulptor3D</title>
+    <style>
+        body { font-family: monospace; margin: 0; padding: 10px; background: #000; color: #0f0; }
+        #console, #error-console, #command-input, #py-input, canvas { border: 1px solid #0f0; background: #000; color: #0f0; }
+        #console { width: 100%; height: 200px; overflow-y: auto; padding: 10px; font-size: 14px; }
+        #error-console { width: 100%; height: 150px; overflow-y: auto; padding: 10px; font-size: 14px; margin-top: 10px; }
+        #input-area { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+        #command-input { padding: 10px; font-size: 16px; width: 100%; box-sizing: border-box; }
+        #py-popup, #skulptor3d-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #0f0; padding: 15px; z-index: 1000; }
+        #py-input { width: 100%; height: 250px; font-family: monospace; font-size: 14px; box-sizing: border-box; }
+        button { padding: 12px; font-size: 16px; cursor: pointer; width: 100%; box-sizing: border-box; background: #0f0; color: #000; }
+        button:hover:not(:disabled) { background: #0c0; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #close-3d-popup { position: absolute; top: 5px; right: 5px; font-weight: bold; padding: 8px; font-size: 14px; background: #f00; color: #fff; }
+        #close-3d-popup:hover { background: #c00; }
+        #mode-selector { margin-top: 10px; width: 100%; padding: 10px; border: 1px solid #0f0; font-size: 16px; box-sizing: border-box; }
+        @media (min-width: 768px) {
+            #input-area { flex-direction: row; }
+            button { width: auto; }
+            #command-input { width: 70%; }
+            #mode-selector { width: auto; }
+        }
+        .log-info { color: #0f0; }
+        .log-error { color: #f00; }
+        .log-warning { color: #ff0; }
+        #log-output { display: none; margin-top: 10px; width: 100%; height: 100px; font-family: monospace; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+</head>
+<body>
+    <div id="console" class="border"></div>
+    <div id="error-console" class="border"></div>
+    <button id="copy-log-btn" disabled>Copy Log</button>
+    <div id="mode-selector">
+        <div id="status-area" style="margin-top: 10px;">
+            <span id="pyodide-status">Loading...</span> |
+            <span id="webgpu-status">Checking...</span> |
+            <span id="fps">0.00</span> FPS | <span id="memory">0.00</span> MB
+        </div>
+        <select id="game-mode" class="border bg-transparent">
+            <option value="3d">3D Mode</option>
+            <option value="mars-trails">Mars Trails</option>
+        </select>
+    </div>
+    <div id="input-area" class="flex flex-col md:flex-row gap-2">
+        <input id="command-input" type="text" placeholder="Enter command" class="border">
+        <button id="execute-btn" disabled>Execute</button>
+        <button id="inject-btn" disabled>Inject</button>
+        <button id="eject-btn" disabled>Eject</button>
+        <button id="troubleshoot-btn" disabled>Troubleshoot</button>
+    </div>
+    <div id="py-popup" class="hidden">
+        <textarea id="py-input" placeholder="Paste Python/Skulptor3D code" class="border"></textarea><br>
+        <button onclick="injectScript()" class="mt-2">Inject</button>
+        <button onclick="closePopup()" class="mt-2">Close</button>
+    </div>
+    <div id="skulptor3d-popup" class="hidden">
+        <button id="close-3d-popup" onclick="close3DPopup()">X</button>
+        <canvas id="skulptor3d-canvas"></canvas>
+    </div>
+    <textarea id="log-output" readonly placeholder="Error log for manual copy"></textarea>
+    <script>
+        let pyodide;
+        let pyodideReady = false;
+        let globalErrorLog = [];
+        let skulptor3dAvailable = false;
+
+        async function loadPyodideWithFallback() {
+            try {
+                if (typeof loadPyodide === 'undefined') {
+                    throw new ReferenceError('loadPyodide is not defined. Ensure CDN script loaded correctly.');
+                }
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Loading Pyodide from CDN...</div>';
+                pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/' });
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide loaded successfully</div>';
+                return true;
+            } catch (e) {
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] ${e.message}. Retrying...</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `${e.message}. Retrying...`});
+                return await tryPyodideWorkaround();
+            }
+        }
+
+        async function tryPyodideWorkaround() {
+            try {
+                const script = document.createElement('script');
+                script.src = `https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js?t=${Date.now()}`;
+                script.async = false;
+                document.head.appendChild(script);
+                await new Promise((resolve, reject) => {
+                    script.onload = () => resolve();
+                    script.onerror = () => reject(new Error('Failed to reload pyod Dunbaride.js from CDN. Check network connectivity.'));
+                });
+                if (typeof loadPyodide === 'undefined') {
+                    throw new ReferenceError('loadPyodide not defined after retry. Verify CDN availability.');
+                }
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide script reloaded, initializing...</div>';
+                pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/' });
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide workaround successful</div>';
+                return true;
+            } catch (e) {
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] Workaround failed: ${e.message}</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `Workaround failed: ${e.message}`});
+                return false;
+            }
+        }
+
+        async function checkSkulptor3D() {
+            try {
+                await pyodide.runPythonAsync('import skulptor3d');
+                skulptor3dAvailable = true;
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Skulptor3D module available</div>';
+            } catch (e) {
+                skulptor3dAvailable = false;
+                document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] Skulptor3D module not found. Limited functionality available.</div>';
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'WARNING', message: 'Skulptor3D module not found. Limited functionality available.'});
+            }
+        }
+
+        async function initPyodide() {
+            try {
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initializing Pyodide...</div>';
+                const loaded = await loadPyodideWithFallback();
+                if (!loaded) {
+                    throw new Error('Pyodide initialization failed after retry attempts.');
+                }
+                await checkSkulptor3D();
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide initialized</div>';
+                pyodideReady = true;
+                document.getElementById('pyodide-status').textContent = 'Loaded';
+                ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
+                    document.getElementById(id).disabled = false;
+                });
+                checkWebGPU();
+            } catch (e) {
+                const errorMessage = `Pyodide init failed: ${e.message}`;
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] ${errorMessage}</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: errorMessage});
+                document.getElementById('pyodide-status').textContent = 'Failed';
+                disableInteractiveFeatures();
+            }
+        }
+
+        function disableInteractiveFeatures() {
+            ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
+                document.getElementById(id).disabled = true;
+            });
+        }
+
+        async function checkWebGPU() {
+            try {
+                if (navigator.gpu) {
+                    document.getElementById('webgpu-status').textContent = 'Supported';
+                    document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGPU supported</div>';
+                } else {
+                    document.getElementById('webgpu-status').textContent = 'Not Supported';
+                    document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] WebGPU not supported in this browser</div>';
+                    globalErrorLog.push({timestamp: new Date().toISOString(), level: 'WARNING', message: 'WebGPU not supported in this browser'});
+                }
+            } catch (e) {
+                document.getElementById('webgpu-status').textContent = 'Error';
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] WebGPU check failed: ${e.message}</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `WebGPU check failed: ${e.message}`});
+            }
+        }
+
+        function showPopup() {
+            if (!pyodideReady) {
+                document.getElementById('console').innerHTML += '<div class="log-error">[ERROR] Pyodide not ready</div>';
+                return;
+            }
+            document.getElementById('py-popup').style.display = 'block';
+        }
+
+        function closePopup() {
+            document.getElementById('py-popup').style.display = 'none';
+            document.getElementById('py-input').value = '';
+        }
+
+        function show3DPopup() {
+            document.getElementById('skulptor3d-popup').style.display = 'block';
+            resizeCanvas();
+        }
+
+        function close3DPopup() {
+            document.getElementById('skulptor3d-popup').style.display = 'none';
+        }
+
+        async function executeCommand() {
+            if (!pyodideReady) {
+                document.getElementById('console').innerHTML += '<div class="log-error">[ERROR] Pyodide not ready</div>';
+                return;
+            }
+            const cmd = document.getElementById('command-input').value.trim();
+            try {
+                if (cmd === '/test') {
+                    if (!skulptor3dAvailable) {
+                        throw new Error('Skulptor3D module not available');
+                    }
+                    await pyodide.runPythonAsync(`
+                        from skulptor3d import Skulptor3D
+                        await Skulptor3D().test_suite()
+                    `);
+                } else {
+                    await pyodide.runPythonAsync(cmd);
+                }
+                document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Command executed successfully</div>`;
+            } catch (err) {
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] ${err.message}</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `${err.message}`});
+            }
+            document.getElementById('command-input').value = '';
+            document.getElementById('console').scrollTop = document.getElementById('console').scrollHeight;
+        }
+
+        async function injectScript() {
+            if (!pyodideReady) {
+                document.getElementById('console').innerHTML += '<div class="log-error">[ERROR] Pyodide not ready</div>';
+                return;
+            }
+            const code = document.getElementById('py-input').value.trim();
+            if (!code) {
+                document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] No code to inject</div>';
+                return;
+            }
+            try {
+                await pyodide.runPythonAsync(code);
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Script injected successfully</div>';
+                closePopup();
+            } catch (err) {
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] 🐍 ${err.message}</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `🐍 ${err.message}`});
+            }
+        }
+
+        async function runTroubleshoot() {
+            if (!pyodideReady) {
+                document.getElementById('console').innerHTML += '<div class="log-error">[ERROR] Pyodide not ready</div>';
+                return;
+            }
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initiating agentic troubleshooting...</div>';
+            if (!skulptor3dAvailable) {
+                document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] Skulptor3D module not available. Troubleshooting limited to Pyodide checks.</div>';
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'WARNING', message: 'Skulptor3D module not available. Troubleshooting limited to Pyodide checks.'});
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
+                return;
+            }
+            const agents = Array(10).fill().map((_, i) => ({
+                id: i,
+                section: ['imports', 'utils', 'game', 'render', 'ui'][i % 5],
+                status: 'idle'
+            }));
+            const results = await Promise.all(agents.map(async agent => {
+                try {
+                    const code = await pyodide.runPythonAsync(`
+                        from skulptor3d import Skulptor3D
+                        Skulptor3D().agent_scan('${agent.section}')
+                    `);
+                    return { id: agent.id, section: agent.section, result: code.toString(), status: 'success' };
+                } catch (e) {
+                    return { id: agent.id, section: agent.section, result: e.message, status: 'error' };
+                }
+            }));
+            results.forEach(result => {
+                if (result.status === 'error') {
+                    document.getElementById('console').innerHTML += `<div class="log-error">[AGENT ${result.id}] ${result.section}: ${result.result}</div>`;
+                    globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `[AGENT ${result.id}] ${result.section}: ${result.result}`});
+                } else {
+                    document.getElementById('console').innerHTML += `<div class="log-info">[AGENT ${result.id}] ${result.section}: Valid</div>`;
+                }
+            });
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
+        }
+
+        function copyErrorLog() {
+            if (!globalErrorLog.length) {
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] No errors to copy</div>';
+                return;
+            }
+            const logText = globalErrorLog.map(entry => `[${entry.timestamp}] [${entry.level}] ${entry.message}`).join('\n');
+            try {
+                navigator.permissions.query({ name: 'clipboard-write' }).then(permission => {
+                    if (permission.state === 'granted' || permission.state === 'prompt') {
+                        navigator.clipboard.writeText(logText).then(() => {
+                            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log copied to clipboard</div>';
+                        }).catch(err => {
+                            throw new Error(`Clipboard write failed: ${err.message}`);
+                        });
+                    } else {
+                        throw new Error('Clipboard access denied by browser permissions policy');
+                    }
+                }).catch(err => {
+                    throw err;
+                });
+            } catch (err) {
+                document.getElementById('console').innerHTML += `<div class="log-error">[ERROR] ${err.message}. Displaying log for manual copy.</div>`;
+                globalErrorLog.push({timestamp: new Date().toISOString(), level: 'ERROR', message: `${err.message}. Displaying log for manual copy.`});
+                const logOutput = document.getElementById('log-output');
+                logOutput.value = logText;
+                logOutput.style.display = 'block';
+            }
+        }
+
+        function resizeCanvas() {
+            const canvas = document.getElementById('skulptor3d-canvas');
+            if (canvas) {
+                const dpr = window.devicePixelRatio || 1;
+                const width = Math.min(window.innerWidth - 40, 800);
+                const height = Math.min(window.innerHeight - 300, 600);
+                canvas.width = width * dpr;
+                canvas.height = height * dpr;
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        document.getElementById('execute-btn').onclick = executeCommand;
+        document.getElementById('inject-btn').onclick = showPopup;
+        document.getElementById('eject-btn').onclick = closePopup;
+        document.getElementById('troubleshoot-btn').onclick = runTroubleshoot;
+        document.getElementById('copy-log-btn').onclick = copyErrorLog;
+        initPyodide();
+        resizeCanvas();
+    </script>
+</body>
+</html>
