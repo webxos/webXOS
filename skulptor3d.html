@@ -79,56 +79,13 @@
         let renderLoopRunning = false;
         let sceneObjects = [];
         let animations = [];
-        let aliases = {};
-        let groups = {};
+        let lastFrameTime = performance.now();
 
         function addToErrorLog(level, message) {
             globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
             if (globalErrorLog.length > 100) globalErrorLog.shift();
             document.getElementById('error-console').innerHTML += `<div class="log-${level.toLowerCase()}">[${level}] ${message}</div>`;
             document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
-        }
-
-        function simpleBPEEncode(code, iterations) {
-            let tokens = code.split(/(\s+|[^\w\s])/).filter(t => t);
-            let pairCounts = {};
-            for (let i = 0; i < tokens.length - 1; i++) {
-                const pair = `${tokens[i]} ${tokens[i + 1]}`;
-                pairCounts[pair] = (pairCounts[pair] || 0) + 1;
-            }
-            for (let iter = 0; iter < iterations; iter++) {
-                let maxPair = null;
-                let maxCount = 0;
-                for (const pair in pairCounts) {
-                    if (pairCounts[pair] > maxCount) {
-                        maxCount = pairCounts[pair];
-                        maxPair = pair;
-                    }
-                }
-                if (!maxPair) break;
-                const [first, second] = maxPair.split(' ');
-                const newToken = first + second;
-                const newTokens = [];
-                for (let i = 0; i < tokens.length; i++) {
-                    if (i < tokens.length - 1 && tokens[i] === first && tokens[i + 1] === second) {
-                        newTokens.push(newToken);
-                        i++;
-                    } else {
-                        newTokens.push(tokens[i]);
-                    }
-                }
-                tokens = newTokens;
-                pairCounts = {};
-                for (let i = 0; i < tokens.length - 1; i++) {
-                    const pair = `${tokens[i]} ${tokens[i + 1]}`;
-                    pairCounts[pair] = (pairCounts[pair] || 0) + 1;
-                }
-            }
-            return tokens.join('');
-        }
-
-        function simpleBPEDecode(code) {
-            return code;
         }
 
         async function loadPyodideWithFallback() {
@@ -168,7 +125,6 @@
                 await pyodide.runPythonAsync(`
                     import js
                     from pyodide.ffi import create_proxy
-                    import traceback
 
                     class Py3D:
                         def __init__(self):
@@ -176,64 +132,35 @@
                                 self.canvas = js.document.getElementById("skulptor3d-canvas")
                                 self.shapes = []
                                 self.animations = js.animations
-                                self.groups = js.groups
                                 js.console.log("Py3D initialized successfully")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Py3D initialization failed: {str(e)}")
 
-                        def add_cube(self, name, position, size, color, dimensions=3):
+                        def add_cube(self, name, position, size, color):
                             try:
-                                if dimensions < 1 or dimensions > 8:
-                                    raise ValueError("Dimensions must be between 1 and 8")
-                                position = list(position) + [0] * (dimensions - len(position)) if len(position) < dimensions else position[:dimensions]
-                                position = position[:3] if dimensions > 3 else position
                                 shape = {
                                     "name": name,
                                     "type": "cube",
                                     "position": position,
                                     "size": size,
-                                    "color": color,
-                                    "dimensions": dimensions
+                                    "color": color
                                 }
                                 self.shapes.append(shape)
                                 js.sceneObjects.append(shape)
-                                js.console.log(f"Added cube: {name}, dimensions: {dimensions}")
+                                js.console.log(f"Added cube: {name}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to add cube {name}: {str(e)}")
 
-                        def add_point_cloud(self, name, points, colors, size, intensity=None):
-                            try:
-                                if len(points) != len(colors):
-                                    raise ValueError("Points and colors must have the same length")
-                                intensity = intensity or [1.0] * len(points)
-                                shape = {
-                                    "name": name,
-                                    "type": "point_cloud",
-                                    "points": points,
-                                    "colors": colors,
-                                    "size": size,
-                                    "intensity": intensity
-                                }
-                                self.shapes.append(shape)
-                                js.sceneObjects.append(shape)
-                                js.console.log(f"Added point cloud: {name}, points: {len(points)}")
-                            except Exception as e:
-                                js.addToErrorLog("ERROR", f"Failed to add point cloud {name}: {str(e)}")
-
                         def set_camera(self, position, rotation):
                             try:
-                                js.cameraPosition = list(position)[:3]
-                                js.cameraRotation = list(rotation)[:3]
+                                js.cameraPosition = list(position)
+                                js.cameraRotation = list(rotation)
                                 js.console.log(f"Camera set to position: {position}, rotation: {rotation}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to set camera: {str(e)}")
 
-                        def animate(self, name, position, duration, dimensions=3):
+                        def animate(self, name, position, duration):
                             try:
-                                if dimensions < 1 or dimensions > 8:
-                                    raise ValueError("Dimensions must be between 1 and 8")
-                                position = list(position) + [0] * (dimensions - len(position)) if len(position) < dimensions else position[:dimensions]
-                                position = position[:3] if dimensions > 3 else position
                                 animation = {
                                     "name": name,
                                     "target_position": position,
@@ -245,35 +172,12 @@
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to animate {name}: {str(e)}")
 
-                        def group_objects(self, name, objects):
-                            try:
-                                self.groups[name] = objects
-                                js.console.log(f"Group created: {name} with objects {objects}")
-                            except Exception as e:
-                                js.addToErrorLog("ERROR", f"Failed to create group {name}: {str(e)}")
-
-                        def log_message(self, level, message):
-                            try:
-                                js.addToErrorLog(level, message)
-                                js.console.log(f"Logged {level}: {message}")
-                            except Exception as e:
-                                js.addToErrorLog("ERROR", f"Failed to log message: {str(e)}")
-
-                        def test_feature(self, name, command):
-                            try:
-                                exec(command)
-                                js.addToErrorLog("INFO", f"Feature {name} test passed")
-                            except Exception as e:
-                                tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-                                js.addToErrorLog("ERROR", f"Feature {name} test failed: {str(e)}\\nTraceback:\\n{tb}")
-
                         def clear_scene(self):
                             try:
                                 self.shapes = []
-                                self.groups = {}
                                 js.sceneObjects = []
+                                self.animations = []
                                 js.animations = []
-                                js.groups = {}
                                 js.console.log("Scene cleared")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to clear scene: {str(e)}")
@@ -345,34 +249,27 @@
             const gl = glContext;
             gl.enable(gl.DEPTH_TEST);
             gl.enable(gl.CULL_FACE);
-            const vertexShaderSource = `
+            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vertexShader, `
                 attribute vec3 aPosition;
-                attribute vec3 aColor;
                 uniform mat4 uModelViewMatrix;
                 uniform mat4 uProjectionMatrix;
-                uniform float uPointSize;
-                varying vec3 vColor;
                 void main() {
                     gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
-                    gl_PointSize = uPointSize;
-                    vColor = aColor;
                 }
-            `;
-            const fragmentShaderSource = `
-                precision mediump float;
-                varying vec3 vColor;
-                void main() {
-                    gl_FragColor = vec4(vColor, 1.0);
-                }
-            `;
-            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-            gl.shaderSource(vertexShader, vertexShaderSource);
+            `);
             gl.compileShader(vertexShader);
             if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
                 addToErrorLog('ERROR', `Vertex shader compilation failed: ${gl.getShaderInfoLog(vertexShader)}`);
             }
             const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-            gl.shaderSource(fragmentShader, fragmentShaderSource);
+            gl.shaderSource(fragmentShader, `
+                precision mediump float;
+                uniform vec3 uColor;
+                void main() {
+                    gl_FragColor = vec4(uColor, 1.0);
+                }
+            `);
             gl.compileShader(fragmentShader);
             if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
                 addToErrorLog('ERROR', `Fragment shader compilation failed: ${gl.getShaderInfoLog(fragmentShader)}`);
@@ -387,10 +284,9 @@
             gl.useProgram(program);
             glContext.program = program;
             glContext.aPosition = gl.getAttribLocation(program, 'aPosition');
-            glContext.aColor = gl.getAttribLocation(program, 'aColor');
             glContext.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
             glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
-            glContext.uPointSize = gl.getUniformLocation(program, 'uPointSize');
+            glContext.uColor = gl.getUniformLocation(program, 'uColor');
             const cubeVertices = new Float32Array([
                 -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
                 -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
@@ -402,7 +298,7 @@
             const vertexBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, cubeVertices, gl.STATIC_DRAW);
-            glContext.cubeVertexBuffer = vertexBuffer;
+            glContext.vertexBuffer = vertexBuffer;
         }
 
         function startRenderLoop() {
@@ -446,60 +342,12 @@
                         mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
                         gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
                         gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
-                        gl.uniform1f(glContext.uPointSize, 1.0);
-                        gl.bindBuffer(gl.ARRAY_BUFFER, glContext.cubeVertexBuffer);
+                        gl.uniform3fv(glContext.uColor, obj.color);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, glContext.vertexBuffer);
                         gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
                         gl.enableVertexAttribArray(glContext.aPosition);
-                        gl.disableVertexAttribArray(glContext.aColor);
-                        gl.vertexAttrib3f(glContext.aColor, obj.color[0], obj.color[1], obj.color[2]);
                         gl.drawArrays(gl.TRIANGLE_FAN, 0, 24);
-                    } else if (obj.type === 'point_cloud') {
-                        const vertices = new Float32Array(obj.points.flat());
-                        const colors = new Float32Array(obj.colors.flat());
-                        const pointBuffer = gl.createBuffer();
-                        gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-                        const colorBuffer = gl.createBuffer();
-                        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-                        mat4.identity(modelMatrix);
-                        const modelViewMatrix = mat4.create();
-                        mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
-                        gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
-                        gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
-                        gl.uniform1f(glContext.uPointSize, obj.size * 10.0);
-                        gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
-                        gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
-                        gl.enableVertexAttribArray(glContext.aPosition);
-                        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-                        gl.vertexAttribPointer(glContext.aColor, 3, gl.FLOAT, false, 0, 0);
-                        gl.enableVertexAttribArray(glContext.aColor);
-                        gl.drawArrays(gl.POINTS, 0, obj.points.length);
-                        gl.deleteBuffer(pointBuffer);
-                        gl.deleteBuffer(colorBuffer);
                     }
-                });
-                Object.keys(groups).forEach(groupName => {
-                    const group = groups[groupName];
-                    group.forEach(objName => {
-                        const obj = sceneObjects.find(o => o.name === objName);
-                        if (obj && obj.type === 'cube') {
-                            mat4.identity(modelMatrix);
-                            mat4.translate(modelMatrix, modelMatrix, obj.position);
-                            mat4.scale(modelMatrix, modelMatrix, [obj.size, obj.size, obj.size]);
-                            const modelViewMatrix = mat4.create();
-                            mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
-                            gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
-                            gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
-                            gl.uniform1f(glContext.uPointSize, 1.0);
-                            gl.bindBuffer(gl.ARRAY_BUFFER, glContext.cubeVertexBuffer);
-                            gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
-                            gl.enableVertexAttribArray(glContext.aPosition);
-                            gl.disableVertexAttribArray(glContext.aColor);
-                            gl.vertexAttrib3f(glContext.aColor, obj.color[0], obj.color[1], obj.color[2]);
-                            gl.drawArrays(gl.TRIANGLE_FAN, 0, 24);
-                        }
-                    });
                 });
                 requestAnimationFrame(render);
             }
@@ -528,84 +376,26 @@
         }
 
         function parsePy3D(code) {
-            let bpeIterations = 0;
             const lines = code.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
             const commands = [];
             for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
+                const line = lines[i];
                 try {
-                    if (line.startsWith('tokenize bpe')) {
-                        const match = line.match(/tokenize bpe\s*,\s*iterations=(\d+)/);
-                        if (!match) throw new Error('Invalid tokenize syntax');
-                        bpeIterations = parseInt(match[1]);
-                        continue;
-                    }
-                    if (bpeIterations > 0) {
-                        line = simpleBPEDecode(simpleBPEEncode(line, bpeIterations));
-                    }
-                    if (line.startsWith('alias')) {
-                        const match = line.match(/alias\s+name=(\w+)\s*,\s*command="([^"]+)"/);
-                        if (!match) throw new Error('Invalid alias syntax');
-                        const [, aliasName, command] = match;
-                        aliases[aliasName] = command;
-                        continue;
-                    }
-                    if (line.startsWith('group')) {
-                        const match = line.match(/group\s+name=(\w+)\s*,\s*objects=\[([^\]]+)\]/);
-                        if (!match) throw new Error('Invalid group syntax');
-                        const [, groupName, objects] = match;
-                        commands.push(`Py3D().group_objects("${groupName}", [${objects.split(',').map(o => `"${o.trim()}"`).join(',')}]);`);
-                        continue;
-                    }
-                    if (line.startsWith('log_message')) {
-                        const match = line.match(/log_message\s+level=(\w+)\s*,\s*message="([^"]+)"/);
-                        if (!match) throw new Error('Invalid log_message syntax');
-                        const [, level, message] = match;
-                        if (!['INFO', 'ERROR', 'WARNING'].includes(level)) throw new Error('Invalid log level');
-                        commands.push(`Py3D().log_message("${level}", "${message}");`);
-                        continue;
-                    }
-                    if (line.startsWith('test_feature')) {
-                        const match = line.match(/test_feature\s+name=(\w+)\s*,\s*command="([^"]+)"/);
-                        if (!match) throw new Error('Invalid test_feature syntax');
-                        const [, name, command] = match;
-                        commands.push(`Py3D().test_feature("${name}", "${command.replace(/"/g, '\\"')}");`);
-                        continue;
-                    }
-                    for (const alias in aliases) {
-                        if (line.startsWith(alias)) {
-                            const params = line.slice(alias.length).trim().split(/\s*,\s*/);
-                            let cmd = aliases[alias];
-                            params.forEach((param, idx) => {
-                                cmd = cmd.replace(`$${idx + 1}`, param);
-                            });
-                            line = cmd;
-                        }
-                    }
                     if (line.startsWith('add_shape')) {
-                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name=(\w+)\s*,\s*position=\(([^)]+)\)\s*,\s*size=(\d+\.?\d*)\s*,\s*color=\(([^)]+)\)(?:\s*,\s*dimensions=(\d+))?/);
+                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name=(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*size=(\d+\.?\d*)\s*,\s*color=\((\d+\.?\d*,\s*\d+\.?\d*,\s*\d+\.?\d*)\)/);
                         if (!match) throw new Error('Invalid add_shape syntax');
-                        const [, type, name, position, size, color, dimensions = '3'] = match;
-                        if (type !== 'cube' && type !== 'hypercube') throw new Error(`Unsupported shape type: ${type}`);
-                        commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}], ${dimensions});`);
-                    } else if (line.startsWith('add_point_cloud')) {
-                        const match = line.match(/add_point_cloud\s+name=(\w+)\s*,\s*points=\[([^\]]+)\]\s*,\s*colors=\[([^\]]+)\]\s*,\s*size=(\d+\.?\d*)(?:\s*,\s*intensity=\[([^\]]+)\])?/);
-                        if (!match) throw new Error('Invalid add_point_cloud syntax');
-                        const [, name, points, colors, size, intensity] = match;
-                        const pointList = points.split('),(').map(p => p.replace(/[()]/g, '').split(',').map(Number));
-                        const colorList = colors.split('),(').map(c => c.replace(/[()]/g, '').split(',').map(Number));
-                        const intensityList = intensity ? intensity.split(',').map(Number) : null;
-                        commands.push(`Py3D().add_point_cloud("${name}", ${JSON.stringify(pointList)}, ${JSON.stringify(colorList)}, ${size}, ${intensityList ? JSON.stringify(intensityList) : 'null'});`);
+                        const [, type, name, position, size, color] = match;
+                        commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}]);`);
                     } else if (line.startsWith('set_camera')) {
-                        const match = line.match(/set_camera\s*position=\(([^)]+)\)\s*,\s*rotation=\(([^)]+)\)/);
+                        const match = line.match(/set_camera\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*rotation=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)/);
                         if (!match) throw new Error('Invalid set_camera syntax');
                         const [, position, rotation] = match;
                         commands.push(`Py3D().set_camera([${position}], [${rotation}]);`);
                     } else if (line.startsWith('animate')) {
-                        const match = line.match(/animate\s+name=(\w+)\s*,\s*position=\(([^)]+)\)\s*,\s*duration=(\d+\.?\d*)(?:\s*,\s*dimensions=(\d+))?/);
+                        const match = line.match(/animate\s+(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*duration=(\d+\.?\d*)/);
                         if (!match) throw new Error('Invalid animate syntax');
-                        const [, name, position, duration, dimensions = '3'] = match;
-                        commands.push(`Py3D().animate("${name}", [${position}], ${duration}, ${dimensions});`);
+                        const [, name, position, duration] = match;
+                        commands.push(`Py3D().animate("${name}", [${position}], ${duration});`);
                     } else if (line.startsWith('clear_scene')) {
                         commands.push(`Py3D().clear_scene();`);
                     } else {
@@ -613,7 +403,7 @@
                     }
                 } catch (e) {
                     addToErrorLog('ERROR', `Line ${i + 1}: ${e.message}`);
-                    continue;
+                    return null;
                 }
             }
             return commands.join('\n');
@@ -675,7 +465,10 @@
                 return;
             }
             try {
-                const py3dAvailable = await pyodide.runPythonAsync(`'Py3D' in globals()`);
+                // Check if Py3D class is available
+                const py3dAvailable = await pyodide.runPythonAsync(`
+                    'Py3D' in globals()
+                `);
                 if (!py3dAvailable) {
                     throw new Error('Py3D class not initialized');
                 }
@@ -683,12 +476,12 @@
                     const parsed = parsePy3D(code);
                     if (!parsed) throw new Error('Failed to parse .py3d code');
                     await pyodide.runPythonAsync(parsed);
-                    show3DPopup();
                 } else {
                     await pyodide.runPythonAsync(code);
                 }
                 document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Script injected successfully</div>`;
                 closePopup();
+                show3DPopup();
             } catch (err) {
                 addToErrorLog('ERROR', `🐍 ${err.message}`);
             }
@@ -714,8 +507,7 @@
                     } catch {
                         return 'Blocked';
                     }
-                }},
-                { id: 8, test: 'Point cloud rendering', fn: () => sceneObjects.some(obj => obj.type === 'point_cloud') ? 'OK' : 'No point clouds' }
+                }}
             ];
             for (const check of checks) {
                 const result = await check.fn();
@@ -737,13 +529,13 @@
             const logOutput = document.getElementById('log-output');
             logOutput.value = logText;
             logOutput.style.display = 'block';
-            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy. Copy from textarea if clipboard is blocked.</div>';
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy</div>';
             try {
                 await navigator.clipboard.writeText(logText);
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log copied to clipboard</div>';
                 logOutput.style.display = 'none';
             } catch (err) {
-                addToErrorLog('ERROR', `Clipboard write failed: ${err.message}. Please copy the log manually from the displayed textarea. See https://crbug.com/414348233 for details.`);
+                addToErrorLog('ERROR', `Clipboard write failed: ${err.message}. Please copy the log manually from the displayed textarea.`);
             }
         }
 
@@ -780,47 +572,16 @@
         resizeCanvas();
     </script>
     <script type="text/py3d" id="snake-agent">
-# snake.py3d - Solid Snake Test Agent
-# One-shot mission to uncover errors and weaknesses in Skulptor3D
-
-alias name=cube, command="add_shape cube, name=$1, position=$2, size=$3, color=$4"
-log_message level=INFO, message="Reporting in, Chief! Agent Snake infiltrating Skulptor3D with agentic speed..."
+# snake.py3d
 clear_scene
-log_message level=INFO, message="Mission: Test all .py3d features, expose weaknesses, and deploy a visualization. Codec ready!"
-
-# Test camera setup
-test_feature name=camera, command="Py3D().set_camera([0, 2, 5], [0.4, 0.6, 0])"
-
-# Test cube creation
-test_feature name=cube, command="Py3D().add_cube('snake_head', [0, 0, 0], 0.5, [0, 1, 0], 3)"
-
-# Test point cloud with LiDAR-inspired data
-test_feature name=point_cloud, command="Py3D().add_point_cloud('scan', [[1,1,1],[-1,1,-1],[1,-1,1],[-1,-1,-1]], [[1,0,0],[0,1,0],[0,0,1],[1,1,0]], 0.1, [1,0.8,0.6,0.4])"
-
-# Test 4D hypercube
-test_feature name=hypercube, command="Py3D().add_cube('tesseract', [2,0,0,0], 0.8, [0.5,0.5,1], 4)"
-
-# Test animation
-test_feature name=animation, command="Py3D().animate('snake_head', [1, 0.5, 0], 2, 3)"
-
-# Test grouping
-test_feature name=group, command="Py3D().group_objects('snake', ['snake_head'])"
-
-# Test BPE tokenization
-test_feature name=tokenize, command="Py3D().log_message('INFO', simpleBPEDecode(simpleBPEEncode('add_shape cube, name=test, position=(0,0,0), size=0.5, color=(0,1,0)', 5)))"
-
-# Deploy visualization
-cube snake_head, (0, 0, 0), 0.5, (0, 1, 0)
-cube snake_body, (-0.6, 0, 0), 0.5, (0, 0.8, 0)
-add_point_cloud name=scan, points=[(1,1,1),(-1,1,-1),(1,-1,1),(-1,-1,-1)], colors=[(1,0,0),(0,1,0),(0,0,1),(1,1,0)], size=0.1
-add_shape hypercube, name=tesseract, position=(2,0,0,0), size=0.8, color=(0.5,0.5,1), dimensions=4
-animate name=snake_head, position=(1, 0.5, 0), duration=2
-group name=snake, objects=[snake_head, snake_body]
-
-# Mini-review
-log_message level=INFO, message="Snake here. Strengths: Solid WebGL integration, flexible .py3d syntax, LLM-friendly design."
-log_message level=WARNING, message="Weaknesses: Basic BPE tokenization, regex parser is fragile, no WebGPU support yet."
-log_message level=INFO, message="Mission complete. If hostiles (errors) persist, check the traceback in the log. *Snake out.*"
+set_camera position=(0, 0, 5), rotation=(0.3, 0.5, 0)
+add_shape cube, name=snake_head, position=(0, 0, 0), size=0.5, color=(0, 1, 0)
+add_shape cube, name=snake_body1, position=(-0.6, 0, 0), size=0.5, color=(0, 0.8, 0)
+add_shape cube, name=snake_body2, position=(-1.2, 0, 0), size=0.5, color=(0, 0.8, 0)
+add_shape cube, name=food, position=(1, 1, 0), size=0.3, color=(1, 0, 0)
+animate snake_head, position=(0.6, 0, 0), duration=2
+animate snake_body1, position=(0, 0, 0), duration=2
+animate snake_body2, position=(-0.6, 0, 0), duration=2
     </script>
 </body>
 </html>
