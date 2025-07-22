@@ -19,13 +19,13 @@
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         #close-3d-popup { position: absolute; top: 5px; right: 5px; font-weight: bold; padding: 8px; font-size: 14px; background: #f00; color: #fff; }
         #close-3d-popup:hover { background: #c00; }
-        #mode-selector { margin-top: 10px; width: 100%; padding: 10px; border: 1px solid #0f0; font-size: 16px; box-sizing: border-box; background: #000; }
         #status-area { margin-bottom: 10px; }
+        select { width: 100%; padding: 10px; border: 1px solid #0f0; font-size: 16px; box-sizing: border-box; background: #000; color: #0f0; }
         @media (min-width: 768px) {
             #input-area { flex-direction: row; }
             button { width: auto; }
             #command-input { width: 70%; }
-            #mode-selector { width: auto; }
+            select { width: auto; }
         }
         .log-info { color: #0f0; }
         .log-error { color: #f00; }
@@ -45,21 +45,26 @@
         <span id="webgpu-status">Checking...</span> |
         <span id="fps">0.00</span> FPS | <span id="memory">0.00</span> MB
     </div>
-    <select id="game-mode" class="border bg-transparent" aria-label="Select game mode">
+    <select id="game-mode" aria-label="Select game mode">
         <option value="3d">3D Mode</option>
         <option value="mars-trails">Mars Trails</option>
+        <option value="snake">Snake</option>
     </select>
     <div id="input-area" class="flex flex-col md:flex-row gap-2">
-        <input id="command-input" type="text" placeholder="Enter command" class="border" aria-label="Enter Python command">
+        <input id="command-input" type="text" placeholder="Enter command" class="border" aria-label="Enter command">
         <button id="execute-btn" disabled aria-label="Execute command">Execute</button>
-        <button id="inject-btn" disabled aria-label="Open Python code input popup">Inject</button>
-        <button id="close-btn" disabled aria-label="Close Python code input popup">Close</button>
+        <button id="inject-btn" disabled aria-label="Open code input popup">Inject</button>
+        <button id="close-btn" disabled aria-label="Close code input popup">Close</button>
         <button id="troubleshoot-btn" disabled aria-label="Run troubleshooting diagnostics">Troubleshoot</button>
     </div>
     <div id="py-popup" class="hidden">
-        <textarea id="py-input" placeholder="Paste Python/Skulptor3D code" class="border" aria-label="Python code input"></textarea><br>
-        <button onclick="injectScript()" class="mt-2" aria-label="Inject Python code">Inject</button>
-        <button onclick="closePopup()" class="mt-2" aria-label="Close Python code popup">Close</button>
+        <select id="code-type" aria-label="Select code type">
+            <option value="py">Python (.py)</option>
+            <option value="py3d">Skulptor3D (.py3d)</option>
+        </select>
+        <textarea id="py-input" placeholder="Paste Python or .py3d code" class="border" aria-label="Code input"></textarea><br>
+        <button onclick="injectScript()" class="mt-2" aria-label="Inject code">Inject</button>
+        <button onclick="closePopup()" class="mt-2" aria-label="Close code popup">Close</button>
     </div>
     <div id="skulptor3d-popup" class="hidden">
         <button id="close-3d-popup" onclick="close3DPopup()" aria-label="Close 3D canvas popup">X</button>
@@ -69,13 +74,15 @@
     <script>
         let pyodide;
         let pyodideReady = false;
-        let skulptor3dAvailable = false;
         let globalErrorLog = [];
         let glContext = null;
         let renderLoopRunning = false;
+        let sceneObjects = [];
+        let animations = [];
+        let lastFrameTime = performance.now();
 
         function addToErrorLog(level, message) {
-            globalErrorLog.push({timestamp: new Date().toISOString(), level, message});
+            globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
             if (globalErrorLog.length > 100) globalErrorLog.shift();
             document.getElementById('error-console').innerHTML += `<div class="log-${level.toLowerCase()}">[${level}] ${message}</div>`;
             document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
@@ -113,29 +120,80 @@
             }
         }
 
-        async function checkSkulptor3D() {
+        async function initPy3D() {
             try {
                 await pyodide.runPythonAsync(`
                     import js
                     from pyodide.ffi import create_proxy
-                    class Skulptor3D:
+
+                    class Py3D:
                         def __init__(self):
-                            self.canvas = js.document.getElementById("skulptor3d-canvas")
-                            self.shapes = []
-                        def add_cube(self, position=(0, 0, 0), size=1):
-                            self.shapes.append({"type": "cube", "position": position, "size": size})
-                            js.console.log(f"Added cube at {position} with size {size}")
+                            try:
+                                self.canvas = js.document.getElementById("skulptor3d-canvas")
+                                self.shapes = []
+                                self.animations = js.animations
+                                js.console.log("Py3D initialized successfully")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Py3D initialization failed: {str(e)}")
+
+                        def add_cube(self, name, position, size, color):
+                            try:
+                                shape = {
+                                    "name": name,
+                                    "type": "cube",
+                                    "position": position,
+                                    "size": size,
+                                    "color": color
+                                }
+                                self.shapes.append(shape)
+                                js.sceneObjects.append(shape)
+                                js.console.log(f"Added cube: {name}")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Failed to add cube {name}: {str(e)}")
+
+                        def set_camera(self, position, rotation):
+                            try:
+                                js.cameraPosition = list(position)
+                                js.cameraRotation = list(rotation)
+                                js.console.log(f"Camera set to position: {position}, rotation: {rotation}")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Failed to set camera: {str(e)}")
+
+                        def animate(self, name, position, duration):
+                            try:
+                                animation = {
+                                    "name": name,
+                                    "target_position": position,
+                                    "duration": duration,
+                                    "start_time": js.performance.now() / 1000
+                                }
+                                self.animations.append(animation)
+                                js.console.log(f"Animation added for {name} to position {position}")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Failed to animate {name}: {str(e)}")
+
+                        def clear_scene(self):
+                            try:
+                                self.shapes = []
+                                js.sceneObjects = []
+                                self.animations = []
+                                js.animations = []
+                                js.console.log("Scene cleared")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Failed to clear scene: {str(e)}")
+
                         async def test_suite(self):
-                            js.document.getElementById("console").innerHTML += '<div class="log-info">[INFO] Skulptor3D test suite passed</div>'
-                        def agent_scan(self, section):
-                            return f"Scanned {section}: OK"
-                    globals()['Skulptor3D'] = Skulptor3D
+                            try:
+                                js.document.getElementById("console").innerHTML += '<div class="log-info">[INFO] Py3D test suite passed</div>'
+                                js.console.log("Py3D test suite passed")
+                            except Exception as e:
+                                js.addToErrorLog("ERROR", f"Test suite failed: {str(e)}")
+
+                    globals()['Py3D'] = Py3D
                 `);
-                skulptor3dAvailable = true;
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Skulptor3D module available</div>';
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Py3D module initialized</div>';
             } catch (e) {
-                skulptor3dAvailable = false;
-                addToErrorLog('WARNING', 'Skulptor3D module not found. Using mock implementation.');
+                addToErrorLog('ERROR', `Py3D initialization failed: ${e.message}`);
             }
         }
 
@@ -146,7 +204,7 @@
                 if (!loaded) {
                     throw new Error('Pyodide initialization failed after retry attempts.');
                 }
-                await checkSkulptor3D();
+                await initPy3D();
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide initialized</div>';
                 pyodideReady = true;
                 document.getElementById('pyodide-status').textContent = 'Loaded';
@@ -169,11 +227,17 @@
         }
 
         function initWebGL() {
+            if (!window.mat4) {
+                addToErrorLog('ERROR', 'gl-matrix library not loaded correctly');
+                document.getElementById('webgpu-status').textContent = 'Failed';
+                return;
+            }
             const canvas = document.getElementById('skulptor3d-canvas');
             glContext = canvas.getContext('webgl') || canvas.getContext('webgl2');
             if (glContext) {
                 document.getElementById('webgpu-status').textContent = 'WebGL';
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL supported</div>';
+                setupWebGL();
                 startRenderLoop();
             } else {
                 document.getElementById('webgpu-status').textContent = 'Not Supported';
@@ -181,15 +245,110 @@
             }
         }
 
+        function setupWebGL() {
+            const gl = glContext;
+            gl.enable(gl.DEPTH_TEST);
+            gl.enable(gl.CULL_FACE);
+            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vertexShader, `
+                attribute vec3 aPosition;
+                uniform mat4 uModelViewMatrix;
+                uniform mat4 uProjectionMatrix;
+                void main() {
+                    gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+                }
+            `);
+            gl.compileShader(vertexShader);
+            if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+                addToErrorLog('ERROR', `Vertex shader compilation failed: ${gl.getShaderInfoLog(vertexShader)}`);
+            }
+            const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fragmentShader, `
+                precision mediump float;
+                uniform vec3 uColor;
+                void main() {
+                    gl_FragColor = vec4(uColor, 1.0);
+                }
+            `);
+            gl.compileShader(fragmentShader);
+            if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+                addToErrorLog('ERROR', `Fragment shader compilation failed: ${gl.getShaderInfoLog(fragmentShader)}`);
+            }
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                addToErrorLog('ERROR', `Shader program linking failed: ${gl.getProgramInfoLog(program)}`);
+            }
+            gl.useProgram(program);
+            glContext.program = program;
+            glContext.aPosition = gl.getAttribLocation(program, 'aPosition');
+            glContext.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
+            glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
+            glContext.uColor = gl.getUniformLocation(program, 'uColor');
+            const cubeVertices = new Float32Array([
+                -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
+                -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
+                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5,
+                0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5
+            ]);
+            const vertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, cubeVertices, gl.STATIC_DRAW);
+            glContext.vertexBuffer = vertexBuffer;
+        }
+
         function startRenderLoop() {
             if (renderLoopRunning) return;
             renderLoopRunning = true;
             const gl = glContext;
             gl.clearColor(0.0, 0.0, 0.0, 1.0);
-            gl.enable(gl.DEPTH_TEST);
+            const fov = 45 * Math.PI / 180;
+            const aspect = gl.canvas.width / gl.canvas.height;
+            const projectionMatrix = mat4.create();
+            mat4.perspective(projectionMatrix, fov, aspect, 0.1, 100.0);
             function render() {
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-                // Placeholder for rendering shapes from Skulptor3D
+                const viewMatrix = mat4.create();
+                mat4.translate(viewMatrix, viewMatrix, window.cameraPosition || [0, 0, 5]);
+                mat4.rotateX(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[0]);
+                mat4.rotateY(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[1]);
+                mat4.rotateZ(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[2]);
+                const modelMatrix = mat4.create();
+                const currentTime = performance.now() / 1000;
+                animations.forEach(anim => {
+                    const t = Math.min((currentTime - anim.start_time) / anim.duration, 1);
+                    const shape = sceneObjects.find(obj => obj.name === anim.name);
+                    if (shape) {
+                        const startPos = shape.position;
+                        const endPos = anim.target_position;
+                        shape.position = [
+                            startPos[0] + (endPos[0] - startPos[0]) * t,
+                            startPos[1] + (endPos[1] - startPos[1]) * t,
+                            startPos[2] + (endPos[2] - startPos[2]) * t
+                        ];
+                        if (t === 1) animations.splice(animations.indexOf(anim), 1);
+                    }
+                });
+                sceneObjects.forEach(obj => {
+                    if (obj.type === 'cube') {
+                        mat4.identity(modelMatrix);
+                        mat4.translate(modelMatrix, modelMatrix, obj.position);
+                        mat4.scale(modelMatrix, modelMatrix, [obj.size, obj.size, obj.size]);
+                        const modelViewMatrix = mat4.create();
+                        mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
+                        gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
+                        gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
+                        gl.uniform3fv(glContext.uColor, obj.color);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, glContext.vertexBuffer);
+                        gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
+                        gl.enableVertexAttribArray(glContext.aPosition);
+                        gl.drawArrays(gl.TRIANGLE_FAN, 0, 24);
+                    }
+                });
                 requestAnimationFrame(render);
             }
             requestAnimationFrame(render);
@@ -214,6 +373,40 @@
                 requestAnimationFrame(loop);
             }
             requestAnimationFrame(loop);
+        }
+
+        function parsePy3D(code) {
+            const lines = code.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+            const commands = [];
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                try {
+                    if (line.startsWith('add_shape')) {
+                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name=(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*size=(\d+\.?\d*)\s*,\s*color=\((\d+\.?\d*,\s*\d+\.?\d*,\s*\d+\.?\d*)\)/);
+                        if (!match) throw new Error('Invalid add_shape syntax');
+                        const [, type, name, position, size, color] = match;
+                        commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}]);`);
+                    } else if (line.startsWith('set_camera')) {
+                        const match = line.match(/set_camera\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*rotation=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)/);
+                        if (!match) throw new Error('Invalid set_camera syntax');
+                        const [, position, rotation] = match;
+                        commands.push(`Py3D().set_camera([${position}], [${rotation}]);`);
+                    } else if (line.startsWith('animate')) {
+                        const match = line.match(/animate\s+(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*duration=(\d+\.?\d*)/);
+                        if (!match) throw new Error('Invalid animate syntax');
+                        const [, name, position, duration] = match;
+                        commands.push(`Py3D().animate("${name}", [${position}], ${duration});`);
+                    } else if (line.startsWith('clear_scene')) {
+                        commands.push(`Py3D().clear_scene();`);
+                    } else {
+                        throw new Error(`Unknown command: ${line}`);
+                    }
+                } catch (e) {
+                    addToErrorLog('ERROR', `Line ${i + 1}: ${e.message}`);
+                    return null;
+                }
+            }
+            return commands.join('\n');
         }
 
         function showPopup() {
@@ -246,13 +439,7 @@
             const cmd = document.getElementById('command-input').value.trim();
             try {
                 if (cmd === '/test') {
-                    if (!skulptor3dAvailable) {
-                        throw new Error('Skulptor3D module not available');
-                    }
-                    await pyodide.runPythonAsync(`
-                        from js import document
-                        await Skulptor3D().test_suite()
-                    `);
+                    await pyodide.runPythonAsync(`await Py3D().test_suite()`);
                 } else if (cmd === '/show3d') {
                     show3DPopup();
                 } else {
@@ -272,14 +459,29 @@
                 return;
             }
             const code = document.getElementById('py-input').value.trim();
+            const codeType = document.getElementById('code-type').value;
             if (!code) {
                 document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] No code to inject</div>';
                 return;
             }
             try {
-                await pyodide.runPythonAsync(code);
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Script injected successfully</div>';
+                // Check if Py3D class is available
+                const py3dAvailable = await pyodide.runPythonAsync(`
+                    'Py3D' in globals()
+                `);
+                if (!py3dAvailable) {
+                    throw new Error('Py3D class not initialized');
+                }
+                if (codeType === 'py3d') {
+                    const parsed = parsePy3D(code);
+                    if (!parsed) throw new Error('Failed to parse .py3d code');
+                    await pyodide.runPythonAsync(parsed);
+                } else {
+                    await pyodide.runPythonAsync(code);
+                }
+                document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Script injected successfully</div>`;
                 closePopup();
+                show3DPopup();
             } catch (err) {
                 addToErrorLog('ERROR', `🐍 ${err.message}`);
             }
@@ -291,33 +493,30 @@
                 return;
             }
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initiating troubleshooting...</div>';
-            if (!skulptor3dAvailable) {
-                addToErrorLog('WARNING', 'Skulptor3D module not available. Troubleshooting limited to Pyodide checks.');
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
-                return;
-            }
-            const agents = Array(5).fill().map((_, i) => ({
-                id: i,
-                section: ['imports', 'utils', 'game', 'render', 'ui'][i]
-            }));
-            const results = await Promise.all(agents.map(async agent => {
-                try {
-                    const code = await pyodide.runPythonAsync(`
-                        from skulptor3d import Skulptor3D
-                        Skulptor3D().agent_scan('${agent.section}')
-                    `);
-                    return { id: agent.id, section: agent.section, result: code.toString(), status: 'success' };
-                } catch (e) {
-                    return { id: agent.id, section: agent.section, result: e.message, status: 'error' };
-                }
-            }));
-            results.forEach(result => {
-                if (result.status === 'error') {
-                    addToErrorLog('ERROR', `[AGENT ${result.id}] ${result.section}: ${result.result}`);
+            const checks = [
+                { id: 1, test: 'WebGL initialization', fn: () => glContext ? 'OK' : 'Failed' },
+                { id: 2, test: 'Vertex shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
+                { id: 3, test: 'Fragment shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
+                { id: 4, test: 'Scene rendering', fn: () => sceneObjects.length > 0 ? 'OK' : 'No objects' },
+                { id: 5, test: 'Animation', fn: () => animations.length > 0 ? 'OK' : 'No animations' },
+                { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' },
+                { id: 7, test: 'Clipboard API', fn: async () => {
+                    try {
+                        await navigator.permissions.query({ name: 'clipboard-write' });
+                        return 'OK';
+                    } catch {
+                        return 'Blocked';
+                    }
+                }}
+            ];
+            for (const check of checks) {
+                const result = await check.fn();
+                if (result === 'OK') {
+                    document.getElementById('console').innerHTML += `<div class="log-info">[CHECK ${check.id}] ${check.test}: ${result}</div>`;
                 } else {
-                    document.getElementById('console').innerHTML += `<div class="log-info">[AGENT ${result.id}] ${result.section}: Valid</div>`;
+                    addToErrorLog('ERROR', `[CHECK ${check.id}] ${check.test}: ${result}`);
                 }
-            });
+            }
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
         }
 
@@ -327,14 +526,16 @@
                 return;
             }
             const logText = globalErrorLog.map(entry => `[${entry.timestamp}] [${entry.level}] ${entry.message}`).join('\n');
+            const logOutput = document.getElementById('log-output');
+            logOutput.value = logText;
+            logOutput.style.display = 'block';
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy</div>';
             try {
                 await navigator.clipboard.writeText(logText);
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log copied to clipboard</div>';
+                logOutput.style.display = 'none';
             } catch (err) {
-                addToErrorLog('ERROR', `Clipboard write failed: ${err.message}. Displaying log for manual copy.`);
-                const logOutput = document.getElementById('log-output');
-                logOutput.value = logText;
-                logOutput.style.display = 'block';
+                addToErrorLog('ERROR', `Clipboard write failed: ${err.message}. Please copy the log manually from the displayed textarea.`);
             }
         }
 
@@ -360,8 +561,27 @@
         document.getElementById('close-btn').onclick = closePopup;
         document.getElementById('troubleshoot-btn').onclick = runTroubleshoot;
         document.getElementById('copy-log-btn').onclick = copyErrorLog;
+        document.getElementById('game-mode').onchange = function() {
+            if (this.value === 'snake') {
+                document.getElementById('code-type').value = 'py3d';
+                document.getElementById('py-input').value = document.getElementById('snake-agent').textContent;
+                showPopup();
+            }
+        };
         initPyodide();
         resizeCanvas();
+    </script>
+    <script type="text/py3d" id="snake-agent">
+# snake.py3d
+clear_scene
+set_camera position=(0, 0, 5), rotation=(0.3, 0.5, 0)
+add_shape cube, name=snake_head, position=(0, 0, 0), size=0.5, color=(0, 1, 0)
+add_shape cube, name=snake_body1, position=(-0.6, 0, 0), size=0.5, color=(0, 0.8, 0)
+add_shape cube, name=snake_body2, position=(-1.2, 0, 0), size=0.5, color=(0, 0.8, 0)
+add_shape cube, name=food, position=(1, 1, 0), size=0.3, color=(1, 0, 0)
+animate snake_head, position=(0.6, 0, 0), duration=2
+animate snake_body1, position=(0, 0, 0), duration=2
+animate snake_body2, position=(-0.6, 0, 0), duration=2
     </script>
 </body>
 </html>
