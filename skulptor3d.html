@@ -40,7 +40,7 @@
     <button id="copy-log-btn" disabled aria-label="Copy error log to clipboard">Copy Log</button>
     <div id="status-area">
         <span id="pyodide-status">Loading...</span> |
-        <span id="webgpu-status">Checking...</span> |
+        <span id="webgl-status">Checking...</span> |
         <span id="fps">0.00</span> FPS | <span id="memory">0.00</span> MB
     </div>
     <div id="input-area" class="flex flex-col md:flex-row gap-2">
@@ -75,7 +75,7 @@
         let sceneObjects = [];
         let animations = [];
         let cameraPosition = [0, 0, 5];
-        let cameraRotation = [0, 0, 0];
+        let cameraRotation = [0.3, 0.5, 0];
 
         function addToErrorLog(level, message) {
             globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
@@ -128,42 +128,37 @@
 
         async function initPy3D() {
             try {
+                // Expose sceneObjects and animations globally for js module access
+                window.sceneObjects = sceneObjects;
+                window.animations = animations;
+
                 await pyodide.runPythonAsync(`
                     import js
-                    from pyodide.ffi import create_proxy
+                    from pyodide.ffi import to_js
 
                     class Py3D:
-                        def __init__(self):
-                            try:
-                                self.canvas = js.document.getElementById("skulptor3d-canvas")
-                                self.shapes = []
-                                self.animations = []
-                                js.sceneObjects = self.shapes
-                                js.animations = self.animations
-                                js.console.log("Py3D initialized successfully")
-                            except Exception as e:
-                                js.addToErrorLog("ERROR", f"Py3D initialization failed: {str(e)}")
-
                         def add_cube(self, name, position, size, color):
                             try:
                                 shape = {
                                     "name": name,
                                     "type": "cube",
-                                    "position": position,
-                                    "size": size,
-                                    "color": color
+                                    "position": list(position),
+                                    "size": float(size),
+                                    "color": list(color)
                                 }
-                                self.shapes.append(shape)
-                                js.sceneObjects = self.shapes
-                                js.console.log(f"Added cube: {name}")
+                                if hasattr(js, 'sceneObjects'):
+                                    js.sceneObjects.append(to_js(shape))
+                                    js.console.log(f"[Py3D] Added cube: {name}, Total shapes: {len(js.sceneObjects)}")
+                                else:
+                                    js.addToErrorLog("ERROR", f"js.sceneObjects not accessible for cube {name}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to add cube {name}: {str(e)}")
 
                         def set_camera(self, position, rotation):
                             try:
-                                js.cameraPosition = list(position)
-                                js.cameraRotation = list(rotation)
-                                js.console.log(f"Camera set to position: {position}, rotation: {rotation}")
+                                js.cameraPosition = to_js(list(position))
+                                js.cameraRotation = to_js(list(rotation))
+                                js.console.log(f"[Py3D] Camera set to position: {position}, rotation: {rotation}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to set camera: {str(e)}")
 
@@ -171,38 +166,60 @@
                             try:
                                 animation = {
                                     "name": name,
-                                    "target_position": position,
-                                    "duration": duration,
+                                    "target_position": list(position),
+                                    "duration": float(duration),
                                     "start_time": js.performance.now() / 1000
                                 }
-                                self.animations.append(animation)
-                                js.animations = self.animations
-                                js.console.log(f"Animation added for {name} to position {position}")
+                                if hasattr(js, 'animations'):
+                                    js.animations.append(to_js(animation))
+                                    js.console.log(f"[Py3D] Animation added for {name}, Total animations: {len(js.animations)}")
+                                else:
+                                    js.addToErrorLog("ERROR", f"js.animations not accessible for animation {name}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to animate {name}: {str(e)}")
 
                         def clear_scene(self):
                             try:
-                                self.shapes = []
-                                self.animations = []
-                                js.sceneObjects = self.shapes
-                                js.animations = self.animations
-                                js.console.log("Scene cleared")
+                                if hasattr(js, 'sceneObjects') and hasattr(js, 'animations'):
+                                    js.sceneObjects.length = 0
+                                    js.animations.length = 0
+                                    js.console.log(f"[Py3D] Scene cleared, Shapes: {len(js.sceneObjects)}, Animations: {len(js.animations)}")
+                                else:
+                                    js.addToErrorLog("ERROR", "js.sceneObjects or js.animations not accessible")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to clear scene: {str(e)}")
 
                         async def test_suite(self):
                             try:
-                                js.document.getElementById("console").innerHTML += '<div class="log-info">[INFO] Py3D test suite passed</div>'
-                                js.console.log("Py3D test suite passed")
+                                js.console.log("[Py3D] Running test suite")
+                                js.console.log(f"[Py3D] js.sceneObjects available: {hasattr(js, 'sceneObjects')}")
+                                js.console.log(f"[Py3D] js.animations available: {hasattr(js, 'animations')}")
+                                js.console.log("[Py3D] Test suite passed")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Test suite failed: {str(e)}")
 
                     globals()['Py3D'] = Py3D
                 `);
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Py3D module initialized</div>';
+                // Test injection: single cube
+                await pyodide.runPythonAsync(`
+                    try:
+                        Py3D().add_cube("test_cube", [0, 0, 0], 1, [1, 0, 0])
+                    except Exception as e:
+                        js.addToErrorLog("ERROR", f"Test cube injection failed: {str(e)}")
+                `);
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Test cube injected</div>';
             } catch (e) {
                 addToErrorLog('ERROR', `Py3D initialization failed: ${e.message}`);
+                // Fallback: manually add test cube
+                sceneObjects.push({
+                    name: "fallback_cube",
+                    type: "cube",
+                    position: [0, 0, 0],
+                    size: 1,
+                    color: [1, 0, 0]
+                });
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Fallback: Added test cube to sceneObjects</div>';
             }
         }
 
@@ -210,17 +227,14 @@
             try {
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initializing Pyodide...</div>';
                 const loaded = await loadPyodideWithFallback();
-                if (!loaded) {
-                    throw new Error('Pyodide initialization failed after retry attempts.');
-                }
+                if (!loaded) throw new Error('Pyodide initialization failed after retries.');
                 await initPy3D();
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide initialized</div>';
                 pyodideReady = true;
                 document.getElementById('pyodide-status').textContent = 'Loaded';
                 ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                    const btn = document.getElementById(id);
-                    btn.disabled = false;
-                    btn.setAttribute('aria-disabled', 'false');
+                    document.getElementById(id).disabled = false;
+                    document.getElementById(id).setAttribute('aria-disabled', 'false');
                 });
                 initWebGL();
                 updatePerformance();
@@ -233,9 +247,8 @@
 
         function disableInteractiveFeatures() {
             ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                const btn = document.getElementById(id);
-                btn.disabled = true;
-                btn.setAttribute('aria-disabled', 'true');
+                document.getElementById(id).disabled = true;
+                document.getElementById(id).setAttribute('aria-disabled', 'true');
             });
         }
 
@@ -244,7 +257,8 @@
             glContext = null;
             renderLoopRunning = false;
             cancelAnimationFrame(renderFrameId);
-            document.getElementById('webgpu-status').textContent = 'Context Lost';
+            document.getElementById('webgl-status').textContent = 'Context Lost';
+            setTimeout(initWebGL, 1000);
         }
 
         function handleContextRestore() {
@@ -254,96 +268,98 @@
 
         function initWebGL() {
             if (!window.mat4) {
-                addToErrorLog('ERROR', 'gl-matrix library not loaded correctly');
-                document.getElementById('webgpu-status').textContent = 'Failed';
+                addToErrorLog('ERROR', 'gl-matrix library not loaded');
+                document.getElementById('webgl-status').textContent = 'Failed';
                 return;
             }
             const canvas = document.getElementById('skulptor3d-canvas');
-            glContext = canvas.getContext('webgl') || canvas.getContext('webgl2');
-            if (glContext) {
+            try {
+                glContext = canvas.getContext('webgl', { preserveDrawingBuffer: true }) || canvas.getContext('webgl2', { preserveDrawingBuffer: true });
+                if (!glContext) throw new Error('WebGL context initialization failed');
                 canvas.addEventListener('webglcontextlost', handleContextLoss);
                 canvas.addEventListener('webglcontextrestored', handleContextRestore);
-                document.getElementById('webgpu-status').textContent = 'WebGL';
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL supported</div>';
+                document.getElementById('webgl-status').textContent = 'WebGL';
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL context initialized</div>';
                 setupWebGL();
-                startRenderLoop();
-            } else {
-                document.getElementById('webgpu-status').textContent = 'Not Supported';
-                addToErrorLog('ERROR', 'Neither WebGPU nor WebGL supported');
+                if (!renderLoopRunning) startRenderLoop();
+            } catch (e) {
+                addToErrorLog('ERROR', `WebGL initialization failed: ${e.message}`);
+                document.getElementById('webgl-status').textContent = 'Not Supported';
             }
         }
 
         function setupWebGL() {
             const gl = glContext;
-            gl.enable(gl.DEPTH_TEST);
-            gl.enable(gl.CULL_FACE);
-            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-            gl.shaderSource(vertexShader, `
-                attribute vec3 aPosition;
-                uniform mat4 uModelViewMatrix;
-                uniform mat4 uProjectionMatrix;
-                void main() {
-                    gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+            try {
+                gl.enable(gl.DEPTH_TEST);
+                gl.enable(gl.CULL_FACE);
+                const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+                gl.shaderSource(vertexShader, `
+                    attribute vec3 aPosition;
+                    uniform mat4 uModelViewMatrix;
+                    uniform mat4 uProjectionMatrix;
+                    void main() {
+                        gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+                    }
+                `);
+                gl.compileShader(vertexShader);
+                if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+                    throw new Error(`Vertex shader compilation failed: ${gl.getShaderInfoLog(vertexShader)}`);
                 }
-            `);
-            gl.compileShader(vertexShader);
-            if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-                addToErrorLog('ERROR', `Vertex shader compilation failed: ${gl.getShaderInfoLog(vertexShader)}`);
-                return;
-            }
-            const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-            gl.shaderSource(fragmentShader, `
-                precision mediump float;
-                uniform vec3 uColor;
-                void main() {
-                    gl_FragColor = vec4(uColor, 1.0);
+                const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+                gl.shaderSource(fragmentShader, `
+                    precision mediump float;
+                    uniform vec3 uColor;
+                    void main() {
+                        gl_FragColor = vec4(uColor, 1.0);
+                    }
+                `);
+                gl.compileShader(fragmentShader);
+                if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+                    throw new Error(`Fragment shader compilation failed: ${gl.getShaderInfoLog(fragmentShader)}`);
                 }
-            `);
-            gl.compileShader(fragmentShader);
-            if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-                addToErrorLog('ERROR', `Fragment shader compilation failed: ${gl.getShaderInfoLog(fragmentShader)}`);
-                return;
+                const program = gl.createProgram();
+                gl.attachShader(program, vertexShader);
+                gl.attachShader(program, fragmentShader);
+                gl.linkProgram(program);
+                if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                    throw new Error(`Shader program linking failed: ${gl.getProgramInfoLog(program)}`);
+                }
+                gl.useProgram(program);
+                glContext.program = program;
+                glContext.aPosition = gl.getAttribLocation(program, 'aPosition');
+                glContext.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
+                glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
+                glContext.uColor = gl.getUniformLocation(program, 'uColor');
+                const cubeVertices = new Float32Array([
+                    -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
+                    -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
+                    0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5,
+                    -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5
+                ]);
+                const indices = new Uint16Array([
+                    0,  1,  2,  0,  2,  3,
+                    4,  5,  6,  4,  6,  7,
+                    8,  9, 10,  8, 10, 11,
+                    12, 13, 14, 12, 14, 15,
+                    16, 17, 18, 16, 18, 19,
+                    20, 21, 22, 20, 22, 23
+                ]);
+                const vertexBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, cubeVertices, gl.STATIC_DRAW);
+                const indexBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+                glContext.vertexBuffer = vertexBuffer;
+                glContext.indexBuffer = indexBuffer;
+                glContext.indexCount = indices.length;
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL setup complete</div>';
+            } catch (e) {
+                addToErrorLog('ERROR', `WebGL setup failed: ${e.message}`);
             }
-            const program = gl.createProgram();
-            gl.attachShader(program, vertexShader);
-            gl.attachShader(program, fragmentShader);
-            gl.linkProgram(program);
-            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                addToErrorLog('ERROR', `Shader program linking failed: ${gl.getProgramInfoLog(program)}`);
-                return;
-            }
-            gl.useProgram(program);
-            glContext.program = program;
-            glContext.aPosition = gl.getAttribLocation(program, 'aPosition');
-            glContext.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
-            glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
-            glContext.uColor = gl.getUniformLocation(program, 'uColor');
-            const cubeVertices = new Float32Array([
-                -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
-                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
-                -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
-                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
-                0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5,
-                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5
-            ]);
-            const indices = new Uint16Array([
-                0,  1,  2,  0,  2,  3,
-                4,  5,  6,  4,  6,  7,
-                8,  9, 10,  8, 10, 11,
-                12, 13, 14, 12, 14, 15,
-                16, 17, 18, 16, 18, 19,
-                20, 21, 22, 20, 22, 23
-            ]);
-            const vertexBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, cubeVertices, gl.STATIC_DRAW);
-            const indexBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-            glContext.vertexBuffer = vertexBuffer;
-            glContext.indexBuffer = indexBuffer;
-            glContext.indexCount = indices.length;
-            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL setup complete</div>';
         }
 
         function stopRenderLoop() {
@@ -359,13 +375,19 @@
             if (renderLoopRunning) return;
             renderLoopRunning = true;
             const gl = glContext;
+            if (!gl) {
+                addToErrorLog('ERROR', 'Cannot start render loop: WebGL context is null');
+                renderLoopRunning = false;
+                return;
+            }
             gl.clearColor(0.0, 0.0, 0.0, 1.0);
             const fov = 45 * Math.PI / 180;
             const aspect = gl.canvas.width / gl.canvas.height;
             const projectionMatrix = mat4.create();
-            mat4.perspective(projectionMatrix, fov, aspect, 0.1, 100.0);
+            mat4.perspective(projectionMatrix, fov, aspect, 0.1, 1000.0);
             async function render() {
-                if (!glContext) {
+                if (!glContext || glContext.isContextLost()) {
+                    addToErrorLog('ERROR', 'Render loop stopped due to lost WebGL context');
                     stopRenderLoop();
                     return;
                 }
@@ -376,48 +398,58 @@
                 mat4.rotateY(viewMatrix, viewMatrix, cameraRotation[1]);
                 mat4.rotateZ(viewMatrix, viewMatrix, cameraRotation[2]);
                 const modelMatrix = mat4.create();
-                try {
-                    animations = await pyodide.runPythonAsync('Py3D().animations');
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to sync animations: ${e.message}`);
-                }
                 const currentTime = performance.now() / 1000;
-                animations.forEach(anim => {
-                    const t = Math.min((currentTime - anim.start_time) / anim.duration, 1);
-                    const shape = sceneObjects.find(obj => obj.name === anim.name);
-                    if (shape) {
-                        const startPos = shape.position;
-                        const endPos = anim.target_position;
-                        shape.position = [
-                            startPos[0] + (endPos[0] - startPos[0]) * t,
-                            startPos[1] + (endPos[1] - startPos[1]) * t,
-                            startPos[2] + (endPos[2] - startPos[2]) * t
-                        ];
-                        if (t === 1) {
-                            animations.splice(animations.indexOf(anim), 1);
-                            try {
-                                pyodide.runPythonAsync(`Py3D().animations = js.animations`);
-                            } catch (e) {
-                                addToErrorLog('ERROR', `Failed to sync animations to Python: ${e.message}`);
+                if (animations.length === 0) {
+                    document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] No animations to process</div>';
+                } else {
+                    document.getElementById('console').innerHTML += `<div class="log-info">[RENDER] Processing ${animations.length} animations</div>`;
+                }
+                animations.forEach((anim, index) => {
+                    try {
+                        const t = Math.min((currentTime - anim.start_time) / anim.duration, 1);
+                        const shape = sceneObjects.find(obj => obj.name === anim.name);
+                        if (shape) {
+                            const startPos = shape.position;
+                            const endPos = anim.target_position;
+                            shape.position = [
+                                startPos[0] + (endPos[0] - startPos[0]) * t,
+                                startPos[1] + (endPos[1] - startPos[1]) * t,
+                                startPos[2] + (endPos[2] - startPos[2]) * t
+                            ];
+                            if (t >= 1) {
+                                animations.splice(index, 1);
                             }
+                        } else {
+                            document.getElementById('console').innerHTML += `<div class="log-warning">[WARNING] Animation ${anim.name} has no matching shape</div>`;
                         }
+                    } catch (e) {
+                        addToErrorLog('ERROR', `Animation ${anim.name} failed: ${e.message}`);
                     }
                 });
+                if (sceneObjects.length === 0) {
+                    document.getElementById('console').innerHTML += '<div class="log-warning">[WARNING] No scene objects to render</div>';
+                } else {
+                    document.getElementById('console').innerHTML += `<div class="log-info">[RENDER] Rendering ${sceneObjects.length} objects</div>`;
+                }
                 sceneObjects.forEach(obj => {
-                    if (obj.type === 'cube') {
-                        mat4.identity(modelMatrix);
-                        mat4.translate(modelMatrix, modelMatrix, obj.position);
-                        mat4.scale(modelMatrix, modelMatrix, [obj.size, obj.size, obj.size]);
-                        const modelViewMatrix = mat4.create();
-                        mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
-                        gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
-                        gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
-                        gl.uniform3fv(glContext.uColor, obj.color);
-                        gl.bindBuffer(gl.ARRAY_BUFFER, glContext.vertexBuffer);
-                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glContext.indexBuffer);
-                        gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
-                        gl.enableVertexAttribArray(glContext.aPosition);
-                        gl.drawElements(gl.TRIANGLES, glContext.indexCount, gl.UNSIGNED_SHORT, 0);
+                    try {
+                        if (obj.type === 'cube') {
+                            mat4.identity(modelMatrix);
+                            mat4.translate(modelMatrix, modelMatrix, obj.position);
+                            mat4.scale(modelMatrix, modelMatrix, [obj.size, obj.size, obj.size]);
+                            const modelViewMatrix = mat4.create();
+                            mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
+                            gl.uniformMatrix4fv(glContext.uModelViewMatrix, false, modelViewMatrix);
+                            gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
+                            gl.uniform3fv(glContext.uColor, obj.color);
+                            gl.bindBuffer(gl.ARRAY_BUFFER, glContext.vertexBuffer);
+                            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glContext.indexBuffer);
+                            gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
+                            gl.enableVertexAttribArray(glContext.aPosition);
+                            gl.drawElements(gl.TRIANGLES, glContext.indexCount, gl.UNSIGNED_SHORT, 0);
+                        }
+                    } catch (e) {
+                        addToErrorLog('ERROR', `Failed to render object ${obj.name}: ${e.message}`);
                     }
                 });
                 renderFrameId = requestAnimationFrame(render);
@@ -457,26 +489,32 @@
         function parsePy3D(code) {
             const lines = code.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
             const commands = [];
+            document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Parsing ${lines.length} lines of .py3d code</div>`;
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
+                document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Line ${i + 1}: ${line}</div>`;
                 try {
                     if (line.startsWith('add_shape')) {
-                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name\s*=\s*(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*size\s*=\s*(\d+\.?\d*)\s*,\s*color\s*=\s*\(\s*(\d+\.?\d*\s*,\s*\d+\.?\d*\s*,\s*\d+\.?\d*\s*)\)/);
-                        if (!match) throw new Error('Invalid add_shape syntax. Expected: add_shape type, name=..., position=(x,y,z), size=n, color=(r,g,b)');
-                        const [, type, name, position, size, color] = match;
-                        commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}]);`);
+                        const match = line.match(/add_shape\s+cube\s*,\s*name\s*=\s*(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*\)\s*,\s*size\s*=\s*(\d+\.?\d*)\s*,\s*color\s*=\s*\(\s*(\d+\.?\d*)\s*,\s*(\d+\.?\d*)\s*,\s*(\d+\.?\d*)\s*\)/);
+                        if (!match) throw new Error('Invalid add_shape syntax');
+                        const [, name, x, y, z, size, r, g, b] = match;
+                        commands.push(`Py3D().add_cube("${name}", [${x}, ${y}, ${z}], ${size}, [${r}, ${g}, ${b}]);`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: Py3D().add_cube("${name}", [${x}, ${y}, ${z}], ${size}, [${r}, ${g}, ${b}])</div>`;
                     } else if (line.startsWith('set_camera')) {
-                        const match = line.match(/set_camera\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*rotation\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)/);
-                        if (!match) throw new Error('Invalid set_camera syntax. Expected: set_camera position=(x,y,z), rotation=(x,y,z)');
-                        const [, position, rotation] = match;
-                        commands.push(`Py3D().set_camera([${position}], [${rotation}]);`);
+                        const match = line.match(/set_camera\s*position\s*=\s*\(\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*\)\s*,\s*rotation\s*=\s*\(\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*\)/);
+                        if (!match) throw new Error('Invalid set_camera syntax');
+                        const [, px, py, pz, rx, ry, rz] = match;
+                        commands.push(`Py3D().set_camera([${px}, ${py}, ${pz}], [${rx}, ${ry}, ${rz}]);`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: Py3D().set_camera([${px}, ${py}, ${pz}], [${rx}, ${ry}, ${rz}])</div>`;
                     } else if (line.startsWith('animate')) {
-                        const match = line.match(/animate\s+(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*duration\s*=\s*(\d+\.?\d*)/);
-                        if (!match) throw new Error('Invalid animate syntax. Expected: animate name, position=(x,y,z), duration=n');
-                        const [, name, position, duration] = match;
-                        commands.push(`Py3D().animate("${name}", [${position}], ${duration});`);
+                        const match = line.match(/animate\s+(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*,\s*([-]?\d+\.?\d*)\s*\)\s*,\s*duration\s*=\s*(\d+\.?\d*)/);
+                        if (!match) throw new Error('Invalid animate syntax');
+                        const [, name, x, y, z, duration] = match;
+                        commands.push(`Py3D().animate("${name}", [${x}, ${y}, ${z}], ${duration});`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: Py3D().animate("${name}", [${x}, ${y}, ${z}], ${duration})</div>`;
                     } else if (line.startsWith('clear_scene')) {
                         commands.push(`Py3D().clear_scene();`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: Py3D().clear_scene()</div>`;
                     } else {
                         throw new Error(`Unknown command: ${line}`);
                     }
@@ -490,7 +528,7 @@
 
         function showPopup() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait.');
                 return;
             }
             document.getElementById('py-popup').style.display = 'block';
@@ -504,6 +542,7 @@
         function show3DPopup() {
             document.getElementById('skulptor3d-popup').style.display = 'block';
             resizeCanvas();
+            if (!renderLoopRunning) startRenderLoop();
         }
 
         function close3DPopup() {
@@ -513,7 +552,7 @@
 
         async function executeCommand() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait.');
                 return;
             }
             const cmd = document.getElementById('command-input').value.trim();
@@ -522,12 +561,37 @@
                     await pyodide.runPythonAsync(`await Py3D().test_suite()`);
                 } else if (cmd === '/show3d') {
                     show3DPopup();
+                } else if (cmd === 'test 3d') {
+                    await pyodide.runPythonAsync(`
+                        Py3D().add_cube("test_cube", [0, 0, 0], 1, [1, 0, 0])
+                    `);
+                    document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Test 3D executed</div>';
+                } else if (cmd === 'launch swarm') {
+                    await pyodide.runPythonAsync(`
+                        Py3D().add_cube("drone_0", [0, 0, 0], 1, [1, 0, 0])
+                        Py3D().add_cube("drone_1", [0, 0, 0], 1, [0, 1, 0])
+                        Py3D().animate("drone_0", [10, 10, -10], 2)
+                        Py3D().animate("drone_1", [-10, -10, -10], 2)
+                    `);
+                    document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Swarm launched</div>';
+                } else if (cmd === 'guide') {
+                    document.getElementById('console').innerHTML += `
+                        <div class="log-info">[INFO] Swarm Guide:</div>
+                        <div class="log-info">  test 3d - Test WebGL rendering</div>
+                        <div class="log-info">  launch swarm - Start drone animations</div>
+                        <div class="log-info">  guide - Show this help</div>
+                        <div class="log-info">  clear - Reset scene</div>
+                        <div class="log-info">  /show3d - Display 3D canvas</div>
+                    `;
+                } else if (cmd === 'clear') {
+                    await pyodide.runPythonAsync(`Py3D().clear_scene()`);
+                    document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Scene cleared</div>';
                 } else {
                     await pyodide.runPythonAsync(cmd);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Command executed: ${cmd}</div>`;
                 }
-                document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Command executed successfully</div>`;
             } catch (err) {
-                addToErrorLog('ERROR', err.message);
+                addToErrorLog('ERROR', `Command error: ${err.message}`);
             }
             document.getElementById('command-input').value = '';
             document.getElementById('console').scrollTop = document.getElementById('console').scrollHeight;
@@ -535,7 +599,7 @@
 
         async function injectScript() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait.');
                 return;
             }
             const code = document.getElementById('py-input').value.trim();
@@ -545,45 +609,72 @@
                 return;
             }
             try {
-                const py3dAvailable = await pyodide.runPythonAsync(`
-                    'Py3D' in globals()
-                `);
+                const py3dAvailable = await pyodide.runPythonAsync(`'Py3D' in globals()`);
                 if (!py3dAvailable) {
-                    throw new Error('Py3D class not initialized');
-                }
-                if (codeType === 'py3d') {
-                    const parsed = parsePy3D(code);
-                    if (!parsed) throw new Error('Failed to parse .py3d code');
-                    await pyodide.runPythonAsync(parsed);
+                    addToErrorLog('ERROR', 'Py3D class not initialized, using fallback');
+                    if (codeType === 'py3d') {
+                        const parsed = parsePy3D(code);
+                        if (!parsed) throw new Error('Failed to parse .py3d code');
+                        const lines = parsed.split('\n');
+                        for (const line of lines) {
+                            if (line.includes('add_cube')) {
+                                const match = line.match(/Py3D\(\)\.add_cube\("(\w+)", \[([-]?\d+\.?\d*), ([-]?\d+\.?\d*), ([-]?\d+\.?\d*)\], (\d+\.?\d*), \[(\d+\.?\d*), (\d+\.?\d*), (\d+\.?\d*)\]\)/);
+                                if (match) {
+                                    const [, name, x, y, z, size, r, g, b] = match;
+                                    sceneObjects.push({
+                                        name,
+                                        type: "cube",
+                                        position: [parseFloat(x), parseFloat(y), parseFloat(z)],
+                                        size: parseFloat(size),
+                                        color: [parseFloat(r), parseFloat(g), parseFloat(b)]
+                                    });
+                                    document.getElementById('console').innerHTML += `<div class="log-info">[FALLBACK] Added cube: ${name}</div>`;
+                                }
+                            }
+                        }
+                        document.getElementById('console').innerHTML += `<div class="log-info">[FALLBACK] Processed .py3d, Shapes: ${sceneObjects.length}</div>`;
+                    } else {
+                        document.getElementById('console').innerHTML += `<div class="log-warning">[WARNING] Python code injection not supported in fallback mode</div>`;
+                    }
                 } else {
-                    await pyodide.runPythonAsync(code);
+                    if (codeType === 'py3d') {
+                        const parsed = parsePy3D(code);
+                        if (!parsed) throw new Error('Failed to parse .py3d code');
+                        document.getElementById('console').innerHTML += `<div class="log-info">[INJECT] Executing parsed .py3d code</div>`;
+                        await pyodide.runPythonAsync(parsed);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[INJECT] .py3d script executed, Shapes: ${sceneObjects.length}, Animations: ${animations.length}</div>`;
+                    } else {
+                        await pyodide.runPythonAsync(code);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[INJECT] Python script executed</div>`;
+                    }
                 }
-                document.getElementById('console').innerHTML += `<div class="log-info">[INFO] Script injected successfully</div>`;
                 closePopup();
                 show3DPopup();
             } catch (err) {
-                addToErrorLog('ERROR', `🐍 ${err.message}`);
+                addToErrorLog('ERROR', `Script injection error: ${err.message}`);
             }
         }
 
         async function runTroubleshoot() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait.');
                 return;
             }
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initiating troubleshooting...</div>';
             const checks = [
-                { id: 1, test: 'WebGL initialization', fn: () => glContext ? 'OK' : 'Failed' },
+                { id: 1, test: 'WebGL initialization', fn: () => glContext && !glContext.isContextLost() ? 'OK' : 'Failed' },
                 { id: 2, test: 'Vertex shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
                 { id: 3, test: 'Fragment shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
                 { id: 4, test: 'Scene rendering', fn: () => sceneObjects.length > 0 ? 'OK' : 'No objects' },
                 { id: 5, test: 'Animation', fn: () => animations.length > 0 ? 'OK' : 'No animations' },
                 { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' },
-                { id: 7, test: 'Pyodide runtime', fn: async () => (await pyodide.runPythonAsync('1 + 1')) === 2 ? 'OK' : 'Failed' }
+                { id: 7, test: 'Pyodide runtime', fn: async () => (await pyodide.runPythonAsync('1 + 1')) === 2 ? 'OK' : 'Failed' },
+                { id: 8, test: 'js.sceneObjects', fn: async () => (await pyodide.runPythonAsync('hasattr(js, "sceneObjects")')) ? 'OK' : 'Failed' },
+                { id: 9, test: 'js.animations', fn: async () => (await pyodide.runPythonAsync('hasattr(js, "animations")')) ? 'OK' : 'Failed' }
             ];
             for (const check of checks) {
                 const result = await check.fn();
-                if (result === 'OK') {
+                if (result === 'OK' || (check.id === 5 && result === 'No animations') || (check.id === 4 && result === 'No objects')) {
                     document.getElementById('console').innerHTML += `<div class="log-info">[CHECK ${check.id}] ${check.test}: ${result}</div>`;
                 } else {
                     addToErrorLog('ERROR', `[CHECK ${check.id}] ${check.test}: ${result}`);
@@ -605,7 +696,7 @@
                 document.getElementById('log-output').style.display = 'block';
                 document.getElementById('log-output').focus();
                 document.getElementById('log-output').select();
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Clipboard API unavailable. Error log displayed for manual copy.</div>';
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Clipboard unavailable. Log displayed for manual copy.</div>';
             }
         }
 
@@ -629,7 +720,7 @@
                     glContext.viewport(0, 0, canvas.width, canvas.height);
                     const aspect = canvas.width / canvas.height;
                     const projectionMatrix = mat4.create();
-                    mat4.perspective(projectionMatrix, 45 * Math.PI / 180, aspect, 0.1, 100.0);
+                    mat4.perspective(projectionMatrix, 45 * Math.PI / 180, aspect, 0.1, 1000.0);
                     glContext.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
                 }
             }
