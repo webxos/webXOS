@@ -175,6 +175,10 @@
         class JS3D {
             add_cube(name, position, size, color) {
                 try {
+                    if (!name || !position || !Array.isArray(position) || position.length !== 3 ||
+                        isNaN(size) || !color || !Array.isArray(color) || color.length !== 3) {
+                        throw new Error('Invalid cube parameters');
+                    }
                     const shape = {
                         name: name,
                         type: "cube",
@@ -184,21 +188,32 @@
                     };
                     sceneObjects.push(shape);
                     console.log(`[JS3D] Added cube: ${name}, Total shapes: ${sceneObjects.length}`);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Added cube: ${name}</div>`;
+                    updateScroll();
                 } catch (e) {
                     addToErrorLog("ERROR", `Failed to add cube ${name}: ${e.message}`);
                 }
             }
             set_camera(position, rotation) {
                 try {
+                    if (!position || !Array.isArray(position) || position.length !== 3 ||
+                        !rotation || !Array.isArray(rotation) || rotation.length !== 3) {
+                        throw new Error('Invalid camera parameters');
+                    }
                     cameraPosition = position.map(Number);
                     cameraRotation = rotation.map(Number);
                     console.log(`[JS3D] Camera set to position: ${position}, rotation: ${rotation}`);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Camera set to position: [${position}], rotation: [${rotation}]</div>`;
+                    updateScroll();
                 } catch (e) {
                     addToErrorLog("ERROR", `Failed to set camera: ${e.message}`);
                 }
             }
             animate(name, position, duration) {
                 try {
+                    if (!name || !position || !Array.isArray(position) || position.length !== 3 || isNaN(duration)) {
+                        throw new Error('Invalid animation parameters');
+                    }
                     const animation = {
                         name: name,
                         target_position: position.map(Number),
@@ -207,6 +222,8 @@
                     };
                     animations.push(animation);
                     console.log(`[JS3D] Animation added for ${name}, Total animations: ${animations.length}`);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Animation added for ${name}</div>`;
+                    updateScroll();
                 } catch (e) {
                     addToErrorLog("ERROR", `Failed to animate ${name}: ${e.message}`);
                 }
@@ -216,6 +233,8 @@
                     sceneObjects.length = 0;
                     animations.length = 0;
                     console.log(`[JS3D] Scene cleared, Shapes: ${sceneObjects.length}, Animations: ${animations.length}`);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Scene cleared</div>`;
+                    updateScroll();
                 } catch (e) {
                     addToErrorLog("ERROR", `Failed to clear scene: ${e.message}`);
                 }
@@ -225,7 +244,10 @@
                     console.log("[JS3D] Running test suite");
                     console.log(`[JS3D] sceneObjects available: ${!!sceneObjects}`);
                     console.log(`[JS3D] animations available: ${!!animations}`);
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Test suite: sceneObjects=${!!sceneObjects}, animations=${!!animations}</div>`;
                     console.log("[JS3D] Test suite passed");
+                    document.getElementById('console').innerHTML += `<div class="log-info">[JS3D] Test suite passed</div>`;
+                    updateScroll();
                 } catch (e) {
                     addToErrorLog("ERROR", `Test suite failed: ${e.message}`);
                 }
@@ -474,6 +496,7 @@
                         updateScroll();
                     } else if (animations.length > 0) {
                         document.getElementById('console').innerHTML += `<div class="log-info">[RENDER] Processing ${animations.length} animations</div>`;
+                        updateScroll();
                     }
                     animations.forEach((anim, index) => {
                         try {
@@ -496,6 +519,7 @@
                                 }
                             } else {
                                 document.getElementById('console').innerHTML += `<div class="log-warning">[WARNING] Animation ${anim.name} has no matching shape</div>`;
+                                updateScroll();
                             }
                         } catch (e) {
                             addToErrorLog('ERROR', `Animation ${anim.name} failed: ${e.message}`);
@@ -567,60 +591,92 @@
             const lines = code.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
             const commands = [];
             document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Parsing ${lines.length} lines of .py3d code</div>`;
+            updateScroll();
             for (let i = 0; i < lines.length; i++) {
-                const tokens = lines[i].split(/[\s,=()]+/).filter(t => t);
+                const line = lines[i];
                 try {
-                    if (tokens[0] === 'add_shape' && tokens[1] === 'cube') {
-                        const name = tokens[3];
-                        const position = [parseFloat(tokens[5]), parseFloat(tokens[6]), parseFloat(tokens[7])];
-                        const size = parseFloat(tokens[9]);
-                        const color = [parseFloat(tokens[11]), parseFloat(tokens[12]), parseFloat(tokens[13])];
-                        commands.push(`js3d.add_cube("${name}", [${position}], ${size}, [${color}]);`);
-                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.add_cube("${name}", [${position}], ${size}, [${color}])</div>`;
-                    } else if (tokens[0] === 'set_camera') {
-                        const position = [parseFloat(tokens[2]), parseFloat(tokens[3]), parseFloat(tokens[4])];
-                        const rotation = [parseFloat(tokens[6]), parseFloat(tokens[7]), parseFloat(tokens[8])];
+                    // Match add_shape(cube, name, position=(x,y,z), size=s, color=(r,g,b))
+                    const addShapeMatch = line.match(/add_shape\(cube,\s*([^,]+),\s*position=\(([^)]+)\),\s*size=([^,]+),\s*color=\(([^)]+)\)\)/);
+                    if (addShapeMatch) {
+                        const [, name, pos, size, col] = addShapeMatch;
+                        const position = pos.split(',').map(Number);
+                        const color = col.split(',').map(Number);
+                        if (position.length !== 3 || isNaN(size) || color.length !== 3) {
+                            throw new Error('Invalid parameters for add_shape');
+                        }
+                        commands.push(`js3d.add_cube("${name.trim()}", [${position}], ${size}, [${color}]);`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.add_cube("${name.trim()}", [${position}], ${size}, [${color}])</div>`;
+                        continue;
+                    }
+                    // Match set_camera(position=(x,y,z), rotation=(rx,ry,rz))
+                    const setCameraMatch = line.match(/set_camera\(position=\(([^)]+)\),\s*rotation=\(([^)]+)\)\)/);
+                    if (setCameraMatch) {
+                        const [, pos, rot] = setCameraMatch;
+                        const position = pos.split(',').map(Number);
+                        const rotation = rot.split(',').map(Number);
+                        if (position.length !== 3 || rotation.length !== 3) {
+                            throw new Error('Invalid parameters for set_camera');
+                        }
                         commands.push(`js3d.set_camera([${position}], [${rotation}]);`);
                         document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.set_camera([${position}], [${rotation}])</div>`;
-                    } else if (tokens[0] === 'animate') {
-                        const name = tokens[1];
-                        const position = [parseFloat(tokens[3]), parseFloat(tokens[4]), parseFloat(tokens[5])];
-                        const duration = parseFloat(tokens[7]);
-                        commands.push(`js3d.animate("${name}", [${position}], ${duration});`);
-                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.animate("${name}", [${position}], ${duration})</div>`;
-                    } else if (tokens[0] === 'clear_scene') {
+                        continue;
+                    }
+                    // Match animate(name, position=(x,y,z), duration=d)
+                    const animateMatch = line.match(/animate\(([^,]+),\s*position=\(([^)]+)\),\s*duration=([^)]+)\)/);
+                    if (animateMatch) {
+                        const [, name, pos, duration] = animateMatch;
+                        const position = pos.split(',').map(Number);
+                        if (position.length !== 3 || isNaN(duration)) {
+                            throw new Error('Invalid parameters for animate');
+                        }
+                        commands.push(`js3d.animate("${name.trim()}", [${position}], ${duration});`);
+                        document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.animate("${name.trim()}", [${position}], ${duration})</div>`;
+                        continue;
+                    }
+                    // Match clear_scene()
+                    if (line.match(/clear_scene\(\)/)) {
                         commands.push(`js3d.clear_scene();`);
                         document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Generated: js3d.clear_scene()</div>`;
-                    } else {
-                        throw new Error(`Unknown command: ${lines[i]}`);
+                        continue;
                     }
+                    throw new Error(`Unknown command: ${line}`);
                 } catch (e) {
                     addToErrorLog('ERROR', `Line ${i + 1}: ${e.message}`);
                     return null;
                 }
             }
+            document.getElementById('console').innerHTML += `<div class="log-info">[PARSE] Parsing complete, generated ${commands.length} commands</div>`;
+            updateScroll();
             return commands.join('\n');
         }
 
         function showPopup() {
             document.getElementById('py-popup').style.display = 'block';
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Code injection popup opened</div>';
+            updateScroll();
         }
 
         function closePopup() {
             document.getElementById('py-popup').style.display = 'none';
             document.getElementById('py-input').value = '';
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Code injection popup closed</div>';
+            updateScroll();
         }
 
         function show3DPopup() {
             document.getElementById('skulptor3d-popup').style.display = 'block';
             resizeCanvas();
             if (!renderLoopRunning) startRenderLoop();
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] 3D canvas popup opened</div>';
+            updateScroll();
         }
 
         function close3DPopup() {
             document.getElementById('skulptor3d-popup').style.display = 'none';
             saveSceneState();
             stopRenderLoop();
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] 3D canvas popup closed</div>';
+            updateScroll();
         }
 
         const validCommands = {
@@ -633,6 +689,7 @@
             'test 3d': () => {
                 js3d.add_cube("test_cube", [0, 0, 0], 1, [1, 0, 0]);
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Test 3D executed</div>';
+                show3DPopup();
                 updateScroll();
             },
             'launch swarm': () => {
@@ -641,6 +698,7 @@
                 js3d.animate("drone_0", [10, 10, -10], 2);
                 js3d.animate("drone_1", [-10, -10, -10], 2);
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Swarm launched</div>';
+                show3DPopup();
                 updateScroll();
             },
             'guide': () => {
@@ -686,11 +744,11 @@
                     eval(parsed); // Execute parsed JS3D commands
                     document.getElementById('console').innerHTML += `<div class="log-info">[INJECT] .py3d script executed, Shapes: ${sceneObjects.length}, Animations: ${animations.length}</div>`;
                     scriptInjected = true;
+                    show3DPopup();
                 } else {
                     addToErrorLog('ERROR', 'Only .py3d code is supported');
                 }
                 closePopup();
-                show3DPopup();
             } catch (err) {
                 addToErrorLog('ERROR', `Script injection error: ${err.message}`);
             }
