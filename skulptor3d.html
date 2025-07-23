@@ -20,18 +20,16 @@
         #close-3d-popup { position: absolute; top: 5px; right: 5px; font-weight: bold; padding: 8px; font-size: 14px; background: #f00; color: #fff; }
         #close-3d-popup:hover { background: #c00; }
         #status-area { margin-bottom: 10px; }
-        select { width: 100%; padding: 10px; border: 1px solid #0f0; font-size: 16px; box-sizing: border-box; background: #000; color: #0f0; }
-        @media (min-width: 768px) {
-            #input-area { flex-direction: row; }
-            button { width: auto; }
-            #command-input { width: 70%; }
-            select { width: auto; }
-        }
         .log-info { color: #0f0; }
         .log-error { color: #f00; }
         .log-warning { color: #ff0; }
         #log-output { display: none; margin-top: 10px; width: 100%; height: 100px; font-family: monospace; }
         .hidden { display: none; }
+        @media (min-width: 768px) {
+            #input-area { flex-direction: row; }
+            button { width: auto; }
+            #command-input { width: 70%; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
@@ -45,16 +43,11 @@
         <span id="webgpu-status">Checking...</span> |
         <span id="fps">0.00</span> FPS | <span id="memory">0.00</span> MB
     </div>
-    <select id="game-mode" aria-label="Select game mode">
-        <option value="3d">3D Mode</option>
-        <option value="mars-trails">Mars Trails</option>
-        <option value="snake">Snake</option>
-    </select>
     <div id="input-area" class="flex flex-col md:flex-row gap-2">
         <input id="command-input" type="text" placeholder="Enter command" class="border" aria-label="Enter command">
         <button id="execute-btn" disabled aria-label="Execute command">Execute</button>
         <button id="inject-btn" disabled aria-label="Open code input popup">Inject</button>
-        <button id="close-btn" disabled aria-label="Close code input popup">Close</button>
+        <button id="eject-btn" disabled aria-label="Eject and refresh application">Eject</button>
         <button id="troubleshoot-btn" disabled aria-label="Run troubleshooting diagnostics">Troubleshoot</button>
     </div>
     <div id="py-popup" class="hidden">
@@ -81,20 +74,18 @@
         let performanceFrameId = null;
         let sceneObjects = [];
         let animations = [];
-        let lastFrameTime = performance.now();
         let cameraPosition = [0, 0, 5];
         let cameraRotation = [0, 0, 0];
 
         function addToErrorLog(level, message) {
             globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
             if (globalErrorLog.length > 100) globalErrorLog.shift();
-            const fragment = document.createDocumentFragment();
             const logEntry = document.createElement('div');
             logEntry.className = `log-${level.toLowerCase()}`;
             logEntry.textContent = `[${level}] ${message}`;
-            fragment.appendChild(logEntry);
-            document.getElementById('error-console').appendChild(fragment);
-            document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
+            const errorConsole = document.getElementById('error-console');
+            errorConsole.appendChild(logEntry);
+            errorConsole.scrollTop = errorConsole.scrollHeight;
             updateLogOutput();
         }
 
@@ -226,7 +217,7 @@
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide initialized</div>';
                 pyodideReady = true;
                 document.getElementById('pyodide-status').textContent = 'Loaded';
-                ['execute-btn', 'inject-btn', 'close-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
+                ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
                     const btn = document.getElementById(id);
                     btn.disabled = false;
                     btn.setAttribute('aria-disabled', 'false');
@@ -241,7 +232,7 @@
         }
 
         function disableInteractiveFeatures() {
-            ['execute-btn', 'inject-btn', 'close-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
+            ['execute-btn', 'inject-btn', 'eject-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
                 const btn = document.getElementById(id);
                 btn.disabled = true;
                 btn.setAttribute('aria-disabled', 'true');
@@ -470,17 +461,17 @@
                 const line = lines[i];
                 try {
                     if (line.startsWith('add_shape')) {
-                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name\s*=\s*(\w+)\s*,\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*size\s*=\s*(\d+\.?\d*)\s*,\s*color\s*=\s*\(\s*(\d+\.?\d*\s*,\s*\d+\.?\d*\s*,\s*\d+\.?\d*\s*)\)/);
+                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name\s*=\s*(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*size\s*=\s*(\d+\.?\d*)\s*,\s*color\s*=\s*\(\s*(\d+\.?\d*\s*,\s*\d+\.?\d*\s*,\s*\d+\.?\d*\s*)\)/);
                         if (!match) throw new Error('Invalid add_shape syntax. Expected: add_shape type, name=..., position=(x,y,z), size=n, color=(r,g,b)');
                         const [, type, name, position, size, color] = match;
                         commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}]);`);
                     } else if (line.startsWith('set_camera')) {
-                        const match = line.match(/set_camera\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*rotation\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)/);
+                        const match = line.match(/set_camera\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*rotation\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)/);
                         if (!match) throw new Error('Invalid set_camera syntax. Expected: set_camera position=(x,y,z), rotation=(x,y,z)');
                         const [, position, rotation] = match;
                         commands.push(`Py3D().set_camera([${position}], [${rotation}]);`);
                     } else if (line.startsWith('animate')) {
-                        const match = line.match(/animate\s+(\w+)\s*,\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*duration\s*=\s*(\d+\.?\d*)/);
+                        const match = line.match(/animate\s+(\w+)\s*,\s*position\s*=\s*\(\s*([-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*,\s*[-]?\d+\.?\d*\s*)\)\s*,\s*duration\s*=\s*(\d+\.?\d*)/);
                         if (!match) throw new Error('Invalid animate syntax. Expected: animate name, position=(x,y,z), duration=n');
                         const [, name, position, duration] = match;
                         commands.push(`Py3D().animate("${name}", [${position}], ${duration});`);
@@ -618,6 +609,12 @@
             }
         }
 
+        function ejectAndRefresh() {
+            stopRenderLoop();
+            stopPerformanceLoop();
+            window.location.reload();
+        }
+
         function resizeCanvas() {
             const canvas = document.getElementById('skulptor3d-canvas');
             if (canvas) {
@@ -645,35 +642,11 @@
         });
         document.getElementById('execute-btn').onclick = executeCommand;
         document.getElementById('inject-btn').onclick = showPopup;
-        document.getElementById('close-btn').onclick = closePopup;
+        document.getElementById('eject-btn').onclick = ejectAndRefresh;
         document.getElementById('troubleshoot-btn').onclick = runTroubleshoot;
         document.getElementById('copy-log-btn').onclick = copyErrorLog;
-        document.getElementById('game-mode').onchange = function() {
-            if (this.value === 'snake') {
-                const snakeAgent = document.getElementById('snake-agent');
-                if (!snakeAgent) {
-                    addToErrorLog('ERROR', 'Snake agent script not found');
-                    return;
-                }
-                document.getElementById('code-type').value = 'py3d';
-                document.getElementById('py-input').value = snakeAgent.textContent;
-                showPopup();
-            }
-        };
         initPyodide();
         resizeCanvas();
-    </script>
-    <script type="text/py3d" id="snake-agent">
-# snake.py3d
-clear_scene
-set_camera position=(0, 0, 5), rotation=(0.3, 0.5, 0)
-add_shape cube, name=snake_head, position=(0, 0, 0), size=0.5, color=(0, 1, 0)
-add_shape cube, name=snake_body1, position=(-0.6, 0, 0), size=0.5, color=(0, 0.8, 0)
-add_shape cube, name=snake_body2, position=(-1.2, 0, 0), size=0.5, color=(0, 0.8, 0)
-add_shape cube, name=food, position=(1, 1, 0), size=0.3, color=(1, 0, 0)
-animate snake_head, position=(0.6, 0, 0), duration=2
-animate snake_body1, position=(0, 0, 0), duration=2
-animate snake_body2, position=(-0.6, 0, 0), duration=2
     </script>
 </body>
 </html>
