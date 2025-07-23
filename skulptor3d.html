@@ -80,12 +80,20 @@
         let sceneObjects = [];
         let animations = [];
         let lastFrameTime = performance.now();
+        let cameraPosition = [0, 0, 5]; // Default camera position
+        let cameraRotation = [0, 0, 0]; // Default camera rotation
 
         function addToErrorLog(level, message) {
             globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
             if (globalErrorLog.length > 100) globalErrorLog.shift();
             document.getElementById('error-console').innerHTML += `<div class="log-${level.toLowerCase()}">[${level}] ${message}</div>`;
             document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
+            updateLogOutput();
+        }
+
+        function updateLogOutput() {
+            const logText = globalErrorLog.map(entry => `[${entry.timestamp}] [${entry.level}] ${entry.message}`).join('\n');
+            document.getElementById('log-output').value = logText;
         }
 
         async function loadPyodideWithFallback() {
@@ -131,7 +139,9 @@
                             try:
                                 self.canvas = js.document.getElementById("skulptor3d-canvas")
                                 self.shapes = []
-                                self.animations = js.animations
+                                self.animations = []
+                                js.sceneObjects = self.shapes
+                                js.animations = self.animations
                                 js.console.log("Py3D initialized successfully")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Py3D initialization failed: {str(e)}")
@@ -146,7 +156,7 @@
                                     "color": color
                                 }
                                 self.shapes.append(shape)
-                                js.sceneObjects.append(shape)
+                                js.sceneObjects = self.shapes
                                 js.console.log(f"Added cube: {name}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to add cube {name}: {str(e)}")
@@ -168,6 +178,7 @@
                                     "start_time": js.performance.now() / 1000
                                 }
                                 self.animations.append(animation)
+                                js.animations = self.animations
                                 js.console.log(f"Animation added for {name} to position {position}")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to animate {name}: {str(e)}")
@@ -175,9 +186,9 @@
                         def clear_scene(self):
                             try:
                                 self.shapes = []
-                                js.sceneObjects = []
                                 self.animations = []
-                                js.animations = []
+                                js.sceneObjects = self.shapes
+                                js.animations = self.animations
                                 js.console.log("Scene cleared")
                             except Exception as e:
                                 js.addToErrorLog("ERROR", f"Failed to clear scene: {str(e)}")
@@ -261,6 +272,7 @@
             gl.compileShader(vertexShader);
             if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
                 addToErrorLog('ERROR', `Vertex shader compilation failed: ${gl.getShaderInfoLog(vertexShader)}`);
+                return;
             }
             const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
             gl.shaderSource(fragmentShader, `
@@ -273,6 +285,7 @@
             gl.compileShader(fragmentShader);
             if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
                 addToErrorLog('ERROR', `Fragment shader compilation failed: ${gl.getShaderInfoLog(fragmentShader)}`);
+                return;
             }
             const program = gl.createProgram();
             gl.attachShader(program, vertexShader);
@@ -280,6 +293,7 @@
             gl.linkProgram(program);
             if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
                 addToErrorLog('ERROR', `Shader program linking failed: ${gl.getProgramInfoLog(program)}`);
+                return;
             }
             gl.useProgram(program);
             glContext.program = program;
@@ -288,17 +302,37 @@
             glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
             glContext.uColor = gl.getUniformLocation(program, 'uColor');
             const cubeVertices = new Float32Array([
+                // Front face
                 -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                // Back face
                 -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
+                // Top face
                 -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                // Bottom face
                 -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
-                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5,
-                0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5
+                // Right face
+                0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5,
+                // Left face
+                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5
+            ]);
+            const indices = new Uint16Array([
+                0,  1,  2,  0,  2,  3,   // Front
+                4,  5,  6,  4,  6,  7,   // Back
+                8,  9, 10,  8, 10, 11,   // Top
+                12, 13, 14, 12, 14, 15,  // Bottom
+                16, 17, 18, 16, 18, 19,  // Right
+                20, 21, 22, 20, 22, 23   // Left
             ]);
             const vertexBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, cubeVertices, gl.STATIC_DRAW);
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
             glContext.vertexBuffer = vertexBuffer;
+            glContext.indexBuffer = indexBuffer;
+            glContext.indexCount = indices.length;
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL setup complete</div>';
         }
 
         function startRenderLoop() {
@@ -311,12 +345,13 @@
             const projectionMatrix = mat4.create();
             mat4.perspective(projectionMatrix, fov, aspect, 0.1, 100.0);
             function render() {
+                if (!glContext) return;
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
                 const viewMatrix = mat4.create();
-                mat4.translate(viewMatrix, viewMatrix, window.cameraPosition || [0, 0, 5]);
-                mat4.rotateX(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[0]);
-                mat4.rotateY(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[1]);
-                mat4.rotateZ(viewMatrix, viewMatrix, (window.cameraRotation || [0, 0, 0])[2]);
+                mat4.translate(viewMatrix, viewMatrix, cameraPosition);
+                mat4.rotateX(viewMatrix, viewMatrix, cameraRotation[0]);
+                mat4.rotateY(viewMatrix, viewMatrix, cameraRotation[1]);
+                mat4.rotateZ(viewMatrix, viewMatrix, cameraRotation[2]);
                 const modelMatrix = mat4.create();
                 const currentTime = performance.now() / 1000;
                 animations.forEach(anim => {
@@ -330,7 +365,10 @@
                             startPos[1] + (endPos[1] - startPos[1]) * t,
                             startPos[2] + (endPos[2] - startPos[2]) * t
                         ];
-                        if (t === 1) animations.splice(animations.indexOf(anim), 1);
+                        if (t === 1) {
+                            animations.splice(animations.indexOf(anim), 1);
+                            js.animations = animations; // Sync with Python
+                        }
                     }
                 });
                 sceneObjects.forEach(obj => {
@@ -344,9 +382,10 @@
                         gl.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
                         gl.uniform3fv(glContext.uColor, obj.color);
                         gl.bindBuffer(gl.ARRAY_BUFFER, glContext.vertexBuffer);
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glContext.indexBuffer);
                         gl.vertexAttribPointer(glContext.aPosition, 3, gl.FLOAT, false, 0, 0);
                         gl.enableVertexAttribArray(glContext.aPosition);
-                        gl.drawArrays(gl.TRIANGLE_FAN, 0, 24);
+                        gl.drawElements(gl.TRIANGLES, glContext.indexCount, gl.UNSIGNED_SHORT, 0);
                     }
                 });
                 requestAnimationFrame(render);
@@ -465,7 +504,6 @@
                 return;
             }
             try {
-                // Check if Py3D class is available
                 const py3dAvailable = await pyodide.runPythonAsync(`
                     'Py3D' in globals()
                 `);
@@ -499,15 +537,7 @@
                 { id: 3, test: 'Fragment shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
                 { id: 4, test: 'Scene rendering', fn: () => sceneObjects.length > 0 ? 'OK' : 'No objects' },
                 { id: 5, test: 'Animation', fn: () => animations.length > 0 ? 'OK' : 'No animations' },
-                { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' },
-                { id: 7, test: 'Clipboard API', fn: async () => {
-                    try {
-                        await navigator.permissions.query({ name: 'clipboard-write' });
-                        return 'OK';
-                    } catch {
-                        return 'Blocked';
-                    }
-                }}
+                { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' }
             ];
             for (const check of checks) {
                 const result = await check.fn();
@@ -520,23 +550,16 @@
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
         }
 
-        async function copyErrorLog() {
+        function copyErrorLog() {
             if (!globalErrorLog.length) {
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] No errors to copy</div>';
                 return;
             }
-            const logText = globalErrorLog.map(entry => `[${entry.timestamp}] [${entry.level}] ${entry.message}`).join('\n');
             const logOutput = document.getElementById('log-output');
-            logOutput.value = logText;
             logOutput.style.display = 'block';
-            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy</div>';
-            try {
-                await navigator.clipboard.writeText(logText);
-                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log copied to clipboard</div>';
-                logOutput.style.display = 'none';
-            } catch (err) {
-                addToErrorLog('ERROR', `Clipboard write failed: ${err.message}. Please copy the log manually from the displayed textarea.`);
-            }
+            logOutput.focus();
+            logOutput.select();
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy. Please select and copy the text manually.</div>';
         }
 
         function resizeCanvas() {
@@ -585,3 +608,4 @@ animate snake_body2, position=(-0.6, 0, 0), duration=2
     </script>
 </body>
 </html>
+
