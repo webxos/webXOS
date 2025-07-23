@@ -77,16 +77,23 @@
         let globalErrorLog = [];
         let glContext = null;
         let renderLoopRunning = false;
+        let renderFrameId = null;
+        let performanceFrameId = null;
         let sceneObjects = [];
         let animations = [];
         let lastFrameTime = performance.now();
-        let cameraPosition = [0, 0, 5]; // Default camera position
-        let cameraRotation = [0, 0, 0]; // Default camera rotation
+        let cameraPosition = [0, 0, 5];
+        let cameraRotation = [0, 0, 0];
 
         function addToErrorLog(level, message) {
             globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
             if (globalErrorLog.length > 100) globalErrorLog.shift();
-            document.getElementById('error-console').innerHTML += `<div class="log-${level.toLowerCase()}">[${level}] ${message}</div>`;
+            const fragment = document.createDocumentFragment();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-${level.toLowerCase()}`;
+            logEntry.textContent = `[${level}] ${message}`;
+            fragment.appendChild(logEntry);
+            document.getElementById('error-console').appendChild(fragment);
             document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
             updateLogOutput();
         }
@@ -103,7 +110,7 @@
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Pyodide loaded successfully</div>';
                 return true;
             } catch (e) {
-                addToErrorLog('ERROR', `${e.message}. Retrying...`);
+                addToErrorLog('ERROR', `Pyodide load failed: ${e.message}. Retrying...`);
                 return await tryPyodideWorkaround();
             }
         }
@@ -220,7 +227,9 @@
                 pyodideReady = true;
                 document.getElementById('pyodide-status').textContent = 'Loaded';
                 ['execute-btn', 'inject-btn', 'close-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                    document.getElementById(id).disabled = false;
+                    const btn = document.getElementById(id);
+                    btn.disabled = false;
+                    btn.setAttribute('aria-disabled', 'false');
                 });
                 initWebGL();
                 updatePerformance();
@@ -233,8 +242,23 @@
 
         function disableInteractiveFeatures() {
             ['execute-btn', 'inject-btn', 'close-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                document.getElementById(id).disabled = true;
+                const btn = document.getElementById(id);
+                btn.disabled = true;
+                btn.setAttribute('aria-disabled', 'true');
             });
+        }
+
+        function handleContextLoss() {
+            addToErrorLog('ERROR', 'WebGL context lost. Attempting to restore...');
+            glContext = null;
+            renderLoopRunning = false;
+            cancelAnimationFrame(renderFrameId);
+            document.getElementById('webgpu-status').textContent = 'Context Lost';
+        }
+
+        function handleContextRestore() {
+            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL context restored. Reinitializing...</div>';
+            initWebGL();
         }
 
         function initWebGL() {
@@ -246,6 +270,8 @@
             const canvas = document.getElementById('skulptor3d-canvas');
             glContext = canvas.getContext('webgl') || canvas.getContext('webgl2');
             if (glContext) {
+                canvas.addEventListener('webglcontextlost', handleContextLoss);
+                canvas.addEventListener('webglcontextrestored', handleContextRestore);
                 document.getElementById('webgpu-status').textContent = 'WebGL';
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL supported</div>';
                 setupWebGL();
@@ -302,26 +328,20 @@
             glContext.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
             glContext.uColor = gl.getUniformLocation(program, 'uColor');
             const cubeVertices = new Float32Array([
-                // Front face
                 -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
-                // Back face
                 -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
-                // Top face
                 -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
-                // Bottom face
                 -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
-                // Right face
                 0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5,
-                // Left face
                 -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5
             ]);
             const indices = new Uint16Array([
-                0,  1,  2,  0,  2,  3,   // Front
-                4,  5,  6,  4,  6,  7,   // Back
-                8,  9, 10,  8, 10, 11,   // Top
-                12, 13, 14, 12, 14, 15,  // Bottom
-                16, 17, 18, 16, 18, 19,  // Right
-                20, 21, 22, 20, 22, 23   // Left
+                0,  1,  2,  0,  2,  3,
+                4,  5,  6,  4,  6,  7,
+                8,  9, 10,  8, 10, 11,
+                12, 13, 14, 12, 14, 15,
+                16, 17, 18, 16, 18, 19,
+                20, 21, 22, 20, 22, 23
             ]);
             const vertexBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
@@ -335,6 +355,15 @@
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] WebGL setup complete</div>';
         }
 
+        function stopRenderLoop() {
+            if (renderFrameId) {
+                cancelAnimationFrame(renderFrameId);
+                renderFrameId = null;
+                renderLoopRunning = false;
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Render loop stopped</div>';
+            }
+        }
+
         function startRenderLoop() {
             if (renderLoopRunning) return;
             renderLoopRunning = true;
@@ -344,8 +373,11 @@
             const aspect = gl.canvas.width / gl.canvas.height;
             const projectionMatrix = mat4.create();
             mat4.perspective(projectionMatrix, fov, aspect, 0.1, 100.0);
-            function render() {
-                if (!glContext) return;
+            async function render() {
+                if (!glContext) {
+                    stopRenderLoop();
+                    return;
+                }
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
                 const viewMatrix = mat4.create();
                 mat4.translate(viewMatrix, viewMatrix, cameraPosition);
@@ -353,6 +385,11 @@
                 mat4.rotateY(viewMatrix, viewMatrix, cameraRotation[1]);
                 mat4.rotateZ(viewMatrix, viewMatrix, cameraRotation[2]);
                 const modelMatrix = mat4.create();
+                try {
+                    animations = await pyodide.runPythonAsync('Py3D().animations');
+                } catch (e) {
+                    addToErrorLog('ERROR', `Failed to sync animations: ${e.message}`);
+                }
                 const currentTime = performance.now() / 1000;
                 animations.forEach(anim => {
                     const t = Math.min((currentTime - anim.start_time) / anim.duration, 1);
@@ -367,7 +404,11 @@
                         ];
                         if (t === 1) {
                             animations.splice(animations.indexOf(anim), 1);
-                            js.animations = animations; // Sync with Python
+                            try {
+                                pyodide.runPythonAsync(`Py3D().animations = js.animations`);
+                            } catch (e) {
+                                addToErrorLog('ERROR', `Failed to sync animations to Python: ${e.message}`);
+                            }
                         }
                     }
                 });
@@ -388,9 +429,17 @@
                         gl.drawElements(gl.TRIANGLES, glContext.indexCount, gl.UNSIGNED_SHORT, 0);
                     }
                 });
-                requestAnimationFrame(render);
+                renderFrameId = requestAnimationFrame(render);
             }
-            requestAnimationFrame(render);
+            renderFrameId = requestAnimationFrame(render);
+        }
+
+        function stopPerformanceLoop() {
+            if (performanceFrameId) {
+                cancelAnimationFrame(performanceFrameId);
+                performanceFrameId = null;
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Performance loop stopped</div>';
+            }
         }
 
         function updatePerformance() {
@@ -409,9 +458,9 @@
                     frameCount = 0;
                     lastTime = currentTime;
                 }
-                requestAnimationFrame(loop);
+                performanceFrameId = requestAnimationFrame(loop);
             }
-            requestAnimationFrame(loop);
+            performanceFrameId = requestAnimationFrame(loop);
         }
 
         function parsePy3D(code) {
@@ -421,18 +470,18 @@
                 const line = lines[i];
                 try {
                     if (line.startsWith('add_shape')) {
-                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name=(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*size=(\d+\.?\d*)\s*,\s*color=\((\d+\.?\d*,\s*\d+\.?\d*,\s*\d+\.?\d*)\)/);
-                        if (!match) throw new Error('Invalid add_shape syntax');
+                        const match = line.match(/add_shape\s+(\w+)\s*,\s*name\s*=\s*(\w+)\s*,\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*size\s*=\s*(\d+\.?\d*)\s*,\s*color\s*=\s*\(\s*(\d+\.?\d*\s*,\s*\d+\.?\d*\s*,\s*\d+\.?\d*\s*)\)/);
+                        if (!match) throw new Error('Invalid add_shape syntax. Expected: add_shape type, name=..., position=(x,y,z), size=n, color=(r,g,b)');
                         const [, type, name, position, size, color] = match;
                         commands.push(`Py3D().add_cube("${name}", [${position}], ${size}, [${color}]);`);
                     } else if (line.startsWith('set_camera')) {
-                        const match = line.match(/set_camera\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*rotation=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)/);
-                        if (!match) throw new Error('Invalid set_camera syntax');
+                        const match = line.match(/set_camera\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*rotation\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)/);
+                        if (!match) throw new Error('Invalid set_camera syntax. Expected: set_camera position=(x,y,z), rotation=(x,y,z)');
                         const [, position, rotation] = match;
                         commands.push(`Py3D().set_camera([${position}], [${rotation}]);`);
                     } else if (line.startsWith('animate')) {
-                        const match = line.match(/animate\s+(\w+)\s*,\s*position=\((-?\d+\.?\d*,\s*-?\d+\.?\d*,\s*-?\d+\.?\d*)\)\s*,\s*duration=(\d+\.?\d*)/);
-                        if (!match) throw new Error('Invalid animate syntax');
+                        const match = line.match(/animate\s+(\w+)\s*,\s*position\s*=\s*\(\s*(-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*)\)\s*,\s*duration\s*=\s*(\d+\.?\d*)/);
+                        if (!match) throw new Error('Invalid animate syntax. Expected: animate name, position=(x,y,z), duration=n');
                         const [, name, position, duration] = match;
                         commands.push(`Py3D().animate("${name}", [${position}], ${duration});`);
                     } else if (line.startsWith('clear_scene')) {
@@ -450,7 +499,7 @@
 
         function showPopup() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
                 return;
             }
             document.getElementById('py-popup').style.display = 'block';
@@ -468,11 +517,12 @@
 
         function close3DPopup() {
             document.getElementById('skulptor3d-popup').style.display = 'none';
+            stopRenderLoop();
         }
 
         async function executeCommand() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
                 return;
             }
             const cmd = document.getElementById('command-input').value.trim();
@@ -494,7 +544,7 @@
 
         async function injectScript() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
                 return;
             }
             const code = document.getElementById('py-input').value.trim();
@@ -527,7 +577,7 @@
 
         async function runTroubleshoot() {
             if (!pyodideReady) {
-                addToErrorLog('ERROR', 'Pyodide not ready');
+                addToErrorLog('ERROR', 'Pyodide not ready. Please wait for initialization.');
                 return;
             }
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Initiating troubleshooting...</div>';
@@ -537,7 +587,8 @@
                 { id: 3, test: 'Fragment shader', fn: () => glContext && glContext.program ? 'OK' : 'Failed' },
                 { id: 4, test: 'Scene rendering', fn: () => sceneObjects.length > 0 ? 'OK' : 'No objects' },
                 { id: 5, test: 'Animation', fn: () => animations.length > 0 ? 'OK' : 'No animations' },
-                { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' }
+                { id: 6, test: 'gl-matrix', fn: () => window.mat4 ? 'OK' : 'Failed' },
+                { id: 7, test: 'Pyodide runtime', fn: async () => (await pyodide.runPythonAsync('1 + 1')) === 2 ? 'OK' : 'Failed' }
             ];
             for (const check of checks) {
                 const result = await check.fn();
@@ -550,16 +601,21 @@
             document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Troubleshooting completed</div>';
         }
 
-        function copyErrorLog() {
+        async function copyErrorLog() {
             if (!globalErrorLog.length) {
                 document.getElementById('console').innerHTML += '<div class="log-info">[INFO] No errors to copy</div>';
                 return;
             }
-            const logOutput = document.getElementById('log-output');
-            logOutput.style.display = 'block';
-            logOutput.focus();
-            logOutput.select();
-            document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log displayed for manual copy. Please select and copy the text manually.</div>';
+            const logText = document.getElementById('log-output').value;
+            try {
+                await navigator.clipboard.writeText(logText);
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Error log copied to clipboard</div>';
+            } catch (err) {
+                document.getElementById('log-output').style.display = 'block';
+                document.getElementById('log-output').focus();
+                document.getElementById('log-output').select();
+                document.getElementById('console').innerHTML += '<div class="log-info">[INFO] Clipboard API unavailable. Error log displayed for manual copy.</div>';
+            }
         }
 
         function resizeCanvas() {
@@ -574,11 +630,19 @@
                 canvas.style.height = `${height}px`;
                 if (glContext) {
                     glContext.viewport(0, 0, canvas.width, canvas.height);
+                    const aspect = canvas.width / canvas.height;
+                    const projectionMatrix = mat4.create();
+                    mat4.perspective(projectionMatrix, 45 * Math.PI / 180, aspect, 0.1, 100.0);
+                    glContext.uniformMatrix4fv(glContext.uProjectionMatrix, false, projectionMatrix);
                 }
             }
         }
 
         window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('beforeunload', () => {
+            stopRenderLoop();
+            stopPerformanceLoop();
+        });
         document.getElementById('execute-btn').onclick = executeCommand;
         document.getElementById('inject-btn').onclick = showPopup;
         document.getElementById('close-btn').onclick = closePopup;
@@ -586,8 +650,13 @@
         document.getElementById('copy-log-btn').onclick = copyErrorLog;
         document.getElementById('game-mode').onchange = function() {
             if (this.value === 'snake') {
+                const snakeAgent = document.getElementById('snake-agent');
+                if (!snakeAgent) {
+                    addToErrorLog('ERROR', 'Snake agent script not found');
+                    return;
+                }
                 document.getElementById('code-type').value = 'py3d';
-                document.getElementById('py-input').value = document.getElementById('snake-agent').textContent;
+                document.getElementById('py-input').value = snakeAgent.textContent;
                 showPopup();
             }
         };
@@ -608,4 +677,3 @@ animate snake_body2, position=(-0.6, 0, 0), duration=2
     </script>
 </body>
 </html>
-
