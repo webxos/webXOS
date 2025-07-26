@@ -1,711 +1,626 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Permissions-Policy" content="clipboard-write=(self)">
-    <title>MD3D</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-    <style>
-        body { font-family: monospace; margin: 0; padding: 10px; background: #000; color: #0f0; }
-        #console, #error-console, #command-input, #md-input, canvas { border: 1px solid #0f0; background: #000; color: #0f0; }
-        #console { width: 100%; height: 200px; overflow-y: auto; padding: 10px; font-size: 14px; }
-        #error-console { width: 100%; height: 150px; overflow-y: auto; padding: 10px; font-size: 14px; margin-top: 10px; }
-        #input-area { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
-        #command-input { padding: 10px; font-size: 16px; width: 100%; box-sizing: border-box; }
-        #md-popup, #md3d-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #0f0; padding: 15px; z-index: 1000; background: #000; }
-        #md-input { width: 100%; height: 250px; font-family: monospace; font-size: 14px; box-sizing: border-box; }
-        button { padding: 12px; font-size: 16px; cursor: pointer; width: 100%; box-sizing: border-box; background: #0f0; color: #000; }
-        button:hover:not(:disabled) { background: #0c0; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #close-3d-popup { position: absolute; top: 5px; right: 5px; font-weight: bold; padding: 8px; font-size: 14px; background: #f00; color: #fff; }
-        #close-3d-popup:hover { background: #c00; }
-        #status-area { margin-bottom: 10px; }
-        .log-info { color: #0f0; }
-        .log-error { color: #f00; }
-        .log-warning { color: #ff0; }
-        #log-output { display: none; margin-top: 10px; width: 100%; height: 100px; font-family: monospace; }
-        @media (min-width: 768px) {
-            #input-area { flex-direction: row; }
-            button { width: auto; }
-            #command-input { width: 70%; }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Permissions-Policy" content="clipboard-write=(self)">
+  <title>MD3D</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <style>
+    body { font-family: monospace; margin: 0; padding: 10px; background: #000; color: #0f0; }
+    #console, #error-console, #input, #md-input, canvas { border: 1px solid #0f0; background: #000; color: #0f0; }
+    #console { width: 100%; height: 200px; overflow-y: auto; padding: 10px; font-size: 14px; }
+    #error-console { width: 100%; height: 150px; overflow-y: auto; padding: 10px; font-size: 14px; margin-top: 10px; }
+    #input-area { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    #input { padding: 10px; font-size: 16px; width: 100%; box-sizing: border-box; }
+    #md-popup, #md3d-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #0f0; padding: 15px; z-index: 1000; background: #000; }
+    #md-input { width: 100%; height: 250px; font-family: monospace; font-size: 14px; }
+    button { padding: 12px; font-size: 16px; cursor: pointer; width: 100%; box-sizing: border-box; background: #4a0; color: #000; }
+    button:hover:not(:disabled) { background: #2c0; }
+    button:disabled { background: #222; opacity: 0.5; cursor: not-allowed; }
+    #close3d-popup { position: absolute; top: 10px; right: 10px; padding: 8px; width: auto; }
+    #md3d-popup { width: calc(100% - 40px); max-width: 800px; height: calc(100vh - 40px); max-height: 600px; }
+    #status-area { margin: 10px 0; font-size: 12px; }
+    .log-info { color: #0f0; }
+    .log-error { color: #f00; }
+    .log-warning { color: #ff0; }
+    #log-output { display: none; margin-top: 10px; width: 100%; height: 100px; }
+    #line-count { margin-top: 5px; font-size: 12px; color: #ff0; }
+    @media (min-width: 768px) {
+      #input-area { flex-direction: row; }
+      button { width: 100px; }
+      #input { width: calc(100% - 420px); }
+    }
+  </style>
 </head>
 <body>
-    <div id="console" role="log" aria-live="polite"></div>
-    <div id="error-console" role="log" aria-live="assertive"></div>
-    <button id="copy-log-btn" disabled aria-label="Copy error log to clipboard">Copy Log</button>
-    <div id="status-area">
-        <span id="webgl-status">Checking...</span> |
-        <span id="fps">0.00</span> FPS | <span id="memory">0.00</span> MB | <span id="render-time">0.00</span> ms
+  <div id="console" role="log"></div>
+  <div id="error-console"></div>
+  <button id="copy-log-btn" disabled aria-label="Copy error log to clipboard">Copy to Clipboard</button>
+  <div id="status-area">
+    <span id="webgl-status">Loading...</span> | 
+    <span id="fps">0.00</span> FPS | 
+    <span id="memory">0.00</span> MB | 
+    <span id="time">0.00</span> ms
+  </div>
+  <div id="input-area">
+    <input id="input" placeholder="Enter command" aria-label="Command input" />
+    <button id="execute" disabled aria-label="Execute command">Run</button>
+    <button id="markdown-btn" disabled aria-label="Open markdown popup">MD3D</button>
+    <button id="clear-btn" disabled aria-label="Clear app">Clear</button>
+    <button id="debug-btn" disabled aria-label="Run diagnostics">Debug</button>
+  </div>
+  <div id="md-popup" style="display: none;">
+    <select id="code-type" aria-label="Code type">
+      <option value="text/markdown">Markdown (.md)</option>
+    </select>
+    <textarea id="md-input" placeholder="Paste exactly 8 lines for md_terminal.md:
+# MD Terminal
+
+```javascript
+function customUpdate(md3d, scene, camera, renderer, sceneObjects, animations, groups, lights, keyboardState, touchState) {
+  const cube = sceneObjects.find(obj => obj.name === 'terminalCube');
+  if (cube) cube.mesh.rotation.y += 0.01;
+}
+```
+
+add_shape(cube, terminalCube, position=(0,0,0), size=2, color=(0,1,0))
+add_light(light_1, point, position=(5,5,5), color=(1,1,1), intensity=1)
+set_camera(position=(0,0,10), rotation=(0,0,0))
+Select EXACTLY 8 lines, including the closing ``` and all 3 commands (add_shape, add_light, set_camera). Ensure no extra newlines or missing braces." aria-label="Markdown input"></textarea>
+    <div id="line-count">Lines: 0</div>
+    <div style="margin-top: 10px;">
+      <button onclick="injectMD()" aria-label="Inject markdown">Inject</button>
+      <button onclick="closePopup()" aria-label="Close markdown popup">Close</button>
     </div>
-    <div id="input-area">
-        <input id="command-input" type="text" placeholder="Enter command" aria-label="Enter command">
-        <button id="execute-btn" disabled aria-label="Execute command">Execute</button>
-        <button id="markdown-btn" disabled aria-label="Open Markdown input popup">Markdown</button>
-        <button id="unmark-btn" disabled aria-label="Unmark and refresh application">Unmark</button>
-        <button id="troubleshoot-btn" disabled aria-label="Run troubleshooting diagnostics">Troubleshoot</button>
-    </div>
-    <div id="md-popup" style="display: none;">
-        <select id="code-type" aria-label="Select code type">
-            <option value="md">Markdown (.md)</option>
-        </select>
-        <textarea id="md-input" placeholder="Paste .md code" aria-label="Markdown input"></textarea><br>
-        <button onclick="injectMarkdown()" aria-label="Inject Markdown">Inject</button>
-        <button onclick="closePopup()" aria-label="Close Markdown popup">Close</button>
-    </div>
-    <div id="md3d-popup" style="display: none;">
-        <button id="close-3d-popup" onclick="close3DPopup()" aria-label="Close 3D canvas popup">X</button>
-        <canvas id="md3d-canvas" aria-label="3D rendering canvas"></canvas>
-    </div>
-    <textarea id="log-output" readonly placeholder="Error log for manual copy" aria-label="Error log output"></textarea>
-    <script>
-        let globalErrorLog = [];
-        let scene, camera, renderer;
-        let sceneObjects = [];
-        let animations = [];
-        let groups = [];
-        let lights = [];
-        let renderLoopRunning = false;
-        let renderFrameId = null;
-        let performanceFrameId = null;
-        let lastWarningTime = 0;
-        let lastRenderLogTime = 0;
-        let markdownInjected = false;
-        let playerDrone = null;
-        let score = 0;
-        let aiDrones = [];
-        let checkpoints = [];
+  </div>
+  <div id="md3d-popup" style="display: none;">
+    <button id="close3d-popup" onclick="close3D()" aria-label="Close 3D canvas">X</button>
+    <canvas id="md3d-canvas" aria-label="3D rendering canvas"></canvas>
+  </div>
+  <textarea id="log-output" readonly placeholder="Error log for manual copy" aria-label="Error log"></textarea>
+  <script>
+    let log = [], scene, camera, renderer, objects = [], animations = [], groups = [], lights = [];
+    let rendering = false, renderId, perfId, lastWarn = 0, lastLog = 0, injected = false, updateFn;
+    let keys = {}, touch = { x0: 0, y0: 0, dx: 0, dy: 0, dragging: false };
 
-        class MD3D {
-            add_cube(name, position, size, color) {
-                try {
-                    if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 ||
-                        !Array.isArray(color) || color.length !== 3 || color.some(c => c < 0 || c > 1)) {
-                        throw new Error('Invalid cube parameters');
-                    }
-                    for (const obj of sceneObjects) {
-                        if (obj.name === name) throw new Error(`Duplicate object name: ${name}`);
-                        if (checkCollision(position, size, obj.position, obj.size)) {
-                            throw new Error(`Collision detected for ${name} at position ${position}`);
-                        }
-                    }
-                    const geometry = new THREE.BoxGeometry(size, size, size);
-                    const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(...color) });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.name = name;
-                    mesh.position.set(...position);
-                    scene.add(mesh);
-                    sceneObjects.push({ name, type: 'cube', position: position.map(Number), size: Number(size), color: color.map(Number), mesh });
-                    if (name === 'player_drone') playerDrone = sceneObjects[sceneObjects.length - 1];
-                    if (name.startsWith('ai_drone')) aiDrones.push(sceneObjects[sceneObjects.length - 1]);
-                    logInfo(`Added cube: ${name}, Total shapes: ${sceneObjects.length}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to add cube ${name}: ${e.message}`);
-                }
-            }
-            add_light(name, type, position, color, intensity) {
-                try {
-                    if (!name || !type || !Array.isArray(position) || position.length !== 3 ||
-                        !Array.isArray(color) || color.length !== 3 || isNaN(intensity) || intensity < 0) {
-                        throw new Error('Invalid light parameters');
-                    }
-                    if (type !== 'point') throw new Error('Only point lights are supported');
-                    if (lights.some(l => l.name === name)) throw new Error(`Duplicate light name: ${name}`);
-                    const light = new THREE.PointLight(new THREE.Color(...color), intensity, 100);
-                    light.name = name;
-                    light.position.set(...position);
-                    scene.add(light);
-                    lights.push({ name, type, position: position.map(Number), color: color.map(Number), intensity: Number(intensity), light });
-                    logInfo(`Added light: ${name}, Total lights: ${lights.length}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to add light ${name}: ${e.message}`);
-                }
-            }
-            group(name, objects) {
-                try {
-                    if (!name || !Array.isArray(objects) || objects.length === 0) throw new Error('Invalid group parameters');
-                    const group = new THREE.Group();
-                    group.name = name;
-                    for (const objName of objects) {
-                        const obj = sceneObjects.find(o => o.name === objName);
-                        if (!obj) throw new Error(`Object ${objName} not found for group ${name}`);
-                        group.add(obj.mesh);
-                    }
-                    scene.add(group);
-                    groups.push({ name, objects, group });
-                    if (name.startsWith('ring')) checkpoints.push({ name, group, passed: false });
-                    logInfo(`Grouped: ${name}, Objects: ${objects.length}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to create group ${name}: ${e.message}`);
-                }
-            }
-            set_camera(position, rotation) {
-                try {
-                    if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) {
-                        throw new Error('Invalid camera parameters');
-                    }
-                    if (position[2] > 100 || position[2] < -100) {
-                        throw new Error('Camera Z position out of bounds [-100, 100]');
-                    }
-                    camera.position.set(...position);
-                    camera.rotation.set(...rotation);
-                    logInfo(`Camera set to position: [${position}], rotation: [${rotation}]`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to set camera: ${e.message}`);
-                }
-            }
-            animate(name, position, duration) {
-                try {
-                    if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(duration) || duration <= 0) {
-                        throw new Error('Invalid animation parameters');
-                    }
-                    const shape = sceneObjects.find(obj => obj.name === name);
-                    if (!shape) throw new Error(`Shape ${name} not found for animation`);
-                    for (const obj of sceneObjects) {
-                        if (obj.name !== name && checkCollision(position, shape.size, obj.position, obj.size)) {
-                            throw new Error(`Animation for ${name} would cause collision at ${position}`);
-                        }
-                    }
-                    animations.push({ name, target_position: position.map(Number), duration: Number(duration), start_time: performance.now() / 1000 });
-                    logInfo(`Animation added for ${name}, Total animations: ${animations.length}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to animate ${name}: ${e.message}`);
-                }
-            }
-            clear_scene() {
-                try {
-                    while (scene.children.length > 0) {
-                        scene.remove(scene.children[0]);
-                    }
-                    sceneObjects = [];
-                    animations = [];
-                    groups = [];
-                    lights = [];
-                    playerDrone = null;
-                    aiDrones = [];
-                    checkpoints = [];
-                    score = 0;
-                    logInfo(`Scene cleared, Shapes: ${sceneObjects.length}, Animations: ${animations.length}, Groups: ${groups.length}, Lights: ${lights.length}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Failed to clear scene: ${e.message}`);
-                }
-            }
-            test_suite() {
-                try {
-                    logInfo('Running test suite');
-                    logInfo(`sceneObjects available: ${!!sceneObjects}`);
-                    logInfo(`animations available: ${!!animations}`);
-                    logInfo(`groups available: ${!!groups}`);
-                    logInfo(`lights available: ${!!lights}`);
-                    logInfo(`Three.js scene: ${!!scene}`);
-                    logInfo(`Three.js camera: ${!!camera}`);
-                    logInfo(`Three.js renderer: ${!!renderer}`);
-                    logInfo('Test suite passed');
-                } catch (e) {
-                    addToErrorLog('ERROR', `Test suite failed: ${e.message}`);
-                }
-            }
-        }
+    // Define logInfo early to ensure availability
+    function logInfo(msg, level = 'info') {
+      const c = document.getElementById('console');
+      c.innerHTML += `<div class="log-${level}">[MD3D] ${msg}</div>`;
+      c.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
+    }
 
-        function checkCollision(pos1, size1, pos2, size2) {
-            const half1 = size1 / 2, half2 = size2 / 2;
-            return Math.abs(pos1[0] - pos2[0]) < (half1 + half2) &&
-                   Math.abs(pos1[1] - pos2[1]) < (half1 + half2) &&
-                   Math.abs(pos1[2] - pos2[2]) < (half1 + half2);
-        }
+    function logError(msg) {
+      log.push({ time: new Date().toISOString(), level: 'ERROR', msg });
+      if (log.length > 100) log.shift();
+      const ec = document.getElementById('error-console');
+      ec.innerHTML += `<div class="log-error">[ERROR] ${msg}</div>`;
+      while (ec.children.length > 100) ec.removeChild(ec.firstChild);
+      const c = document.getElementById('console');
+      while (c.children.length > 100) c.removeChild(c.firstChild);
+      document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
+      ec.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
+    }
 
-        function easeInOutQuad(t) {
-            return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        }
+    class MD3D {
+      constructor() { this.scene = scene; this.camera = camera; this.renderer = renderer; this.objects = objects; this.animations = animations; this.groups = groups; this.lights = lights; }
+      add_cube(name, pos, size, color) {
+        try {
+          if (!name || !Array.isArray(pos) || pos.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3 || color.some(c => c < 0 || c > 1)) throw new Error('Invalid cube params');
+          if (objects.find(o => o.name === name)) throw new Error(`Duplicate name: ${name}`);
+          for (let o of objects) if (collides(pos, size, o.position, o.size)) throw new Error(`Collision at ${pos}`);
+          const geom = new THREE.BoxGeometry(size, size, size);
+          const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(...color) });
+          const mesh = new THREE.Mesh(geom, mat);
+          mesh.name = name;
+          mesh.position.set(...pos);
+          scene.add(mesh);
+          objects.push({ name, type: 'cube', position: pos.map(Number), size: Number(size), color: color.map(Number), mesh });
+          logInfo(`Cube ${name} added, total: ${objects.length}`);
+        } catch (e) { logError(`Add cube ${name} failed: ${e.message}`); }
+      }
+      add_light(name, type, pos, color, intensity) {
+        try {
+          if (!name || !type || !Array.isArray(pos) || pos.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity) || intensity < 0) throw new Error('Invalid light params');
+          if (type !== 'point') throw new Error('Only point lights supported');
+          if (lights.find(l => l.name === name)) throw new Error(`Duplicate light: ${name}`);
+          const light = new THREE.PointLight(new THREE.Color(...color), intensity, 100);
+          light.name = name;
+          light.position.set(...pos);
+          scene.add(light);
+          lights.push({ name, type, position: pos.map(Number), color: color.map(Number), intensity: Number(intensity), light });
+          logInfo(`Light ${name} added, total: ${lights.length}`);
+        } catch (e) { logError(`Add light ${name} failed: ${e.message}`); }
+      }
+      set_camera(pos, rot) {
+        try {
+          if (!Array.isArray(pos) || pos.length !== 3 || !Array.isArray(rot) || rot.length !== 3) throw new Error('Invalid camera params');
+          if (pos[2] > 100 || pos[2] < -100) throw new Error('Camera Z out of bounds [-100, 100]');
+          camera.position.set(...pos);
+          camera.rotation.set(...rot);
+          logInfo(`Camera set: pos=[${pos}], rot=[${rot}]`);
+        } catch (e) { logError(`Set camera failed: ${e.message}`); }
+      }
+      animate(name, pos, duration) {
+        try {
+          if (!name || !Array.isArray(pos) || pos.length !== 3 || isNaN(duration) || duration <= 0) throw new Error('Invalid animation params');
+          const obj = objects.find(o => o.name === name);
+          if (!obj) throw new Error(`Object ${name} not found`);
+          for (let o of objects) if (o.name !== name && collides(pos, obj.size, o.position, o.size)) throw new Error(`Animation collision at ${pos}`);
+          animations.push({ name, target: pos.map(Number), duration: Number(duration), t0: performance.now() / 1000 });
+          logInfo(`Animation for ${name} added, total: ${animations.length}`);
+        } catch (e) { logError(`Animate ${name} failed: ${e.message}`); }
+      }
+      clear() {
+        try {
+          while (scene.children.length) scene.remove(scene.children[0]);
+          objects = []; animations = []; groups = []; lights = []; updateFn = null;
+          logInfo(`Cleared: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
+        } catch (e) { logError(`Clear failed: ${e.message}`); }
+      }
+      test() {
+        try {
+          logInfo('Testing...');
+          logInfo(`Objects: ${!!objects}, Animations: ${!!animations}, Groups: ${!!groups}, Lights: ${!!lights}`);
+          logInfo(`Scene: ${!!scene}, Camera: ${!!camera}, Renderer: ${!!renderer}`);
+          logInfo('Test passed');
+        } catch (e) { logError(`Test failed: ${e.message}`); }
+      }
+    }
 
-        const md3d = new MD3D();
+    function collides(p1, s1, p2, s2) {
+      const h1 = s1 / 2, h2 = s2 / 2;
+      return Math.abs(p1[0] - p2[0]) < (h1 + h2) && Math.abs(p1[1] - p2[1]) < (h1 + h2) && Math.abs(p1[2] - p2[2]) < (h1 + h2);
+    }
 
-        function logInfo(message, level = 'info') {
-            const console = document.getElementById('console');
-            console.innerHTML += `<div class="log-${level}">[MD3D] ${message}</div>`;
-            updateScroll();
-        }
+    function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
-        function addToErrorLog(level, message) {
-            globalErrorLog.push({ timestamp: new Date().toISOString(), level, message });
-            if (globalErrorLog.length > 100) globalErrorLog.shift();
-            const errorConsole = document.getElementById('error-console');
-            errorConsole.innerHTML += `<div class="log-${level.toLowerCase()}">[${level}] ${message}</div>`;
-            while (errorConsole.children.length > 100) errorConsole.removeChild(errorConsole.firstChild);
-            while (document.getElementById('console').children.length > 100) document.getElementById('console').removeChild(document.getElementById('console').firstChild);
-            document.getElementById('log-output').value = globalErrorLog.map(e => `[${e.timestamp}] [${e.level}] ${e.message}`).join('\n');
-            updateScroll();
-        }
+    const md3d = new MD3D();
 
-        function updateScroll() {
-            ['console', 'error-console'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el.lastElementChild) el.lastElementChild.scrollIntoView({ behavior: 'smooth' });
-            });
-        }
-
-        function initApp() {
-            try {
-                logInfo('Initializing MD3D Swarm...');
-                initThreeJS();
-                md3d.add_cube('test_cube', [0, 0, 0], 1, [1, 0, 0]);
-                logInfo('Test cube injected');
-                logInfo('MD3D Swarm initialized');
-                ['execute-btn', 'markdown-btn', 'unmark-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                    document.getElementById(id).disabled = false;
-                    document.getElementById(id).setAttribute('aria-disabled', 'false');
-                });
-                updatePerformance();
-                setupDroneControls();
-            } catch (e) {
-                addToErrorLog('ERROR', `Initialization failed: ${e.message}`);
-                document.getElementById('webgl-status').textContent = 'Failed';
-                disableInteractiveFeatures();
-            }
-        }
-
-        function disableInteractiveFeatures() {
-            ['execute-btn', 'markdown-btn', 'unmark-btn', 'troubleshoot-btn', 'copy-log-btn'].forEach(id => {
-                document.getElementById(id).disabled = true;
-                document.getElementById(id).setAttribute('aria-disabled', 'true');
-            });
-        }
-
-        function initThreeJS() {
-            try {
-                const canvas = document.getElementById('md3d-canvas');
-                scene = new THREE.Scene();
-                camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 1000);
-                camera.position.set(0, -3, 2);
-                renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-                renderer.setPixelRatio(window.devicePixelRatio);
-                renderer.setClearColor(0x000000);
-                resizeCanvas();
-                document.getElementById('webgl-status').textContent = 'WebGL';
-                logInfo('Three.js initialized');
-                startRenderLoop();
-            } catch (e) {
-                addToErrorLog('ERROR', `Three.js initialization failed: ${e.message}`);
-                document.getElementById('webgl-status').textContent = 'Failed';
-            }
-        }
-
-        function startRenderLoop() {
-            if (renderLoopRunning) return;
-            renderLoopRunning = true;
-            async function render() {
-                const startTime = performance.now();
-                if (!renderer) {
-                    addToErrorLog('ERROR', 'Render loop stopped: Renderer is null');
-                    stopRenderLoop();
-                    return;
-                }
-                // Update camera to follow player drone
-                if (playerDrone) {
-                    camera.position.set(playerDrone.position[0], playerDrone.position[1] - 3, playerDrone.position[2] + 2);
-                    camera.lookAt(playerDrone.mesh.position);
-                }
-                // Process animations
-                animations.forEach((anim, index) => {
-                    try {
-                        const t = Math.min((performance.now() / 1000 - anim.start_time) / anim.duration, 1);
-                        const easedT = easeInOutQuad(t);
-                        const shape = sceneObjects.find(obj => obj.name === anim.name);
-                        if (shape) {
-                            const startPos = shape.position;
-                            shape.mesh.position.set(
-                                startPos[0] + (anim.target_position[0] - startPos[0]) * easedT,
-                                startPos[1] + (anim.target_position[1] - startPos[1]) * easedT,
-                                startPos[2] + (anim.target_position[2] - startPos[2]) * easedT
-                            );
-                            shape.position = shape.mesh.position.toArray();
-                            if (t >= 1) {
-                                logInfo(`Animation ${anim.name} completed`);
-                                animations.splice(index, 1);
-                            }
-                        } else {
-                            logInfo(`Animation ${anim.name} has no matching shape`, 'warning');
-                        }
-                    } catch (e) {
-                        addToErrorLog('ERROR', `Animation ${anim.name} failed: ${e.message}`);
-                    }
-                });
-                // Neural agentic network for AI drones
-                if (aiDrones.length > 0 && playerDrone) {
-                    aiDrones.forEach((drone, i) => {
-                        const targetCheckpoint = checkpoints.find(cp => !cp.passed) || checkpoints[0];
-                        const targetPos = targetCheckpoint.group.position.toArray();
-                        const avoidPos = avoidObstacles(drone);
-                        const newPos = [
-                            drone.position[0] + 0.7 * (targetPos[0] - drone.position[0]) + 0.3 * avoidPos[0],
-                            drone.position[1] + 0.7 * (targetPos[1] - drone.position[1]) + 0.3 * avoidPos[1],
-                            drone.position[2] + 0.7 * (targetPos[2] - drone.position[2]) + 0.3 * avoidPos[2]
-                        ];
-                        if (!checkCollision(newPos, drone.size, playerDrone.position, playerDrone.size)) {
-                            md3d.animate(drone.name, newPos, 0.5);
-                        }
-                    });
-                }
-                // Check for checkpoint passes
-                if (playerDrone) {
-                    checkpoints.forEach(cp => {
-                        if (!cp.passed && Math.abs(playerDrone.position[1] - cp.group.position.y) < 1) {
-                            cp.passed = true;
-                            score += 100;
-                            logInfo(`Checkpoint passed! Score: ${score}`);
-                        }
-                    });
-                }
-                renderer.render(scene, camera);
-                document.getElementById('render-time').textContent = (performance.now() - startTime).toFixed(2);
-                renderFrameId = requestAnimationFrame(render);
-            }
-            renderFrameId = requestAnimationFrame(render);
-        }
-
-        function avoidObstacles(drone) {
-            let avoidX = 0, avoidY = 0, avoidZ = 0;
-            sceneObjects.forEach(obj => {
-                if (obj.name !== drone.name && obj.name !== 'player_drone' && checkCollision(drone.position, drone.size + 1, obj.position, obj.size)) {
-                    avoidX += (drone.position[0] - obj.position[0]) * 0.1;
-                    avoidY += (drone.position[1] - obj.position[1]) * 0.1;
-                    avoidZ += (drone.position[2] - obj.position[2]) * 0.1;
-                }
-            });
-            return [avoidX, avoidY, avoidZ];
-        }
-
-        function stopRenderLoop() {
-            if (renderFrameId) {
-                cancelAnimationFrame(renderFrameId);
-                renderFrameId = null;
-                renderLoopRunning = false;
-                logInfo('Render loop stopped');
-            }
-        }
-
-        function updatePerformance() {
-            let lastTime = performance.now();
-            let frameCount = 0;
-            function loop(currentTime) {
-                frameCount++;
-                if (currentTime - lastTime >= 1000) {
-                    document.getElementById('fps').textContent = (frameCount * 1000 / (currentTime - lastTime)).toFixed(2);
-                    if (performance.memory) {
-                        document.getElementById('memory').textContent = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2);
-                    }
-                    frameCount = 0;
-                    lastTime = currentTime;
-                }
-                performanceFrameId = requestAnimationFrame(loop);
-            }
-            performanceFrameId = requestAnimationFrame(loop);
-        }
-
-        function parseMarkdown(code) {
-            const lines = code.split('\n').map(line => line.trim()).filter(line => line && !line.match(/^#+ /));
-            const commands = [];
-            logInfo(`Parsing ${lines.length} lines of .md code`);
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                try {
-                    const addShapeMatch = line.match(/^add_shape\(cube,\s*([^,]+),\s*position=\(([^)]+)\),\s*size=([^,]+),\s*color=\(([^)]+)\)\)$/);
-                    if (addShapeMatch) {
-                        const [, name, pos, size, col] = addShapeMatch;
-                        const position = pos.split(',').map(Number);
-                        const color = col.split(',').map(Number);
-                        if (position.length !== 3 || isNaN(size) || size <= 0 || color.length !== 3 || color.some(c => c < 0 || c > 1)) {
-                            throw new Error('Invalid parameters for add_shape');
-                        }
-                        commands.push(`md3d.add_cube("${name.trim().replace(/"/g, '\\"')}", [${position.join(',')}], ${size}, [${color.join(',')}]);`);
-                        logInfo(`Generated: md3d.add_cube("${name.trim()}", [${position.join(',')}], ${size}, [${color.join(',')}])`);
-                        continue;
-                    }
-                    const addLightMatch = line.match(/^add_light\(([^,]+),\s*type=([^,]+),\s*position=\(([^)]+)\),\s*color=\(([^)]+)\),\s*intensity=([^)]+)\)$/);
-                    if (addLightMatch) {
-                        const [, name, type, pos, col, intensity] = addLightMatch;
-                        const position = pos.split(',').map(Number);
-                        const color = col.split(',').map(Number);
-                        if (type.trim() !== 'point' || position.length !== 3 || isNaN(intensity) || intensity < 0 || color.length !== 3 || color.some(c => c < 0 || c > 1)) {
-                            throw new Error('Invalid parameters for add_light');
-                        }
-                        commands.push(`md3d.add_light("${name.trim().replace(/"/g, '\\"')}", "${type.trim()}", [${position.join(',')}], [${color.join(',')}], ${intensity});`);
-                        logInfo(`Generated: md3d.add_light("${name.trim()}", "${type.trim()}", [${position.join(',')}], [${color.join(',')}], ${intensity})`);
-                        continue;
-                    }
-                    const groupMatch = line.match(/^group\(([^,]+),\s*objects=\[([^)]+)\]\)$/);
-                    if (groupMatch) {
-                        const [, name, objList] = groupMatch;
-                        const objects = objList.split(',').map(o => o.trim());
-                        if (!name || objects.length === 0) throw new Error('Invalid parameters for group');
-                        commands.push(`md3d.group("${name.trim().replace(/"/g, '\\"')}", [${objects.map(o => `"${o.replace(/"/g, '\\"')}"`).join(',')}]);`);
-                        logInfo(`Generated: md3d.group("${name.trim()}", [${objects.join(',')}])`);
-                        continue;
-                    }
-                    const setCameraMatch = line.match(/^set_camera\(position=\(([^)]+)\),\s*rotation=\(([^)]+)\)\)$/);
-                    if (setCameraMatch) {
-                        const [, pos, rot] = setCameraMatch;
-                        const position = pos.split(',').map(Number);
-                        const rotation = rot.split(',').map(Number);
-                        if (position.length !== 3 || rotation.length !== 3) throw new Error('Invalid parameters for set_camera');
-                        commands.push(`md3d.set_camera([${position.join(',')}], [${rotation.join(',')}]);`);
-                        logInfo(`Generated: md3d.set_camera([${position.join(',')}], [${rotation.join(',')}])`);
-                        continue;
-                    }
-                    const animateMatch = line.match(/^animate\(([^,]+),\s*position=\(([^)]+)\),\s*duration=([^)]+)\)$/);
-                    if (animateMatch) {
-                        const [, name, pos, duration] = animateMatch;
-                        const position = pos.split(',').map(Number);
-                        if (position.length !== 3 || isNaN(duration) || duration <= 0) throw new Error('Invalid parameters for animate');
-                        commands.push(`md3d.animate("${name.trim().replace(/"/g, '\\"')}", [${position.join(',')}], ${duration});`);
-                        logInfo(`Generated: md3d.animate("${name.trim()}", [${position.join(',')}], ${duration})`);
-                        continue;
-                    }
-                    if (line.match(/^clear_scene\(\)$/)) {
-                        commands.push(`md3d.clear_scene();`);
-                        logInfo(`Generated: md3d.clear_scene()`);
-                        continue;
-                    }
-                    throw new Error(`Unknown command: ${line}`);
-                } catch (e) {
-                    addToErrorLog('ERROR', `Line ${i + 1}: ${e.message}`);
-                    return null;
-                }
-            }
-            const parsed = commands.join('\n');
-            return parsed;
-        }
-
-        function showPopup() {
-            document.getElementById('md-popup').style.display = 'block';
-            logInfo('Markdown injection popup opened');
-        }
-
-        function closePopup() {
-            document.getElementById('md-popup').style.display = 'none';
-            document.getElementById('md-input').value = '';
-            logInfo('Markdown injection popup closed');
-        }
-
-        function show3DPopup() {
-            document.getElementById('md3d-popup').style.display = 'block';
-            resizeCanvas();
-            if (!renderLoopRunning) startRenderLoop();
-            logInfo('3D canvas popup opened');
-        }
-
-        function close3DPopup() {
-            document.getElementById('md3d-popup').style.display = 'none';
-            stopRenderLoop();
-            logInfo('3D canvas popup closed');
-        }
-
-        const validCommands = {
-            '/test': () => md3d.test_suite(),
-            '/show3d': () => show3DPopup(),
-            'test 3d': () => {
-                md3d.add_cube('test_cube', [0, 0, 0], 1, [1, 0, 0]);
-                logInfo('Test 3D executed');
-                show3DPopup();
-            },
-            'launch swarm': () => {
-                md3d.add_cube('player_drone', [0, 0, 0], 0.3, [0, 0.7, 1]);
-                for (let i = 0; i < 7; i++) {
-                    md3d.add_cube(`ai_drone${i + 1}`, [(i % 2 ? 1 : -1) * (i + 1), 0, 0], 0.3, [1, 0, 0]);
-                }
-                logInfo('Swarm launched');
-                show3DPopup();
-            },
-            'guide': () => {
-                logInfo('Swarm Guide:');
-                logInfo('  test 3d - Test Three.js rendering');
-                logInfo('  launch swarm - Start drone swarm');
-                logInfo('  guide - Show this help');
-                logInfo('  clear - Reset scene');
-                logInfo('  /show3d - Display 3D canvas');
-            },
-            'clear': () => {
-                md3d.clear_scene();
-                logInfo('Scene cleared');
-            }
-        };
-
-        function executeCommand() {
-            const cmd = document.getElementById('command-input').value.trim();
-            if (validCommands[cmd]) {
-                validCommands[cmd]();
-            } else {
-                addToErrorLog('ERROR', `Unknown command: ${cmd}`);
-            }
-            document.getElementById('command-input').value = '';
-        }
-
-        function injectMarkdown() {
-            const code = document.getElementById('md-input').value.trim();
-            if (!code) {
-                logInfo('No Markdown to inject', 'warning');
-                return;
-            }
-            try {
-                const parsed = parseMarkdown(code);
-                if (!parsed) throw new Error('Failed to parse .md code');
-                eval(parsed);
-                logInfo(`.md script executed, Shapes: ${sceneObjects.length}, Animations: ${animations.length}, Groups: ${groups.length}, Lights: ${lights.length}`);
-                markdownInjected = true;
-                show3DPopup();
-                closePopup();
-            } catch (e) {
-                addToErrorLog('ERROR', `Markdown injection error: ${e.message}`);
-            }
-        }
-
-        function runTroubleshoot() {
-            logInfo('Initiating troubleshooting...');
-            const checks = [
-                { id: 1, test: 'Three.js initialization', fn: () => renderer ? 'OK' : 'Failed' },
-                { id: 2, test: 'Scene', fn: () => scene ? 'OK' : 'Failed' },
-                { id: 3, test: 'Camera', fn: () => camera ? 'OK' : 'Failed' },
-                { id: 4, test: 'Renderer', fn: () => renderer ? 'OK' : 'Failed' },
-                { id: 5, test: 'Scene rendering', fn: () => sceneObjects.length > 0 ? 'OK' : 'No objects' },
-                { id: 6, test: 'Animation', fn: () => animations.length > 0 ? 'OK' : 'No animations' },
-                { id: 7, test: 'MD3D availability', fn: () => md3d ? 'OK' : 'Failed' },
-                { id: 8, test: 'sceneObjects', fn: () => sceneObjects ? 'OK' : 'Failed' },
-                { id: 9, test: 'animations', fn: () => animations ? 'OK' : 'Failed' },
-                { id: 10, test: 'groups', fn: () => groups ? 'OK' : 'Failed' },
-                { id: 11, test: 'lights', fn: () => lights ? 'OK' : 'Failed' }
-            ];
-            for (const check of checks) {
-                const result = check.fn();
-                if (result === 'OK' || result === 'No objects' || result === 'No animations') {
-                    logInfo(`[CHECK ${check.id}] ${check.test}: ${result}`);
-                } else {
-                    addToErrorLog('ERROR', `[CHECK ${check.id}] ${check.test}: ${result}`);
-                }
-            }
-            logInfo('Troubleshooting completed');
-        }
-
-        function copyErrorLog() {
-            if (!globalErrorLog.length) {
-                logInfo('No errors to copy');
-                return;
-            }
-            try {
-                navigator.clipboard.writeText(document.getElementById('log-output').value);
-                logInfo('Error log copied to clipboard');
-            } catch (e) {
-                document.getElementById('log-output').style.display = 'block';
-                document.getElementById('log-output').focus();
-                document.getElementById('log-output').select();
-                logInfo('Clipboard unavailable. Log displayed for manual copy.');
-            }
-        }
-
-        function unmarkAndRefresh() {
-            stopRenderLoop();
-            if (performanceFrameId) cancelAnimationFrame(performanceFrameId);
-            window.location.reload();
-        }
-
-        function resizeCanvas() {
-            const canvas = document.getElementById('md3d-canvas');
-            const popup = document.getElementById('md3d-popup');
-            const rect = popup.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            const width = Math.min(rect.width - 30, 3840);
-            const height = Math.min(rect.height - 30, 2160);
-            canvas.width = width * dpr;
-            canvas.height = height * dpr;
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
-            renderer.setSize(width, height);
-            camera.aspect = width / height;
-            camera.updateProjectionMatrix();
-        }
-
-        function setupDroneControls() {
-            const canvas = document.getElementById('md3d-canvas');
-            let isDragging = false;
-            let lastX, lastY;
-            const keys = {};
-            document.addEventListener('keydown', e => { keys[e.key] = true; });
-            document.addEventListener('keyup', e => { keys[e.key] = false; });
-            canvas.addEventListener('mousedown', e => {
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
-            });
-            canvas.addEventListener('mousemove', e => {
-                if (isDragging && playerDrone) {
-                    const dx = e.clientX - lastX;
-                    const dy = e.clientY - lastY;
-                    camera.rotation.y += dx * 0.005;
-                    camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x + dy * 0.005));
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                }
-            });
-            canvas.addEventListener('mouseup', () => isDragging = false);
-            canvas.addEventListener('wheel', e => {
-                camera.position.z = Math.max(-100, Math.min(100, camera.position.z + e.deltaY * 0.01));
-            });
-            canvas.addEventListener('touchstart', e => {
-                e.preventDefault();
-                lastX = e.touches[0].clientX;
-                lastY = e.touches[0].clientY;
-            });
-            canvas.addEventListener('touchmove', e => {
-                e.preventDefault();
-                const touch = e.touches[0];
-                const dx = touch.clientX - lastX;
-                const dy = touch.clientY - lastY;
-                if (touch.clientX < window.innerWidth / 2 && playerDrone) {
-                    const newPos = [
-                        playerDrone.position[0] + dx * 0.02,
-                        playerDrone.position[1] + dy * 0.02,
-                        playerDrone.position[2]
-                    ];
-                    if (!sceneObjects.some(obj => obj.name !== 'player_drone' && checkCollision(newPos, playerDrone.size, obj.position, obj.size))) {
-                        md3d.animate('player_drone', newPos, 0.1);
-                    }
-                } else {
-                    camera.rotation.y += dx * 0.005;
-                    camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x + dy * 0.005));
-                }
-                lastX = touch.clientX;
-                lastY = touch.clientY;
-            });
-            function updatePlayer() {
-                if (!playerDrone) return;
-                let newPos = [...playerDrone.position];
-                if (keys['w'] || keys['ArrowUp']) newPos[1] += 0.2;
-                if (keys['s'] || keys['ArrowDown']) newPos[1] -= 0.2;
-                if (keys['a'] || keys['ArrowLeft']) newPos[0] -= 0.2;
-                if (keys['d'] || keys['ArrowRight']) newPos[0] += 0.2;
-                if (keys[' ']) newPos[2] += 0.2;
-                if (keys['Shift']) newPos[2] -= 0.2;
-                if (!sceneObjects.some(obj => obj.name !== 'player_drone' && checkCollision(newPos, playerDrone.size, obj.position, obj.size))) {
-                    md3d.animate('player_drone', newPos, 0.1);
-                }
-                requestAnimationFrame(updatePlayer);
-            }
-            requestAnimationFrame(updatePlayer);
-        }
-
-        window.addEventListener('resize', resizeCanvas);
-        window.addEventListener('beforeunload', () => {
-            stopRenderLoop();
-            if (performanceFrameId) cancelAnimationFrame(performanceFrameId);
+    function init() {
+      try {
+        // Verify logInfo is defined
+        if (typeof logInfo !== 'function') throw new Error('logInfo function is undefined');
+        logInfo('Initializing...');
+        init3D();
+        initControls();
+        logInfo('Initialized');
+        ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
+          const el = document.getElementById(id);
+          el.disabled = false;
+          el.setAttribute('aria-disabled', 'false');
         });
-        document.getElementById('execute-btn').onclick = executeCommand;
-        document.getElementById('markdown-btn').onclick = showPopup;
-        document.getElementById('unmark-btn').onclick = unmarkAndRefresh;
-        document.getElementById('troubleshoot-btn').onclick = runTroubleshoot;
-        document.getElementById('copy-log-btn').onclick = copyErrorLog;
-        initApp();
-        resizeCanvas();
-    </script>
+        updatePerf();
+      } catch (e) {
+        logError(`Init failed: ${e.message}`);
+        document.getElementById('webgl-status').textContent = 'Failed';
+        disableUI();
+      }
+    }
+
+    function disableUI() {
+      ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        el.disabled = true;
+        el.setAttribute('aria-disabled', 'true');
+      });
+    }
+
+    function init3D() {
+      try {
+        const canvas = document.getElementById('md3d-canvas');
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+        camera.position.set(0, 0, 20);
+        renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(devicePixelRatio);
+        renderer.setClearColor(0x000000);
+        resize();
+        document.getElementById('webgl-status').textContent = 'WebGL';
+        logInfo('3D initialized');
+      } catch (e) {
+        logError(`3D init failed: ${e.message}`);
+        document.getElementById('webgl-status').textContent = 'Failed';
+      }
+    }
+
+    function render() {
+      if (rendering) return;
+      rendering = true;
+      const loop = async () => {
+        const t0 = performance.now();
+        if (!renderer) {
+          logError('Render stopped: No renderer');
+          stopRender();
+          return;
+        }
+        if (updateFn) {
+          try {
+            updateFn(md3d, scene, camera, renderer, objects, animations, groups, lights, keys, touch);
+          } catch (e) { logError(`Update failed: ${e.message}`); }
+        }
+        animations.forEach((a, i) => {
+          try {
+            const t = Math.min((performance.now() / 1000 - a.t0) / a.duration, 1);
+            const et = ease(t);
+            const obj = objects.find(o => o.name === a.name);
+            if (obj) {
+              const p0 = obj.position;
+              obj.mesh.position.set(
+                p0[0] + (a.target[0] - p0[0]) * et,
+                p0[1] + (a.target[1] - p0[1]) * et,
+                p0[2] + (a.target[2] - p0[2]) * et
+              );
+              obj.position = obj.mesh.position.toArray();
+              if (t >= 1) {
+                logInfo(`Animation ${a.name} done`);
+                animations.splice(i, 1);
+              }
+            } else {
+              logInfo(`Animation ${a.name} has no object`, 'warning');
+            }
+          } catch (e) { logError(`Animation ${a.name} failed: ${e.message}`); }
+        });
+        if (injected && !animations.length && !updateFn && !objects.length && performance.now() - lastWarn >= 5000) {
+          logInfo('No animations/objects to render', 'warning');
+          lastWarn = performance.now();
+        }
+        if (objects.length && performance.now() - lastLog >= 5000) {
+          logInfo(`Rendering ${objects.length} objects`);
+          lastLog = performance.now();
+        }
+        renderer.render(scene, camera);
+        document.getElementById('time').textContent = (performance.now() - t0).toFixed(2);
+        renderId = requestAnimationFrame(loop);
+      };
+      renderId = requestAnimationFrame(loop);
+    }
+
+    function stopRender() {
+      if (renderId) {
+        cancelAnimationFrame(renderId);
+        renderId = null;
+        rendering = false;
+        logInfo('Render stopped');
+      }
+    }
+
+    function updatePerf() {
+      let t0 = performance.now(), frames = 0;
+      const loop = t => {
+        frames++;
+        if (t - t0 >= 1000) {
+          document.getElementById('fps').textContent = (frames * 1000 / (t - t0)).toFixed(2);
+          if (performance.memory) document.getElementById('memory').textContent = (performance.memory.usedJSHeapSize / 1e6).toFixed(2);
+          frames = 0;
+          t0 = t;
+        }
+        perfId = requestAnimationFrame(loop);
+      };
+      perfId = requestAnimationFrame(loop);
+    }
+
+    function initControls() {
+      const canvas = document.getElementById('md3d-canvas');
+      addEventListener('keydown', e => keys[e.key] = true);
+      addEventListener('keyup', e => keys[e.key] = false);
+      canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        touch.dragging = true;
+        touch.x0 = e.touches[0].clientX;
+        touch.y0 = e.touches[0].clientY;
+      });
+      canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (touch.dragging) {
+          touch.dx = e.touches[0].clientX - touch.x0;
+          touch.dy = e.touches[0].clientY - touch.y0;
+          touch.x0 = e.touches[0].clientX;
+          touch.y0 = e.touches[0].clientY;
+        }
+      });
+      canvas.addEventListener('touchend', () => {
+        touch.dragging = false;
+        touch.dx = touch.dy = 0;
+      });
+    }
+
+    function parseMD(code) {
+      const trimmedCode = code.trim(); // Remove leading/trailing newlines
+      const lines = trimmedCode.split('\n').map(l => l.trim()).filter(l => l !== ''); // Remove empty lines
+      const cmds = [];
+      let inCode = false, codeBlock = '', invalid, consoleLines = 0, validCount = 0, hasCommands = false;
+      logInfo(`Parsing ${lines.length} lines`);
+      if (lines.length !== 8 && lines[0].startsWith('# MD Terminal')) {
+        logInfo(`Input has ${lines.length} lines for md_terminal.md (expected 8); select exactly 8 lines: header, empty line, JS block (4 lines), and 3 commands`, 'warning');
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        try {
+          if (l.startsWith('```javascript')) {
+            inCode = true;
+            codeBlock = '';
+            logInfo(`JS block started at line ${i + 1}`);
+            continue;
+          }
+          if (l.startsWith('```') && inCode) {
+            inCode = false;
+            if (codeBlock.trim()) {
+              try {
+                new Function(codeBlock); // Test if JS block is syntactically valid
+                cmds.push(codeBlock);
+                logInfo(`JS block parsed at line ${i + 1}: ${codeBlock.slice(0, 20)}...`);
+                validCount++;
+              } catch (e) {
+                logInfo(`Invalid JS block at line ${i + 1}: ${e.message}`, 'warning');
+                return ''; // Prevent eval of invalid JS
+              }
+            } else {
+              logInfo(`Skipped empty JS block at line ${i + 1}`, 'warning');
+            }
+            continue;
+          }
+          if (inCode) {
+            codeBlock += l + '\n';
+            continue;
+          }
+          if (l.startsWith('#') || l.startsWith('//') || l.startsWith('<!--') || l.startsWith('[MD3D]')) {
+            if (l.startsWith('[MD3D]')) consoleLines++;
+            logInfo(`Skipped line ${i + 1}: ${l.slice(0, 20)}...`, 'warning');
+            continue;
+          }
+          const shape = l.match(/^add_shape\(cube,\s*([^,]+),\s*position=\(([^)]+)\),\s*size=([^,]+),\s*color=\(([^)]+)\)\)$/);
+          if (shape) {
+            const [, name, pos, size, col] = shape;
+            const p = pos.split(',').map(Number), c = col.split(',').map(Number);
+            if (p.length !== 3 || isNaN(size) || size <= 0 || c.length !== 3 || c.some(v => v < 0 || v > 1)) throw new Error('Invalid shape params');
+            cmds.push(`md3d.add_cube("${name.trim().replace(/"/g, '\\"')}", [${p}], ${size}, [${c}]);`);
+            logInfo(`Generated: add_cube(${name.trim()})`);
+            validCount++;
+            hasCommands = true;
+            continue;
+          }
+          const light = l.match(/^add_light\(([^,]+),\s*point,\s*position=\(([^)]+)\),\s*color=\(([^)]+)\),\s*intensity=([^)]+)\)$/);
+          if (light) {
+            const [, name, pos, col, intensity] = light;
+            const p = pos.split(',').map(Number), c = col.split(',').map(Number);
+            if (p.length !== 3 || isNaN(intensity) || intensity < 0 || c.length !== 3 || c.some(v => v < 0 || v > 1)) throw new Error('Invalid light params');
+            cmds.push(`md3d.add_light("${name.trim().replace(/"/g, '\\"')}", "point", [${p}], [${c}], ${intensity});`);
+            logInfo(`Generated: add_light(${name.trim()})`);
+            validCount++;
+            hasCommands = true;
+            continue;
+          }
+          const cam = l.match(/^set_camera\(position=\(([^)]+)\),\s*rotation=\(([^)]+)\)\)$/);
+          if (cam) {
+            const [, pos, rot] = cam;
+            const p = pos.split(',').map(Number), r = rot.split(',').map(Number);
+            if (p.length !== 3 || r.length !== 3) throw new Error('Invalid camera params');
+            cmds.push(`md3d.set_camera([${p}], [${r}]);`);
+            logInfo(`Generated: set_camera`);
+            validCount++;
+            hasCommands = true;
+            continue;
+          }
+          const anim = l.match(/^animate\(([^,]+),\s*position=\(([^)]+)\),\s*duration=([^)]+)\)$/);
+          if (anim) {
+            const [, name, pos, duration] = anim;
+            const p = pos.split(',').map(Number);
+            if (p.length !== 3 || isNaN(duration) || duration <= 0) throw new Error('Invalid animation params');
+            cmds.push(`md3d.animate("${name.trim().replace(/"/g, '\\"')}", [${p}], ${duration});`);
+            logInfo(`Generated: animate(${name.trim()})`);
+            validCount++;
+            hasCommands = true;
+            continue;
+          }
+          if (l.match(/^clear\(\)$/)) {
+            cmds.push(`md3d.clear();`);
+            logInfo(`Generated: clear`);
+            validCount++;
+            hasCommands = true;
+            continue;
+          }
+          if (!invalid) invalid = { line: i + 1, content: l.slice(0, 20) };
+          logInfo(`Skipped line ${i + 1}: ${l.slice(0, 20)}... (invalid)`, 'warning');
+        } catch (e) { logError(`Line ${i + 1}: ${e.message}`); }
+      }
+      if (inCode) {
+        if (codeBlock.trim()) {
+          try {
+            new Function(codeBlock); // Validate unclosed JS block
+            cmds.push(codeBlock);
+            logInfo(`Unclosed JS block: ${codeBlock.slice(0, 20).replace(/\n/, ' ')}...; ensure closing \`\`\` is included`, 'warning');
+            validCount++;
+          } catch (e) {
+            logInfo(`Invalid unclosed JS block: ${e.message}; ensure closing \`\`\` and valid syntax`, 'warning');
+            return ''; // Prevent eval of invalid JS
+          }
+        } else {
+          logInfo('Empty unclosed JS block skipped; ensure closing \`\`\` is included', 'warning');
+        }
+      }
+      if (consoleLines === lines.filter(l => l).length && lines.length) {
+        logInfo('Input looks like console logs ([MD3D]...); paste .md file instead', 'warning');
+      } else if (validCount === 1 && codeBlock.trim()) {
+        logInfo('Only JS block found; include closing \`\`\` and commands like add_shape, add_light, set_camera', 'warning');
+      } else if (lines[0].startsWith('# MD Terminal') && !hasCommands) {
+        logInfo('No MD3D commands (add_shape, add_light, etc.) found in md_terminal.md; ensure last 3 lines are included', 'warning');
+      }
+      if (invalid) logInfo(`First invalid command at line ${invalid.line}: ${invalid.content}...`, 'warning');
+      const parsed = cmds.join('\n');
+      console.log('Parsed:', parsed);
+      return parsed || '';
+    }
+
+    function showPopup() {
+      document.getElementById('md-popup').style.display = 'block';
+      updateLineCount();
+      logInfo('MD popup opened');
+    }
+
+    function closePopup() {
+      document.getElementById('md-popup').style.display = 'none';
+      document.getElementById('md-input').value = '';
+      document.getElementById('line-count').textContent = 'Lines: 0';
+      logInfo('MD popup closed');
+    }
+
+    function updateLineCount() {
+      const input = document.getElementById('md-input').value;
+      const lineCount = input.split('\n').length;
+      document.getElementById('line-count').textContent = `Lines: ${lineCount}${lineCount !== 8 && input.includes('# MD Terminal') ? ' (md_terminal.md expects 8)' : ''}`;
+    }
+
+    function show3D() {
+      document.getElementById('md3d-popup').style.display = 'block';
+      resize();
+      if (!rendering) render();
+      logInfo('3D canvas opened');
+    }
+
+    function close3D() {
+      document.getElementById('md3d-popup').style.display = 'none';
+      stopRender();
+      logInfo('3D canvas closed');
+    }
+
+    const commands = {
+      '/test': () => md3d.test(),
+      '/show3d': () => show3D(),
+      'test 3d': () => {
+        md3d.add_cube('test_cube', [0, 0, 0], 1, [1, 0, 0]);
+        logInfo('Test 3D ran');
+        show3D();
+      },
+      'guide': () => {
+        logInfo('MD3D Guide:');
+        logInfo('  test 3d - Test render');
+        logInfo('  guide - This help');
+        logInfo('  clear - Reset scene');
+        logInfo('  /show3d - Show 3D canvas');
+        logInfo('  Use .md files with JS in ```javascript and commands like add_shape');
+      },
+      'clear': () => {
+        md3d.clear();
+        logInfo('Scene cleared');
+      }
+    };
+
+    function execCmd() {
+      const cmd = document.getElementById('input').value.trim();
+      if (commands[cmd]) {
+        commands[cmd]();
+      } else {
+        logError(`Unknown command: ${cmd}`);
+      }
+      document.getElementById('input').value = '';
+    }
+
+    function injectMD() {
+      const code = document.getElementById('md-input').value.trim();
+      if (!code) {
+        logInfo('No MD to inject', 'warning');
+        return;
+      }
+      try {
+        const prev = { s: objects.length, a: animations.length, l: lights.length, g: groups.length };
+        const parsed = parseMD(code);
+        if (parsed) {
+          eval(parsed);
+          const now = { s: objects.length, a: animations.length, l: lights.length, g: groups.length };
+          logInfo(`MD ran: shapes=${now.s}, animations=${now.a}, groups=${now.g}, lights=${now.l}`);
+          if (now.s === 0 && now.a === 0 && now.l === 0 && now.g === 0 && prev.s === 0) {
+            logInfo('No objects/animations added; check .md for add_shape, animate, etc.', 'warning');
+          } else {
+            injected = true;
+            show3D();
+          }
+        } else {
+          logInfo('No valid JS/commands in .md', 'warning');
+        }
+        closePopup();
+      } catch (e) {
+        logError(`MD injection failed: ${e.message}`);
+      }
+    }
+
+    function debug() {
+      logInfo('Debugging...');
+      const checks = [
+        { id: 1, test: '3D init', fn: () => renderer ? 'OK' : 'Failed' },
+        { id: 2, test: 'Scene', fn: () => scene ? 'OK' : 'Failed' },
+        { id: 3, test: 'Camera', fn: () => camera ? 'OK' : 'Failed' },
+        { id: 4, test: 'Renderer', fn: () => renderer ? 'OK' : 'Failed' },
+        { id: 5, test: 'Rendering', fn: () => objects.length ? 'OK' : 'No objects' },
+        { id: 6, test: 'Animations', fn: () => animations.length ? 'Yes' : 'No animations' },
+        { id: 7, test: 'MD3D', fn: () => md3d ? 'OK' : 'Failed' },
+        { id: 8, test: 'Objects', fn: () => objects ? 'OK' : 'Failed' },
+        { id: 9, test: 'Animations array', fn: () => animations ? 'OK' : 'Failed' },
+        { id: 10, test: 'Groups', fn: () => groups ? 'OK' : 'Failed' },
+        { id: 11, test: 'Lights', fn: () => lights ? 'OK' : 'Failed' }
+      ];
+      for (let c of checks) {
+        const r = c.fn();
+        if (r === 'OK' || r.startsWith('No ')) {
+          logInfo(`[CHECK ${c.id}] ${c.test}: ${r}`);
+        } else {
+          logError(`[CHECK ${c.id}] ${c.test}: ${r}`);
+        }
+      }
+      logInfo('Debug done');
+    }
+
+    function copyLog() {
+      if (!log.length) {
+        logInfo('No logs to copy');
+        return;
+      }
+      try {
+        navigator.clipboard.writeText(document.getElementById('log-output').value);
+        logInfo('Logs copied');
+      } catch (e) {
+        const out = document.getElementById('log-output');
+        out.style.display = 'block';
+        out.focus();
+        out.select();
+        logInfo('Clipboard failed; copy manually');
+      }
+    }
+
+    function reset() {
+      stopRender();
+      if (perfId) cancelAnimationFrame(perfId);
+      location.reload();
+    }
+
+    function resize() {
+      const canvas = document.getElementById('md3d-canvas');
+      const popup = document.getElementById('md3d-popup');
+      const rect = popup.getBoundingClientRect();
+      const dpr = devicePixelRatio || 1;
+      const w = Math.min(rect.width - 30, 3840), h = Math.min(rect.height - 30, 2160);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    addEventListener('resize', resize);
+    addEventListener('beforeunload', () => {
+      stopRender();
+      if (perfId) cancelAnimationFrame(perfId);
+    });
+    document.getElementById('execute').onclick = execCmd;
+    document.getElementById('markdown-btn').onclick = showPopup;
+    document.getElementById('clear-btn').onclick = reset;
+    document.getElementById('debug-btn').onclick = debug;
+    document.getElementById('copy-log-btn').onclick = copyLog;
+    document.getElementById('md-input').addEventListener('input', updateLineCount);
+    init();
+  </script>
 </body>
 </html>
