@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Permissions-Policy" content="clipboard-write=(self)">
+  <title>MD3D</title>
+  <style>
+    body { font-family: monospace; margin: 0; padding: 10px; background: #000; color: #0f0; }
+    #console, #error-console, #input, #md-input, canvas { border: 1px solid #0f0; background: #000; color: #0f0; }
+    #console { width: 100%; height: 200px; overflow-y: auto; padding: 10px; font-size: 14px; box-sizing: border-box; }
+    #error-console { width: 100%; height: 150px; overflow-y: auto; padding: 10px; font-size: 14px; margin-top: 10px; box-sizing: border-box; }
+    #input-area { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    #input { padding: 10px; font-size: 16px; width: 100%; box-sizing: border-box; }
+    #md-popup, #md3d-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #0f0; padding: 15px; z-index: 1000; background: #000; box-sizing: border-box; }
+    #md-input { width: 100%; height: 250px; font-family: monospace; font-size: 14px; box-sizing: border-box; }
+    button { padding: 12px; font-size: 16px; cursor: pointer; width: 100%; box-sizing: border-box; background: #4a0; color: #000; border: none;}
+    button:hover:not(:disabled) { background: #2c0; }
+    button:disabled { background: #222; opacity: 0.5; cursor: not-allowed; }
+    #close3d-popup { position: absolute; top: 10px; right: 10px; padding: 8px; width: auto; }
+    #md3d-popup { width: calc(100% - 40px); max-width: 800px; height: calc(100vh - 40px); max-height: 600px; }
+    #status-area { margin: 10px 0; font-size: 12px; }
+    .log-info { color: #0f0; }
+    .log-error { color: #f00; }
+    .log-warning { color: #ff0; }
+    #log-output { display: none; margin-top: 10px; width: 100%; height: 100px; }
+    #line-count { margin-top: 5px; font-size: 12px; color: #ff0; }
+    @media (min-width: 768px) {
+      #input-area { flex-direction: row; }
+      button { width: 100px; }
+      #input { width: calc(100% - 420px); }
+    }
+  </style>
+</head>
+<body>
+  <div id="console" role="log"></div>
+  <div id="error-console"></div>
+  <button id="copy-log-btn" disabled aria-label="Copy error log to clipboard">Copy to Clipboard</button>
+  <div id="status-area">
+    <span id="webgl-status">Loading...</span> | 
+    <span id="webgpu-status">Checking...</span> | 
+    <span id="wasm-status">Checking...</span> |
+    <span id="fps">0.00</span> FPS | 
+    <span id="memory">0.00</span> MB | 
+    <span id="time">0.00</span> ms
+  </div>
+  <div id="input-area">
+    <input id="input" placeholder="Enter command" aria-label="Command input" />
+    <button id="execute" disabled aria-label="Execute command">Run</button>
+    <button id="markdown-btn" disabled aria-label="Open markdown popup">MD3D</button>
+    <button id="clear-btn" disabled aria-label="Clear app">Clear</button>
+    <button id="debug-btn" disabled aria-label="Run diagnostics">Debug</button>
+  </div>
+  <div id="md-popup" style="display: none;">
+    <select id="code-type" aria-label="Code type">
+      <option value="text/markdown">Markdown (.md)</option>
+    </select>
+    <textarea id="md-input" placeholder="Paste Markdown with code block (e.g., ```javascript, ```glsl, ```wgsl, ```wasm, ```text) and optional commands (add_shape, add_light, set_camera)." aria-label="Markdown input"></textarea>
+    <div id="line-count">Lines: 0</div>
+    <div style="margin-top: 10px; display: flex; gap: 10px;">
+      <button onclick="injectMD()" aria-label="Inject markdown">Inject</button>
+      <button onclick="closePopup()" aria-label="Close markdown popup">Close</button>
+    </div>
+  </div>
+  <div id="md3d-popup" style="display: none;">
+    <button id="close3d-popup" onclick="close3D()" aria-label="Close 3D canvas">X</button>
+    <canvas id="md3d-canvas" aria-label="3D rendering canvas"></canvas>
+  </div>
+  <textarea id="log-output" readonly placeholder="Error log for manual copy" aria-label="Error log"></textarea>
+  <script>
+    // Math utilities
+    const MathUtils = {
+      mat4: {
+        create: () => new Float32Array(16),
+        identity: (m = MathUtils.mat4.create()) => {
+          m.set([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+          return m;
+        },
+        perspective: (fovy, aspect, near, far, m = MathUtils.mat4.create()) => {
+          const f = 1 / Math.tan(fovy / 2), d = near - far;
+          m.set([
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) / d, -1,
+            0, 0, 2 * far * near / d, 0
+          ]);
+          return m;
+        },
+        lookAt: (eye, center, up, m = MathUtils.mat4.create()) => {
+          const z = [eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]];
+          const zl = Math.hypot(...z);
+          if (zl < 0.0001) return MathUtils.mat4.identity(m);
+          z[0] /= zl; z[1] /= zl; z[2] /= zl;
+          let x = [up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0]];
+          let xl = Math.hypot(...x);
+          if (xl < 0.0001) return MathUtils.mat4.identity(m);
+          x[0] /= xl; x[1] /= xl; x[2] /= xl;
+          const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+          m.set([
+            x[0], y[0], -z[0], 0,
+            x[1], y[1], -z[1], 0,
+            x[2], y[2], -z[2], 0,
+            -(x[0] * eye[0] + x[1] * eye[1] + x[2] * eye[2]),
+            -(y[0] * eye[0] + y[1] * eye[1] + y[2] * eye[2]),
+            z[0] * eye[0] + z[1] * eye[1] + z[2] * eye[2], 1
+          ]);
+          return m;
+        },
+        multiply: (a, b, m = MathUtils.mat4.create()) => {
+          if (!a || !b || !a.set || !b.set) throw new Error('Invalid matrix input');
+          const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+                a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+                a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+                a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+          const b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+          m[0] = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+          m[1] = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+          m[2] = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+          m[3] = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+          const b4 = b[4], b5 = b[5], b6 = b[6], b7 = b[7];
+          m[4] = a00 * b4 + a10 * b5 + a20 * b6 + a30 * b7;
+          m[5] = a01 * b4 + a11 * b5 + a21 * b6 + a31 * b7;
+          m[6] = a02 * b4 + a12 * b5 + a22 * b6 + a32 * b7;
+          m[7] = a03 * b4 + a13 * b5 + a23 * b6 + a33 * b7;
+          const b8 = b[8], b9 = b[9], b10 = b[10], b11 = b[11];
+          m[8] = a00 * b8 + a10 * b9 + a20 * b10 + a30 * b11;
+          m[9] = a01 * b8 + a11 * b9 + a21 * b10 + a31 * b11;
+          m[10] = a02 * b8 + a12 * b9 + a22 * b10 + a32 * b11;
+          m[11] = a03 * b8 + a13 * b9 + a23 * b10 + a33 * b11;
+          const b12 = b[12], b13 = b[13], b14 = b[14], b15 = b[15];
+          m[12] = a00 * b12 + a10 * b13 + a20 * b14 + a30 * b15;
+          m[13] = a01 * b12 + a11 * b13 + a21 * b14 + a31 * b15;
+          m[14] = a02 * b12 + a12 * b13 + a22 * b14 + a32 * b15;
+          m[15] = a03 * b12 + a13 * b13 + a23 * b14 + a33 * b15;
+          return m;
+        },
+        translate: (m, v, out = MathUtils.mat4.create()) => {
+          if (!m || !m.set || !v || v.length !== 3) throw new Error('Invalid translate input');
+          out.set(m);
+          out[12] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12];
+          out[13] = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13];
+          out[14] = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14];
+          out[15] = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15];
+          return out;
+        },
+        rotateX: (m, rad, out = MathUtils.mat4.create()) => {
+          if (!m || !m.set || isNaN(rad)) throw new Error('Invalid rotateX input');
+          const s = Math.sin(rad), c = Math.cos(rad);
+          const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7],
+                a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+          out.set(m);
+          out[4] = a10 * c + a20 * s;
+          out[5] = a11 * c + a21 * s;
+          out[6] = a12 * c + a22 * s;
+          out[7] = a13 * c + a23 * s;
+          out[8] = a20 * c - a10 * s;
+          out[9] = a21 * c - a11 * s;
+          out[10] = a22 * c - a12 * s;
+          out[11] = a23 * c - a13 * s;
+          return out;
+        },
+        rotateY: (m, rad, out = MathUtils.mat4.create()) => {
+          if (!m || !m.set || isNaN(rad)) throw new Error('Invalid rotateY input');
+          const s = Math.sin(rad), c = Math.cos(rad);
+          const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3],
+                a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+          out.set(m);
+          out[0] = a00 * c - a20 * s;
+          out[1] = a01 * c - a21 * s;
+          out[2] = a02 * c - a22 * s;
+          out[3] = a03 * c - a23 * s;
+          out[8] = a00 * s + a20 * c;
+          out[9] = a01 * s + a21 * c;
+          out[10] = a02 * s + a22 * c;
+          out[11] = a03 * s + a23 * c;
+          return out;
+        }
+      },
+      vec3: {
+        subtract: (a, b, out = [0,0,0]) => {
+          out[0] = a[0] - b[0];
+          out[1] = a[1] - b[1];
+          out[2] = a[2] - b[2];
+          return out;
+        },
+        normalize: (v, out = [0,0,0]) => {
+          const l = Math.hypot(...v);
+          out[0] = l > 0 ? v[0] / l : 0;
+          out[1] = l > 0 ? v[1] / l : 0;
+          out[2] = l > 0 ? v[2] / l : 0;
+          return out;
+        },
+        dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+      }
+    };
+
+    // Custom WebGL Renderer
+    class WebGLRenderer {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.gl = canvas.getContext('webgl', { antialias: true });
+        if (!this.gl) throw new Error('WebGL not supported');
+        this.objects = [];
+        this.lights = [];
+        this.camera = { position: [0,0,20], rotation: [0,0,0], fov: 45 * Math.PI / 180, near: 0.1, far: 1000 };
+        this.program = null;
+        this.buffers = null;
+        this.uniforms = {};
+        this.init();
+      }
+      init() {
+        const gl = this.gl;
+        gl.enable(gl.DEPTH_TEST);
+        gl.clearColor(0, 0, 0, 1);
+
+        const vs = `
+          attribute vec3 a_position;
+          attribute vec3 a_normal;
+          uniform mat4 u_mvp;
+          uniform mat4 u_model;
+          varying vec3 v_normal;
+          varying vec3 v_position;
+          void main() {
+            gl_Position = u_mvp * vec4(a_position, 1.0);
+            v_normal = mat3(u_model) * a_normal;
+            v_position = (u_model * vec4(a_position, 1.0)).xyz;
+          }
+        `;
+        const fs = `
+          precision mediump float;
+          uniform vec3 u_color;
+          uniform vec3 u_lightPos;
+          uniform vec3 u_lightColor;
+          uniform float u_lightIntensity;
+          varying vec3 v_normal;
+          varying vec3 v_position;
+          void main() {
+            vec3 normal = normalize(v_normal);
+            vec3 lightDir = normalize(u_lightPos - v_position);
+            float diff = max(dot(normal, lightDir), 0.0);
+            vec3 diffuse = diff * u_lightColor * u_lightIntensity;
+            gl_FragColor = vec4(u_color * diffuse, 1.0);
+          }
+        `;
+
+        const vShader = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+        if (!gl.getShaderParameter(vShader, gl.COMPILE_STATUS)) throw new Error('Vertex shader compilation failed: ' + gl.getShaderInfoLog(vShader));
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+        if (!gl.getShaderParameter(fShader, gl.COMPILE_STATUS)) throw new Error('Fragment shader compilation failed: ' + gl.getShaderInfoLog(fShader));
+
+        this.program = gl.createProgram();
+        gl.attachShader(this.program, vShader);
+        gl.attachShader(this.program, fShader);
+        gl.linkProgram(this.program);
+        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error('Program linking failed: ' + gl.getProgramInfoLog(this.program));
+
+        gl.useProgram(this.program);
+
+        this.uniforms.mvp = gl.getUniformLocation(this.program, 'u_mvp');
+        this.uniforms.model = gl.getUniformLocation(this.program, 'u_model');
+        this.uniforms.color = gl.getUniformLocation(this.program, 'u_color');
+        this.uniforms.lightPos = gl.getUniformLocation(this.program, 'u_lightPos');
+        this.uniforms.lightColor = gl.getUniformLocation(this.program, 'u_lightColor');
+        this.uniforms.lightIntensity = gl.getUniformLocation(this.program, 'u_lightIntensity');
+
+        // Cube geometry (vertices and normals)
+        const vertices = new Float32Array([
+          -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5, // Front
+          -0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5,  0.5,-0.5,-0.5, // Back
+          -0.5, 0.5,-0.5, -0.5, 0.5, 0.5,  0.5, 0.5, 0.5,  0.5, 0.5,-0.5, // Top
+          -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5,-0.5, 0.5, -0.5,-0.5, 0.5, // Bottom
+           0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5,  0.5,-0.5, 0.5, // Right
+          -0.5,-0.5,-0.5, -0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,-0.5  // Left
+        ]);
+        const normals = new Float32Array([
+          0,0,1, 0,0,1, 0,0,1, 0,0,1,           // Front
+          0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1,        // Back
+          0,1,0, 0,1,0, 0,1,0, 0,1,0,           // Top
+          0,-1,0, 0,-1,0, 0,-1,0, 0,-1,0,         // Bottom
+          1,0,0, 1,0,0, 1,0,0, 1,0,0,           // Right
+          -1,0,0, -1,0,0, -1,0,0, -1,0,0          // Left
+        ]);
+        const indices = new Uint16Array([
+          0,1,2, 0,2,3, 4,5,6, 4,6,7,
+          8,9,10, 8,10,11, 12,13,14, 12,14,15,
+          16,17,18, 16,18,19, 20,21,22, 20,22,23
+        ]);
+
+        this.buffers = {
+          position: gl.createBuffer(),
+          normal: gl.createBuffer(),
+          index: gl.createBuffer()
+        };
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.normal);
+        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.index);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+        const posAttr = gl.getAttribLocation(this.program, 'a_position');
+        gl.enableVertexAttribArray(posAttr);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
+        gl.vertexAttribPointer(posAttr, 3, gl.FLOAT, false, 0, 0);
+
+        const normAttr = gl.getAttribLocation(this.program, 'a_normal');
+        gl.enableVertexAttribArray(normAttr);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.normal);
+        gl.vertexAttribPointer(normAttr, 3, gl.FLOAT, false, 0, 0);
+      }
+      setSize(w, h) {
+        this.canvas.width = w * devicePixelRatio;
+        this.canvas.height = h * devicePixelRatio;
+        this.canvas.style.width = `${w}px`;
+        this.canvas.style.height = `${h}px`;
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      }
+      addCube(name, position, size, color) {
+        this.objects.push({
+          name,
+          type: 'cube',
+          position: position.map(Number),
+          size: Number(size),
+          color: color.map(Number),
+          rotation: [0,0,0]
+        });
+      }
+      addLight(name, position, color, intensity) {
+        this.lights.push({
+          name,
+          type: 'point',
+          position: position.map(Number),
+          color: color.map(Number),
+          intensity: Number(intensity)
+        });
+      }
+      setCamera(position, rotation) {
+        this.camera.position = position.map(Number);
+        this.camera.rotation = rotation.map(Number);
+      }
+      render() {
+        try {
+          const gl = this.gl;
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+          const aspect = this.canvas.width / this.canvas.height;
+          const proj = MathUtils.mat4.perspective(this.camera.fov, aspect, this.camera.near, this.camera.far);
+          const view = MathUtils.mat4.lookAt(this.camera.position, [0,0,0], [0,1,0]);
+          const vp = MathUtils.mat4.multiply(proj, view);
+
+          for (const obj of this.objects) {
+            if (!obj.rotation || obj.rotation.length !== 3 || obj.rotation.some(isNaN)) {
+              throw new Error(`Invalid rotation for object ${obj.name}: ${obj.rotation}`);
+            }
+            let model = MathUtils.mat4.identity();
+            model = MathUtils.mat4.translate(model, obj.position);
+            model = MathUtils.mat4.rotateX(model, obj.rotation[0]);
+            model = MathUtils.mat4.rotateY(model, obj.rotation[1]);
+            const mvp = MathUtils.mat4.multiply(vp, model);
+
+            if (!mvp || !mvp.set) throw new Error(`Invalid MVP matrix for object ${obj.name}`);
+            gl.uniformMatrix4fv(this.uniforms.mvp, false, mvp);
+            gl.uniformMatrix4fv(this.uniforms.model, false, model);
+            gl.uniform3fv(this.uniforms.color, obj.color);
+
+            const light = this.lights[0] || { position: [5,5,5], color: [1,1,1], intensity: 1 };
+            gl.uniform3fv(this.uniforms.lightPos, light.position);
+            gl.uniform3fv(this.uniforms.lightColor, light.color);
+            gl.uniform1f(this.uniforms.lightIntensity, light.intensity);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.index);
+            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+          }
+        } catch (e) {
+          throw new Error(`Render failed: ${e.message}`);
+        }
+      }
+      clear() {
+        this.objects = [];
+        this.lights = [];
+      }
+    }
+
+    // Application logic
+    let log = [], renderer, objects = [], animations = [], groups = [], lights = [];
+    let rendering = false, renderId, perfId, lastTime = 0;
+    let updateFn;
+    let keys = {}, touch = { x0: 0, y0: 0, dx: 0, dy: 0, dragging: false };
+    let webgpuContext = null, wasmModule = null;
+
+    // Embedded debug.md content
+    const debugMD = `
+# Debug MD3D
+
+\`\`\`javascript
+function customUpdate(md3d, scene, camera, renderer, sceneObjects, animations, groups, lights, keyboardState, touchState) {
+  const cube = sceneObjects.find(obj => obj.name === 'debug_cube');
+  if (cube) {
+    cube.rotation[0] += 0.01;
+    cube.rotation[1] += 0.01;
+  }
+}
+\`\`\`
+
+add_shape(cube, debug_cube, position=(0,0,0), size=1, color=(1,0,0))
+add_light(debug_light, point, position=(5,5,5), color=(1,1,1), intensity=1)
+set_camera(position=(0,0,10), rotation=(0,0,0))
+`.trim();
+
+    function logInfo(msg, level = 'info') {
+      const c = document.getElementById('console');
+      const isScrolledToBottom = c.scrollHeight - c.clientHeight <= c.scrollTop + 1;
+      c.innerHTML += `<div class="log-${level}">[MD3D] ${msg}</div>`;
+      if(isScrolledToBottom) c.scrollTop = c.scrollHeight;
+      log.push({ time: new Date().toISOString(), level: level.toUpperCase(), msg });
+      if (log.length > 200) log.shift();
+      document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
+    }
+
+    function logError(msg) {
+      logInfo(msg, 'error');
+      const ec = document.getElementById('error-console');
+      ec.innerHTML += `<div class="log-error">[ERROR] ${msg}</div>`;
+      while (ec.children.length > 100) ec.removeChild(ec.firstChild);
+      ec.scrollTop = ec.scrollHeight;
+    }
+
+    class MD3D {
+      constructor() { this.renderer = renderer; this.objects = objects; this.animations = animations; this.groups = groups; this.lights = lights; }
+      add_shape(type, name, params) {
+        try {
+            if (type !== 'cube') throw new Error(`Unsupported shape type: ${type}`);
+            const { position, size, color } = params;
+            if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) throw new Error('Invalid cube params');
+            if (objects.find(o => o.name === name)) throw new Error(`Duplicate name: ${name}`);
+            renderer.addCube(name, position, size, color);
+            objects.push({ name, type: 'cube', position: position.map(Number), size: Number(size), color: color.map(Number), rotation: [0,0,0] });
+            logInfo(`Cube ${name} added, total: ${objects.length}`);
+        } catch (e) { logError(`Add shape ${name} failed: ${e.message}`); }
+      }
+      add_light(name, type, params) {
+        try {
+            const { position, color, intensity } = params;
+            if (!name || !type || !Array.isArray(position) || position.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity)) throw new Error('Invalid light params');
+            if (type !== 'point') throw new Error('Only point lights supported');
+            if (lights.find(l => l.name === name)) throw new Error(`Duplicate light: ${name}`);
+            renderer.addLight(name, position, color, intensity);
+            lights.push({ name, type, position: position.map(Number), color: color.map(Number), intensity: Number(intensity) });
+            logInfo(`Light ${name} added, total: ${lights.length}`);
+        } catch (e) { logError(`Add light ${name} failed: ${e.message}`); }
+      }
+      set_camera(params) {
+        try {
+            const { position, rotation } = params;
+            if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) throw new Error('Invalid camera params');
+            renderer.setCamera(position, rotation);
+            logInfo(`Camera set: pos=[${position}], rot=[${rotation}]`);
+        } catch (e) { logError(`Set camera failed: ${e.message}`); }
+      }
+      clear() {
+        try {
+          if (renderer) renderer.clear();
+          objects = []; animations = []; groups = []; lights = []; updateFn = null;
+          logInfo(`Cleared: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
+        } catch (e) { logError(`Clear failed: ${e.message}`); }
+      }
+    }
+
+    const md3d = new MD3D();
+
+    async function init() {
+      try {
+        logInfo('Initializing...');
+        await init3D();
+        await initWASM();
+        initControls();
+        logInfo('Initialized');
+        ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
+          document.getElementById(id).disabled = false;
+        });
+        updatePerf();
+      } catch (e) {
+        logError(`Init failed: ${e.message}`);
+        disableUI();
+      }
+    }
+
+    function disableUI() {
+      ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
+        document.getElementById(id).disabled = true;
+      });
+    }
+    
+    async function init3D() {
+      try {
+        const canvas = document.getElementById('md3d-canvas');
+        renderer = new WebGLRenderer(canvas);
+        document.getElementById('webgl-status').textContent = 'WebGL';
+        if (navigator.gpu) {
+          try {
+            const adapter = await navigator.gpu.requestAdapter();
+            if (adapter) {
+              webgpuContext = await adapter.requestDevice();
+              document.getElementById('webgpu-status').textContent = 'WebGPU';
+              logInfo('WebGPU context obtained.');
+            } else {
+              throw new Error('No adapter found');
+            }
+          } catch (e) {
+            document.getElementById('webgpu-status').textContent = 'No WebGPU';
+            logInfo(`WebGPU not available: ${e.message}`, 'warning');
+          }
+        } else {
+          document.getElementById('webgpu-status').textContent = 'No WebGPU';
+        }
+        resize();
+        logInfo('3D initialized');
+      } catch (e) {
+        logError(`3D init failed: ${e.message}`);
+        document.getElementById('webgl-status').textContent = 'Failed';
+        throw e;
+      }
+    }
+
+    async function initWASM() {
+        try {
+            // Minimal WASM module (exports an 'add' function) as a byte array
+            const wasmBytes = new Uint8Array([
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x60,
+                0x02, 0x7f, 0x7f, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
+                0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x20,
+                0x00, 0x20, 0x01, 0x6a, 0x0b
+            ]);
+            const wasmInstance = await WebAssembly.instantiate(wasmBytes);
+            wasmModule = wasmInstance.instance;
+            document.getElementById('wasm-status').textContent = 'WASM Ready';
+            logInfo('WASM module loaded.');
+        } catch (e) {
+            logError(`WASM initialization failed: ${e.message}`);
+            document.getElementById('wasm-status').textContent = 'WASM Failed';
+            wasmModule = null;
+        }
+    }
+
+    function renderLoop() {
+      if (!rendering) return;
+      renderId = requestAnimationFrame(renderLoop);
+      try {
+        const now = performance.now();
+        const delta = now - (lastTime || now);
+        lastTime = now;
+        
+        if (document.getElementById('md3d-popup').style.display === 'none') {
+            close3D();
+            return;
+        }
+
+        if (updateFn) {
+            updateFn(md3d, renderer.objects, renderer.camera, renderer, objects, animations, groups, lights, keys, touch);
+        }
+
+        renderer.render();
+
+        const frameTime = performance.now() - now;
+        document.getElementById('fps').textContent = (1000 / delta).toFixed(2);
+        document.getElementById('time').textContent = frameTime.toFixed(2);
+      } catch(e) {
+        logError(`Render loop failed unexpectedly: ${e.message}`);
+        close3D();
+      }
+    }
+
+    function updatePerf() {
+        const memory = performance.memory;
+        if (memory) {
+            document.getElementById('memory').textContent = (memory.usedJSHeapSize / 1048576).toFixed(2);
+        }
+        perfId = setTimeout(updatePerf, 2000);
+    }
+    
+    function parseParams(str) {
+        const params = {};
+        const regex = /(\w+)\s*=\s*\(([^)]+)\)|(\w+)\s*=\s*([\w.-]+)/g;
+        let match;
+        while ((match = regex.exec(str)) !== null) {
+            if (match[1]) { // Tuple (e.g., position=(x,y,z))
+                params[match[1]] = match[2].split(',').map(s => s.trim());
+            } else { // Single value (e.g., size=1.5)
+                params[match[3]] = match[4];
+            }
+        }
+        return params;
+    }
+
+    function parseMD(code) {
+        logInfo(`Parsing ${code.split('\n').length} lines`);
+        const lines = code.replace(/\r\n/g, '\n').trim().split('\n');
+        let inCodeBlock = false;
+        let codeBlockLang = '';
+        let codeBlockContent = '';
+
+        lines.forEach((line, index) => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('```')) {
+                if (inCodeBlock) {
+                    inCodeBlock = false;
+                    try {
+                        if (codeBlockLang === 'javascript') {
+                            updateFn = new Function('md3d', 'scene', 'camera', 'renderer', 'sceneObjects', 'animations', 'groups', 'lights', 'keyboardState', 'touchState', codeBlockContent);
+                            logInfo(`JS block parsed at line ${index + 1}: ${codeBlockContent.substring(0, 40).replace(/\n/g, ' ')}...`);
+                            logInfo('JS update function loaded');
+                        }
+                    } catch (e) { logError(`JS block parsing failed: ${e.message}`); }
+                } else {
+                    inCodeBlock = true;
+                    codeBlockLang = trimmed.substring(3).trim();
+                    codeBlockContent = '';
+                    logInfo(`Code block (${codeBlockLang}) started at line ${index + 1}`);
+                }
+            } else if (inCodeBlock) {
+                codeBlockContent += line + '\n';
+            } else if (trimmed && !trimmed.startsWith('#')) {
+                const match = trimmed.match(/^(\w+)\(([^)]*)\)/);
+                if (match) {
+                    const cmd = match[1];
+                    const argsStr = match[2];
+                    try {
+                        if (cmd === 'add_shape' || cmd === 'add_light') {
+                            const [type, name, ...paramsStr] = argsStr.split(',').map(s => s.trim());
+                            const params = parseParams(paramsStr.join(','));
+                            if (typeof md3d[cmd] === 'function') {
+                                md3d[cmd](type, name, params);
+                                logInfo(`Generated: ${cmd}(${type}, ${name})`);
+                            }
+                        } else if (cmd === 'set_camera') {
+                             const params = parseParams(argsStr);
+                             md3d.set_camera(params);
+                             logInfo(`Generated: set_camera`);
+                        }
+                    } catch (e) { logError(`Command failed: ${cmd} - ${e.message}`); }
+                }
+            } else if (trimmed.startsWith('#')) {
+                 logInfo(`Skipped line ${index + 1}: ${line}`);
+            }
+        });
+        logInfo(`MD ran: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
+    }
+
+    function open3D() {
+      const popup = document.getElementById('md3d-popup');
+      popup.style.display = 'block';
+      logInfo('3D canvas opened');
+      resize();
+      rendering = true;
+      renderLoop();
+    }
+    
+    function close3D() {
+      const popup = document.getElementById('md3d-popup');
+      popup.style.display = 'none';
+      if (rendering) {
+        rendering = false;
+        if(renderId) cancelAnimationFrame(renderId);
+        renderId = null;
+        logInfo('3D canvas closed');
+        logInfo('Render stopped');
+      }
+    }
+
+    function injectMD(sourceMD = null) {
+        const mdInput = document.getElementById('md-input');
+        const code = sourceMD || mdInput.value;
+        const debugMDNormalized = debugMD.replace(/\r\n/g, '\n').trim();
+        const codeNormalized = code.replace(/\r\n/g, '\n').trim();
+
+        if (sourceMD && mdInput.value && mdInput.value.trim() !== debugMDNormalized) {
+             logInfo(`Warning: Manual input in MD3D popup (${mdInput.value.split('\n').length} lines) ignored; using embedded debug.md (${sourceMD.split('\n').length} lines)`, 'warning');
+        }
+        
+        if (code !== debugMD) {
+            md3d.clear();
+        }
+
+        if (sourceMD) { // Clear input only when injecting debug code
+             mdInput.value = '';
+        }
+
+        if (codeNormalized !== debugMDNormalized && code === debugMD) {
+            logError('Debug MD content mismatch after normalization. Check line endings.');
+        }
+        
+        parseMD(code);
+        
+        if (objects.length > 0 || lights.length > 0) {
+            open3D();
+        }
+    }
+
+    function openPopup() { document.getElementById('md-popup').style.display = 'block'; }
+    function closePopup() { document.getElementById('md-popup').style.display = 'none'; }
+    function resize() { if (renderer) renderer.setSize(renderer.canvas.parentElement.clientWidth, renderer.canvas.parentElement.clientHeight); }
+
+    function debug() {
+        logInfo('Debug running...');
+        document.getElementById('md-input').value = '';
+        logInfo(`Debugging with embedded debug.md (${debugMD.split('\n').length} lines)...`);
+        md3d.clear();
+        injectMD(debugMD);
+
+        logInfo(`Embedded debug.md executed successfully`);
+        
+        setTimeout(() => {
+            const checks = {
+                '3D init': () => !!(renderer && renderer.gl),
+                'Scene': () => !!(objects),
+                'Camera': () => !!(renderer && renderer.camera),
+                'Renderer': () => !!(renderer && renderer.program),
+                'Rendering': () => rendering,
+                'Animations': () => animations.length === 0 ? 'No animations' : 'OK',
+                'MD3D': () => !!md3d,
+                'Objects': () => !!objects,
+                'Animations array': () => !!animations,
+                'Groups': () => !!groups,
+                'Lights': () => !!lights,
+                'WebGL Context': () => !!(renderer && renderer.gl),
+                'WebGPU Context': () => webgpuContext ? 'OK' : 'Not available',
+                'WASM Module': () => wasmModule ? 'Loaded' : 'Not loaded',
+                'Debug MD Execution': () => objects.some(o => o.name === 'debug_cube') && lights.some(l => l.name === 'debug_light'),
+                'Render Status': () => rendering ? 'OK' : 'Stopped',
+            };
+            Object.entries(checks).forEach(([name, checkFn], i) => {
+                const result = checkFn();
+                const status = result === true ? 'OK' : (result === false ? 'Failed' : result);
+                logInfo(`[CHECK ${i + 1}] ${name}: ${status}`);
+            });
+            logInfo('Debug done');
+        }, 100);
+    }
+    
+    function initControls() {
+        document.getElementById('execute').onclick = () => {
+            const input = document.getElementById('input');
+            const cmd = input.value.trim();
+            if (cmd) {
+                logInfo(`Executing: ${cmd}`);
+                // Simple command parsing for now
+                if(cmd === "test") md3d.test();
+                else logError(`Unknown command: ${cmd}`);
+                input.value = '';
+            }
+        };
+        document.getElementById('input').onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('execute').click(); };
+        document.getElementById('markdown-btn').onclick = openPopup;
+        document.getElementById('clear-btn').onclick = () => {
+            md3d.clear();
+            close3D();
+            updateFn = null;
+        };
+        document.getElementById('debug-btn').onclick = debug;
+        document.getElementById('copy-log-btn').onclick = () => {
+            navigator.clipboard.writeText(document.getElementById('log-output').value)
+                .then(() => logInfo('Log copied to clipboard.'))
+                .catch(err => logError('Failed to copy log: ' + err));
+        };
+        document.getElementById('md-input').addEventListener('input', e => {
+            const count = e.target.value.split('\n').length;
+            document.getElementById('line-count').textContent = `Lines: ${count}`;
+        });
+        window.onresize = resize;
+        
+        // Keyboard controls for 3D view
+        window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+        window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
