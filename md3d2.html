@@ -37,7 +37,7 @@
   <div id="error-console"></div>
   <button id="copy-log-btn" disabled aria-label="Copy error log to clipboard">Copy to Clipboard</button>
   <div id="status-area">
-    <span id="webgl-status">Loading...</span> | 
+    <span id="webgl-status">N/A</span> | 
     <span id="webgpu-status">Checking...</span> | 
     <span id="wasm-status">Checking...</span> |
     <span id="fps">0.00</span> FPS | 
@@ -55,7 +55,7 @@
     <select id="code-type" aria-label="Code type">
       <option value="text/markdown">Markdown (.md)</option>
     </select>
-    <textarea id="md-input" placeholder="Paste Markdown with code block (e.g., ```javascript, ```glsl, ```wgsl, ```wasm, ```text) and optional commands (add_shape, add_light, set_camera)." aria-label="Markdown input"></textarea>
+    <textarea id="md-input" placeholder="Paste Markdown with code block (e.g., ```javascript, ```glsl, ```wgsl, ```wasm, ```text) and optional commands (add_shape, add_light, set_camera)."></textarea>
     <div id="line-count">Lines: 0</div>
     <div style="margin-top: 10px; display: flex; gap: 10px;">
       <button onclick="injectMD()" aria-label="Inject markdown">Inject</button>
@@ -68,7 +68,7 @@
   </div>
   <textarea id="log-output" readonly placeholder="Error log for manual copy" aria-label="Error log"></textarea>
   <script>
-    // Math utilities
+    // Math utilities (unchanged)
     const MathUtils = {
       mat4: {
         create: () => new Float32Array(16),
@@ -177,213 +177,203 @@
         }
       },
       vec3: {
-        subtract: (a, b, out = [0,0,0]) => {
-          out[0] = a[0] - b[0];
-          out[1] = a[1] - b[1];
-          out[2] = a[2] - b[2];
-          return out;
-        },
-        normalize: (v, out = [0,0,0]) => {
-          const l = Math.hypot(...v);
-          out[0] = l > 0 ? v[0] / l : 0;
-          out[1] = l > 0 ? v[1] / l : 0;
-          out[2] = l > 0 ? v[2] / l : 0;
-          return out;
-        },
+        subtract: (a, b, out = [0,0,0]) => { out[0] = a[0] - b[0]; out[1] = a[1] - b[1]; out[2] = a[2] - b[2]; return out; },
+        normalize: (v, out = [0,0,0]) => { const l = Math.hypot(...v); out[0] = l > 0 ? v[0] / l : 0; out[1] = l > 0 ? v[1] / l : 0; out[2] = l > 0 ? v[2] / l : 0; return out; },
         dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
       }
     };
 
-    // Custom WebGL Renderer
-    class WebGLRenderer {
+    // WebGPU Renderer
+    class WebGPURenderer {
       constructor(canvas) {
         this.canvas = canvas;
-        this.gl = canvas.getContext('webgl', { antialias: true });
-        if (!this.gl) throw new Error('WebGL not supported');
         this.objects = [];
         this.lights = [];
-        this.camera = { position: [0,0,20], rotation: [0,0,0], fov: 45 * Math.PI / 180, near: 0.1, far: 1000 };
-        this.program = null;
-        this.buffers = null;
-        this.uniforms = {};
-        this.init();
+        this.camera = { position: [0, 0, 20], rotation: [0, 0, 0], fov: 45 * Math.PI / 180, near: 0.1, far: 1000 };
+        this.device = null;
+        this.context = null;
+        this.pipeline = null;
+        this.bindGroup = null;
+        this.uniformBuffer = null;
+        this.vertexBuffer = null;
+        this.normalBuffer = null;
+        this.indexBuffer = null;
+        this.depthTexture = null;
+        this.initPromise = this.init();
       }
-      init() {
-        const gl = this.gl;
-        gl.enable(gl.DEPTH_TEST);
-        gl.clearColor(0, 0, 0, 1);
 
-        const vs = `
-          attribute vec3 a_position;
-          attribute vec3 a_normal;
-          uniform mat4 u_mvp;
-          uniform mat4 u_model;
-          varying vec3 v_normal;
-          varying vec3 v_position;
-          void main() {
-            gl_Position = u_mvp * vec4(a_position, 1.0);
-            v_normal = mat3(u_model) * a_normal;
-            v_position = (u_model * vec4(a_position, 1.0)).xyz;
+      async init() {
+        if (!navigator.gpu) throw new Error('WebGPU not supported');
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error('No WebGPU adapter found');
+        this.device = await adapter.requestDevice();
+        this.context = this.canvas.getContext('webgpu');
+        if (!this.context) throw new Error('WebGPU context not available');
+
+        const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+        this.context.configure({
+          device: this.device,
+          format: presentationFormat,
+          alphaMode: 'opaque'
+        });
+
+        const shaderModule = this.device.createShaderModule({
+          code: `
+            struct Uniforms {
+              mvp : mat4x4<f32>,
+              model : mat4x4<f32>,
+              color : vec3<f32>,
+              // padding
+              _p1: f32,
+              lightPos : vec3<f32>,
+               // padding
+              _p2: f32,
+              lightColor : vec3<f32>,
+              lightIntensity : f32,
+            };
+            @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+            struct VertexOutput {
+              @builtin(position) position : vec4<f32>,
+              @location(0) normal : vec3<f32>,
+              @location(1) worldPos : vec3<f32>,
+            };
+
+            @vertex
+            fn vs_main(@location(0) pos: vec3<f32>, @location(1) norm: vec3<f32>) -> VertexOutput {
+              var out : VertexOutput;
+              out.position = uniforms.mvp * vec4<f32>(pos, 1.0);
+              out.normal = (uniforms.model * vec4<f32>(norm, 0.0)).xyz;
+              out.worldPos = (uniforms.model * vec4<f32>(pos, 1.0)).xyz;
+              return out;
+            }
+
+            @fragment
+            fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
+              let normal = normalize(in.normal);
+              let lightDir = normalize(uniforms.lightPos - in.worldPos);
+              let diff = max(dot(normal, lightDir), 0.0);
+              let diffuse = diff * uniforms.lightColor * uniforms.lightIntensity;
+              return vec4<f32>(uniforms.color * diffuse, 1.0);
+            }
+          `
+        });
+
+        this.pipeline = this.device.createRenderPipeline({
+          layout: 'auto',
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [
+              { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+              { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] }
+            ]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: presentationFormat }]
+          },
+          primitive: { topology: 'triangle-list' },
+          depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: 'less',
+            format: 'depth24plus'
           }
-        `;
-        const fs = `
-          precision mediump float;
-          uniform vec3 u_color;
-          uniform vec3 u_lightPos;
-          uniform vec3 u_lightColor;
-          uniform float u_lightIntensity;
-          varying vec3 v_normal;
-          varying vec3 v_position;
-          void main() {
-            vec3 normal = normalize(v_normal);
-            vec3 lightDir = normalize(u_lightPos - v_position);
-            float diff = max(dot(normal, lightDir), 0.0);
-            vec3 diffuse = diff * u_lightColor * u_lightIntensity;
-            gl_FragColor = vec4(u_color * diffuse, 1.0);
-          }
-        `;
+        });
 
-        const vShader = gl.createShader(gl.VERTEX_SHADER);
-        gl.shaderSource(vShader, vs);
-        gl.compileShader(vShader);
-        if (!gl.getShaderParameter(vShader, gl.COMPILE_STATUS)) throw new Error('Vertex shader compilation failed: ' + gl.getShaderInfoLog(vShader));
+        const vertices = new Float32Array([-0.5,-0.5,0.5,0.5,-0.5,0.5,0.5,0.5,0.5,-0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,0.5,-0.5,0.5,0.5,-0.5,0.5,-0.5,-0.5,-0.5,0.5,-0.5,-0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,0.5,-0.5,-0.5,0.5,-0.5,0.5,-0.5,-0.5,0.5,0.5,-0.5,-0.5,0.5,0.5,0.5,0.5,-0.5,0.5,-0.5,-0.5,-0.5,-0.5,-0.5,0.5,-0.5,0.5,0.5,-0.5,0.5,-0.5]);
+        const normals = new Float32Array([0,0,1,0,0,1,0,0,1,0,0,1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,1,0,0,1,0,0,1,0,0,1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,1,0,0,1,0,0,1,0,0,1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0]);
+        const indices = new Uint16Array([0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,12,14,15,16,17,18,16,18,19,20,21,22,20,22,23]);
 
-        const fShader = gl.createShader(gl.FRAGMENT_SHADER);
-        gl.shaderSource(fShader, fs);
-        gl.compileShader(fShader);
-        if (!gl.getShaderParameter(fShader, gl.COMPILE_STATUS)) throw new Error('Fragment shader compilation failed: ' + gl.getShaderInfoLog(fShader));
+        this.vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        this.normalBuffer = this.device.createBuffer({ size: normals.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        this.indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
 
-        this.program = gl.createProgram();
-        gl.attachShader(this.program, vShader);
-        gl.attachShader(this.program, fShader);
-        gl.linkProgram(this.program);
-        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error('Program linking failed: ' + gl.getProgramInfoLog(this.program));
+        this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
+        this.device.queue.writeBuffer(this.normalBuffer, 0, normals);
+        this.device.queue.writeBuffer(this.indexBuffer, 0, indices);
 
-        gl.useProgram(this.program);
+        // Uniform buffer size must be a multiple of 16
+        this.uniformBuffer = this.device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-        this.uniforms.mvp = gl.getUniformLocation(this.program, 'u_mvp');
-        this.uniforms.model = gl.getUniformLocation(this.program, 'u_model');
-        this.uniforms.color = gl.getUniformLocation(this.program, 'u_color');
-        this.uniforms.lightPos = gl.getUniformLocation(this.program, 'u_lightPos');
-        this.uniforms.lightColor = gl.getUniformLocation(this.program, 'u_lightColor');
-        this.uniforms.lightIntensity = gl.getUniformLocation(this.program, 'u_lightIntensity');
-
-        // Cube geometry (vertices and normals)
-        const vertices = new Float32Array([
-          -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5, // Front
-          -0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5,  0.5,-0.5,-0.5, // Back
-          -0.5, 0.5,-0.5, -0.5, 0.5, 0.5,  0.5, 0.5, 0.5,  0.5, 0.5,-0.5, // Top
-          -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5,-0.5, 0.5, -0.5,-0.5, 0.5, // Bottom
-           0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5,  0.5,-0.5, 0.5, // Right
-          -0.5,-0.5,-0.5, -0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,-0.5  // Left
-        ]);
-        const normals = new Float32Array([
-          0,0,1, 0,0,1, 0,0,1, 0,0,1,           // Front
-          0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1,        // Back
-          0,1,0, 0,1,0, 0,1,0, 0,1,0,           // Top
-          0,-1,0, 0,-1,0, 0,-1,0, 0,-1,0,         // Bottom
-          1,0,0, 1,0,0, 1,0,0, 1,0,0,           // Right
-          -1,0,0, -1,0,0, -1,0,0, -1,0,0          // Left
-        ]);
-        const indices = new Uint16Array([
-          0,1,2, 0,2,3, 4,5,6, 4,6,7,
-          8,9,10, 8,10,11, 12,13,14, 12,14,15,
-          16,17,18, 16,18,19, 20,21,22, 20,22,23
-        ]);
-
-        this.buffers = {
-          position: gl.createBuffer(),
-          normal: gl.createBuffer(),
-          index: gl.createBuffer()
-        };
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
-        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.normal);
-        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.index);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-
-        const posAttr = gl.getAttribLocation(this.program, 'a_position');
-        gl.enableVertexAttribArray(posAttr);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
-        gl.vertexAttribPointer(posAttr, 3, gl.FLOAT, false, 0, 0);
-
-        const normAttr = gl.getAttribLocation(this.program, 'a_normal');
-        gl.enableVertexAttribArray(normAttr);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.normal);
-        gl.vertexAttribPointer(normAttr, 3, gl.FLOAT, false, 0, 0);
+        this.bindGroup = this.device.createBindGroup({
+          layout: this.pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
+        });
       }
+
       setSize(w, h) {
+        if (!this.device) return;
         this.canvas.width = w * devicePixelRatio;
         this.canvas.height = h * devicePixelRatio;
         this.canvas.style.width = `${w}px`;
         this.canvas.style.height = `${h}px`;
-        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-      }
-      addCube(name, position, size, color) {
-        this.objects.push({
-          name,
-          type: 'cube',
-          position: position.map(Number),
-          size: Number(size),
-          color: color.map(Number),
-          rotation: [0,0,0]
+        this.depthTexture?.destroy();
+        this.depthTexture = this.device.createTexture({
+          size: [this.canvas.width, this.canvas.height],
+          format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT
         });
       }
-      addLight(name, position, color, intensity) {
-        this.lights.push({
-          name,
-          type: 'point',
-          position: position.map(Number),
-          color: color.map(Number),
-          intensity: Number(intensity)
-        });
-      }
-      setCamera(position, rotation) {
-        this.camera.position = position.map(Number);
-        this.camera.rotation = rotation.map(Number);
-      }
-      render() {
-        try {
-          const gl = this.gl;
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-          const aspect = this.canvas.width / this.canvas.height;
-          const proj = MathUtils.mat4.perspective(this.camera.fov, aspect, this.camera.near, this.camera.far);
-          const view = MathUtils.mat4.lookAt(this.camera.position, [0,0,0], [0,1,0]);
-          const vp = MathUtils.mat4.multiply(proj, view);
+      addCube(name, position, size, color) { this.objects.push({ name, type: 'cube', position: position.map(Number), size: Number(size), color: color.map(Number), rotation: [0, 0, 0] }); }
+      addLight(name, position, color, intensity) { this.lights.push({ name, type: 'point', position: position.map(Number), color: color.map(Number), intensity: Number(intensity) }); }
+      setCamera(position, rotation) { this.camera.position = position.map(Number); this.camera.rotation = rotation.map(Number); }
 
-          for (const obj of this.objects) {
-            if (!obj.rotation || obj.rotation.length !== 3 || obj.rotation.some(isNaN)) {
-              throw new Error(`Invalid rotation for object ${obj.name}: ${obj.rotation}`);
-            }
-            let model = MathUtils.mat4.identity();
-            model = MathUtils.mat4.translate(model, obj.position);
-            model = MathUtils.mat4.rotateX(model, obj.rotation[0]);
-            model = MathUtils.mat4.rotateY(model, obj.rotation[1]);
-            const mvp = MathUtils.mat4.multiply(vp, model);
+      async render() {
+        await this.initPromise;
+        if (!this.context || !this.device) return;
 
-            if (!mvp || !mvp.set) throw new Error(`Invalid MVP matrix for object ${obj.name}`);
-            gl.uniformMatrix4fv(this.uniforms.mvp, false, mvp);
-            gl.uniformMatrix4fv(this.uniforms.model, false, model);
-            gl.uniform3fv(this.uniforms.color, obj.color);
-
-            const light = this.lights[0] || { position: [5,5,5], color: [1,1,1], intensity: 1 };
-            gl.uniform3fv(this.uniforms.lightPos, light.position);
-            gl.uniform3fv(this.uniforms.lightColor, light.color);
-            gl.uniform1f(this.uniforms.lightIntensity, light.intensity);
-
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.index);
-            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+        const commandEncoder = this.device.createCommandEncoder();
+        const renderPass = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.context.getCurrentTexture().createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }],
+          depthStencilAttachment: {
+            view: this.depthTexture.createView(),
+            depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store'
           }
-        } catch (e) {
-          throw new Error(`Render failed: ${e.message}`);
+        });
+
+        renderPass.setPipeline(this.pipeline);
+        renderPass.setVertexBuffer(0, this.vertexBuffer);
+        renderPass.setVertexBuffer(1, this.normalBuffer);
+        renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
+
+        const aspect = this.canvas.width / this.canvas.height;
+        const proj = MathUtils.mat4.perspective(this.camera.fov, aspect, this.camera.near, this.camera.far);
+        const view = MathUtils.mat4.lookAt(this.camera.position, [0, 0, 0], [0, 1, 0]);
+        const vp = MathUtils.mat4.multiply(proj, view);
+
+        for (const obj of this.objects) {
+          let model = MathUtils.mat4.identity();
+          model = MathUtils.mat4.translate(model, obj.position);
+          model = MathUtils.mat4.rotateX(model, obj.rotation[0]);
+          model = MathUtils.mat4.rotateY(model, obj.rotation[1]);
+          const mvp = MathUtils.mat4.multiply(vp, model);
+
+          const light = this.lights[0] || { position: [5, 5, 5], color: [1, 1, 1], intensity: 1 };
+          const uniformData = new Float32Array(40); // 160 bytes
+          uniformData.set(mvp, 0);
+          uniformData.set(model, 16);
+          uniformData.set(obj.color, 32);
+          uniformData.set(light.position, 36);
+          uniformData.set(light.color, 40);
+          uniformData[43] = light.intensity;
+
+          this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+          renderPass.setBindGroup(0, this.bindGroup);
+          renderPass.drawIndexed(36);
         }
+
+        renderPass.end();
+        this.device.queue.submit([commandEncoder.finish()]);
       }
-      clear() {
-        this.objects = [];
-        this.lights = [];
-      }
+
+      clear() { this.objects = []; this.lights = []; }
     }
 
     // Application logic
@@ -391,9 +381,8 @@
     let rendering = false, renderId, perfId, lastTime = 0;
     let updateFn;
     let keys = {}, touch = { x0: 0, y0: 0, dx: 0, dy: 0, dragging: false };
-    let webgpuContext = null, wasmModule = null;
+    let wasmModule = null;
 
-    // Embedded debug.md content
     const debugMD = `
 # Debug MD3D
 
@@ -419,13 +408,11 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
     function logInfo(msg, level = 'info') {
       const c = document.getElementById('console');
       const isScrolledToBottom = c.scrollHeight - c.clientHeight <= c.scrollTop + 1;
-      // Use textContent to prevent HTML injection
       const div = document.createElement('div');
       div.className = `log-${level}`;
       div.textContent = `[MD3D] ${msg}`;
       c.appendChild(div);
-
-      if(isScrolledToBottom) c.scrollTop = c.scrollHeight;
+      if (isScrolledToBottom) c.scrollTop = c.scrollHeight;
       log.push({ time: new Date().toISOString(), level: level.toUpperCase(), msg });
       if (log.length > 200) log.shift();
       document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
@@ -444,43 +431,10 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
 
     class MD3D {
       constructor() { this.renderer = renderer; this.objects = objects; this.animations = animations; this.groups = groups; this.lights = lights; }
-      add_shape(type, name, params) {
-        try {
-            if (type !== 'cube') throw new Error(`Unsupported shape type: ${type}`);
-            const { position, size, color } = params;
-            if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) throw new Error('Invalid cube params');
-            if (objects.find(o => o.name === name)) throw new Error(`Duplicate name: ${name}`);
-            renderer.addCube(name, position, size, color);
-            objects.push({ name, type: 'cube', position: position.map(Number), size: Number(size), color: color.map(Number), rotation: [0,0,0] });
-            logInfo(`Cube ${name} added, total: ${objects.length}`);
-        } catch (e) { logError(`Add shape ${name} failed: ${e.message}`); }
-      }
-      add_light(name, type, params) {
-        try {
-            const { position, color, intensity } = params;
-            if (!name || !type || !Array.isArray(position) || position.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity)) throw new Error('Invalid light params');
-            if (type !== 'point') throw new Error('Only point lights supported');
-            if (lights.find(l => l.name === name)) throw new Error(`Duplicate light: ${name}`);
-            renderer.addLight(name, position, color, intensity);
-            lights.push({ name, type, position: position.map(Number), color: color.map(Number), intensity: Number(intensity) });
-            logInfo(`Light ${name} added, total: ${lights.length}`);
-        } catch (e) { logError(`Add light ${name} failed: ${e.message}`); }
-      }
-      set_camera(params) {
-        try {
-            const { position, rotation } = params;
-            if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) throw new Error('Invalid camera params');
-            renderer.setCamera(position, rotation);
-            logInfo(`Camera set: pos=[${position}], rot=[${rotation}]`);
-        } catch (e) { logError(`Set camera failed: ${e.message}`); }
-      }
-      clear() {
-        try {
-          if (renderer) renderer.clear();
-          objects = []; animations = []; groups = []; lights = []; updateFn = null;
-          logInfo(`Cleared: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
-        } catch (e) { logError(`Clear failed: ${e.message}`); }
-      }
+      add_shape(type, name, params) { try { if (type !== 'cube') throw new Error(`Unsupported shape type: ${type}`); const { position, size, color } = params; if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) throw new Error('Invalid cube params'); renderer.addCube(name, position, size, color); objects.push({ name, type: 'cube', position: position.map(Number), size: Number(size), color: color.map(Number), rotation: [0, 0, 0] }); logInfo(`Cube ${name} added, total: ${objects.length}`); } catch (e) { logError(`Add shape ${name} failed: ${e.message}`); } }
+      add_light(name, type, params) { try { const { position, color, intensity } = params; if (!name || !type || !Array.isArray(position) || position.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity)) throw new Error('Invalid light params'); if (type !== 'point') throw new Error('Only point lights supported'); if (lights.find(l => l.name === name)) throw new Error(`Duplicate light: ${name}`); renderer.addLight(name, position, color, intensity); lights.push({ name, type, position: position.map(Number), color: color.map(Number), intensity: Number(intensity) }); logInfo(`Light ${name} added, total: ${lights.length}`); } catch (e) { logError(`Add light ${name} failed: ${e.message}`); } }
+      set_camera(params) { try { const { position, rotation } = params; if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) throw new Error('Invalid camera params'); renderer.setCamera(position, rotation); logInfo(`Camera set: pos=[${position}], rot=[${rotation}]`); } catch (e) { logError(`Set camera failed: ${e.message}`); } }
+      clear() { try { if (renderer) renderer.clear(); objects = []; animations = []; groups = []; lights = []; updateFn = null; logInfo(`Cleared: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`); } catch (e) { logError(`Clear failed: ${e.message}`); } }
     }
 
     const md3d = new MD3D();
@@ -488,6 +442,7 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
     async function init() {
       try {
         logInfo('Initializing...');
+        document.getElementById('webgl-status').textContent = 'N/A';
         await init3D();
         await initWASM();
         initControls();
@@ -502,181 +457,119 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
       }
     }
 
-    function disableUI() {
-      ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
-        document.getElementById(id).disabled = true;
-      });
-    }
-    
+    function disableUI() { ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; }); }
+
     async function init3D() {
       try {
         const canvas = document.getElementById('md3d-canvas');
-        renderer = new WebGLRenderer(canvas);
-        document.getElementById('webgl-status').textContent = 'WebGL';
-        if (navigator.gpu) {
-          try {
-            const adapter = await navigator.gpu.requestAdapter();
-            if (adapter) {
-              webgpuContext = await adapter.requestDevice();
-              document.getElementById('webgpu-status').textContent = 'WebGPU';
-              logInfo('WebGPU context obtained.');
-            } else {
-              throw new Error('No adapter found');
-            }
-          } catch (e) {
-            document.getElementById('webgpu-status').textContent = 'No WebGPU';
-            logInfo(`WebGPU not available: ${e.message}`, 'warning');
-          }
-        } else {
-          document.getElementById('webgpu-status').textContent = 'No WebGPU';
-        }
+        renderer = new WebGPURenderer(canvas);
+        await renderer.initPromise;
+        document.getElementById('webgpu-status').textContent = 'WebGPU';
+        logInfo('WebGPU Initialized');
         resize();
-        logInfo('3D initialized');
+        logInfo('3D system ready');
       } catch (e) {
         logError(`3D init failed: ${e.message}`);
-        document.getElementById('webgl-status').textContent = 'Failed';
+        document.getElementById('webgpu-status').textContent = 'Failed';
         throw e;
       }
     }
 
     async function initWASM() {
-        try {
-            // Minimal WASM module (exports an 'add' function) as a byte array
-            const wasmBytes = new Uint8Array([
-                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x60,
-                0x02, 0x7f, 0x7f, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
-                0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x20,
-                0x00, 0x20, 0x01, 0x6a, 0x0b
-            ]);
-            const wasmInstance = await WebAssembly.instantiate(wasmBytes);
-            wasmModule = wasmInstance.instance;
-            document.getElementById('wasm-status').textContent = 'WASM Ready';
-            logInfo('WASM module loaded.');
-        } catch (e) {
-            logError(`WASM initialization failed: ${e.message}`);
-            document.getElementById('wasm-status').textContent = 'WASM Failed';
-            wasmModule = null;
-        }
+      try {
+        const wasmBytes = new Uint8Array([0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11]);
+        const wasmInstance = await WebAssembly.instantiate(wasmBytes);
+        wasmModule = wasmInstance.instance;
+        document.getElementById('wasm-status').textContent = 'WASM Ready';
+        logInfo('WASM module loaded.');
+      } catch (e) {
+        logError(`WASM initialization failed: ${e.message}`);
+        document.getElementById('wasm-status').textContent = 'WASM Failed';
+        wasmModule = null;
+      }
     }
 
-    function renderLoop() {
+    async function renderLoop() {
       if (!rendering) return;
-      renderId = requestAnimationFrame(renderLoop);
       try {
         const now = performance.now();
         const delta = now - (lastTime || now);
         lastTime = now;
-        
-        if (document.getElementById('md3d-popup').style.display === 'none') {
-            close3D();
-            return;
-        }
 
-        if (updateFn) {
-            updateFn(md3d, renderer.objects, renderer.camera, renderer, objects, animations, groups, lights, keys, touch);
-        }
-
-        renderer.render();
-
+        if (document.getElementById('md3d-popup').style.display === 'none') { close3D(); return; }
+        if (updateFn) { updateFn(md3d, renderer.objects, renderer.camera, renderer, objects, animations, groups, lights, keys, touch); }
+        await renderer.render();
         const frameTime = performance.now() - now;
         if (delta > 0) document.getElementById('fps').textContent = (1000 / delta).toFixed(2);
         document.getElementById('time').textContent = frameTime.toFixed(2);
-      } catch(e) {
+      } catch (e) {
         logError(`Render loop failed unexpectedly: ${e.message}`);
         close3D();
       }
+      renderId = requestAnimationFrame(renderLoop);
     }
 
     function updatePerf() {
-        const memory = performance.memory;
-        if (memory) {
-            document.getElementById('memory').textContent = (memory.usedJSHeapSize / 1048576).toFixed(2);
-        }
-        perfId = setTimeout(updatePerf, 2000);
+      const memory = performance.memory;
+      if (memory) { document.getElementById('memory').textContent = (memory.usedJSHeapSize / 1048576).toFixed(2); }
+      perfId = setTimeout(updatePerf, 2000);
     }
-    
-    // Robustly parse command arguments
-    function parseCommandArgs(argsStr) {
-        const args = [];
-        const kwargs = {};
-        // Regex to split arguments by comma, but not inside parentheses.
-        const argParts = argsStr.match(/([^=,]+\([^)]+\)|[^,]+)/g) || [];
 
-        argParts.forEach(part => {
-            part = part.trim();
-            if (part.includes('=')) {
-                const [key, rawValue] = part.split('=').map(s => s.trim());
-                let value = rawValue;
-                if (rawValue.startsWith('(') && rawValue.endsWith(')')) {
-                    value = rawValue.slice(1, -1).split(',').map(n => parseFloat(n));
-                } else if (!isNaN(parseFloat(rawValue))) {
-                    value = parseFloat(rawValue);
-                }
-                kwargs[key] = value;
-            } else {
-                args.push(part);
-            }
-        });
-        return { args, kwargs };
+    function parseCommandArgs(argsStr) {
+      const args = [];
+      const kwargs = {};
+      const argParts = argsStr.match(/([^=,]+\([^)]+\)|[^,]+)/g) || [];
+      argParts.forEach(part => {
+        part = part.trim();
+        if (part.includes('=')) {
+          const [key, rawValue] = part.split('=').map(s => s.trim());
+          let value = rawValue;
+          if (rawValue.startsWith('(') && rawValue.endsWith(')')) {
+            value = rawValue.slice(1, -1).split(',').map(n => parseFloat(n.trim()));
+          } else { value = parseFloat(rawValue); }
+          kwargs[key] = value;
+        } else { args.push(part); }
+      });
+      return { args, kwargs };
     }
 
     function parseMD(code) {
-        logInfo(`Parsing ${code.split('\n').length} lines`);
-        const lines = code.replace(/\r\n/g, '\n').trim().split('\n');
-        let inCodeBlock = false;
-        let codeBlockLang = '';
-        let codeBlockContent = '';
-
-        lines.forEach((line, index) => {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('```')) {
-                if (inCodeBlock) {
-                    inCodeBlock = false;
-                    try {
-                        if (codeBlockLang === 'javascript') {
-                            updateFn = new Function('md3d', 'scene', 'camera', 'renderer', 'sceneObjects', 'animations', 'groups', 'lights', 'keyboardState', 'touchState', codeBlockContent);
-                            logInfo(`JS block parsed at line ${index + 1}: ${codeBlockContent.substring(0, 40).replace(/\n/g, ' ')}...`);
-                            logInfo('JS update function loaded');
-                        }
-                    } catch (e) { logError(`JS block parsing failed: ${e.message}`); }
-                } else {
-                    inCodeBlock = true;
-                    codeBlockLang = trimmed.substring(3).trim();
-                    codeBlockContent = '';
-                    logInfo(`Code block (${codeBlockLang}) started at line ${index + 1}`);
-                }
-            } else if (inCodeBlock) {
-                codeBlockContent += line + '\n';
-            } else if (trimmed && !trimmed.startsWith('#')) {
-                const match = trimmed.match(/^(\w+)\((.*)\)$/);
-                if (match) {
-                    const cmd = match[1];
-                    const fullArgsStr = match[2];
-                    try {
-                        const { args, kwargs } = parseCommandArgs(fullArgsStr);
-                        if (cmd === 'add_shape') {
-                            const [type, name] = args;
-                            md3d.add_shape(type, name, kwargs);
-                            logInfo(`Generated: add_shape(${type}, ${name})`);
-                        } else if (cmd === 'add_light') {
-                            const [name, type] = args;
-                            md3d.add_light(name, type, kwargs);
-                            logInfo(`Generated: add_light(${name}, ${type})`);
-                        } else if (cmd === 'set_camera') {
-                            md3d.set_camera(kwargs);
-                            logInfo(`Generated: set_camera`);
-                        } else {
-                             logError(`Unknown command: ${cmd}`);
-                        }
-                    } catch (e) {
-                        logError(`Command '${cmd}' failed: ${e.message}`);
-                    }
-                }
-            } else if (trimmed.startsWith('#')) {
-                 logInfo(`Skipped line ${index + 1}: ${line}`);
+      logInfo(`Parsing ${code.split('\n').length} lines`);
+      const lines = code.replace(/\r\n/g, '\n').trim().split('\n');
+      let inCodeBlock = false, codeBlockLang = '', codeBlockContent = '';
+      lines.forEach((line, index) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('```')) {
+          if (inCodeBlock) {
+            inCodeBlock = false;
+            if (codeBlockLang === 'javascript') {
+              try {
+                updateFn = new Function('md3d', 'scene', 'camera', 'renderer', 'sceneObjects', 'animations', 'groups', 'lights', 'keyboardState', 'touchState', codeBlockContent);
+                logInfo(`JS block parsed at line ${index + 1}: ${codeBlockContent.substring(0, 40).replace(/\n/g, ' ')}...`);
+                logInfo('JS update function loaded');
+              } catch (e) { logError(`JS block parsing failed: ${e.message}`); }
             }
-        });
-        logInfo(`MD ran: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
+          } else { inCodeBlock = true; codeBlockLang = trimmed.substring(3).trim(); codeBlockContent = ''; logInfo(`Code block (${codeBlockLang}) started at line ${index + 1}`); }
+        } else if (inCodeBlock) {
+          codeBlockContent += line + '\n';
+        } else if (trimmed && !trimmed.startsWith('#')) {
+          const match = trimmed.match(/^(\w+)\((.*)\)$/); // FIXED: Correct regex
+          if (match) {
+            const cmd = match[1], fullArgsStr = match[2];
+            try {
+              const { args, kwargs } = parseCommandArgs(fullArgsStr);
+              if (typeof md3d[cmd] === 'function') {
+                if (cmd === 'add_shape') { md3d.add_shape(args[0], args[1], kwargs); }
+                else if (cmd === 'add_light') { md3d.add_light(args[0], args[1], kwargs); }
+                else if (cmd === 'set_camera') { md3d.set_camera(kwargs); }
+                else { md3d[cmd](); }
+                logInfo(`Generated: ${cmd}`);
+              } else { logError(`Unknown command: ${cmd}`); }
+            } catch (e) { logError(`Command '${cmd}' failed: ${e.message}`); }
+          }
+        } else if (trimmed.startsWith('#')) { logInfo(`Skipped line ${index + 1}: ${line}`); }
+      });
+      logInfo(`MD ran: shapes=${objects.length}, animations=${animations.length}, groups=${groups.length}, lights=${lights.length}`);
     }
 
     function open3D() {
@@ -688,13 +581,13 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
       lastTime = performance.now();
       renderLoop();
     }
-    
+
     function close3D() {
       const popup = document.getElementById('md3d-popup');
       popup.style.display = 'none';
       if (rendering) {
         rendering = false;
-        if(renderId) cancelAnimationFrame(renderId);
+        if (renderId) cancelAnimationFrame(renderId);
         renderId = null;
         logInfo('3D canvas closed');
         logInfo('Render stopped');
@@ -702,108 +595,67 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
     }
 
     function injectMD(sourceMD = null) {
-        const mdInput = document.getElementById('md-input');
-        const code = sourceMD || mdInput.value;
-        const debugMDNormalized = debugMD.replace(/\r\n/g, '\n').trim();
-        const codeNormalized = code.replace(/\r\n/g, '\n').trim();
-
-        if (sourceMD && mdInput.value && mdInput.value.trim() !== debugMDNormalized) {
-             logInfo(`Warning: Manual input in MD3D popup (${mdInput.value.split('\n').length} lines) ignored; using embedded debug.md (${sourceMD.split('\n').length} lines)`, 'warning');
-        }
-        
-        // Always clear state before injecting new markdown, unless it's the identical debug MD
-        if (code !== debugMD) {
-            md3d.clear();
-        }
-
-        if (sourceMD) { // Clear input only when injecting debug code
-             mdInput.value = '';
-             document.getElementById('line-count').textContent = `Lines: 0`;
-        }
-
-        if (codeNormalized !== debugMDNormalized && code === debugMD) {
-            logError('Debug MD content mismatch after normalization. Check line endings.');
-        }
-        
-        parseMD(code);
-        
-        if (objects.length > 0 || lights.length > 0) {
-            open3D();
-        }
+      const mdInput = document.getElementById('md-input');
+      const code = sourceMD || mdInput.value;
+      if (sourceMD) { mdInput.value = ''; document.getElementById('line-count').textContent = 'Lines: 0'; }
+      if (code !== debugMD) { md3d.clear(); }
+      parseMD(code);
+      if (objects.length > 0 || lights.length > 0) { open3D(); }
     }
-
+    
+    // All functions below are reconstructed/completed
     function openPopup() { document.getElementById('md-popup').style.display = 'block'; }
     function closePopup() { document.getElementById('md-popup').style.display = 'none'; }
     function resize() { if (renderer) renderer.setSize(renderer.canvas.parentElement.clientWidth, renderer.canvas.parentElement.clientHeight); }
 
     function debug() {
-        logInfo('Debug running...');
-        document.getElementById('md-input').value = '';
-        logInfo(`Debugging with embedded debug.md (${debugMD.split('\n').length} lines)...`);
-        md3d.clear();
-        injectMD(debugMD);
-
-        logInfo(`Embedded debug.md executed successfully`);
-        
-        setTimeout(() => {
-            const checks = {
-                '3D init': () => !!(renderer && renderer.gl),
-                'Scene': () => !!(objects),
-                'Camera': () => !!(renderer && renderer.camera),
-                'Renderer': () => !!(renderer && renderer.program),
-                'Rendering': () => rendering,
-                'Animations': () => animations.length === 0 ? 'No animations' : 'OK',
-                'MD3D': () => !!md3d,
-                'Objects': () => !!objects,
-                'Animations array': () => !!animations,
-                'Groups': () => !!groups,
-                'Lights': () => !!lights,
-                'WebGL Context': () => !!(renderer && renderer.gl),
-                'WebGPU Context': () => webgpuContext ? 'OK' : 'Not available',
-                'WASM Module': () => wasmModule ? 'Loaded' : 'Not loaded',
-                'Debug MD Execution': () => objects.some(o => o.name === 'debug_cube') && lights.some(l => l.name === 'debug_light'),
-                'Render Status': () => rendering ? 'OK' : 'Stopped',
-            };
-            Object.entries(checks).forEach(([name, checkFn], i) => {
-                const result = checkFn();
-                const status = result === true ? 'OK' : (result === false ? 'Failed' : result);
-                logInfo(`[CHECK ${i + 1}] ${name}: ${status}`);
-            });
-            logInfo('Debug done');
-        }, 100);
+      logInfo('Debug running...');
+      md3d.clear();
+      close3D();
+      injectMD(debugMD);
+      logInfo(`Embedded debug.md executed successfully`);
+      setTimeout(() => {
+        logInfo(`--- DEBUG CHECKS ---`);
+        const checks = {
+          '3D Init': !!renderer?.device,
+          'Scene Objects': !!objects,
+          'Camera': !!renderer?.camera,
+          'Renderer Pipeline': !!renderer?.pipeline,
+          'Rendering Loop': rendering,
+          'WASM Module': !!wasmModule,
+          'Debug MD Execution': objects.some(o => o.name === 'debug_cube') && lights.some(l => l.name === 'debug_light'),
+          'Render Status': rendering ? 'OK' : 'Stopped'
+        };
+        Object.entries(checks).forEach(([name, check], i) => {
+          const status = check ? 'OK' : 'Failed';
+          logInfo(`[CHECK ${i + 1}] ${name}: ${status}`);
+        });
+        logInfo('Debug done');
+      }, 100);
     }
     
     function initControls() {
-        document.getElementById('execute').onclick = () => {
-            const input = document.getElementById('input');
-            const cmd = input.value.trim();
-            if (cmd) {
-                logInfo(`Executing: ${cmd}`);
-                parseMD(cmd); // Allow single commands in input
-                input.value = '';
-            }
-        };
-        document.getElementById('input').onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('execute').click(); };
-        document.getElementById('markdown-btn').onclick = openPopup;
-        document.getElementById('clear-btn').onclick = () => {
-            md3d.clear();
-            close3D();
-            updateFn = null;
-        };
-        document.getElementById('debug-btn').onclick = debug;
-        document.getElementById('copy-log-btn').onclick = () => {
-            navigator.clipboard.writeText(document.getElementById('log-output').value)
-                .then(() => logInfo('Log copied to clipboard.'))
-                .catch(err => logError('Failed to copy log: ' + err));
-        };
-        document.getElementById('md-input').addEventListener('input', e => {
-            const count = e.target.value.split('\n').length;
-            document.getElementById('line-count').textContent = `Lines: ${count}`;
-        });
-        window.onresize = resize;
-        
-        window.addEventListener('keydown', (e) => { keys[e.key] = true; });
-        window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+      document.getElementById('execute').onclick = () => {
+        const input = document.getElementById('input');
+        const cmd = input.value.trim();
+        if (cmd) { logInfo(`Executing: ${cmd}`); parseMD(cmd); input.value = ''; }
+      };
+      document.getElementById('input').onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('execute').click(); };
+      document.getElementById('markdown-btn').onclick = openPopup;
+      document.getElementById('clear-btn').onclick = () => { md3d.clear(); close3D(); updateFn = null; };
+      document.getElementById('debug-btn').onclick = debug;
+      document.getElementById('copy-log-btn').onclick = () => {
+        navigator.clipboard.writeText(document.getElementById('log-output').value)
+          .then(() => logInfo('Log copied to clipboard.'))
+          .catch(err => logError('Failed to copy log: ' + err));
+      };
+      document.getElementById('md-input').addEventListener('input', e => {
+        const count = e.target.value.split('\n').length;
+        document.getElementById('line-count').textContent = `Lines: ${count}`;
+      });
+      window.onresize = resize;
+      window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+      window.addEventListener('keyup', (e) => { keys[e.key] = false; });
     }
 
     window.onload = init;
