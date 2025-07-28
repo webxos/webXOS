@@ -399,6 +399,10 @@
 
 \`\`\`javascript
 function customUpdate(md3d, scene, camera, renderer, sceneObjects, animations, groups, lights, keyboardState, touchState) {
+  const now = performance.now();
+  if (now - (window.lastDebugLog || 0) < 5000) return;
+  window.lastDebugLog = now;
+  console.log(\`[MD3D] Rendering \${sceneObjects.length} objects\`);
   const cube = sceneObjects.find(obj => obj.name === 'debug_cube');
   if (cube) {
     cube.rotation[0] += 0.01;
@@ -415,7 +419,12 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
     function logInfo(msg, level = 'info') {
       const c = document.getElementById('console');
       const isScrolledToBottom = c.scrollHeight - c.clientHeight <= c.scrollTop + 1;
-      c.innerHTML += `<div class="log-${level}">[MD3D] ${msg}</div>`;
+      // Use textContent to prevent HTML injection
+      const div = document.createElement('div');
+      div.className = `log-${level}`;
+      div.textContent = `[MD3D] ${msg}`;
+      c.appendChild(div);
+
       if(isScrolledToBottom) c.scrollTop = c.scrollHeight;
       log.push({ time: new Date().toISOString(), level: level.toUpperCase(), msg });
       if (log.length > 200) log.shift();
@@ -425,7 +434,10 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
     function logError(msg) {
       logInfo(msg, 'error');
       const ec = document.getElementById('error-console');
-      ec.innerHTML += `<div class="log-error">[ERROR] ${msg}</div>`;
+      const div = document.createElement('div');
+      div.className = 'log-error';
+      div.textContent = `[ERROR] ${msg}`;
+      ec.appendChild(div);
       while (ec.children.length > 100) ec.removeChild(ec.firstChild);
       ec.scrollTop = ec.scrollHeight;
     }
@@ -567,7 +579,7 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
         renderer.render();
 
         const frameTime = performance.now() - now;
-        document.getElementById('fps').textContent = (1000 / delta).toFixed(2);
+        if (delta > 0) document.getElementById('fps').textContent = (1000 / delta).toFixed(2);
         document.getElementById('time').textContent = frameTime.toFixed(2);
       } catch(e) {
         logError(`Render loop failed unexpectedly: ${e.message}`);
@@ -583,18 +595,29 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
         perfId = setTimeout(updatePerf, 2000);
     }
     
-    function parseParams(str) {
-        const params = {};
-        const regex = /(\w+)\s*=\s*\(([^)]+)\)|(\w+)\s*=\s*([\w.-]+)/g;
-        let match;
-        while ((match = regex.exec(str)) !== null) {
-            if (match[1]) { // Tuple (e.g., position=(x,y,z))
-                params[match[1]] = match[2].split(',').map(s => s.trim());
-            } else { // Single value (e.g., size=1.5)
-                params[match[3]] = match[4];
+    // Robustly parse command arguments
+    function parseCommandArgs(argsStr) {
+        const args = [];
+        const kwargs = {};
+        // Regex to split arguments by comma, but not inside parentheses.
+        const argParts = argsStr.match(/([^=,]+\([^)]+\)|[^,]+)/g) || [];
+
+        argParts.forEach(part => {
+            part = part.trim();
+            if (part.includes('=')) {
+                const [key, rawValue] = part.split('=').map(s => s.trim());
+                let value = rawValue;
+                if (rawValue.startsWith('(') && rawValue.endsWith(')')) {
+                    value = rawValue.slice(1, -1).split(',').map(n => parseFloat(n));
+                } else if (!isNaN(parseFloat(rawValue))) {
+                    value = parseFloat(rawValue);
+                }
+                kwargs[key] = value;
+            } else {
+                args.push(part);
             }
-        }
-        return params;
+        });
+        return { args, kwargs };
     }
 
     function parseMD(code) {
@@ -625,24 +648,29 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
             } else if (inCodeBlock) {
                 codeBlockContent += line + '\n';
             } else if (trimmed && !trimmed.startsWith('#')) {
-                const match = trimmed.match(/^(\w+)\(([^)]*)\)/);
+                const match = trimmed.match(/^(\w+)\((.*)\)$/);
                 if (match) {
                     const cmd = match[1];
-                    const argsStr = match[2];
+                    const fullArgsStr = match[2];
                     try {
-                        if (cmd === 'add_shape' || cmd === 'add_light') {
-                            const [type, name, ...paramsStr] = argsStr.split(',').map(s => s.trim());
-                            const params = parseParams(paramsStr.join(','));
-                            if (typeof md3d[cmd] === 'function') {
-                                md3d[cmd](type, name, params);
-                                logInfo(`Generated: ${cmd}(${type}, ${name})`);
-                            }
+                        const { args, kwargs } = parseCommandArgs(fullArgsStr);
+                        if (cmd === 'add_shape') {
+                            const [type, name] = args;
+                            md3d.add_shape(type, name, kwargs);
+                            logInfo(`Generated: add_shape(${type}, ${name})`);
+                        } else if (cmd === 'add_light') {
+                            const [name, type] = args;
+                            md3d.add_light(name, type, kwargs);
+                            logInfo(`Generated: add_light(${name}, ${type})`);
                         } else if (cmd === 'set_camera') {
-                             const params = parseParams(argsStr);
-                             md3d.set_camera(params);
-                             logInfo(`Generated: set_camera`);
+                            md3d.set_camera(kwargs);
+                            logInfo(`Generated: set_camera`);
+                        } else {
+                             logError(`Unknown command: ${cmd}`);
                         }
-                    } catch (e) { logError(`Command failed: ${cmd} - ${e.message}`); }
+                    } catch (e) {
+                        logError(`Command '${cmd}' failed: ${e.message}`);
+                    }
                 }
             } else if (trimmed.startsWith('#')) {
                  logInfo(`Skipped line ${index + 1}: ${line}`);
@@ -657,6 +685,7 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
       logInfo('3D canvas opened');
       resize();
       rendering = true;
+      lastTime = performance.now();
       renderLoop();
     }
     
@@ -682,12 +711,14 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
              logInfo(`Warning: Manual input in MD3D popup (${mdInput.value.split('\n').length} lines) ignored; using embedded debug.md (${sourceMD.split('\n').length} lines)`, 'warning');
         }
         
+        // Always clear state before injecting new markdown, unless it's the identical debug MD
         if (code !== debugMD) {
             md3d.clear();
         }
 
         if (sourceMD) { // Clear input only when injecting debug code
              mdInput.value = '';
+             document.getElementById('line-count').textContent = `Lines: 0`;
         }
 
         if (codeNormalized !== debugMDNormalized && code === debugMD) {
@@ -748,9 +779,7 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
             const cmd = input.value.trim();
             if (cmd) {
                 logInfo(`Executing: ${cmd}`);
-                // Simple command parsing for now
-                if(cmd === "test") md3d.test();
-                else logError(`Unknown command: ${cmd}`);
+                parseMD(cmd); // Allow single commands in input
                 input.value = '';
             }
         };
@@ -773,7 +802,6 @@ set_camera(position=(0,0,10), rotation=(0,0,0))
         });
         window.onresize = resize;
         
-        // Keyboard controls for 3D view
         window.addEventListener('keydown', (e) => { keys[e.key] = true; });
         window.addEventListener('keyup', (e) => { keys[e.key] = false; });
     }
