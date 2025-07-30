@@ -51,7 +51,7 @@
   </div>
   <div id="input-area">
     <input id="input" placeholder="Enter command (/help for commands)" aria-label="Command input" />
-    <button id="execute" disabled aria-label="Execute command">Run</button>
+    <button id="execute" disabled aria-label="Execute command">Execute</button>
     <button id="markdown-btn" disabled aria-label="Open markdown popup">MD3D</button>
     <button id="clear-btn" disabled aria-label="Clear app">Clear</button>
     <button id="debug-btn" disabled aria-label="Run diagnostics">Debug</button>
@@ -103,112 +103,197 @@
           cube: new THREE.BoxGeometry(1, 1, 1)
         };
         this.controls = {};
+        this.webglContextLost = false;
       }
 
       init() {
         try {
-          this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance' });
+          if (!this.canvas.getContext('webgl2') && !this.canvas.getContext('webgl')) {
+            throw new Error('WebGL not supported');
+          }
+          this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance', alpha: true });
           this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
           this.renderer.setClearColor(0x000000, 1);
+          this.renderer.domElement.tabIndex = 0;
           document.getElementById('webgl-status').textContent = 'WebGL Active';
           logInfo('WebGL renderer initialized');
           this.camera.position.set(0, 0, 10);
           logInfo('CosmicEngine initialized');
+          this.setupWebGLEventListeners();
         } catch (e) {
           logError(`Engine initialization failed: ${e.message}`, e.stack);
+          document.getElementById('webgl-status').textContent = 'WebGL Failed';
           throw e;
         }
       }
 
+      setupWebGLEventListeners() {
+        this.canvas.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          this.webglContextLost = true;
+          logError('WebGL context lost');
+          stopRender();
+        });
+        this.canvas.addEventListener('webglcontextrestored', () => {
+          this.webglContextLost = false;
+          logInfo('WebGL context restored');
+          this.init();
+          render();
+        });
+      }
+
       setSize(w, h) {
-        this.camera.aspect = w / h;
-        this.camera.updateProjectionMatrix();
-        if (this.renderer) this.renderer.setSize(w, h);
+        try {
+          this.camera.aspect = w / h;
+          this.camera.updateProjectionMatrix();
+          if (this.renderer && !this.webglContextLost) {
+            this.renderer.setSize(w, h, false);
+          }
+        } catch (e) {
+          logError(`Resize failed: ${e.message}`, e.stack);
+        }
       }
 
       addObject(obj) {
-        this.scene.add(obj);
-        this.objects.push(obj);
-        this.entityCount++;
-        updateStatus();
+        try {
+          this.scene.add(obj);
+          this.objects.push(obj);
+          this.entityCount++;
+          updateStatus();
+        } catch (e) {
+          logError(`Add object failed: ${e.message}`, e.stack);
+        }
       }
 
       addCube(name, position, size, color) {
-        const cube = new THREE.Mesh(this.sharedGeometries.cube, new THREE.MeshBasicMaterial({ color: new THREE.Color(...color.map(Number)) }));
-        cube.position.set(...position.map(Number));
-        cube.scale.setScalar(Number(size));
-        cube.userData = { type: 'cube', name };
-        this.addObject(cube);
-        logInfo(`Cube ${name} added`);
+        try {
+          if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) {
+            throw new Error('Invalid cube parameters');
+          }
+          const cube = new THREE.Mesh(this.sharedGeometries.cube, new THREE.MeshBasicMaterial({ color: new THREE.Color(...color.map(Number)) }));
+          cube.position.set(...position.map(Number));
+          cube.scale.setScalar(Number(size));
+          cube.userData = { type: 'cube', name };
+          this.addObject(cube);
+          logInfo(`Cube ${name} added`);
+        } catch (e) {
+          logError(`Add cube failed: ${e.message}`, e.stack);
+        }
       }
 
       addLight(name, type, position, color, intensity) {
-        if (type !== 'point') throw new Error('Only point lights supported');
-        const light = new THREE.PointLight(new THREE.Color(...color.map(Number)), Number(intensity), 1000);
-        light.position.set(...position.map(Number));
-        light.userData = { name, type: 'light' };
-        this.addObject(light);
-        logInfo(`Light ${name} added`);
+        try {
+          if (type !== 'point') throw new Error('Only point lights supported');
+          if (!name || !Array.isArray(position) || position.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity)) {
+            throw new Error('Invalid light parameters');
+          }
+          const light = new THREE.PointLight(new THREE.Color(...color.map(Number)), Number(intensity), 1000);
+          light.position.set(...position.map(Number));
+          light.userData = { name, type: 'light' };
+          this.addObject(light);
+          logInfo(`Light ${name} added`);
+        } catch (e) {
+          logError(`Add light failed: ${e.message}`, e.stack);
+        }
       }
 
       setCamera(position, rotation) {
-        this.camera.position.set(...position.map(Number));
-        this.camera.rotation.set(...rotation.map(Number));
-        logInfo(`Camera set: pos=[${position}], rot=[${rotation}]`);
+        try {
+          if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) {
+            throw new Error('Invalid camera parameters');
+          }
+          this.camera.position.set(...position.map(Number));
+          this.camera.rotation.set(...rotation.map(Number));
+          logInfo(`Camera set: pos=[${position}], rot=[${rotation}]`);
+        } catch (e) {
+          logError(`Set camera failed: ${e.message}`, e.stack);
+        }
       }
 
       animate(name, position, duration) {
-        const obj = this.objects.find(o => o.userData.name === name);
-        if (!obj) throw new Error(`Object ${name} not found`);
-        this.animations.push({ name, target: position.map(Number), duration: Number(duration), t0: performance.now() / 1000 });
-        logInfo(`Animation for ${name} added`);
+        try {
+          const obj = this.objects.find(o => o.userData.name === name);
+          if (!obj) throw new Error(`Object ${name} not found`);
+          this.animations.push({ name, target: position.map(Number), duration: Number(duration), t0: performance.now() / 1000 });
+          logInfo(`Animation for ${name} added`);
+        } catch (e) {
+          logError(`Add animation failed: ${e.message}`, e.stack);
+        }
       }
 
       addControl(id, label, callback) {
-        this.controls[id] = { label, callback };
-        updateControls();
+        try {
+          if (!id || !label || typeof callback !== 'function') throw new Error('Invalid control parameters');
+          this.controls[id] = { label, callback };
+          updateControls();
+        } catch (e) {
+          logError(`Add control failed: ${e.message}`, e.stack);
+        }
       }
 
       clear() {
-        this.objects.forEach(obj => this.scene.remove(obj));
-        this.objects = [];
-        this.animations = [];
-        this.entityCount = 0;
-        this.controls = {};
-        updateControls();
-        logInfo('Scene cleared');
-        updateStatus();
+        try {
+          this.objects.forEach(obj => this.scene.remove(obj));
+          this.objects = [];
+          this.animations = [];
+          this.entityCount = 0;
+          this.controls = {};
+          updateControls();
+          logInfo('Scene cleared');
+          updateStatus();
+        } catch (e) {
+          logError(`Clear scene failed: ${e.message}`, e.stack);
+        }
       }
 
       render() {
-        const now = performance.now();
-        const deltaTime = Math.min((now - this.lastTime) / 1000, 0.1);
-        this.lastTime = now;
+        try {
+          if (this.webglContextLost) return;
+          const now = performance.now();
+          const deltaTime = Math.min((now - this.lastTime) / 1000, 0.1);
+          this.lastTime = now;
 
-        this.cameraMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-        this.frustum.setFromProjectionMatrix(this.cameraMatrix);
+          this.cameraMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+          this.frustum.setFromProjectionMatrix(this.cameraMatrix);
 
-        this.animations.forEach((a, i) => {
-          const t = Math.min((performance.now() / 1000 - a.t0) / a.duration, 1);
-          const et = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-          const obj = this.objects.find(o => o.userData.name === a.name);
-          if (obj) {
-            const p0 = obj.position;
-            obj.position.set(
-              p0.x + (a.target[0] - p0.x) * et,
-              p0.y + (a.target[1] - p0.y) * et,
-              p0.z + (a.target[2] - p0.z) * et
-            );
-            if (t >= 1) {
-              logInfo(`Animation ${a.name} done`);
-              this.animations.splice(i, 1);
+          this.animations.forEach((a, i) => {
+            const t = Math.min((performance.now() / 1000 - a.t0) / a.duration, 1);
+            const et = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+            const obj = this.objects.find(o => o.userData.name === a.name);
+            if (obj) {
+              const p0 = obj.position;
+              obj.position.set(
+                p0.x + (a.target[0] - p0.x) * et,
+                p0.y + (a.target[1] - p0.y) * et,
+                p0.z + (a.target[2] - p0.z) * et
+              );
+              if (t >= 1) {
+                logInfo(`Animation ${a.name} done`);
+                this.animations.splice(i, 1);
+              }
             }
-          }
-        });
+          });
 
-        if (this.renderer) {
-          this.renderer.render(this.scene, this.camera);
-          logInfo('WebGL render pass completed', 'info');
+          if (this.renderer) {
+            this.renderer.render(this.scene, this.camera);
+            logInfo('WebGL render pass completed', 'info');
+          }
+        } catch (e) {
+          logError(`Render failed: ${e.message}`, e.stack);
+          stopRender();
+        }
+      }
+
+      dispose() {
+        try {
+          this.objects.forEach(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+          });
+          this.renderer?.dispose();
+          logInfo('Engine resources disposed');
+        } catch (e) {
+          logError(`Dispose failed: ${e.message}`, e.stack);
         }
       }
     }
@@ -220,31 +305,23 @@
       }
 
       add_shape(type, name, position, size, color) {
-        if (type !== 'cube') throw new Error('Only cube shapes supported');
-        if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) {
-          throw new Error('Invalid shape parameters');
+        try {
+          if (type !== 'cube') throw new Error('Only cube shapes supported');
+          this.engine.addCube(name, position, size, color);
+        } catch (e) {
+          logError(`Add shape failed: ${e.message}`, e.stack);
         }
-        this.engine.addCube(name, position, size, color);
       }
 
       add_light(name, type, position, color, intensity) {
-        if (!name || !type || !Array.isArray(position) || position.length !== 3 || !Array.isArray(color) || color.length !== 3 || isNaN(intensity) || intensity < 0) {
-          throw new Error('Invalid light parameters');
-        }
         this.engine.addLight(name, type, position, color, intensity);
       }
 
       set_camera(position, rotation) {
-        if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(rotation) || rotation.length !== 3) {
-          throw new Error('Invalid camera parameters');
-        }
         this.engine.setCamera(position, rotation);
       }
 
       animate(name, position, duration) {
-        if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(duration) || duration <= 0) {
-          throw new Error('Invalid animation parameters');
-        }
         this.engine.animate(name, position, duration);
       }
 
@@ -253,16 +330,24 @@
       }
 
       clear() {
-        this.engine.clear();
-        updateFn = null;
-        logInfo('Scene cleared');
+        try {
+          this.engine.clear();
+          updateFn = null;
+          logInfo('MD3D cleared');
+        } catch (e) {
+          logError(`MD3D clear failed: ${e.message}`, e.stack);
+        }
       }
 
       test() {
-        logInfo('Testing...');
-        logInfo(`Entities: ${this.engine.entityCount}, Animations: ${this.engine.animations.length}`);
-        logInfo(`Engine: ${this.engine ? 'OK' : 'Failed'}`);
-        logInfo('Test passed');
+        try {
+          logInfo('Testing...');
+          logInfo(`Entities: ${this.engine.entityCount}, Animations: ${this.engine.animations.length}`);
+          logInfo(`Engine: ${this.engine ? 'OK' : 'Failed'}`);
+          logInfo('Test passed');
+        } catch (e) {
+          logError(`Test failed: ${e.message}`, e.stack);
+        }
       }
     }
 
@@ -270,40 +355,59 @@
     let updateFn = null;
 
     function logInfo(msg, level = 'info') {
-      const c = document.getElementById('console');
-      c.innerHTML += `<div class="log-${level}">[MD3D] ${msg}</div>`;
-      c.lastElementChild?.scrollIntoView();
-      log.push({ time: new Date().toISOString(), level: level.toUpperCase(), msg });
-      if (log.length > 100) log.shift();
-      document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
-      document.getElementById('copy-log-btn').disabled = false;
+      try {
+        const c = document.getElementById('console');
+        c.innerHTML += `<div class="log-${level}">[MD3D] ${msg}</div>`;
+        c.lastElementChild?.scrollIntoView();
+        log.push({ time: new Date().toISOString(), level: level.toUpperCase(), msg });
+        if (log.length > 100) log.shift();
+        document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
+        document.getElementById('copy-log-btn').disabled = false;
+      } catch (e) {
+        console.error(`Log info failed: ${e.message}`);
+      }
     }
 
     function logError(msg, traceback = '') {
-      logInfo(msg, 'error');
-      const ec = document.getElementById('error-console');
-      ec.innerHTML += `<div class="log-error">[ERROR] ${msg}${traceback ? '<br>Traceback: ' + traceback : ''}</div>`;
-      if (ec.children.length > 100) ec.removeChild(ec.firstChild);
-      ec.lastElementChild?.scrollIntoView();
+      try {
+        const ec = document.getElementById('error-console');
+        ec.innerHTML += `<div class="log-error">[ERROR] ${msg}${traceback ? '<br>Traceback: ' + traceback : ''}</div>`;
+        if (ec.children.length > 100) ec.removeChild(ec.firstChild);
+        ec.lastElementChild?.scrollIntoView();
+        log.push({ time: new Date().toISOString(), level: 'ERROR', msg });
+        if (log.length > 100) log.shift();
+        document.getElementById('log-output').value = log.map(e => `[${e.time}] [${e.level}] ${e.msg}`).join('\n');
+        document.getElementById('copy-log-btn').disabled = false;
+      } catch (e) {
+        console.error(`Log error failed: ${e.message}`);
+      }
     }
 
     function updateStatus() {
-      document.getElementById('entities').textContent = engine ? engine.entityCount : 0;
+      try {
+        document.getElementById('entities').textContent = engine ? engine.entityCount : 0;
+      } catch (e) {
+        logError(`Update status failed: ${e.message}`, e.stack);
+      }
     }
 
     function updateControls() {
-      const controlsDiv = document.getElementById('controls');
-      controlsDiv.innerHTML = '';
-      Object.entries(engine.controls).forEach(([id, { label, callback }]) => {
-        const div = document.createElement('div');
-        div.className = 'control-item';
-        const btn = document.createElement('button');
-        btn.id = id;
-        btn.textContent = label;
-        btn.onclick = callback;
-        div.appendChild(btn);
-        controlsDiv.appendChild(div);
-      });
+      try {
+        const controlsDiv = document.getElementById('controls');
+        controlsDiv.innerHTML = '';
+        Object.entries(engine.controls).forEach(([id, { label, callback }]) => {
+          const div = document.createElement('div');
+          div.className = 'control-item';
+          const btn = document.createElement('button');
+          btn.id = id;
+          btn.textContent = label;
+          btn.onclick = callback;
+          div.appendChild(btn);
+          controlsDiv.appendChild(div);
+        });
+      } catch (e) {
+        logError(`Update controls failed: ${e.message}`, e.stack);
+      }
     }
 
     async function init() {
@@ -331,11 +435,15 @@
     }
 
     function disableUI() {
-      ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
-        const el = document.getElementById(id);
-        el.disabled = true;
-        el.setAttribute('aria-disabled', 'true');
-      });
+      try {
+        ['execute', 'markdown-btn', 'clear-btn', 'debug-btn', 'copy-log-btn'].forEach(id => {
+          const el = document.getElementById(id);
+          el.disabled = true;
+          el.setAttribute('aria-disabled', 'true');
+        });
+      } catch (e) {
+        logError(`Disable UI failed: ${e.message}`, e.stack);
+      }
     }
 
     async function init3D() {
@@ -353,12 +461,12 @@
     }
 
     function render() {
-      if (rendering) return;
+      if (rendering || engine?.webglContextLost) return;
       rendering = true;
       const loop = () => {
         try {
-          if (!engine) {
-            logError('Render stopped: Engine invalid');
+          if (!engine || engine.webglContextLost) {
+            logError('Render stopped: Engine invalid or context lost');
             stopRender();
             return;
           }
@@ -387,182 +495,203 @@
     }
 
     function stopRender() {
-      if (renderId) {
-        cancelAnimationFrame(renderId);
-        renderId = null;
-        rendering = false;
-        logInfo('Render stopped');
+      try {
+        if (renderId) {
+          cancelAnimationFrame(renderId);
+          renderId = null;
+          rendering = false;
+          logInfo('Render stopped');
+        }
+      } catch (e) {
+        logError(`Stop render failed: ${e.message}`, e.stack);
       }
     }
 
     function updatePerf() {
-      let t0 = performance.now(), frames = 0;
-      const loop = t => {
-        frames++;
-        if (t - t0 >= 1000) {
-          document.getElementById('fps').textContent = (frames * 1000 / (t - t0)).toFixed(2);
-          if (performance.memory) {
-            document.getElementById('memory').textContent = (performance.memory.usedJSHeapSize / 1e6).toFixed(2);
+      try {
+        let t0 = performance.now(), frames = 0;
+        const loop = t => {
+          frames++;
+          if (t - t0 >= 1000) {
+            document.getElementById('fps').textContent = (frames * 1000 / (t - t0)).toFixed(2);
+            if (performance.memory) {
+              document.getElementById('memory').textContent = (performance.memory.usedJSHeapSize / 1e6).toFixed(2);
+            }
+            frames = 0;
+            t0 = t;
           }
-          frames = 0;
-          t0 = t;
-        }
+          perfId = requestAnimationFrame(loop);
+        };
         perfId = requestAnimationFrame(loop);
-      };
-      perfId = requestAnimationFrame(loop);
+      } catch (e) {
+        logError(`Update perf failed: ${e.message}`, e.stack);
+      }
     }
 
     function initControls() {
-      const canvas = document.getElementById('md3d-canvas');
-      canvas.addEventListener('mousedown', e => {
-        engine.isDragging = true;
-        engine.previousMousePosition = { x: e.clientX, y: e.clientY };
-      });
-      canvas.addEventListener('mousemove', e => {
-        if (engine.isDragging) {
-          const deltaX = e.clientX - engine.previousMousePosition.x;
-          const deltaY = e.clientY - engine.previousMousePosition.y;
+      try {
+        const canvas = document.getElementById('md3d-canvas');
+        canvas.addEventListener('mousedown', e => {
+          engine.isDragging = true;
           engine.previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+        canvas.addEventListener('mousemove', e => {
+          if (engine.isDragging) {
+            const deltaX = e.clientX - engine.previousMousePosition.x;
+            const deltaY = e.clientY - engine.previousMousePosition.y;
+            engine.previousMousePosition = { x: e.clientX, y: e.clientY };
+            if (updateFn) {
+              updateFn(md3d, engine.scene, engine.camera, engine, engine.objects, engine.animations, engine.keys, { dragging: true, dx: deltaX, dy: deltaY });
+            }
+          }
+        });
+        canvas.addEventListener('mouseup', () => {
+          engine.isDragging = false;
+        });
+        canvas.addEventListener('touchstart', e => {
+          e.preventDefault();
+          engine.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        });
+        canvas.addEventListener('touchmove', e => {
+          e.preventDefault();
+          const deltaX = e.touches[0].clientX - engine.previousMousePosition.x;
+          const deltaY = e.touches[0].clientY - engine.previousMousePosition.y;
+          engine.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
           if (updateFn) {
             updateFn(md3d, engine.scene, engine.camera, engine, engine.objects, engine.animations, engine.keys, { dragging: true, dx: deltaX, dy: deltaY });
           }
-        }
-      });
-      canvas.addEventListener('mouseup', () => {
-        engine.isDragging = false;
-      });
-      canvas.addEventListener('touchstart', e => {
-        e.preventDefault();
-        engine.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      });
-      canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const deltaX = e.touches[0].clientX - engine.previousMousePosition.x;
-        const deltaY = e.touches[0].clientY - engine.previousMousePosition.y;
-        engine.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        if (updateFn) {
-          updateFn(md3d, engine.scene, engine.camera, engine, engine.objects, engine.animations, engine.keys, { dragging: true, dx: deltaX, dy: deltaY });
-        }
-      });
-      window.addEventListener('keydown', e => {
-        if (e.key in engine.keys) {
-          engine.keys[e.key] = true;
-          e.preventDefault();
-        }
-      });
-      window.addEventListener('keyup', e => {
-        if (e.key in engine.keys) engine.keys[e.key] = false;
-      });
+        });
+        document.addEventListener('keydown', e => {
+          if (document.activeElement === document.getElementById('input') && e.key === 'Enter') {
+            execCmd();
+          } else if (['w', 's', 'a', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && document.activeElement !== document.getElementById('input')) {
+            engine.keys[e.key] = true;
+            e.preventDefault();
+          }
+        });
+        document.addEventListener('keyup', e => {
+          if (['w', 's', 'a', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            engine.keys[e.key] = false;
+          }
+        });
+      } catch (e) {
+        logError(`Init controls failed: ${e.message}`, e.stack);
+      }
     }
 
     async function parseMD(code) {
-      const normalizedCode = code.replace(/\r\n/g, '\n').trim();
-      const lines = normalizedCode.split('\n').filter(l => l.trim() !== '');
-      logInfo(`Parsing ${lines.length} lines`);
-      const cmds = [];
-      let inCode = false, codeBlock = '', codeType = '', validCount = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i].trim();
-        try {
-          if (l.match(/^```(javascript|glsl|wgsl|text)$/)) {
-            inCode = true;
-            codeType = l.match(/^```(\w+)/)[1];
-            codeBlock = '';
-            logInfo(`Code block (${codeType}) started at line ${i + 1}`);
-            continue;
-          }
-          if (l.startsWith('```') && inCode) {
-            inCode = false;
-            if (codeBlock.trim()) {
-              if (codeType === 'javascript') {
-                try {
-                  new Function(codeBlock);
-                  cmds.push({ type: 'js', content: codeBlock, line: i + 1 });
-                  logInfo(`JS block parsed at line ${i + 1}: ${codeBlock.slice(0, 20)}...`);
-                  validCount++;
-                } catch (e) {
-                  logError(`Invalid JS block at line ${i + 1}: ${e.message}`, e.stack);
-                  return null;
+      try {
+        const normalizedCode = code.replace(/\r\n/g, '\n').trim();
+        const lines = normalizedCode.split('\n').filter(l => l.trim() !== '');
+        logInfo(`Parsing ${lines.length} lines`);
+        const cmds = [];
+        let inCode = false, codeBlock = '', codeType = '', validCount = 0;
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].trim();
+          try {
+            if (l.match(/^```(javascript|glsl|wgsl|text)$/)) {
+              inCode = true;
+              codeType = l.match(/^```(\w+)/)[1];
+              codeBlock = '';
+              logInfo(`Code block (${codeType}) started at line ${i + 1}`);
+              continue;
+            }
+            if (l.startsWith('```') && inCode) {
+              inCode = false;
+              if (codeBlock.trim()) {
+                if (codeType === 'javascript') {
+                  try {
+                    new Function(codeBlock);
+                    cmds.push({ type: 'js', content: codeBlock, line: i + 1 });
+                    logInfo(`JS block parsed at line ${i + 1}: ${codeBlock.slice(0, 20)}...`);
+                    validCount++;
+                  } catch (e) {
+                    logError(`Invalid JS block at line ${i + 1}: ${e.message}`, e.stack);
+                    return null;
+                  }
                 }
               }
+              continue;
             }
-            continue;
-          }
-          if (inCode) {
-            codeBlock += l + '\n';
-            continue;
-          }
-          if (l.startsWith('#') || l.startsWith('//') || l.startsWith('<!--')) continue;
-          const shape = l.match(/^add_shape\s*\(\s*cube\s*,\s*"?([^",]+)"?\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*size\s*=\s*([^,]+)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*\)$/);
-          if (shape) {
-            const [, name, pos, size, col] = shape;
-            const p = pos.split(/\s*,\s*/).map(Number), c = col.split(/\s*,\s*/).map(Number);
-            if (p.length !== 3 || p.some(isNaN) || isNaN(size) || size <= 0 || c.length !== 3 || c.some(isNaN)) {
-              throw new Error(`Invalid shape parameters at line ${i + 1}`);
+            if (inCode) {
+              codeBlock += l + '\n';
+              continue;
             }
-            cmds.push({ type: 'command', content: `md3d.add_shape("cube", "${name.trim()}", [${p.join(',')}], ${size}, [${c.join(',')}]);`, line: i + 1 });
-            logInfo(`Generated: add_shape(${name.trim()}) at line ${i + 1}`);
-            validCount++;
-            continue;
-          }
-          const light = l.match(/^add_light\s*\(\s*"?([^",]+)"?\s*,\s*point\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*intensity\s*=\s*([^)]+)\s*\)$/);
-          if (light) {
-            const [, name, pos, col, intensity] = light;
-            const p = pos.split(/\s*,\s*/).map(Number), c = col.split(/\s*,\s*/).map(Number);
-            if (p.length !== 3 || p.some(isNaN) || c.length !== 3 || c.some(isNaN) || isNaN(intensity) || intensity < 0) {
-              throw new Error(`Invalid light parameters at line ${i + 1}`);
+            if (l.startsWith('#') || l.startsWith('//') || l.startsWith('<!--')) continue;
+            const shape = l.match(/^add_shape\s*\(\s*cube\s*,\s*"?([^",]+)"?\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*size\s*=\s*([^,]+)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*\)$/);
+            if (shape) {
+              const [, name, pos, size, col] = shape;
+              const p = pos.split(/\s*,\s*/).map(Number), c = col.split(/\s*,\s*/).map(Number);
+              if (p.length !== 3 || p.some(isNaN) || isNaN(size) || size <= 0 || c.length !== 3 || c.some(isNaN)) {
+                throw new Error(`Invalid shape parameters at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.add_shape("cube", "${name.trim()}", [${p.join(',')}], ${size}, [${c.join(',')}]);`, line: i + 1 });
+              logInfo(`Generated: add_shape(${name.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
             }
-            cmds.push({ type: 'command', content: `md3d.add_light("${name.trim()}", "point", [${p.join(',')}], [${c.join(',')}], ${intensity});`, line: i + 1 });
-            logInfo(`Generated: add_light(${name.trim()}) at line ${i + 1}`);
-            validCount++;
-            continue;
-          }
-          const cam = l.match(/^set_camera\s*\(\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*rotation\s*=\s*\(\s*([^)]+)\s*\)\s*\)$/);
-          if (cam) {
-            const [, pos, rot] = cam;
-            const p = pos.split(/\s*,\s*/).map(Number), r = rot.split(/\s*,\s*/).map(Number);
-            if (p.length !== 3 || p.some(isNaN) || r.length !== 3 || r.some(isNaN)) {
-              throw new Error(`Invalid camera parameters at line ${i + 1}`);
+            const light = l.match(/^add_light\s*\(\s*"?([^",]+)"?\s*,\s*point\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*intensity\s*=\s*([^)]+)\s*\)$/);
+            if (light) {
+              const [, name, pos, col, intensity] = light;
+              const p = pos.split(/\s*,\s*/).map(Number), c = col.split(/\s*,\s*/).map(Number);
+              if (p.length !== 3 || p.some(isNaN) || c.length !== 3 || c.some(isNaN) || isNaN(intensity) || intensity < 0) {
+                throw new Error(`Invalid light parameters at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.add_light("${name.trim()}", "point", [${p.join(',')}], [${c.join(',')}], ${intensity});`, line: i + 1 });
+              logInfo(`Generated: add_light(${name.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
             }
-            cmds.push({ type: 'command', content: `md3d.set_camera([${p.join(',')}], [${r.join(',')}]);`, line: i + 1 });
-            logInfo(`Generated: set_camera at line ${i + 1}`);
-            validCount++;
-            continue;
-          }
-          const anim = l.match(/^animate\s*\(\s*"?([^",]+)"?\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*duration\s*=\s*([^)]+)\s*\)$/);
-          if (anim) {
-            const [, name, pos, duration] = anim;
-            const p = pos.split(/\s*,\s*/).map(Number);
-            if (p.length !== 3 || p.some(isNaN) || isNaN(duration) || duration <= 0) {
-              throw new Error(`Invalid animation parameters at line ${i + 1}`);
+            const cam = l.match(/^set_camera\s*\(\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*rotation\s*=\s*\(\s*([^)]+)\s*\)\s*\)$/);
+            if (cam) {
+              const [, pos, rot] = cam;
+              const p = pos.split(/\s*,\s*/).map(Number), r = rot.split(/\s*,\s*/).map(Number);
+              if (p.length !== 3 || p.some(isNaN) || r.length !== 3 || r.some(isNaN)) {
+                throw new Error(`Invalid camera parameters at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.set_camera([${p.join(',')}], [${r.join(',')}]);`, line: i + 1 });
+              logInfo(`Generated: set_camera at line ${i + 1}`);
+              validCount++;
+              continue;
             }
-            cmds.push({ type: 'command', content: `md3d.animate("${name.trim()}", [${p.join(',')}], ${duration});`, line: i + 1 });
-            logInfo(`Generated: animate(${name.trim()}) at line ${i + 1}`);
-            validCount++;
-            continue;
+            const anim = l.match(/^animate\s*\(\s*"?([^",]+)"?\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*duration\s*=\s*([^)]+)\s*\)$/);
+            if (anim) {
+              const [, name, pos, duration] = anim;
+              const p = pos.split(/\s*,\s*/).map(Number);
+              if (p.length !== 3 || p.some(isNaN) || isNaN(duration) || duration <= 0) {
+                throw new Error(`Invalid animation parameters at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.animate("${name.trim()}", [${p.join(',')}], ${duration});`, line: i + 1 });
+              logInfo(`Generated: animate(${name.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
+            }
+            const control = l.match(/^add_control\s*\(\s*"?([^",]+)"?\s*,\s*"([^"]+)"\s*,\s*([^)]+)\s*\)$/);
+            if (control) {
+              const [, id, label, callback] = control;
+              cmds.push({ type: 'command', content: `md3d.add_control("${id.trim()}", "${label.trim()}", ${callback.trim()});`, line: i + 1 });
+              logInfo(`Generated: add_control(${id.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
+            }
+            logInfo(`Skipped line ${i + 1}: ${l.slice(0, 20)}... (invalid)`, 'warning');
+          } catch (e) {
+            logError(`Line ${i + 1}: ${e.message}`, e.stack);
           }
-          const control = l.match(/^add_control\s*\(\s*"?([^",]+)"?\s*,\s*"([^"]+)"\s*,\s*([^)]+)\s*\)$/);
-          if (control) {
-            const [, id, label, callback] = control;
-            cmds.push({ type: 'command', content: `md3d.add_control("${id.trim()}", "${label.trim()}", ${callback.trim()});`, line: i + 1 });
-            logInfo(`Generated: add_control(${id.trim()}) at line ${i + 1}`);
-            validCount++;
-            continue;
-          }
-          logInfo(`Skipped line ${i + 1}: ${l.slice(0, 20)}... (invalid)`, 'warning');
-        } catch (e) {
-          logError(`Line ${i + 1}: ${e.message}`, e.stack);
         }
-      }
-      if (inCode) {
-        logError(`Unclosed ${codeType} block at line ${lines.length}`);
+        if (inCode) {
+          logError(`Unclosed ${codeType} block at line ${lines.length}`);
+          return null;
+        }
+        if (!validCount) {
+          logError('No valid commands found');
+          return null;
+        }
+        return cmds;
+      } catch (e) {
+        logError(`Parse MD failed: ${e.message}`, e.stack);
         return null;
       }
-      if (!validCount) {
-        logError('No valid commands found');
-        return null;
-      }
-      return cmds;
     }
 
     async function injectMD(code = null) {
@@ -616,58 +745,83 @@
     }
 
     function showPopup() {
-      document.getElementById('md-popup').style.display = 'block';
-      updateLineCount();
-      logInfo('MD popup opened');
+      try {
+        document.getElementById('md-popup').style.display = 'block';
+        updateLineCount();
+        logInfo('MD popup opened');
+      } catch (e) {
+        logError(`Show popup failed: ${e.message}`, e.stack);
+      }
     }
 
     function closePopup() {
-      document.getElementById('md-popup').style.display = 'none';
-      document.getElementById('md-input').value = '';
-      document.getElementById('line-count').textContent = 'Lines: 0';
-      logInfo('MD popup closed');
+      try {
+        document.getElementById('md-popup').style.display = 'none';
+        document.getElementById('md-input').value = '';
+        document.getElementById('line-count').textContent = 'Lines: 0';
+        logInfo('MD popup closed');
+      } catch (e) {
+        logError(`Close popup failed: ${e.message}`, e.stack);
+      }
     }
 
     function updateLineCount() {
-      const input = document.getElementById('md-input').value;
-      const lineCount = input.split('\n').length;
-      document.getElementById('line-count').textContent = `Lines: ${lineCount}`;
+      try {
+        const input = document.getElementById('md-input').value;
+        const lineCount = input.split('\n').length;
+        document.getElementById('line-count').textContent = `Lines: ${lineCount}`;
+      } catch (e) {
+        logError(`Update line count failed: ${e.message}`, e.stack);
+      }
     }
 
     function show3D() {
-      if (!engine) {
-        logError('Cannot show 3D canvas: Engine not initialized');
-        return;
+      try {
+        if (!engine) {
+          logError('Cannot show 3D canvas: Engine not initialized');
+          return;
+        }
+        document.getElementById('md3d-popup').style.display = 'block';
+        resize();
+        if (!rendering) render();
+        const canvas = document.getElementById('md3d-canvas');
+        canvas.setAttribute('aria-label', `3D canvas with ${engine.entityCount} entities`);
+        logInfo('3D canvas opened');
+      } catch (e) {
+        logError(`Show 3D failed: ${e.message}`, e.stack);
       }
-      document.getElementById('md3d-popup').style.display = 'block';
-      resize();
-      if (!rendering) render();
-      const canvas = document.getElementById('md3d-canvas');
-      canvas.setAttribute('aria-label', `3D canvas with ${engine.entityCount} entities`);
-      logInfo('3D canvas opened');
     }
 
     function close3D() {
-      document.getElementById('md3d-popup').style.display = 'none';
-      stopRender();
-      logInfo('3D canvas closed');
+      try {
+        document.getElementById('md3d-popup').style.display = 'none';
+        stopRender();
+        logInfo('3D canvas closed');
+      } catch (e) {
+        logError(`Close 3D failed: ${e.message}`, e.stack);
+      }
     }
 
     function showPrompt(text) {
-      const prompt = document.getElementById('prompt');
-      prompt.textContent = text;
-      prompt.classList.add('active');
-      setTimeout(() => prompt.classList.remove('active'), 2000);
+      try {
+        const prompt = document.getElementById('prompt');
+        prompt.textContent = text;
+        prompt.classList.add('active');
+        setTimeout(() => prompt.classList.remove('active'), 2000);
+      } catch (e) {
+        logError(`Show prompt failed: ${e.message}`, e.stack);
+      }
     }
 
     async function debug() {
-      if (!md3d || !engine) {
-        logError('Cannot debug: Engine or MD3D not initialized');
-        return;
-      }
-      logInfo('Debugging with test3d.md...');
-      md3d.clear();
-      const test3d = `
+      try {
+        if (!md3d || !engine) {
+          logError('Cannot debug: Engine or MD3D not initialized');
+          return;
+        }
+        logInfo('Debugging with test3d.md...');
+        md3d.clear();
+        const test3d = `
 # Test3D Video Test
 add_shape(cube, cube1, position=(-4, 2, 0), size=1, color=(1, 0, 0))
 add_shape(cube, cube2, position=(-2, 2, 0), size=0.8, color=(0, 1, 0))
@@ -709,109 +863,138 @@ function updateFn(md3d, scene, camera, renderer, sceneObjects, animations, keybo
 }
 \`\`\`
 `;
-      let fpsSamples = [], renderTimes = [], peakMemory = 0;
-      const t0 = performance.now();
-      const sampleFPS = () => {
-        const fps = Number(document.getElementById('fps').textContent);
-        const rt = Number(document.getElementById('time').textContent);
-        if (performance.memory) {
-          const mem = performance.memory.usedJSHeapSize / 1e6;
-          peakMemory = Math.max(peakMemory, mem);
+        let fpsSamples = [], renderTimes = [], peakMemory = 0;
+        const t0 = performance.now();
+        const sampleFPS = () => {
+          const fps = Number(document.getElementById('fps').textContent);
+          const rt = Number(document.getElementById('time').textContent);
+          if (performance.memory) {
+            const mem = performance.memory.usedJSHeapSize / 1e6;
+            peakMemory = Math.max(peakMemory, mem);
+          }
+          fpsSamples.push(fps);
+          renderTimes.push(rt);
+        };
+        await injectMD(test3d);
+        const initialAnimations = engine.animations.length;
+        const checks = [
+          { id: 1, test: '3D init', fn: () => engine ? 'OK' : 'Failed' },
+          { id: 2, test: 'Scene', fn: () => engine.scene ? 'OK' : 'Failed' },
+          { id: 3, test: 'Camera', fn: () => engine.camera ? 'OK' : 'Failed' },
+          { id: 4, test: 'Engine', fn: () => engine ? 'OK' : 'Failed' },
+          { id: 5, test: 'Rendering', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
+          { id: 6, test: 'Animations', fn: () => initialAnimations >= 10 ? 'OK' : `Failed (${initialAnimations} animations)` },
+          { id: 7, test: 'MD3D', fn: () => md3d ? 'OK' : 'Failed' },
+          { id: 8, test: 'Entities', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
+          { id: 9, test: 'WebGL Context', fn: () => engine.renderer ? 'OK' : 'Failed' },
+          { id: 10, test: 'Test MD Execution', fn: () => engine.objects.filter(o => o.userData.name.startsWith('cube')).length === 10 && 
+                                                     engine.objects.find(l => l.userData.name === 'main_light') ? 'OK' : 'Failed' }
+        ];
+        let failedChecks = 0;
+        for (let c of checks) {
+          const r = c.fn();
+          if (r === 'OK') {
+            logInfo(`[CHECK ${c.id}] ${c.test}: ${r}`);
+          } else {
+            logError(`[CHECK ${c.id}] ${c.test}: ${r}`);
+            failedChecks++;
+          }
         }
-        fpsSamples.push(fps);
-        renderTimes.push(rt);
-      };
-      await injectMD(test3d);
-      const initialAnimations = engine.animations.length;
-      const checks = [
-        { id: 1, test: '3D init', fn: () => engine ? 'OK' : 'Failed' },
-        { id: 2, test: 'Scene', fn: () => engine.scene ? 'OK' : 'Failed' },
-        { id: 3, test: 'Camera', fn: () => engine.camera ? 'OK' : 'Failed' },
-        { id: 4, test: 'Engine', fn: () => engine ? 'OK' : 'Failed' },
-        { id: 5, test: 'Rendering', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
-        { id: 6, test: 'Animations', fn: () => initialAnimations >= 10 ? 'OK' : `Failed (${initialAnimations} animations)` },
-        { id: 7, test: 'MD3D', fn: () => md3d ? 'OK' : 'Failed' },
-        { id: 8, test: 'Entities', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
-        { id: 9, test: 'WebGL Context', fn: () => engine.renderer ? 'OK' : 'Failed' },
-        { id: 10, test: 'Test MD Execution', fn: () => engine.objects.filter(o => o.userData.name.startsWith('cube')).length === 10 && 
-                                                   engine.objects.find(l => l.userData.name === 'main_light') ? 'OK' : 'Failed' }
-      ];
-      let failedChecks = 0;
-      for (let c of checks) {
-        const r = c.fn();
-        if (r === 'OK') {
-          logInfo(`[CHECK ${c.id}] ${c.test}: ${r}`);
-        } else {
-          logError(`[CHECK ${c.id}] ${c.test}: ${r}`);
-          failedChecks++;
-        }
+        const interval = setInterval(sampleFPS, 100);
+        setTimeout(() => {
+          clearInterval(interval);
+          const avgFPS = fpsSamples.length ? (fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length).toFixed(2) : 0;
+          const avgRenderTime = renderTimes.length ? (renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length).toFixed(2) : 0;
+          const summary = `Debug Summary: ${failedChecks === 0 ? 'PASSED' : 'FAILED'}, ` +
+                          `Renderer: WebGL, Entities: ${engine.entityCount}, Initial Animations: ${initialAnimations}, ` +
+                          `Avg FPS: ${avgFPS}, Avg Render Time: ${avgRenderTime}ms, Peak Memory: ${peakMemory.toFixed(2)}MB, ` +
+                          `Checks Failed: ${failedChecks}`;
+          if (failedChecks === 0) {
+            logInfo(summary);
+          } else {
+            logError(summary);
+          }
+          logInfo('Debug done');
+          if (engine.entityCount >= 11 && failedChecks === 0) {
+            logInfo('Debug test passed, closing 3D canvas');
+            close3D();
+          } else {
+            logError('Debug test failed, keeping 3D canvas open for inspection');
+          }
+        }, 3000);
+      } catch (e) {
+        logError(`Debug failed: ${e.message}`, e.stack);
       }
-      const interval = setInterval(sampleFPS, 100);
-      setTimeout(() => {
-        clearInterval(interval);
-        const avgFPS = fpsSamples.length ? (fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length).toFixed(2) : 0;
-        const avgRenderTime = renderTimes.length ? (renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length).toFixed(2) : 0;
-        const summary = `Debug Summary: ${failedChecks === 0 ? 'PASSED' : 'FAILED'}, ` +
-                        `Renderer: WebGL, Entities: ${engine.entityCount}, Initial Animations: ${initialAnimations}, ` +
-                        `Avg FPS: ${avgFPS}, Avg Render Time: ${avgRenderTime}ms, Peak Memory: ${peakMemory.toFixed(2)}MB, ` +
-                        `Checks Failed: ${failedChecks}`;
-        if (failedChecks === 0) {
-          logInfo(summary);
-        } else {
-          logError(summary);
-        }
-        logInfo('Debug done');
-        if (engine.entityCount >= 11 && failedChecks === 0) {
-          logInfo('Debug test passed, closing 3D canvas');
-          close3D();
-        } else {
-          logError('Debug test failed, keeping 3D canvas open for inspection');
-        }
-      }, 3000);
     }
 
     function copyLog() {
-      if (!log.length) {
-        logInfo('No logs to copy');
-        return;
-      }
       try {
-        navigator.clipboard.writeText(document.getElementById('log-output').value);
-        logInfo('Logs copied');
+        if (!log.length) {
+          logInfo('No logs to copy');
+          return;
+        }
+        navigator.clipboard.writeText(document.getElementById('log-output').value)
+          .then(() => logInfo('Logs copied'))
+          .catch(e => {
+            const out = document.getElementById('log-output');
+            out.style.display = 'block';
+            out.focus();
+            out.select();
+            logError('Clipboard failed; copy manually', e.stack);
+          });
       } catch (e) {
-        const out = document.getElementById('log-output');
-        out.style.display = 'block';
-        out.focus();
-        out.select();
-        logError('Clipboard failed; copy manually', e.stack);
+        logError(`Copy log failed: ${e.message}`, e.stack);
       }
     }
 
     function resize() {
-      if (!engine) {
-        logError('Cannot resize: Engine not initialized');
-        return;
+      try {
+        if (!engine) {
+          logError('Cannot resize: Engine not initialized');
+          return;
+        }
+        const popup = document.getElementById('md3d-popup');
+        const rect = popup.getBoundingClientRect();
+        const w = Math.min(rect.width - 30, 3840), h = Math.min(rect.height - 30, 2160);
+        engine.setSize(w, h);
+      } catch (e) {
+        logError(`Resize failed: ${e.message}`, e.stack);
       }
-      const popup = document.getElementById('md3d-popup');
-      const rect = popup.getBoundingClientRect();
-      const w = Math.min(rect.width - 30, 3840), h = Math.min(rect.height - 30, 2160);
-      engine.setSize(w, h);
+    }
+
+    function clearApp() {
+      try {
+        if (md3d) md3d.clear();
+        document.getElementById('console').innerHTML = '';
+        document.getElementById('error-console').innerHTML = '';
+        document.getElementById('log-output').value = '';
+        log = [];
+        document.getElementById('copy-log-btn').disabled = true;
+        logInfo('Application cleared');
+      } catch (e) {
+        logError(`Clear app failed: ${e.message}`, e.stack);
+      }
     }
 
     // Initialize
-    addEventListener('resize', resize);
-    addEventListener('beforeunload', () => {
-      stopRender();
-      if (perfId) cancelAnimationFrame(perfId);
-    });
-    document.getElementById('execute').onclick = execCmd;
-    document.getElementById('markdown-btn').onclick = showPopup;
-    document.getElementById('clear-btn').onclick = () => md3d.clear();
-    document.getElementById('copy-log-btn').onclick = copyLog;
-    document.getElementById('debug-btn').onclick = debug;
-    document.getElementById('md-input').addEventListener('input', updateLineCount);
-    init();
-    updatePerf();
+    try {
+      addEventListener('resize', resize);
+      addEventListener('beforeunload', () => {
+        stopRender();
+        if (perfId) cancelAnimationFrame(perfId);
+        engine?.dispose();
+      });
+      document.getElementById('execute').onclick = execCmd;
+      document.getElementById('markdown-btn').onclick = showPopup;
+      document.getElementById('clear-btn').onclick = clearApp;
+      document.getElementById('copy-log-btn').onclick = copyLog;
+      document.getElementById('debug-btn').onclick = debug;
+      document.getElementById('md-input').addEventListener('input', updateLineCount);
+      init();
+      updatePerf();
+    } catch (e) {
+      logError(`Initialization failed: ${e.message}`, e.stack);
+    }
 
     const commands = {
       '/help': () => {
@@ -819,16 +1002,20 @@ function updateFn(md3d, scene, camera, renderer, sceneObjects, animations, keybo
       },
       '/test': () => md3d.test(),
       '/show3d': () => show3D(),
-      '/clear': () => md3d.clear()
+      '/clear': () => clearApp()
     };
 
     function execCmd() {
-      const cmd = document.getElementById('input').value.trim().split(' ');
-      const action = cmd[0];
-      const args = cmd.slice(1);
-      if (commands[action]) commands[action](...args);
-      else logError(`Unknown command: ${action}`);
-      document.getElementById('input').value = '';
+      try {
+        const cmd = document.getElementById('input').value.trim().split(' ');
+        const action = cmd[0];
+        const args = cmd.slice(1);
+        if (commands[action]) commands[action](...args);
+        else logError(`Unknown command: ${action}`);
+        document.getElementById('input').value = '';
+      } catch (e) {
+        logError(`Execute command failed: ${e.message}`, e.stack);
+      }
     }
   </script>
 </body>
