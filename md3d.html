@@ -27,7 +27,7 @@
     #line-count { margin-top: 5px; font-size: 12px; color: #ff0; }
     .controls { position: absolute; bottom: 10px; width: calc(100% - 60px); background: rgba(20, 20, 50, 0.9); padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; backdrop-filter: blur(5px); z-index: 10; }
     .control-item { flex: 1; min-width: 80px; text-align: center; }
-    .prompt { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 10px; font-size: 14px; max-width: 90%; text-align: center; opacity: 0; transition: opacity 0.5s; z-index: 5; color: #fff; }
+    .prompt { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); padding: 10px; border: 2px solid #0f0; border-radius: 10px; font-size: 14px; max-width: 90%; text-align: center; opacity: 0; transition: opacity 0.5s; z-index: 20; color: #fff; }
     .prompt.active { opacity: 1; }
     .throttle-indicator { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); color: #4a90e2; font-size: 12px; opacity: 0; transition: opacity 0.3s; z-index: 5; }
     .throttle-indicator.active { opacity: 1; }
@@ -61,7 +61,7 @@
       <option value="text/markdown">Markdown (.md)</option>
       <option value="javascript">JavaScript (.js)</option>
     </select>
-    <textarea id="md-input" placeholder="Paste Markdown with commands (add_shape, add_light, set_camera, animate, add_control) or JavaScript." aria-label="Markdown input"></textarea>
+    <textarea id="md-input" placeholder="Paste Markdown with commands (add_shape, add_instanced_shape, update_instance, set_instance_count, add_light, set_camera, animate, add_control) or JavaScript." aria-label="Markdown input"></textarea>
     <div id="line-count">Lines: 0</div>
     <div style="margin-top: 10px;">
       <button onclick="injectMD()" aria-label="Inject markdown">Inject</button>
@@ -84,9 +84,10 @@
       constructor(canvas) {
         this.canvas = canvas;
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(80, canvas.clientWidth / canvas.clientHeight, 0.1, 10000);
+        this.camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
         this.renderer = null;
         this.objects = [];
+        this.instancedObjects = [];
         this.animations = [];
         this.entityCount = 0;
         this.frustum = new THREE.Frustum();
@@ -96,11 +97,13 @@
         this.previousMousePosition = { x: 0, y: 0 };
         this.lastTime = performance.now();
         this.sharedMaterials = {
-          glow: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-          cube: new THREE.MeshBasicMaterial({ color: 0xff0000 })
+          basic: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+          instanced: new THREE.MeshBasicMaterial({ color: 0x00ff00 })
         };
         this.sharedGeometries = {
-          cube: new THREE.BoxGeometry(1, 1, 1)
+          cube: new THREE.BoxGeometry(1, 1, 1),
+          tetrahedron: new THREE.TetrahedronGeometry(1, 0),
+          sphere: new THREE.SphereGeometry(1, 8, 8)
         };
         this.controls = {};
         this.webglContextLost = false;
@@ -165,6 +168,17 @@
         }
       }
 
+      addInstancedObject(obj) {
+        try {
+          this.scene.add(obj);
+          this.instancedObjects.push(obj);
+          this.entityCount += obj.count;
+          updateStatus();
+        } catch (e) {
+          logError(`Add instanced object failed: ${e.message}`, e.stack);
+        }
+      }
+
       addCube(name, position, size, color) {
         try {
           if (!name || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) {
@@ -178,6 +192,73 @@
           logInfo(`Cube ${name} added`);
         } catch (e) {
           logError(`Add cube failed: ${e.message}`, e.stack);
+        }
+      }
+
+      addInstancedShape(name, type, count, position, size, color) {
+        try {
+          if (!name || !['cube', 'tetrahedron', 'sphere'].includes(type) || isNaN(count) || count < 1 || !Array.isArray(position) || position.length !== 3 || isNaN(size) || size <= 0 || !Array.isArray(color) || color.length !== 3) {
+            throw new Error('Invalid instanced shape parameters');
+          }
+          const geometry = this.sharedGeometries[type];
+          const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(...color.map(Number)) });
+          const instancedMesh = new THREE.InstancedMesh(geometry, material, count);
+          const matrix = new THREE.Matrix4();
+          for (let i = 0; i < count; i++) {
+            matrix.setPosition(...position.map(Number));
+            matrix.scale(new THREE.Vector3(size, size, size));
+            instancedMesh.setMatrixAt(i, matrix);
+          }
+          instancedMesh.instanceMatrix.needsUpdate = true;
+          instancedMesh.userData = { type: 'instanced', name, instanceCount: count };
+          this.addInstancedObject(instancedMesh);
+          logInfo(`Instanced ${type} ${name} added with ${count} instances`);
+        } catch (e) {
+          logError(`Add instanced shape failed: ${e.message}`, e.stack);
+        }
+      }
+
+      updateInstance(name, index, position, rotation, scale, color) {
+        try {
+          const instancedMesh = this.instancedObjects.find(o => o.userData.name === name);
+          if (!instancedMesh) throw new Error(`Instanced mesh ${name} not found`);
+          if (index < 0 || index >= instancedMesh.count) throw new Error(`Invalid instance index ${index}`);
+          const matrix = new THREE.Matrix4();
+          if (position && position.length === 3) {
+            matrix.setPosition(...position.map(Number));
+          }
+          if (rotation && rotation.length === 3) {
+            matrix.makeRotationFromEuler(new THREE.Euler(...rotation.map(Number)));
+          }
+          if (scale && !isNaN(scale)) {
+            matrix.scale(new THREE.Vector3(scale, scale, scale));
+          }
+          instancedMesh.setMatrixAt(index, matrix);
+          if (color && color.length === 3) {
+            instancedMesh.setColorAt(index, new THREE.Color(...color.map(Number)));
+            instancedMesh.instanceColor.needsUpdate = true;
+          }
+          instancedMesh.instanceMatrix.needsUpdate = true;
+          logInfo(`Instance ${index} of ${name} updated`);
+        } catch (e) {
+          logError(`Update instance failed: ${e.message}`, e.stack);
+        }
+      }
+
+      setInstanceCount(name, count) {
+        try {
+          const instancedMesh = this.instancedObjects.find(o => o.userData.name === name);
+          if (!instancedMesh) throw new Error(`Instanced mesh ${name} not found`);
+          if (isNaN(count) || count < 1) throw new Error('Invalid instance count');
+          this.entityCount -= instancedMesh.count;
+          instancedMesh.count = count;
+          instancedMesh.userData.instanceCount = count;
+          instancedMesh.instanceMatrix.needsUpdate = true;
+          this.entityCount += count;
+          updateStatus();
+          logInfo(`Instance count for ${name} set to ${count}`);
+        } catch (e) {
+          logError(`Set instance count failed: ${e.message}`, e.stack);
         }
       }
 
@@ -234,7 +315,13 @@
       clear() {
         try {
           this.objects.forEach(obj => this.scene.remove(obj));
+          this.instancedObjects.forEach(obj => {
+            this.scene.remove(obj);
+            obj.geometry.dispose();
+            obj.material.dispose();
+          });
           this.objects = [];
+          this.instancedObjects = [];
           this.animations = [];
           this.entityCount = 0;
           this.controls = {};
@@ -290,6 +377,10 @@
             if (obj.geometry) obj.geometry.dispose();
             if (obj.material) obj.material.dispose();
           });
+          this.instancedObjects.forEach(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+          });
           this.renderer?.dispose();
           logInfo('Engine resources disposed');
         } catch (e) {
@@ -311,6 +402,18 @@
         } catch (e) {
           logError(`Add shape failed: ${e.message}`, e.stack);
         }
+      }
+
+      add_instanced_shape(name, type, count, position, size, color) {
+        this.engine.addInstancedShape(name, type, count, position, size, color);
+      }
+
+      update_instance(name, index, position, rotation, scale, color) {
+        this.engine.updateInstance(name, index, position, rotation, scale, color);
+      }
+
+      set_instance_count(name, count) {
+        this.engine.setInstanceCount(name, count);
       }
 
       add_light(name, type, position, color, intensity) {
@@ -630,6 +733,51 @@
               validCount++;
               continue;
             }
+            const instancedShape = l.match(/^add_instanced_shape\s*\(\s*"?([^",]+)"?\s*,\s*(cube|tetrahedron|sphere)\s*,\s*count\s*=\s*([^,]+)\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*size\s*=\s*([^,]+)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*\)$/);
+            if (instancedShape) {
+              const [, name, type, count, pos, size, col] = instancedShape;
+              const p = pos.split(/\s*,\s*/).map(Number), c = col.split(/\s*,\s*/).map(Number);
+              if (p.length !== 3 || p.some(isNaN) || isNaN(count) || count < 1 || isNaN(size) || size <= 0 || c.length !== 3 || c.some(isNaN)) {
+                throw new Error(`Invalid instanced shape parameters at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.add_instanced_shape("${name.trim()}", "${type}", ${count}, [${p.join(',')}], ${size}, [${c.join(',')}]);`, line: i + 1 });
+              logInfo(`Generated: add_instanced_shape(${name.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
+            }
+            const updateInstance = l.match(/^update_instance\s*\(\s*"?([^",]+)"?\s*,\s*index\s*=\s*([^,]+)\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*(?:,\s*rotation\s*=\s*\(\s*([^)]+)\s*\))?\s*(?:,\s*scale\s*=\s*([^,]+))?\s*(?:,\s*color\s*=\s*\(\s*([^)]+)\s*\))?\s*\)$/);
+            if (updateInstance) {
+              const [, name, index, pos, rot, scale, col] = updateInstance;
+              const p = pos.split(/\s*,\s*/).map(Number);
+              const r = rot ? rot.split(/\s*,\s*/).map(Number) : null;
+              const c = col ? col.split(/\s*,\s*/).map(Number) : null;
+              if (p.length !== 3 || p.some(isNaN) || isNaN(index) || (r && (r.length !== 3 || r.some(isNaN))) || (scale && isNaN(scale)) || (c && (c.length !== 3 || c.some(isNaN)))) {
+                throw new Error(`Invalid update instance parameters at line ${i + 1}`);
+              }
+              let content = `md3d.update_instance("${name.trim()}", ${index}, [${p.join(',')}]`;
+              if (r) content += `, [${r.join(',')}]`;
+              else content += `, null`;
+              if (scale) content += `, ${scale}`;
+              else content += `, null`;
+              if (c) content += `, [${c.join(',')}]`;
+              else content += `, null`;
+              content += `);`;
+              cmds.push({ type: 'command', content, line: i + 1 });
+              logInfo(`Generated: update_instance(${name.trim()}, ${index}) at line ${i + 1}`);
+              validCount++;
+              continue;
+            }
+            const setInstanceCount = l.match(/^set_instance_count\s*\(\s*"?([^",]+)"?\s*,\s*count\s*=\s*([^)]+)\s*\)$/);
+            if (setInstanceCount) {
+              const [, name, count] = setInstanceCount;
+              if (isNaN(count) || count < 1) {
+                throw new Error(`Invalid instance count at line ${i + 1}`);
+              }
+              cmds.push({ type: 'command', content: `md3d.set_instance_count("${name.trim()}", ${count});`, line: i + 1 });
+              logInfo(`Generated: set_instance_count(${name.trim()}) at line ${i + 1}`);
+              validCount++;
+              continue;
+            }
             const light = l.match(/^add_light\s*\(\s*"?([^",]+)"?\s*,\s*point\s*,\s*position\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*color\s*=\s*\(\s*([^)]+)\s*\)\s*,\s*intensity\s*=\s*([^)]+)\s*\)$/);
             if (light) {
               const [, name, pos, col, intensity] = light;
@@ -822,44 +970,35 @@
         logInfo('Debugging with test3d.md...');
         md3d.clear();
         const test3d = `
-# Test3D Video Test
-add_shape(cube, cube1, position=(-4, 2, 0), size=1, color=(1, 0, 0))
-add_shape(cube, cube2, position=(-2, 2, 0), size=0.8, color=(0, 1, 0))
-add_shape(cube, cube3, position=(0, 2, 0), size=0.6, color=(0, 0, 1))
-add_shape(cube, cube4, position=(2, 2, 0), size=0.7, color=(1, 1, 0))
-add_shape(cube, cube5, position=(4, 2, 0), size=0.9, color=(1, 0, 1))
-add_shape(cube, cube6, position=(-4, -2, 0), size=1.2, color=(0, 1, 1))
-add_shape(cube, cube7, position=(-2, -2, 0), size=0.5, color=(1, 0.5, 0))
-add_shape(cube, cube8, position=(0, -2, 0), size=0.8, color=(0.5, 0, 1))
-add_shape(cube, cube9, position=(2, -2, 0), size=1, color=(0, 1, 0.5))
-add_shape(cube, cube10, position=(4, -2, 0), size=0.6, color=(0.5, 0.5, 1))
+# Test3D Instanced Mesh Test
+add_instanced_shape(drones, tetrahedron, count=100, position=(0, 0, -50), size=2, color=(0, 1, 0))
 add_light(main_light, point, position=(5, 5, 5), color=(1, 1, 1), intensity=1)
 set_camera(position=(0, 0, 12), rotation=(0, 0, 0))
-animate(cube1, position=(-4, 4, 0), duration=6)
-animate(cube2, position=(-2, -4, 0), duration=6)
-animate(cube3, position=(0, 4, 0), duration=6)
-animate(cube4, position=(2, -4, 0), duration=6)
-animate(cube5, position=(4, 4, 0), duration=6)
-animate(cube6, position=(-4, -4, 0), duration=6)
-animate(cube7, position=(-2, 4, 0), duration=6)
-animate(cube8, position=(0, -4, 0), duration=6)
-animate(cube9, position=(2, 4, 0), duration=6)
-animate(cube10, position=(4, -4, 0), duration=6)
 
 \`\`\`javascript
 function updateFn(md3d, scene, camera, renderer, sceneObjects, animations, keyboardState, touchState) {
   const t = performance.now() / 1000;
-  const cubes = sceneObjects.filter(o => o.userData.name.startsWith('cube'));
-  cubes.forEach((cube, i) => {
-    const phase = i * Math.PI / 5;
-    cube.rotation.x = Math.sin(t + phase) * Math.PI;
-    cube.rotation.y = Math.cos(t + phase) * Math.PI;
-    cube.scale.setScalar(0.5 + Math.sin(t * 2 + phase) * 0.2);
-    const r = Math.sin(t + phase) * 0.5 + 0.5;
-    const g = Math.sin(t + phase + Math.PI / 2) * 0.5 + 0.5;
-    const b = Math.sin(t + phase + Math.PI) * 0.5 + 0.5;
-    cube.material.color.setRGB(r, g, b);
-  });
+  const instancedMesh = renderer.instancedObjects.find(o => o.userData.name === 'drones');
+  if (instancedMesh) {
+    const matrix = new THREE.Matrix4();
+    for (let i = 0; i < instancedMesh.count; i++) {
+      const phi = Math.acos(-1 + (2 * i) / instancedMesh.count);
+      const theta = Math.sqrt(instancedMesh.count * Math.PI) * phi;
+      matrix.setPosition(
+        10 * Math.cos(theta) * Math.sin(phi),
+        10 * Math.sin(theta) * Math.sin(phi),
+        10 * Math.cos(phi) - 50
+      );
+      instancedMesh.setMatrixAt(i, matrix);
+      instancedMesh.setColorAt(i, new THREE.Color(
+        Math.sin(t + i * 0.1) * 0.5 + 0.5,
+        0,
+        Math.cos(t + i * 0.1) * 0.5 + 0.5
+      ));
+    }
+    instancedMesh.instanceMatrix.needsUpdate = true;
+    instancedMesh.instanceColor.needsUpdate = true;
+  }
 }
 \`\`\`
 `;
@@ -882,13 +1021,12 @@ function updateFn(md3d, scene, camera, renderer, sceneObjects, animations, keybo
           { id: 2, test: 'Scene', fn: () => engine.scene ? 'OK' : 'Failed' },
           { id: 3, test: 'Camera', fn: () => engine.camera ? 'OK' : 'Failed' },
           { id: 4, test: 'Engine', fn: () => engine ? 'OK' : 'Failed' },
-          { id: 5, test: 'Rendering', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
-          { id: 6, test: 'Animations', fn: () => initialAnimations >= 10 ? 'OK' : `Failed (${initialAnimations} animations)` },
+          { id: 5, test: 'Rendering', fn: () => engine.entityCount >= 100 ? 'OK' : `Failed (${engine.entityCount} entities)` },
+          { id: 6, test: 'Animations', fn: () => initialAnimations === 0 ? 'OK' : `Failed (${initialAnimations} animations)` },
           { id: 7, test: 'MD3D', fn: () => md3d ? 'OK' : 'Failed' },
-          { id: 8, test: 'Entities', fn: () => engine.entityCount >= 11 ? 'OK' : `Failed (${engine.entityCount} entities)` },
+          { id: 8, test: 'Entities', fn: () => engine.entityCount >= 100 ? 'OK' : `Failed (${engine.entityCount} entities)` },
           { id: 9, test: 'WebGL Context', fn: () => engine.renderer ? 'OK' : 'Failed' },
-          { id: 10, test: 'Test MD Execution', fn: () => engine.objects.filter(o => o.userData.name.startsWith('cube')).length === 10 && 
-                                                     engine.objects.find(l => l.userData.name === 'main_light') ? 'OK' : 'Failed' }
+          { id: 10, test: 'Test MD Execution', fn: () => engine.instancedObjects.find(o => o.userData.name === 'drones') ? 'OK' : 'Failed' }
         ];
         let failedChecks = 0;
         for (let c of checks) {
@@ -915,7 +1053,7 @@ function updateFn(md3d, scene, camera, renderer, sceneObjects, animations, keybo
             logError(summary);
           }
           logInfo('Debug done');
-          if (engine.entityCount >= 11 && failedChecks === 0) {
+          if (engine.entityCount >= 100 && failedChecks === 0) {
             logInfo('Debug test passed, closing 3D canvas');
             close3D();
           } else {
