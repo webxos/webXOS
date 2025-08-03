@@ -18,10 +18,7 @@ class MCPController {
     }
 
     initialize() {
-        Object.keys(this.agents).forEach(agent => {
-            this.eventBus.addEventListener(`${agent}_output`, (e) => this.handleAgentOutput(e));
-        });
-        this.loadAgents();
+        // Initialization deferred until /mcp command
     }
 
     async loadAgents() {
@@ -52,7 +49,7 @@ class MCPController {
         const messages = document.getElementById('messages');
         messages.innerHTML += `<p class="${this.agents[agent].color}"><b>${agent.toUpperCase()}:</b> ${sanitizeInput(JSON.stringify(output))}</p>`;
         messages.scrollTop = messages.scrollHeight;
-        if (task === 'output') {
+        if (task === 'output' && !document.getElementById('mcpPopup').classList.contains('hidden')) {
             displayApiOutput(agent, output);
         }
     }
@@ -72,17 +69,19 @@ class MCPController {
     }
 
     processNextTask() {
-        if (this.taskQueue.length === 0) return;
+        if (this.taskQueue.length === 0 || document.getElementById('mcpPopup').classList.contains('hidden')) return;
         const { agent, task, data } = this.taskQueue[0];
         const event = new CustomEvent(`${agent}_task`, { detail: { task, data } });
         this.eventBus.dispatchEvent(event);
     }
 
     updateStats() {
-        document.getElementById('activeAgents').textContent = this.activeAgents;
-        document.getElementById('taskQueue').textContent = this.taskQueue.length;
-        document.getElementById('apiCalls').textContent = this.apiCalls;
-        document.getElementById('errorCount').textContent = this.errorCount;
+        if (!document.getElementById('mcpPopup').classList.contains('hidden')) {
+            document.getElementById('activeAgents').textContent = this.activeAgents;
+            document.getElementById('taskQueue').textContent = this.taskQueue.length;
+            document.getElementById('apiCalls').textContent = this.apiCalls;
+            document.getElementById('errorCount').textContent = this.errorCount;
+        }
     }
 
     incrementErrorCount() {
@@ -139,6 +138,9 @@ class MCPController {
         const messages = document.getElementById('messages');
         switch (command) {
             case 'status':
+                if (document.getElementById('mcpPopup').classList.contains('hidden')) {
+                    return `<p><b>Error:</b> Open /mcp popup first to view status.</p>`;
+                }
                 const status = Object.values(this.agents).map(a => `${a.name}: ${a.currentTask || 'Idle'}`).join(', ');
                 return `<p><b>MCP Status:</b> ${status}</p>`;
             case 'assign':
@@ -168,13 +170,15 @@ class MCPController {
                 this.apiCalls = 0;
                 sessionStorage.removeItem('mcpData');
                 this.sessionData = { apiCalls: 0, errors: 0 };
-                this.updateStats();
                 document.getElementById('agent1Output').innerHTML = '';
                 document.getElementById('agent2Output').innerHTML = '';
                 document.getElementById('agent3Output').innerHTML = '';
                 document.getElementById('agent4Output').innerHTML = '';
                 return `<p><b>Success:</b> MCP reset.</p>`;
             case 'visualize':
+                if (document.getElementById('mcpPopup').classList.contains('hidden')) {
+                    return `<p><b>Error:</b> Open /mcp popup first to visualize.</p>`;
+                }
                 this.dispatchTask('all', 'visualize', args[0] || 'workflow');
                 return `<p><b>Success:</b> Visualization triggered.</p>`;
             case 'priority':
@@ -186,6 +190,9 @@ class MCPController {
                 this.incrementErrorCount();
                 return `<p><b>Error:</b> Invalid agent.</p>`;
             case 'output':
+                if (document.getElementById('mcpPopup').classList.contains('hidden')) {
+                    return `<p><b>Error:</b> Open /mcp popup first to generate output.</p>`;
+                }
                 this.dispatchTask('all', 'output', args.join(' '));
                 return `<p><b>Success:</b> API output generation triggered.</p>`;
             default:
@@ -196,4 +203,6 @@ class MCPController {
 }
 
 const mcp = new MCPController();
-window.addEventListener('load', () => mcp.initialize());
+window.addEventListener('load', () => {
+    // Load agents only when needed, deferred to /mcp command
+});
