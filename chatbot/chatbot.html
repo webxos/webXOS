@@ -48,10 +48,10 @@
     <script src="/chatbot/static/fuse.min.js"></script>
     <script>
         // Cache for offline support
-        const CACHE_NAME = 'webxos-searchbot-v2';
+        const CACHE_NAME = 'webxos-searchbot-v3';
         let cachedContent = {};
 
-        // List of Netlify site paths to search (based on provided HTML)
+        // List of Netlify site paths to search
         const sitePaths = [
             '/index.html',
             '/moreinfo.html',
@@ -65,16 +65,30 @@
             '/chatbot/static/style.css'
         ];
 
-        // Initialize cache on page load
+        // Initialize cache and check for missing files
         window.addEventListener('load', async () => {
             try {
                 const cache = await caches.open(CACHE_NAME);
+                const messages = document.getElementById('messages');
+                let cacheErrors = [];
                 for (const path of sitePaths) {
                     const response = await cache.match(path);
-                    if (response) cachedContent[path] = await response.text();
+                    if (response) {
+                        cachedContent[path] = await response.text();
+                    } else {
+                        cacheErrors.push(`No cached content for ${path}`);
+                    }
                 }
                 const githubResponse = await cache.match('/github-repo-files');
-                if (githubResponse) cachedContent['github-repo-files'] = await githubResponse.json();
+                if (githubResponse) {
+                    cachedContent['github-repo-files'] = await githubResponse.json();
+                } else {
+                    cacheErrors.push('No cached GitHub repository files');
+                }
+                if (cacheErrors.length > 0) {
+                    updateStatus('Warning: Missing cached content.', false, cacheErrors.join('; '));
+                    messages.innerHTML += `<p><b>Cache Warning:</b> ${cacheErrors.join('; ')}</p>`;
+                }
             } catch (error) {
                 updateStatus('Error: Failed to initialize cache.', true, error.stack || error.message);
             }
@@ -86,7 +100,7 @@
             const timestamp = new Date().toLocaleTimeString();
             status.innerHTML = `
                 <span class="${isError ? 'error' : 'success'}">
-                    ${message}${isError && details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}
+                    ${message}${isError || details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}
                 </span>`;
             status.style.display = 'block';
             setTimeout(() => status.style.display = 'none', 7000);
@@ -119,35 +133,55 @@
             const token = 'GITHUB_TOKEN'; // Replace with Netlify env variable or remove for unauthenticated
             const headers = token ? { Authorization: `token ${token}` } : {};
             let allFiles = [];
+            let githubErrors = [];
 
-            async function fetchContents(url) {
+            async function fetchContents(url, path = '') {
                 try {
                     const response = await fetch(url, { headers });
                     if (!response.ok) {
-                        throw new Error(`GitHub API fetch failed: HTTP ${response.status} ${response.statusText}`);
+                        const errorText = await response.text().catch(() => 'No response text');
+                        if (response.status === 403) {
+                            throw new Error(`GitHub API rate limit exceeded. Consider adding a personal access token in Netlify environment variables.`);
+                        } else if (response.status === 401) {
+                            throw new Error(`Invalid GitHub API token. Check GITHUB_TOKEN in Netlify environment variables.`);
+                        } else {
+                            throw new Error(`GitHub API fetch failed for ${url}: HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
+                        }
                     }
                     const data = await response.json();
                     for (const item of data) {
                         if (item.type === 'file' && /\.(html|md|js|css|json)$/i.test(item.name)) {
-                            const fileResponse = await fetch(item.download_url, { headers });
-                            if (!fileResponse.ok) {
-                                throw new Error(`File fetch failed: ${item.download_url} HTTP ${fileResponse.status}`);
+                            try {
+                                const fileResponse = await fetch(item.download_url, { headers });
+                                if (!fileResponse.ok) {
+                                    githubErrors.push(`Failed to fetch ${item.path}: HTTP ${fileResponse.status} ${fileResponse.statusText}`);
+                                    continue;
+                                }
+                                allFiles.push({
+                                    text: await fileResponse.text(),
+                                    source: `GitHub: ${item.path}`
+                                });
+                            } catch (fileError) {
+                                githubErrors.push(`Error fetching ${item.path}: ${fileError.message}`);
                             }
-                            allFiles.push({
-                                text: await fileResponse.text(),
-                                source: `GitHub: ${item.path}`
-                            });
                         } else if (item.type === 'dir') {
-                            await fetchContents(item.url);
+                            await fetchContents(item.url, `${path}/${item.name}`);
                         }
                     }
                 } catch (error) {
-                    throw error;
+                    githubErrors.push(error.message);
                 }
             }
 
             try {
                 await fetchContents(githubApiUrl);
+                if (githubErrors.length > 0) {
+                    updateStatus('Warning: Some GitHub files failed to fetch.', false, githubErrors.join('; '));
+                    document.getElementById('messages').innerHTML += `<p><b>GitHub Errors:</b> ${githubErrors.join('; ')}</p>`;
+                }
+                if (allFiles.length === 0 && githubErrors.length > 0) {
+                    throw new Error('No GitHub files fetched successfully. See details above.');
+                }
                 const cache = await caches.open(CACHE_NAME);
                 await cache.put('/github-repo-files', new Response(JSON.stringify(allFiles)));
                 cachedContent['github-repo-files'] = allFiles;
@@ -176,26 +210,37 @@
             try {
                 const cache = await caches.open(CACHE_NAME);
                 let searchItems = [];
+                let siteErrors = [];
 
                 // Fetch Netlify site files
                 for (const path of sitePaths) {
                     try {
                         const response = await fetch(path, { cache: 'no-cache' });
                         if (!response.ok) {
-                            throw new Error(`Fetch failed for ${path}: HTTP ${response.status} ${response.statusText}`);
+                            const errorText = await response.text().catch(() => 'No response text');
+                            throw new Error(`Fetch failed for ${path}: HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
                         }
                         const text = await response.text();
+                        if (!text.trim()) {
+                            siteErrors.push(`Empty content for ${path}`);
+                            continue;
+                        }
                         await cache.put(path, new Response(text));
                         cachedContent[path] = text;
                         searchItems.push({ text, source: `Site: ${path}` });
                     } catch (error) {
                         if (cachedContent[path]) {
                             searchItems.push({ text: cachedContent[path], source: `Site (cached): ${path}` });
-                            updateStatus(`Warning: Using cached content for ${path}.`, false, error.message);
+                            siteErrors.push(`Used cached content for ${path} due to: ${error.message}`);
                         } else {
-                            updateStatus(`Error: Failed to fetch ${path}.`, true, error.message);
+                            siteErrors.push(`Failed to fetch ${path}: ${error.message}`);
                         }
                     }
+                }
+
+                if (siteErrors.length > 0) {
+                    messages.innerHTML += `<p><b>Site Fetch Errors:</b> ${siteErrors.join('; ')}</p>`;
+                    updateStatus('Warning: Some site files failed to fetch.', false, siteErrors.join('; '));
                 }
 
                 // Fetch GitHub repo files
@@ -203,15 +248,22 @@
                 try {
                     githubFiles = await fetchGitHubFiles();
                 } catch (error) {
+                    messages.innerHTML += `<p><b>GitHub Fetch Error:</b> ${error.message}</p>`;
                     updateStatus('Error: Failed to fetch GitHub files.', true, error.message);
                 }
                 searchItems = searchItems.concat(githubFiles);
+
+                // Log indexing status
+                if (searchItems.length === 0) {
+                    throw new Error('No files indexed for search. Check site paths and GitHub API.');
+                }
+                messages.innerHTML += `<p><b>Search Info:</b> Indexed ${searchItems.length} files for query "${query}".</p>`;
 
                 // Fuzzy search with Fuse.js
                 const fuseOptions = {
                     includeScore: true,
                     includeMatches: true,
-                    threshold: 0.3,
+                    threshold: 0.4, // Slightly more lenient for better matching
                     keys: ['text']
                 };
                 const fuse = new Fuse(searchItems, fuseOptions);
@@ -226,13 +278,14 @@
                                 <p><b>Result (${item.source}):</b> ...${snippet}...</p>`;
                         });
                     });
+                    messages.innerHTML += `<p><b>Search Info:</b> Found ${results.length} results for "${query}".</p>`;
                 } else {
-                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}".</p>`;
+                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query or check file availability.</p>`;
                 }
-                updateStatus('Success: Search completed.');
+                updateStatus(`Success: Search completed. Indexed ${searchItems.length} files, found ${results.length} results.`);
             } catch (error) {
                 const errorDetails = error.message.includes('fetch') ?
-                    'Check Netlify redirects in netlify.toml, ensure site paths are correct, or verify GitHub API token.'
+                    'Check Netlify redirects in netlify.toml, verify site paths in sitePaths array, or ensure GitHub API token is set in Netlify environment variables.'
                     : `Unexpected error: ${error.stack || error.message}`;
                 messages.innerHTML += `<p><b>Search Error:</b> ${error.message}</p>`;
                 updateStatus(`Error: ${error.message}`, true, errorDetails);
