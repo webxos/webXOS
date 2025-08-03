@@ -31,8 +31,8 @@ function createDot(pattern, index) {
         vy: 0,
         angle: 0,
         radiusSpeed: 0,
-        opacity: 1, // For dissipation/reformation
-        targetX: 0, // For reformation
+        opacity: 1,
+        targetX: 0,
         targetY: 0
     };
     const position = Math.random();
