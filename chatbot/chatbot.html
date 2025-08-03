@@ -65,31 +65,63 @@
             '/chatbot/static/style.css'
         ];
 
-        // Initialize cache and check for missing files
+        // Initialize cache and attempt fetching content
         window.addEventListener('load', async () => {
+            const messages = document.getElementById('messages');
             try {
                 const cache = await caches.open(CACHE_NAME);
-                const messages = document.getElementById('messages');
                 let cacheErrors = [];
+
+                // Fetch and cache site files
                 for (const path of sitePaths) {
-                    const response = await cache.match(path);
-                    if (response) {
-                        cachedContent[path] = await response.text();
-                    } else {
-                        cacheErrors.push(`No cached content for ${path}`);
+                    try {
+                        const response = await fetch(path, { cache: 'no-cache' });
+                        if (!response.ok) {
+                            const errorText = await response.text().catch(() => 'No response text');
+                            throw new Error(`HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
+                        }
+                        const text = await response.text();
+                        if (!text.trim()) {
+                            cacheErrors.push(`Empty content for ${path}`);
+                            continue;
+                        }
+                        await cache.put(path, new Response(text));
+                        cachedContent[path] = text;
+                    } catch (error) {
+                        const cachedResponse = await cache.match(path);
+                        if (cachedResponse) {
+                            cachedContent[path] = await cachedResponse.text();
+                            cacheErrors.push(`Used cached content for ${path} due to: ${error.message}`);
+                        } else {
+                            cacheErrors.push(`Failed to fetch ${path}: ${error.message}`);
+                        }
                     }
                 }
-                const githubResponse = await cache.match('/github-repo-files');
-                if (githubResponse) {
-                    cachedContent['github-repo-files'] = await githubResponse.json();
-                } else {
-                    cacheErrors.push('No cached GitHub repository files');
+
+                // Fetch and cache GitHub files
+                let githubFiles = [];
+                try {
+                    githubFiles = await fetchGitHubFiles();
+                    await cache.put('/github-repo-files', new Response(JSON.stringify(githubFiles)));
+                    cachedContent['github-repo-files'] = githubFiles;
+                } catch (error) {
+                    const cachedGithub = await cache.match('/github-repo-files');
+                    if (cachedGithub) {
+                        cachedContent['github-repo-files'] = await cachedGithub.json();
+                        cacheErrors.push(`Used cached GitHub files due to: ${error.message}`);
+                    } else {
+                        cacheErrors.push(`Failed to fetch GitHub files: ${error.message}`);
+                    }
                 }
+
                 if (cacheErrors.length > 0) {
-                    updateStatus('Warning: Missing cached content.', false, cacheErrors.join('; '));
-                    messages.innerHTML += `<p><b>Cache Warning:</b> ${cacheErrors.join('; ')}</p>`;
+                    messages.innerHTML += `<p><b>Cache Initialization Errors:</b> ${cacheErrors.join('; ')}</p>`;
+                    updateStatus('Warning: Issues during cache initialization.', false, cacheErrors.join('; '));
+                } else {
+                    updateStatus('Success: Cache initialized with all files.');
                 }
             } catch (error) {
+                messages.innerHTML += `<p><b>Cache Initialization Error:</b> ${error.message}</p>`;
                 updateStatus('Error: Failed to initialize cache.', true, error.stack || error.message);
             }
             simulateNeuralActivity(false); // Initial neural dot positions
@@ -141,7 +173,7 @@
                     if (!response.ok) {
                         const errorText = await response.text().catch(() => 'No response text');
                         if (response.status === 403) {
-                            throw new Error(`GitHub API rate limit exceeded. Consider adding a personal access token in Netlify environment variables.`);
+                            throw new Error(`GitHub API rate limit exceeded. Add a personal access token in Netlify environment variables.`);
                         } else if (response.status === 401) {
                             throw new Error(`Invalid GitHub API token. Check GITHUB_TOKEN in Netlify environment variables.`);
                         } else {
@@ -157,8 +189,13 @@
                                     githubErrors.push(`Failed to fetch ${item.path}: HTTP ${fileResponse.status} ${fileResponse.statusText}`);
                                     continue;
                                 }
+                                const text = await fileResponse.text();
+                                if (!text.trim()) {
+                                    githubErrors.push(`Empty content for ${item.path}`);
+                                    continue;
+                                }
                                 allFiles.push({
-                                    text: await fileResponse.text(),
+                                    text,
                                     source: `GitHub: ${item.path}`
                                 });
                             } catch (fileError) {
@@ -176,21 +213,14 @@
             try {
                 await fetchContents(githubApiUrl);
                 if (githubErrors.length > 0) {
-                    updateStatus('Warning: Some GitHub files failed to fetch.', false, githubErrors.join('; '));
                     document.getElementById('messages').innerHTML += `<p><b>GitHub Errors:</b> ${githubErrors.join('; ')}</p>`;
+                    updateStatus('Warning: Some GitHub files failed to fetch.', false, githubErrors.join('; '));
                 }
                 if (allFiles.length === 0 && githubErrors.length > 0) {
                     throw new Error('No GitHub files fetched successfully. See details above.');
                 }
-                const cache = await caches.open(CACHE_NAME);
-                await cache.put('/github-repo-files', new Response(JSON.stringify(allFiles)));
-                cachedContent['github-repo-files'] = allFiles;
                 return allFiles;
             } catch (error) {
-                if (cachedContent['github-repo-files']) {
-                    updateStatus('Warning: Using cached GitHub files.', false, error.message);
-                    return cachedContent['github-repo-files'];
-                }
                 throw error;
             }
         }
@@ -218,7 +248,7 @@
                         const response = await fetch(path, { cache: 'no-cache' });
                         if (!response.ok) {
                             const errorText = await response.text().catch(() => 'No response text');
-                            throw new Error(`Fetch failed for ${path}: HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
+                            throw new Error(`HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
                         }
                         const text = await response.text();
                         if (!text.trim()) {
@@ -247,15 +277,15 @@
                 let githubFiles = [];
                 try {
                     githubFiles = await fetchGitHubFiles();
+                    searchItems = searchItems.concat(githubFiles);
                 } catch (error) {
                     messages.innerHTML += `<p><b>GitHub Fetch Error:</b> ${error.message}</p>`;
                     updateStatus('Error: Failed to fetch GitHub files.', true, error.message);
                 }
-                searchItems = searchItems.concat(githubFiles);
 
                 // Log indexing status
                 if (searchItems.length === 0) {
-                    throw new Error('No files indexed for search. Check site paths and GitHub API.');
+                    throw new Error('No files indexed for search. Check site paths in sitePaths array and GitHub API configuration.');
                 }
                 messages.innerHTML += `<p><b>Search Info:</b> Indexed ${searchItems.length} files for query "${query}".</p>`;
 
@@ -263,7 +293,7 @@
                 const fuseOptions = {
                     includeScore: true,
                     includeMatches: true,
-                    threshold: 0.4, // Slightly more lenient for better matching
+                    threshold: 0.4,
                     keys: ['text']
                 };
                 const fuse = new Fuse(searchItems, fuseOptions);
@@ -280,7 +310,7 @@
                     });
                     messages.innerHTML += `<p><b>Search Info:</b> Found ${results.length} results for "${query}".</p>`;
                 } else {
-                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query or check file availability.</p>`;
+                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query or check file availability in Netlify and GitHub.</p>`;
                 }
                 updateStatus(`Success: Search completed. Indexed ${searchItems.length} files, found ${results.length} results.`);
             } catch (error) {
