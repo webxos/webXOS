@@ -23,13 +23,6 @@
     <link rel="stylesheet" href="/chatbot/static/style.css">
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/chatbot/static/icon.png">
-    <script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
-    <script>
-        // Fallback for Three.js if CDN fails
-        if (!window.THREE) {
-            document.write('<script src="/chatbot/static/three.min.js"><\/script>');
-        }
-    </script>
     <title>WebXOS Searchbot 2025</title>
 </head>
 <body>
@@ -57,6 +50,7 @@
     </div>
     <div class="copyright">Copyright webXOS 2025</div>
     <script src="/chatbot/static/fuse.min.js"></script>
+    <script src="/chatbot/static/neurots.js"></script>
     <script src="/chatbot/static/agent1.js"></script>
     <script src="/chatbot/static/agent2.js"></script>
     <script src="/chatbot/static/agent3.js"></script>
@@ -70,74 +64,7 @@
         let currentResults = [];
         let activeAgents = [];
 
-        // Three.js setup
-        let scene, camera, renderer, agents, mouse;
-        function initThreeJS() {
-            if (!window.THREE) {
-                console.error('Three.js failed to load.');
-                document.getElementById('messages').innerHTML += `<p><b>Error:</b> Failed to load Three.js. Neural dots unavailable.</p>`;
-                return;
-            }
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('neuralCanvas'), alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            camera.position.z = 50;
-
-            agents = [
-                { name: 'Agent1', color: 0x00ff00, sphere: null, active: false },
-                { name: 'Agent2', color: 0x00ccff, sphere: null, active: false },
-                { name: 'Agent3', color: 0xff00ff, sphere: null, active: false },
-                { name: 'Agent4', color: 0xffff00, sphere: null, active: false }
-            ];
-            mouse = new THREE.Vector2(0, 0);
-
-            agents.forEach((agent, index) => {
-                const geometry = new THREE.SphereGeometry(1, 32, 32);
-                const material = new THREE.MeshBasicMaterial({ color: agent.color });
-                agent.sphere = new THREE.Mesh(geometry, material);
-                agent.sphere.position.set(index * 10 - 15, index * 5 - 7.5, 0);
-                scene.add(agent.sphere);
-            });
-
-            function animate() {
-                requestAnimationFrame(animate);
-                const time = Date.now() * 0.001;
-                agents.forEach((agent, index) => {
-                    if (agent.active) {
-                        const orbitRadius = 5;
-                        agent.sphere.position.x = mouse.x * 50 + Math.cos(time + index) * orbitRadius;
-                        agent.sphere.position.y = mouse.y * 30 + Math.sin(time + index) * orbitRadius;
-                        agent.sphere.material.emissive = new THREE.Color(agent.color);
-                        agent.sphere.material.emissiveIntensity = 0.5;
-                    } else {
-                        agent.sphere.position.x = index * 10 - 15;
-                        agent.sphere.position.y = index * 5 - 7.5;
-                        agent.sphere.material.emissiveIntensity = 0.1 + Math.sin(time) * 0.05;
-                    }
-                });
-                renderer.render(scene, camera);
-            }
-            animate();
-
-            window.addEventListener('mousemove', (e) => {
-                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-            });
-            window.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                const touch = e.touches[0];
-                mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
-            }, { passive: false });
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-        }
-
-        // Initialize cache and Three.js
+        // Initialize cache and neurots
         window.addEventListener('load', async () => {
             const messages = document.getElementById('messages');
             try {
@@ -176,7 +103,7 @@
                 messages.innerHTML += `<p><b>Index Error:</b> ${error.message}</p>`;
                 updateStatus('Error: Failed to initialize index.', true, error.stack || error.message);
             }
-            initThreeJS();
+            initNeurots();
             document.getElementById('userInput').addEventListener('keydown', (event) => {
                 const isDesktop = window.innerWidth >= 600 && !/Mobi|Android/i.test(navigator.userAgent);
                 if (isDesktop && event.key === 'Enter') {
@@ -471,7 +398,7 @@
                                 updateStatus('Error: No code provided.', true);
                                 break;
                             }
-                            agents.forEach(agent => agent.active = true);
+                            setAgentsActive(true);
                             const result = decodeWebXOS(argString);
                             if (result.success && result.decoded) {
                                 messages.innerHTML += `<p><b>Decode Result:</b> ${result.message}</p>`;
@@ -489,12 +416,12 @@
                             if (!argString) {
                                 const agentName = command.slice(1).toUpperCase();
                                 messages.innerHTML += `<p><b>${agentName}:</b> How can I help you?</p>`;
-                                agents.find(a => a.name.toLowerCase() === command.slice(1)).active = true;
+                                setAgentsActive(false, command.slice(1));
                                 updateStatus(`Success: ${agentName} activated.`);
                                 break;
                             }
                             activeAgents = [command.slice(1).toUpperCase()];
-                            agents.forEach(agent => agent.active = agent.name.toLowerCase() === command.slice(1));
+                            setAgentsActive(false, command.slice(1));
                             const agentFn = window[command.slice(1) + 'Search'];
                             const agentResults = await agentFn(argString, cachedContent['site_index'] || []);
                             displayResults(agentResults, command.slice(1).toUpperCase());
@@ -507,17 +434,17 @@
                     loading.style.display = 'none';
                     document.getElementById('userInput').value = '';
                     messages.scrollTop = messages.scrollHeight;
-                    agents.forEach(agent => agent.active = false);
+                    setAgentsActive(false);
                     return;
                 }
 
                 // Default search with all agents
-                activeAgents = agents.map(a => a.name);
-                agents.forEach(agent => agent.active = true);
+                activeAgents = ['Agent1', 'Agent2', 'Agent3', 'Agent4'];
+                setAgentsActive(true);
                 let allResults = [];
-                for (const agent of agents) {
-                    const agentResults = await window[agent.name.toLowerCase() + 'Search'](query, cachedContent['site_index'] || []);
-                    agentResults.forEach(result => result.agent = agent.name);
+                for (const agent of ['agent1', 'agent2', 'agent3', 'agent4']) {
+                    const agentResults = await window[agent + 'Search'](query, cachedContent['site_index'] || []);
+                    agentResults.forEach(result => result.agent = agent.toUpperCase());
                     allResults = [...allResults, ...agentResults];
                 }
                 allResults.sort((a, b) => a.score - b.score);
@@ -535,7 +462,7 @@
                 loading.style.display = 'none';
                 document.getElementById('userInput').value = '';
                 messages.scrollTop = messages.scrollHeight;
-                agents.forEach(agent => agent.active = false);
+                setAgentsActive(false);
             }
         }
     </script>
