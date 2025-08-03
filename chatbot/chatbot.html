@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <meta name="description" content="WebXOS Searchbot 2025: Search innovative web apps, AI tools, games, and utilities across the WebXOS platform and GitHub repository.">
+    <meta name="description" content="WebXOS Searchbot 2025: Search innovative web apps, AI tools, games, and utilities across the WebXOS platform.">
     <meta name="keywords" content="webXOS, searchbot, web applications 2025, AI tools, web games, online utilities, digital solutions, webXOS AI, webXOS search, AI agents, browser-based tools, innovative web apps, digital experience, web development, AI-powered search, online games, modular web tools, sustainable web solutions, carbon footprint tools, webXOS research, exoskeleton AI technology, green energy, web design, front end, sustainable software, AI, machine learning, eco-friendly tech, web interfaces, user experience, UX design, web technology, AI-driven search, browser-based applications, digital innovation, web utilities, sustainable design, green technology, front-end development, AI applications, web accessibility, interactive web, modern web design, eco-conscious software, AI research, digital transformation, web performance, sustainable digital tools, low-carbon tech, web app development, AI-enhanced tools, online platforms, futuristic web solutions, green computing">
     <meta name="robots" content="index, follow">
     <meta name="author" content="webXOS">
     <meta property="og:title" content="WebXOS Searchbot 2025 - Search Web Apps & AI Tools">
-    <meta property="og:description" content="Explore WebXOS Searchbot 2025 to find cutting-edge web applications, AI agents, games, and utilities across the WebXOS platform and GitHub repository.">
+    <meta property="og:description" content="Explore WebXOS Searchbot 2025 to find cutting-edge web applications, AI agents, games, and utilities across the WebXOS platform.">
     <meta property="og:url" content="https://webxos.netlify.app/chatbot/chatbot.html">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="webXOS">
@@ -32,7 +32,7 @@
             <div id="messages"></div>
             <div id="status"></div>
             <div class="input-group">
-                <input type="text" id="userInput" placeholder="Search WebXOS or GitHub...">
+                <input type="text" id="userInput" placeholder="Search WebXOS...">
                 <button onclick="searchQuery()">Search</button>
             </div>
             <div id="loading" class="loading-spinner"></div>
@@ -48,81 +48,55 @@
     <script src="/chatbot/static/fuse.min.js"></script>
     <script>
         // Cache for offline support
-        const CACHE_NAME = 'webxos-searchbot-v3';
+        const CACHE_NAME = 'webxos-searchbot-v4';
         let cachedContent = {};
 
-        // List of Netlify site paths to search
-        const sitePaths = [
-            '/index.html',
-            '/moreinfo.html',
-            '/ai.html',
-            '/tools.html',
-            '/games.html',
-            '/radical.html',
-            '/greenstudy.html',
-            '/copyright.html',
-            '/chatbot/chatbot.html',
-            '/chatbot/static/style.css'
-        ];
-
-        // Initialize cache and attempt fetching content
+        // Initialize cache with site_index.json
         window.addEventListener('load', async () => {
             const messages = document.getElementById('messages');
             try {
                 const cache = await caches.open(CACHE_NAME);
-                let cacheErrors = [];
+                let indexErrors = [];
 
-                // Fetch and cache site files
-                for (const path of sitePaths) {
-                    try {
-                        const response = await fetch(path, { cache: 'no-cache' });
-                        if (!response.ok) {
-                            const errorText = await response.text().catch(() => 'No response text');
-                            throw new Error(`HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
-                        }
-                        const text = await response.text();
-                        if (!text.trim()) {
-                            cacheErrors.push(`Empty content for ${path}`);
-                            continue;
-                        }
-                        await cache.put(path, new Response(text));
-                        cachedContent[path] = text;
-                    } catch (error) {
-                        const cachedResponse = await cache.match(path);
-                        if (cachedResponse) {
-                            cachedContent[path] = await cachedResponse.text();
-                            cacheErrors.push(`Used cached content for ${path} due to: ${error.message}`);
-                        } else {
-                            cacheErrors.push(`Failed to fetch ${path}: ${error.message}`);
-                        }
-                    }
-                }
-
-                // Fetch and cache GitHub files
-                let githubFiles = [];
+                // Fetch site_index.json
                 try {
-                    githubFiles = await fetchGitHubFiles();
-                    await cache.put('/github-repo-files', new Response(JSON.stringify(githubFiles)));
-                    cachedContent['github-repo-files'] = githubFiles;
+                    const response = await fetch('/site_index.json', { cache: 'no-cache' });
+                    if (!response.ok) {
+                        const errorText = await response.text().catch(() => 'No response text');
+                        throw new Error(`HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
+                    }
+                    const siteIndex = await response.json();
+                    if (!siteIndex || !Array.isArray(siteIndex) || siteIndex.length === 0) {
+                        throw new Error('site_index.json is empty or invalid');
+                    }
+                    await cache.put('/site_index.json', new Response(JSON.stringify(siteIndex)));
+                    cachedContent['site_index'] = siteIndex;
+
+                    // Validate content
+                    siteIndex.forEach(item => {
+                        if (!item.path || !item.source || !item.text || !item.text.trim()) {
+                            indexErrors.push(`Invalid or empty content for ${item.path}`);
+                        }
+                    });
                 } catch (error) {
-                    const cachedGithub = await cache.match('/github-repo-files');
-                    if (cachedGithub) {
-                        cachedContent['github-repo-files'] = await cachedGithub.json();
-                        cacheErrors.push(`Used cached GitHub files due to: ${error.message}`);
+                    const cachedIndex = await cache.match('/site_index.json');
+                    if (cachedIndex) {
+                        cachedContent['site_index'] = await cachedIndex.json();
+                        indexErrors.push(`Used cached site_index.json due to: ${error.message}`);
                     } else {
-                        cacheErrors.push(`Failed to fetch GitHub files: ${error.message}`);
+                        indexErrors.push(`Failed to fetch site_index.json: ${error.message}`);
                     }
                 }
 
-                if (cacheErrors.length > 0) {
-                    messages.innerHTML += `<p><b>Cache Initialization Errors:</b> ${cacheErrors.join('; ')}</p>`;
-                    updateStatus('Warning: Issues during cache initialization.', false, cacheErrors.join('; '));
+                if (indexErrors.length > 0) {
+                    messages.innerHTML += `<p><b>Index Initialization Errors:</b> ${indexErrors.join('; ')}</p>`;
+                    updateStatus('Warning: Issues during index initialization.', false, indexErrors.join('; '));
                 } else {
-                    updateStatus('Success: Cache initialized with all files.');
+                    updateStatus(`Success: Indexed ${cachedContent['site_index'].length} files.`);
                 }
             } catch (error) {
-                messages.innerHTML += `<p><b>Cache Initialization Error:</b> ${error.message}</p>`;
-                updateStatus('Error: Failed to initialize cache.', true, error.stack || error.message);
+                messages.innerHTML += `<p><b>Index Initialization Error:</b> ${error.message}</p>`;
+                updateStatus('Error: Failed to initialize index.', true, error.stack || error.message);
             }
             simulateNeuralActivity(false); // Initial neural dot positions
         });
@@ -160,71 +134,6 @@
             }
         }
 
-        async function fetchGitHubFiles() {
-            const githubApiUrl = 'https://api.github.com/repos/webxos/webxos/contents';
-            const token = 'GITHUB_TOKEN'; // Replace with Netlify env variable or remove for unauthenticated
-            const headers = token ? { Authorization: `token ${token}` } : {};
-            let allFiles = [];
-            let githubErrors = [];
-
-            async function fetchContents(url, path = '') {
-                try {
-                    const response = await fetch(url, { headers });
-                    if (!response.ok) {
-                        const errorText = await response.text().catch(() => 'No response text');
-                        if (response.status === 403) {
-                            throw new Error(`GitHub API rate limit exceeded. Add a personal access token in Netlify environment variables.`);
-                        } else if (response.status === 401) {
-                            throw new Error(`Invalid GitHub API token. Check GITHUB_TOKEN in Netlify environment variables.`);
-                        } else {
-                            throw new Error(`GitHub API fetch failed for ${url}: HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
-                        }
-                    }
-                    const data = await response.json();
-                    for (const item of data) {
-                        if (item.type === 'file' && /\.(html|md|js|css|json)$/i.test(item.name)) {
-                            try {
-                                const fileResponse = await fetch(item.download_url, { headers });
-                                if (!fileResponse.ok) {
-                                    githubErrors.push(`Failed to fetch ${item.path}: HTTP ${fileResponse.status} ${fileResponse.statusText}`);
-                                    continue;
-                                }
-                                const text = await fileResponse.text();
-                                if (!text.trim()) {
-                                    githubErrors.push(`Empty content for ${item.path}`);
-                                    continue;
-                                }
-                                allFiles.push({
-                                    text,
-                                    source: `GitHub: ${item.path}`
-                                });
-                            } catch (fileError) {
-                                githubErrors.push(`Error fetching ${item.path}: ${fileError.message}`);
-                            }
-                        } else if (item.type === 'dir') {
-                            await fetchContents(item.url, `${path}/${item.name}`);
-                        }
-                    }
-                } catch (error) {
-                    githubErrors.push(error.message);
-                }
-            }
-
-            try {
-                await fetchContents(githubApiUrl);
-                if (githubErrors.length > 0) {
-                    document.getElementById('messages').innerHTML += `<p><b>GitHub Errors:</b> ${githubErrors.join('; ')}</p>`;
-                    updateStatus('Warning: Some GitHub files failed to fetch.', false, githubErrors.join('; '));
-                }
-                if (allFiles.length === 0 && githubErrors.length > 0) {
-                    throw new Error('No GitHub files fetched successfully. See details above.');
-                }
-                return allFiles;
-            } catch (error) {
-                throw error;
-            }
-        }
-
         async function searchQuery() {
             const query = document.getElementById('userInput').value.trim();
             const messages = document.getElementById('messages');
@@ -238,54 +147,32 @@
             simulateNeuralActivity(true); // Start neural dot animations
 
             try {
-                const cache = await caches.open(CACHE_NAME);
-                let searchItems = [];
-                let siteErrors = [];
-
-                // Fetch Netlify site files
-                for (const path of sitePaths) {
-                    try {
-                        const response = await fetch(path, { cache: 'no-cache' });
+                // Use cached site_index.json
+                let searchItems = cachedContent['site_index'] || [];
+                if (!searchItems.length) {
+                    const cache = await caches.open(CACHE_NAME);
+                    const cachedIndex = await cache.match('/site_index.json');
+                    if (cachedIndex) {
+                        searchItems = await cachedIndex.json();
+                        cachedContent['site_index'] = searchItems;
+                    } else {
+                        // Fallback: Try fetching site_index.json again
+                        const response = await fetch('/site_index.json', { cache: 'no-cache' });
                         if (!response.ok) {
-                            const errorText = await response.text().catch(() => 'No response text');
-                            throw new Error(`HTTP ${response.status} ${response.statusText}. Details: ${errorText}`);
+                            throw new Error(`Failed to fetch site_index.json: HTTP ${response.status}`);
                         }
-                        const text = await response.text();
-                        if (!text.trim()) {
-                            siteErrors.push(`Empty content for ${path}`);
-                            continue;
+                        searchItems = await response.json();
+                        if (!siteIndex || !Array.isArray(searchItems)) {
+                            throw new Error('site_index.json is empty or invalid');
                         }
-                        await cache.put(path, new Response(text));
-                        cachedContent[path] = text;
-                        searchItems.push({ text, source: `Site: ${path}` });
-                    } catch (error) {
-                        if (cachedContent[path]) {
-                            searchItems.push({ text: cachedContent[path], source: `Site (cached): ${path}` });
-                            siteErrors.push(`Used cached content for ${path} due to: ${error.message}`);
-                        } else {
-                            siteErrors.push(`Failed to fetch ${path}: ${error.message}`);
-                        }
+                        await cache.put('/site_index.json', new Response(JSON.stringify(searchItems)));
+                        cachedContent['site_index'] = searchItems;
                     }
-                }
-
-                if (siteErrors.length > 0) {
-                    messages.innerHTML += `<p><b>Site Fetch Errors:</b> ${siteErrors.join('; ')}</p>`;
-                    updateStatus('Warning: Some site files failed to fetch.', false, siteErrors.join('; '));
-                }
-
-                // Fetch GitHub repo files
-                let githubFiles = [];
-                try {
-                    githubFiles = await fetchGitHubFiles();
-                    searchItems = searchItems.concat(githubFiles);
-                } catch (error) {
-                    messages.innerHTML += `<p><b>GitHub Fetch Error:</b> ${error.message}</p>`;
-                    updateStatus('Error: Failed to fetch GitHub files.', true, error.message);
                 }
 
                 // Log indexing status
                 if (searchItems.length === 0) {
-                    throw new Error('No files indexed for search. Check site paths in sitePaths array and GitHub API configuration.');
+                    throw new Error('No files indexed for search. Ensure site_index.json exists and contains valid content.');
                 }
                 messages.innerHTML += `<p><b>Search Info:</b> Indexed ${searchItems.length} files for query "${query}".</p>`;
 
@@ -310,12 +197,12 @@
                     });
                     messages.innerHTML += `<p><b>Search Info:</b> Found ${results.length} results for "${query}".</p>`;
                 } else {
-                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query or check file availability in Netlify and GitHub.</p>`;
+                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query or check site_index.json content.</p>`;
                 }
                 updateStatus(`Success: Search completed. Indexed ${searchItems.length} files, found ${results.length} results.`);
             } catch (error) {
                 const errorDetails = error.message.includes('fetch') ?
-                    'Check Netlify redirects in netlify.toml, verify site paths in sitePaths array, or ensure GitHub API token is set in Netlify environment variables.'
+                    'Check if site_index.json is deployed in the Netlify publish directory (/). Ensure all HTML, .py, and .md files are included in the repository.'
                     : `Unexpected error: ${error.stack || error.message}`;
                 messages.innerHTML += `<p><b>Search Error:</b> ${error.message}</p>`;
                 updateStatus(`Error: ${error.message}`, true, errorDetails);
