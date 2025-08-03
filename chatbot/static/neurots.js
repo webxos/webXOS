@@ -48,20 +48,19 @@ try {
                 agents.forEach((agent, index) => {
                     ctx.beginPath();
                     ctx.fillStyle = agent.active ? agent.color : '#00FF00';
-                    let radius = 5;
+                    let radius = agent.active ? 10 : 5;
 
                     if (agent.active) {
-                        radius = 7;
                         if (agent.name === 'Agent1') {
                             // Circular orbit
-                            const orbitRadius = 30;
+                            const orbitRadius = 50;
                             const angle = time * 2 + index * Math.PI / 2;
                             agent.x = mouse.x + Math.cos(angle) * orbitRadius;
                             agent.y = mouse.y + Math.sin(angle) * orbitRadius;
                             console.log(`Agent1 moving in circular orbit: x=${agent.x}, y=${agent.y}`);
                         } else if (agent.name === 'Agent2') {
                             // Sinusoidal wave
-                            const waveAmplitude = 20;
+                            const waveAmplitude = 40;
                             const waveFrequency = 2;
                             agent.x = mouse.x + time * 50;
                             agent.y = mouse.y + Math.sin(time * waveFrequency) * waveAmplitude;
@@ -70,7 +69,7 @@ try {
                             console.log(`Agent2 moving in sinusoidal wave: x=${agent.x}, y=${agent.y}`);
                         } else if (agent.name === 'Agent3') {
                             // Zigzag
-                            const zigzagAmplitude = 20;
+                            const zigzagAmplitude = 40;
                             const zigzagFrequency = 0.02;
                             agent.x = mouse.x + zigzagAmplitude * Math.sin(time * zigzagFrequency * Math.PI);
                             agent.y = mouse.y + zigzagAmplitude * (time % 2 < 1 ? 1 : -1);
@@ -79,7 +78,7 @@ try {
                             console.log(`Agent3 moving in zigzag: x=${agent.x}, y=${agent.y}`);
                         } else if (agent.name === 'Agent4') {
                             // Spiral
-                            const spiralRadius = time * 5;
+                            const spiralRadius = time * 8;
                             const angle = time * 3 + index * Math.PI / 2;
                             agent.x = mouse.x + Math.cos(angle) * spiralRadius;
                             agent.y = mouse.y + Math.sin(angle) * spiralRadius;
