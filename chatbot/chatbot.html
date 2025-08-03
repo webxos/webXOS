@@ -56,22 +56,31 @@
     <script src="/chatbot/static/agent3.js"></script>
     <script src="/chatbot/static/agent4.js"></script>
     <script>
-        const CACHE_NAME = 'webxos-searchbot-v14';
+        const CACHE_NAME = 'webxos-searchbot-v15';
         let cachedContent = {};
-        const BOT_VERSION = '1.1.4';
+        const BOT_VERSION = '1.1.5';
         const RESULTS_PER_PAGE = 5;
         let currentPage = 0;
         let currentResults = [];
         let activeAgents = [];
 
-        // Load script and handle errors
+        // Load script with detailed error handling
         function loadScript(src) {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = src;
                 script.async = true;
-                script.onload = () => resolve();
-                script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+                script.onload = () => {
+                    console.log(`Script loaded: ${src}`);
+                    resolve();
+                };
+                script.onerror = () => {
+                    fetch(src, { method: 'HEAD' })
+                        .then(response => {
+                            reject(new Error(`Failed to load script: ${src}. Status: ${response.status} ${response.statusText}`));
+                        })
+                        .catch(() => reject(new Error(`Failed to load script: ${src}. Network error or file not found.`)));
+                };
                 document.head.appendChild(script);
             });
         }
@@ -116,14 +125,21 @@
                 updateStatus('Error: Failed to initialize index.', true, error.stack || error.message);
             }
 
-            // Load neurots.js and initialize
+            // Load neurots.js with fallback
             try {
                 await loadScript('/chatbot/static/neurots.js');
                 if (typeof window.initNeurots === 'function') {
                     initNeurots();
                     console.log('Neurots initialized successfully');
                 } else {
-                    throw new Error('initNeurots function not defined after loading neurots.js');
+                    console.warn('initNeurots not defined, attempting fallback');
+                    await loadScript('https://cdn.jsdelivr.net/gh/webxos/webxos@latest/chatbot/static/neurots.js');
+                    if (typeof window.initNeurots === 'function') {
+                        initNeurots();
+                        console.log('Neurots initialized successfully from CDN');
+                    } else {
+                        throw new Error('initNeurots function not defined after loading neurots.js from CDN');
+                    }
                 }
             } catch (error) {
                 console.error('Neurots initialization failed:', error);
@@ -131,13 +147,20 @@
                 updateStatus('Error: Neural dots failed to initialize.', true, error.stack || error.message);
             }
 
-            document.getElementById('userInput').addEventListener('keydown', (event) => {
+            // Add UI event listeners with debug logging
+            const userInput = document.getElementById('userInput');
+            const searchButton = document.getElementById('searchButton');
+            userInput.addEventListener('keydown', (event) => {
+                console.log('Keydown event on userInput:', event.key);
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     searchQuery();
                 }
             });
-            document.getElementById('searchButton').addEventListener('click', searchQuery);
+            searchButton.addEventListener('click', () => {
+                console.log('Search button clicked');
+                searchQuery();
+            });
         });
 
         function updateStatus(message, isError = false, details = '') {
@@ -348,12 +371,14 @@
                 <span>Page ${currentPage + 1} of ${totalPages}</span>
                 <button id="nextPage" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next</button>`;
             document.getElementById('prevPage')?.addEventListener('click', () => {
+                console.log('Previous button clicked');
                 if (currentPage > 0) {
                     currentPage--;
                     showPage(currentResults, activeAgents[0] || 'All Agents');
                 }
             });
             document.getElementById('nextPage')?.addEventListener('click', () => {
+                console.log('Next button clicked');
                 if (currentPage < Math.ceil(totalResults / RESULTS_PER_PAGE) - 1) {
                     currentPage++;
                     showPage(currentResults, activeAgents[0] || 'All Agents');
