@@ -1,27 +1,93 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebXOS Chatbot</title>
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="/chatbot/static/style.css">
+    <style>
+        .error { color: red; font-weight: bold; }
+        .success { color: green; }
+        #status { margin-top: 10px; font-style: italic; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1 class="title">WebXOS Chatbot</h1>
-        <div id="chatbox">
-            <div id="messages"></div>
-            <div id="status"></div>
-            <div class="input-group">
-                <input type="text" id="userInput" placeholder="Type your query...">
-                <button onclick="handleSearch()">Search</button>
-            </div>
-        </div>
-        <div class="copyright">© 2025 WebXOS</div>
+    <h1>WebXOS Chatbot</h1>
+    <div id="chatbox">
+        <div id="messages"></div>
+        <div id="status"></div>
+        <input type="text" id="userInput" placeholder="Type a message or search query...">
+        <button onclick="sendMessage()">Send</button>
+        <button onclick="searchQuery()">Search</button>
     </div>
-    <canvas id="neuralNetwork"></canvas>
-    <script src="script.js"></script>
+    <script src="/chatbot/static/script.js"></script>
+    <script>
+        function updateStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.innerHTML = `<span class="${isError ? 'error' : 'success'}">${message}</span>`;
+            status.style.display = 'block';
+            setTimeout(() => status.style.display = 'none', 5000);
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput').value;
+            const messages = document.getElementById('messages');
+            if (!input) {
+                updateStatus('Error: Please enter a message.', true);
+                return;
+            }
+            messages.innerHTML += `<p><b>You:</b> ${input}</p>`;
+            try {
+                const response = await fetch('/.netlify/functions/chatbot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: input })
+                });
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const data = await response.json();
+                if (!data.response) throw new Error('No response from server.');
+                messages.innerHTML += `<p><b>Bot:</b> ${data.response}</p>`;
+                updateStatus('Success: Response received.');
+            } catch (error) {
+                messages.innerHTML += `<p><b>Error:</b> ${error.message}</p>`;
+                updateStatus(`Error: ${error.message} - Check server and model files.`, true);
+            }
+            document.getElementById('userInput').value = '';
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        async function searchQuery() {
+            const query = document.getElementById('userInput').value;
+            const messages = document.getElementById('messages');
+            if (!query) {
+                updateStatus('Error: Please enter a search query.', true);
+                return;
+            }
+            messages.innerHTML += `<p><b>You (Search):</b> ${query}</p>`;
+            try {
+                // Fetch from same-origin (no proxy needed)
+                const webResponse = await fetch('/index.html');
+                if (!webResponse.ok) throw new Error(`WebXOS fetch failed: ${webResponse.status}`);
+                const webText = await webResponse.text();
+                if (webText.toLowerCase().includes(query.toLowerCase())) {
+                    messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS site: ${webText.slice(0, 100)}...</p>`;
+                } else {
+                    // Fetch GitHub README via Netlify redirect
+                    const githubResponse = await fetch('/github-readme');
+                    if (!githubResponse.ok) throw new Error(`GitHub fetch failed: ${githubResponse.status}`);
+                    const githubText = await githubResponse.text();
+                    if (githubText.toLowerCase().includes(query.toLowerCase())) {
+                        messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS GitHub README: ${githubText.slice(0, 100)}...</p>`;
+                    } else {
+                        messages.innerHTML += `<p><b>Search Result:</b> No results found.</p>`;
+                    }
+                }
+                updateStatus('Success: Search completed.');
+            } catch (error) {
+                messages.innerHTML += `<p><b>Search Error:</b> ${error.message}</p>`;
+                updateStatus(`Error: ${error.message} - Check Netlify redirects or server availability.`, true);
+            }
+            document.getElementById('userInput').value = '';
+            messages.scrollTop = messages.scrollHeight;
+        }
+    </script>
 </body>
 </html>
