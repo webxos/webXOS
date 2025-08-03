@@ -27,7 +27,6 @@ try {
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // Set base positions for agents
             agents.forEach((agent, index) => {
                 agent.baseX = canvas.width / 2 + (index - 1.5) * 50;
                 agent.baseY = canvas.height / 2 + (index - 1.5) * 25;
@@ -52,12 +51,42 @@ try {
                     let radius = 5;
 
                     if (agent.active) {
-                        // Orbit around mouse
-                        const orbitRadius = 30;
-                        const angle = time * 2 + index * Math.PI / 2;
-                        agent.x = mouse.x + Math.cos(angle) * orbitRadius;
-                        agent.y = mouse.y + Math.sin(angle) * orbitRadius;
                         radius = 7;
+                        if (agent.name === 'Agent1') {
+                            // Circular orbit
+                            const orbitRadius = 30;
+                            const angle = time * 2 + index * Math.PI / 2;
+                            agent.x = mouse.x + Math.cos(angle) * orbitRadius;
+                            agent.y = mouse.y + Math.sin(angle) * orbitRadius;
+                            console.log(`Agent1 moving in circular orbit: x=${agent.x}, y=${agent.y}`);
+                        } else if (agent.name === 'Agent2') {
+                            // Sinusoidal wave
+                            const waveAmplitude = 20;
+                            const waveFrequency = 2;
+                            agent.x = mouse.x + time * 50;
+                            agent.y = mouse.y + Math.sin(time * waveFrequency) * waveAmplitude;
+                            agent.x = Math.max(50, Math.min(canvas.width - 50, agent.x));
+                            agent.y = Math.max(50, Math.min(canvas.height - 50, agent.y));
+                            console.log(`Agent2 moving in sinusoidal wave: x=${agent.x}, y=${agent.y}`);
+                        } else if (agent.name === 'Agent3') {
+                            // Zigzag
+                            const zigzagAmplitude = 20;
+                            const zigzagFrequency = 0.02;
+                            agent.x = mouse.x + zigzagAmplitude * Math.sin(time * zigzagFrequency * Math.PI);
+                            agent.y = mouse.y + zigzagAmplitude * (time % 2 < 1 ? 1 : -1);
+                            agent.x = Math.max(50, Math.min(canvas.width - 50, agent.x));
+                            agent.y = Math.max(50, Math.min(canvas.height - 50, agent.y));
+                            console.log(`Agent3 moving in zigzag: x=${agent.x}, y=${agent.y}`);
+                        } else if (agent.name === 'Agent4') {
+                            // Spiral
+                            const spiralRadius = time * 5;
+                            const angle = time * 3 + index * Math.PI / 2;
+                            agent.x = mouse.x + Math.cos(angle) * spiralRadius;
+                            agent.y = mouse.y + Math.sin(angle) * spiralRadius;
+                            agent.x = Math.max(50, Math.min(canvas.width - 50, agent.x));
+                            agent.y = Math.max(50, Math.min(canvas.height - 50, agent.y));
+                            console.log(`Agent4 moving in spiral: x=${agent.x}, y=${agent.y}`);
+                        }
                     } else {
                         // Float randomly around base position
                         const noiseX = simpleNoise(time * 0.5, index);
@@ -70,7 +99,7 @@ try {
                         agent.y += agent.velocityY;
                         agent.x = Math.max(50, Math.min(canvas.width - 50, agent.x));
                         agent.y = Math.max(50, Math.min(canvas.height - 50, agent.y));
-                        radius = 5;
+                        console.log(`Agent${index + 1} floating: x=${agent.x}, y=${agent.y}`);
                     }
 
                     // Draw dot
