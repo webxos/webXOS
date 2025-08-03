@@ -4,23 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1C2526">
-    <title>WebXOS Chatbot</title>
+    <title>WebXOS Searchbot</title>
     <link rel="stylesheet" href="/chatbot/static/style.css">
     <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/chatbot/static/icon.png">
 </head>
 <body>
-    <h1>WebXOS Chatbot</h1>
+    <h1>WebXOS Searchbot</h1>
     <div id="chatbox">
         <div id="messages"></div>
         <div id="status"></div>
-        <input type="text" id="userInput" placeholder="Type a message or search query...">
-        <div class="button-group">
-            <button onclick="sendMessage()">Send</button>
+        <div class="input-group">
+            <input type="text" id="userInput" placeholder="Search WebXOS or GitHub...">
             <button onclick="searchQuery()">Search</button>
         </div>
+        <div id="loading" class="loading-spinner"></div>
     </div>
-    <script src="/chatbot/static/script.js"></script>
+    <script src="/chatbot/static/fuse.min.js"></script>
     <script>
+        // Cache for offline support
+        const CACHE_NAME = 'webxos-searchbot-v1';
+        let cachedContent = { webxos: null, github: null };
+
+        // Initialize cache on page load
+        window.addEventListener('load', async () => {
+            try {
+                const cache = await caches.open(CACHE_NAME);
+                const webxosResponse = await cache.match('/chatbot/chatbot.html');
+                const githubResponse = await cache.match('/github-readme');
+                if (webxosResponse) cachedContent.webxos = await webxosResponse.text();
+                if (githubResponse) cachedContent.github = await githubResponse.text();
+            } catch (error) {
+                updateStatus('Error: Failed to initialize cache.', true, error.stack || error.message);
+            }
+        });
+
         function updateStatus(message, isError = false, details = '') {
             const status = document.getElementById('status');
             const timestamp = new Date().toLocaleTimeString();
@@ -32,71 +50,82 @@
             setTimeout(() => status.style.display = 'none', 7000);
         }
 
-        async function sendMessage() {
-            const input = document.getElementById('userInput').value;
-            const messages = document.getElementById('messages');
-            if (!input) {
-                updateStatus('Error: Empty input.', true, 'Please enter a message or query.');
-                return;
-            }
-            messages.innerHTML += `<p><b>You:</b> ${input}</p>`;
-            try {
-                const response = await fetch('/.netlify/functions/chatbot', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: input })
-                });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                const data = await response.json();
-                if (!data.response) {
-                    throw new Error('No response from server.');
-                }
-                messages.innerHTML += `<p><b>Bot:</b> ${data.response}</p>`;
-                updateStatus('Success: Response received.');
-            } catch (error) {
-                const errorDetails = error.message.includes('fetch') ?
-                    'Server unreachable. Ensure Netlify Function is deployed or check backend server (e.g., Render/Heroku).'
-                    : error.message.includes('No response') ?
-                    'Model files (chatbot_model.pt, vocab.pkl) may be missing or invalid. Run train.py and verify model path.'
-                    : `Unexpected error: ${error.stack || error.message}`;
-                messages.innerHTML += `<p><b>Error:</b> ${error.message}</p>`;
-                updateStatus(`Error: ${error.message}`, true, errorDetails);
-            }
-            document.getElementById('userInput').value = '';
-            messages.scrollTop = messages.scrollHeight;
-        }
-
         async function searchQuery() {
-            const query = document.getElementById('userInput').value;
+            const query = document.getElementById('userInput').value.trim();
             const messages = document.getElementById('messages');
+            const loading = document.getElementById('loading');
             if (!query) {
                 updateStatus('Error: Empty search query.', true, 'Please enter a search term.');
                 return;
             }
-            messages.innerHTML += `<p><b>You (Search):</b> ${query}</p>`;
+            messages.innerHTML += `<p><b>You:</b> ${query}</p>`;
+            loading.style.display = 'block';
+
             try {
-                // Same-origin fetch
-                const webResponse = await fetch('/chatbot/chatbot.html');
-                if (!webResponse.ok) {
-                    throw new Error(`WebXOS fetch failed: HTTP ${webResponse.status} ${webResponse.statusText}`);
+                const cache = await caches.open(CACHE_NAME);
+                let webxosText, githubText;
+
+                // Fetch WebXOS content
+                try {
+                    const webxosResponse = await fetch('/chatbot/chatbot.html', { cache: 'no-cache' });
+                    if (!webxosResponse.ok) {
+                        throw new Error(`WebXOS fetch failed: HTTP ${webxosResponse.status} ${webxosResponse.statusText}`);
+                    }
+                    webxosText = await webxosResponse.text();
+                    await cache.put('/chatbot/chatbot.html', new Response(webxosText));
+                    cachedContent.webxos = webxosText;
+                } catch (error) {
+                    if (cachedContent.webxos) {
+                        webxosText = cachedContent.webxos;
+                        updateStatus('Warning: Using cached WebXOS content.', false, error.message);
+                    } else {
+                        throw error;
+                    }
                 }
-                const webText = await webResponse.text();
-                if (webText.toLowerCase().includes(query.toLowerCase())) {
-                    messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS site: ${webText.slice(0, 100)}...</p>`;
-                } else {
-                    // Fetch GitHub README via Netlify redirect
-                    const githubResponse = await fetch('/github-readme');
+
+                // Fetch GitHub README
+                try {
+                    const githubResponse = await fetch('/github-readme', { cache: 'no-cache' });
                     if (!githubResponse.ok) {
                         throw new Error(`GitHub fetch failed: HTTP ${githubResponse.status} ${githubResponse.statusText}`);
                     }
-                    const githubText = await githubResponse.text();
-                    if (githubText.toLowerCase().includes(query.toLowerCase())) {
-                        messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS GitHub README: ${githubText.slice(0, 100)}...</p>`;
+                    githubText = await githubResponse.text();
+                    await cache.put('/github-readme', new Response(githubText));
+                    cachedContent.github = githubText;
+                } catch (error) {
+                    if (cachedContent.github) {
+                        githubText = cachedContent.github;
+                        updateStatus('Warning: Using cached GitHub content.', false, error.message);
                     } else {
-                        messages.innerHTML += `<p><b>Search Result:</b> No results found.</p>`;
+                        throw error;
                     }
+                }
+
+                // Fuzzy search with Fuse.js
+                const fuseOptions = {
+                    includeScore: true,
+                    includeMatches: true,
+                    threshold: 0.3,
+                    keys: ['text']
+                };
+                const searchItems = [
+                    { text: webxosText, source: 'WebXOS Site' },
+                    { text: githubText, source: 'GitHub README' }
+                ];
+                const fuse = new Fuse(searchItems, fuseOptions);
+                const results = fuse.search(query);
+
+                if (results.length > 0) {
+                    results.forEach(result => {
+                        const { item, matches } = result;
+                        matches.forEach(match => {
+                            const snippet = match.value.slice(Math.max(0, match.indices[0][0] - 50), match.indices[0][1] + 50);
+                            messages.innerHTML += `
+                                <p><b>Result (${item.source}):</b> ...${snippet}...</p>`;
+                        });
+                    });
+                } else {
+                    messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}".</p>`;
                 }
                 updateStatus('Success: Search completed.');
             } catch (error) {
@@ -105,9 +134,11 @@
                     : `Unexpected error: ${error.stack || error.message}`;
                 messages.innerHTML += `<p><b>Search Error:</b> ${error.message}</p>`;
                 updateStatus(`Error: ${error.message}`, true, errorDetails);
+            } finally {
+                loading.style.display = 'none';
+                document.getElementById('userInput').value = '';
+                messages.scrollTop = messages.scrollHeight;
             }
-            document.getElementById('userInput').value = '';
-            messages.scrollTop = messages.scrollHeight;
         }
     </script>
 </body>
