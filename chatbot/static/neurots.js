@@ -4,7 +4,7 @@ let dots = [];
 let activeAgent = null;
 const DOT_COUNT = 30; // Reduced for performance
 const MAX_DISTANCE = 80;
-let patternSide = 'left'; // Randomly chosen per agent activation
+let patternSide = 'left'; // Randomly chosen per agent activation (left or right only)
 let animationPhase = 'none'; // 'dissipate', 'reform', or 'none'
 let animationProgress = 0; // 0 to 1 for dissipation/reformation
 
@@ -35,55 +35,57 @@ function createDot(pattern, index) {
         targetX: 0,
         targetY: 0
     };
-    const position = Math.random();
-    const sideOffset = position < 0.33 ? 50 : position < 0.66 ? canvas.width - 150 : canvas.width / 2; // Left, right, or center
+    const sideOffset = patternSide === 'left' ? 50 : canvas.width - 150; // Left or right only
     switch (pattern) {
-        case 'helix': // Agent1: Double helix protein
+        case 'helix': // Agent1: Double helix
             const helixAngle = index * 0.6;
-            const helixRadius = 30 + index * 3;
+            const helixRadius = 20 + index * 2;
             return {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
                 targetX: sideOffset + helixRadius * Math.cos(helixAngle),
-                targetY: canvas.height / 2 + helixRadius * Math.sin(helixAngle) + (index % 2 ? 20 : -20),
+                targetY: canvas.height / 2 + helixRadius * Math.sin(helixAngle) + (index % 2 ? 15 : -15),
                 vx: (Math.random() - 0.5) * 0.5,
                 vy: (Math.random() - 0.5) * 0.5,
                 angle: helixAngle,
                 radiusSpeed: 0.03
             };
-        case 'lattice': // Agent2: Lattice protein
-            const latticeX = (index % 5) * 25;
-            const latticeY = Math.floor(index / 5) * 25;
+        case 'grid': // Agent2: Compact 4x4 grid
+            const gridX = (index % 4) * 15;
+            const gridY = Math.floor(index / 4) * 15;
             return {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
-                targetX: sideOffset + latticeX - 50,
-                targetY: canvas.height / 2 - 50 + latticeY,
+                targetX: sideOffset + gridX - 30,
+                targetY: canvas.height / 2 - 30 + gridY,
                 vx: (Math.random() - 0.5) * 0.2,
                 vy: (Math.random() - 0.5) * 0.2
             };
-        case 'ripple': // Agent3: Ripple protein
-            const rippleX = index * 12;
+        case 'torus': // Agent3: Torus (ring)
+            const torusAngle = index * 0.4;
+            const torusRadius = 25;
             return {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
-                targetX: sideOffset + rippleX - 100,
-                targetY: canvas.height / 2 + Math.sin(index * 0.4) * 40,
-                vx: 0,
-                vy: Math.cos(index * 0.4) * 0.5
+                targetX: sideOffset + torusRadius * Math.cos(torusAngle),
+                targetY: canvas.height / 2 + torusRadius * Math.sin(torusAngle),
+                vx: (Math.random() - 0.5) * 0.3,
+                vy: (Math.random() - 0.5) * 0.3,
+                angle: torusAngle,
+                radiusSpeed: 0.02
             };
-        case 'starburst': // Agent4: Starburst protein
-            const starAngle = Math.random() * Math.PI * 2;
-            const starRadius = Math.random() * 40;
+        case 'cluster': // Agent4: Dense spherical cluster
+            const clusterAngle = Math.random() * Math.PI * 2;
+            const clusterRadius = Math.random() * 20;
             return {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
-                targetX: sideOffset + starRadius * Math.cos(starAngle),
-                targetY: canvas.height / 2 + starRadius * Math.sin(starAngle),
+                targetX: sideOffset + clusterRadius * Math.cos(clusterAngle),
+                targetY: canvas.height / 2 + clusterRadius * Math.sin(clusterAngle),
                 vx: (Math.random() - 0.5) * 0.3,
                 vy: (Math.random() - 0.5) * 0.3
             };
@@ -104,9 +106,9 @@ function initDots() {
     dots = [];
     const pattern = activeAgent ? {
         'agent1': 'helix',
-        'agent2': 'lattice',
-        'agent3': 'ripple',
-        'agent4': 'starburst'
+        'agent2': 'grid',
+        'agent3': 'torus',
+        'agent4': 'cluster'
     }[activeAgent] : 'random';
     for (let i = 0; i < DOT_COUNT; i++) {
         dots.push(createDot(pattern, i));
@@ -166,22 +168,25 @@ function updateDots() {
             if (activeAgent) {
                 if (activeAgent === 'agent1') { // Helix spin
                     dot.angle += dot.radiusSpeed;
-                    const radius = 30 + dot.radius * 3;
-                    dot.targetX = (patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2) + radius * Math.cos(dot.angle);
-                    dot.targetY = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 20 : -20);
-                } else if (activeAgent === 'agent2') { // Lattice oscillation
+                    const radius = 20 + dot.radius * 2;
+                    dot.targetX = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
+                    dot.targetY = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 15 : -15);
+                } else if (activeAgent === 'agent2') { // Grid oscillation
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2;
-                    if (dot.x < baseX - 50 || dot.x > baseX + 50) dot.vx *= -1;
-                    if (dot.y < canvas.height / 2 - 50 || dot.y > canvas.height / 2 + 50) dot.vy *= -1;
-                } else if (activeAgent === 'agent3') { // Ripple motion
-                    dot.targetY = canvas.height / 2 + Math.sin((dot.targetX - (patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2)) * 0.05 + Date.now() * 0.001) * 40;
-                } else if (activeAgent === 'agent4') { // Starburst pulse
+                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
+                    if (dot.x < baseX - 30 || dot.x > baseX + 30) dot.vx *= -1;
+                    if (dot.y < canvas.height / 2 - 30 || dot.y > canvas.height / 2 + 30) dot.vy *= -1;
+                } else if (activeAgent === 'agent3') { // Torus rotation
+                    dot.angle += dot.radiusSpeed;
+                    const radius = 25;
+                    dot.targetX = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
+                    dot.targetY = canvas.height / 2 + radius * Math.sin(dot.angle);
+                } else if (activeAgent === 'agent4') { // Cluster pulse
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2;
-                    if (Math.abs(dot.x - baseX) > 50 || Math.abs(dot.y - canvas.height / 2) > 50) {
+                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
+                    if (Math.abs(dot.x - baseX) > 20 || Math.abs(dot.y - canvas.height / 2) > 20) {
                         dot.vx *= -1;
                         dot.vy *= -1;
                     }
@@ -197,22 +202,25 @@ function updateDots() {
             if (activeAgent) {
                 if (activeAgent === 'agent1') { // Helix spin
                     dot.angle += dot.radiusSpeed;
-                    const radius = 30 + dot.radius * 3;
-                    dot.x = (patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2) + radius * Math.cos(dot.angle);
-                    dot.y = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 20 : -20);
-                } else if (activeAgent === 'agent2') { // Lattice oscillation
+                    const radius = 20 + dot.radius * 2;
+                    dot.x = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
+                    dot.y = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 15 : -15);
+                } else if (activeAgent === 'agent2') { // Grid oscillation
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2;
-                    if (dot.x < baseX - 50 || dot.x > baseX + 50) dot.vx *= -1;
-                    if (dot.y < canvas.height / 2 - 50 || dot.y > canvas.height / 2 + 50) dot.vy *= -1;
-                } else if (activeAgent === 'agent3') { // Ripple motion
-                    dot.y = canvas.height / 2 + Math.sin((dot.x - (patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2)) * 0.05 + Date.now() * 0.001) * 40;
-                } else if (activeAgent === 'agent4') { // Starburst pulse
+                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
+                    if (dot.x < baseX - 30 || dot.x > baseX + 30) dot.vx *= -1;
+                    if (dot.y < canvas.height / 2 - 30 || dot.y > canvas.height / 2 + 30) dot.vy *= -1;
+                } else if (activeAgent === 'agent3') { // Torus rotation
+                    dot.angle += dot.radiusSpeed;
+                    const radius = 25;
+                    dot.x = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
+                    dot.y = canvas.height / 2 + radius * Math.sin(dot.angle);
+                } else if (activeAgent === 'agent4') { // Cluster pulse
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : patternSide === 'right' ? canvas.width - 150 : canvas.width / 2;
-                    if (Math.abs(dot.x - baseX) > 50 || Math.abs(dot.y - canvas.height / 2) > 50) {
+                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
+                    if (Math.abs(dot.x - baseX) > 20 || Math.abs(dot.y - canvas.height / 2) > 20) {
                         dot.vx *= -1;
                         dot.vy *= -1;
                     }
@@ -235,7 +243,7 @@ function animate() {
 
 window.setAgentsActive = function(active, agent = null) {
     activeAgent = active ? agent : null;
-    patternSide = active ? (Math.random() < 0.33 ? 'left' : Math.random() < 0.66 ? 'right' : 'center') : 'left';
+    patternSide = active ? (Math.random() < 0.5 ? 'left' : 'right') : 'left'; // Only left or right
     initDots();
 };
 
