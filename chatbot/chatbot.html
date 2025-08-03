@@ -1,61 +1,68 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1C2526">
     <title>WebXOS Chatbot</title>
     <link rel="stylesheet" href="/chatbot/static/style.css">
-    <style>
-        .error { color: red; font-weight: bold; }
-        .success { color: green; }
-        #status { margin-top: 10px; font-style: italic; }
-    </style>
+    <link rel="manifest" href="/manifest.json">
 </head>
 <body>
     <h1>WebXOS Chatbot</h1>
     <div id="chatbox">
         <div id="messages"></div>
-        <div id="status"></div> <!-- Status for error feedback -->
+        <div id="status"></div>
         <input type="text" id="userInput" placeholder="Type a message or search query...">
-        <button onclick="sendMessage()">Send</button>
-        <button onclick="searchQuery()">Search</button>
+        <div class="button-group">
+            <button onclick="sendMessage()">Send</button>
+            <button onclick="searchQuery()">Search</button>
+        </div>
     </div>
     <script src="/chatbot/static/script.js"></script>
     <script>
-        // Enhanced error handling
-        function updateStatus(message, isError = false) {
+        function updateStatus(message, isError = false, details = '') {
             const status = document.getElementById('status');
-            status.innerHTML = `<span class="${isError ? 'error' : 'success'}">${message}</span>`;
+            const timestamp = new Date().toLocaleTimeString();
+            status.innerHTML = `
+                <span class="${isError ? 'error' : 'success'}">
+                    ${message}${isError && details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}
+                </span>`;
             status.style.display = 'block';
-            setTimeout(() => status.style.display = 'none', 5000); // Hide after 5 seconds
+            setTimeout(() => status.style.display = 'none', 7000);
         }
 
         async function sendMessage() {
             const input = document.getElementById('userInput').value;
             const messages = document.getElementById('messages');
             if (!input) {
-                updateStatus('Error: Please enter a message.', true);
+                updateStatus('Error: Empty input.', true, 'Please enter a message or query.');
                 return;
             }
             messages.innerHTML += `<p><b>You:</b> ${input}</p>`;
             try {
-                const response = await fetch('http://localhost:8000', {
+                const response = await fetch('/.netlify/functions/chatbot', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: input })
                 });
-                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 const data = await response.json();
-                if (!data.response) throw new Error('No response from server.');
+                if (!data.response) {
+                    throw new Error('No response from server.');
+                }
                 messages.innerHTML += `<p><b>Bot:</b> ${data.response}</p>`;
                 updateStatus('Success: Response received.');
             } catch (error) {
+                const errorDetails = error.message.includes('fetch') ?
+                    'Server unreachable. Ensure Netlify Function is deployed or check backend server (e.g., Render/Heroku).'
+                    : error.message.includes('No response') ?
+                    'Model files (chatbot_model.pt, vocab.pkl) may be missing or invalid. Run train.py and verify model path.'
+                    : `Unexpected error: ${error.stack || error.message}`;
                 messages.innerHTML += `<p><b>Error:</b> ${error.message}</p>`;
-                updateStatus(`Error: ${error.message} - Check server (http://localhost:8000) and model files.`, true);
-                // Specific feedback for common issues
-                if (error.message.includes('Failed to fetch')) {
-                    updateStatus('Error: Server not running or unreachable. Start with "python server.py".', true);
-                } else if (error.message.includes('No response')) {
-                    updateStatus('Error: Model files (chatbot_model.pt, vocab.pkl) may be missing or invalid. Run train.py.', true);
-                }
+                updateStatus(`Error: ${error.message}`, true, errorDetails);
             }
             document.getElementById('userInput').value = '';
             messages.scrollTop = messages.scrollHeight;
@@ -65,19 +72,25 @@
             const query = document.getElementById('userInput').value;
             const messages = document.getElementById('messages');
             if (!query) {
-                updateStatus('Error: Please enter a search query.', true);
+                updateStatus('Error: Empty search query.', true, 'Please enter a search term.');
                 return;
             }
             messages.innerHTML += `<p><b>You (Search):</b> ${query}</p>`;
             try {
-                const webResponse = await fetch('https://cors-anywhere.herokuapp.com/https://webxos.netlify.app');
-                if (!webResponse.ok) throw new Error(`WebXOS fetch failed: ${webResponse.status}`);
+                // Same-origin fetch
+                const webResponse = await fetch('/chatbot/chatbot.html');
+                if (!webResponse.ok) {
+                    throw new Error(`WebXOS fetch failed: HTTP ${webResponse.status} ${webResponse.statusText}`);
+                }
                 const webText = await webResponse.text();
                 if (webText.toLowerCase().includes(query.toLowerCase())) {
                     messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS site: ${webText.slice(0, 100)}...</p>`;
                 } else {
-                    const githubResponse = await fetch('https://raw.githubusercontent.com/webxos/webxos/main/README.md');
-                    if (!githubResponse.ok) throw new Error(`GitHub fetch failed: ${githubResponse.status}`);
+                    // Fetch GitHub README via Netlify redirect
+                    const githubResponse = await fetch('/github-readme');
+                    if (!githubResponse.ok) {
+                        throw new Error(`GitHub fetch failed: HTTP ${githubResponse.status} ${githubResponse.statusText}`);
+                    }
                     const githubText = await githubResponse.text();
                     if (githubText.toLowerCase().includes(query.toLowerCase())) {
                         messages.innerHTML += `<p><b>Search Result:</b> Found '${query}' in WebXOS GitHub README: ${githubText.slice(0, 100)}...</p>`;
@@ -87,11 +100,11 @@
                 }
                 updateStatus('Success: Search completed.');
             } catch (error) {
+                const errorDetails = error.message.includes('fetch') ?
+                    'Check Netlify redirects in netlify.toml or ensure WebXOS/GitHub URLs are accessible.'
+                    : `Unexpected error: ${error.stack || error.message}`;
                 messages.innerHTML += `<p><b>Search Error:</b> ${error.message}</p>`;
-                updateStatus(`Error: ${error.message} - Check CORS proxy or WebXOS/GitHub availability.`, true);
-                if (error.message.includes('CORS')) {
-                    updateStatus('Error: CORS issue. Try https://cors-anywhere.herokuapp.com/ or contact WebXOS admin.', true);
-                }
+                updateStatus(`Error: ${error.message}`, true, errorDetails);
             }
             document.getElementById('userInput').value = '';
             messages.scrollTop = messages.scrollHeight;
