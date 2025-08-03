@@ -22,7 +22,15 @@ function getAgentColor(agent) {
 }
 
 function createDot(pattern, index) {
-    const base = { radius: Math.random() * 2 + 1, color: activeAgent ? getAgentColor(activeAgent) : '#00ff00' };
+    const base = { 
+        radius: Math.random() * 2 + 1, 
+        color: activeAgent ? getAgentColor(activeAgent) : '#00ff00',
+        // Ensure all dots have initial velocities and properties
+        vx: 0,
+        vy: 0,
+        angle: 0,
+        radiusSpeed: 0
+    };
     const sideOffset = patternSide === 'left' ? 50 : canvas.width - 150; // Position on left or right
     switch (pattern) {
         case 'spiral': // Agent1: Spiral pattern
@@ -93,6 +101,7 @@ function initDots() {
 function drawDots() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     dots.forEach(dot => {
+        if (!dot) return; // Guard against undefined dots
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
         ctx.fillStyle = dot.color;
@@ -101,6 +110,7 @@ function drawDots() {
 
     for (let i = 0; i < dots.length; i++) {
         for (let j = i + 1; j < dots.length; j++) {
+            if (!dots[i] || !dots[j]) continue; // Guard against undefined dots
             const dx = dots[i].x - dots[j].x;
             const dy = dots[i].y - dots[j].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -108,7 +118,7 @@ function drawDots() {
                 ctx.beginPath();
                 ctx.moveTo(dots[i].x, dots[i].y);
                 ctx.lineTo(dots[j].x, dots[j].y);
-                ctx.strokeStyle = `rgba(${parseInt(dot.color.slice(1, 3), 16)}, ${parseInt(dot.color.slice(3, 5), 16)}, ${parseInt(dot.color.slice(5, 7), 16)}, ${1 - distance / MAX_DISTANCE})`;
+                ctx.strokeStyle = `rgba(${parseInt(dots[i].color.slice(1, 3), 16)}, ${parseInt(dots[i].color.slice(3, 5), 16)}, ${parseInt(dots[i].color.slice(5, 7), 16)}, ${1 - distance / MAX_DISTANCE})`;
                 ctx.lineWidth = 0.5;
                 ctx.stroke();
             }
@@ -118,6 +128,7 @@ function drawDots() {
 
 function updateDots() {
     dots.forEach(dot => {
+        if (!dot) return; // Guard against undefined dots
         if (activeAgent) {
             if (activeAgent === 'agent1') { // Spiral spin
                 dot.angle += dot.radiusSpeed;
