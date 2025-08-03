@@ -17,8 +17,8 @@ function getAgentColor(agent) {
     const colors = {
         'agent1': '#00cc00', // Deep neon green
         'agent2': '#00ff99', // Bright cyan-green
-        'agent3': '#33ff99', // Light green
-        'agent4': '#66ffcc' // Mint green
+        'agent3': '#ff33cc', // Neon magenta
+        'agent4': '#33ccff' // Neon cyan
     };
     return colors[agent] || '#00ff00';
 }
