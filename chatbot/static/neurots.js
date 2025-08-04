@@ -4,16 +4,17 @@ let dots = [];
 let activeAgent = null;
 let isRandomMode = false; // Track random mode
 let growthFactor = 1; // Controls pattern expansion
-const DOT_COUNT = 30; // Reduced for performance
-const MAX_DISTANCE = 80;
-let patternSide = 'left'; // Randomly chosen per agent activation (left or right only)
+const DOT_COUNT = 30; // Number of dots
+const MAX_DISTANCE = 80; // Max distance for connecting lines
+let patternSide = 'left'; // Left or right for pattern placement
 let animationPhase = 'none'; // 'dissipate', 'reform', or 'none'
-let animationProgress = 0; // 0 to 1 for dissipation/reformation
+let animationProgress = 0; // 0 to 1 for animation transitions
 let stopRequested = false; // Track stop command
 
 function setCanvasSize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    console.log('Canvas resized:', canvas.width, canvas.height);
 }
 
 function getAgentColor(agent) {
@@ -38,12 +39,13 @@ function createDot(pattern, index) {
         targetX: 0,
         targetY: 0
     };
-    const sideOffset = patternSide === 'left' ? 50 : canvas.width - 150; // Left or right only
+    const sideOffset = patternSide === 'left' ? 50 : canvas.width - 150;
+    let dot;
     switch (pattern) {
         case 'helix': // Agent1: Double helix
             const helixAngle = index * 0.6;
             const helixRadius = (20 + index * 2) * growthFactor;
-            return {
+            dot = {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -54,10 +56,11 @@ function createDot(pattern, index) {
                 angle: helixAngle,
                 radiusSpeed: 0.03
             };
+            break;
         case 'grid': // Agent2: Compact 4x4 grid
             const gridX = (index % 4) * 15 * growthFactor;
             const gridY = Math.floor(index / 4) * 15 * growthFactor;
-            return {
+            dot = {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -66,10 +69,11 @@ function createDot(pattern, index) {
                 vx: (Math.random() - 0.5) * 0.2,
                 vy: (Math.random() - 0.5) * 0.2
             };
+            break;
         case 'torus': // Agent3: Torus (ring)
             const torusAngle = index * 0.4;
             const torusRadius = 25 * growthFactor;
-            return {
+            dot = {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -80,10 +84,11 @@ function createDot(pattern, index) {
                 angle: torusAngle,
                 radiusSpeed: 0.02
             };
+            break;
         case 'cluster': // Agent4: Dense spherical cluster
             const clusterAngle = Math.random() * Math.PI * 2;
             const clusterRadius = Math.random() * 20 * growthFactor;
-            return {
+            dot = {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -92,8 +97,9 @@ function createDot(pattern, index) {
                 vx: (Math.random() - 0.5) * 0.3,
                 vy: (Math.random() - 0.5) * 0.3
             };
+            break;
         default: // Default random pattern
-            return {
+            dot = {
                 ...base,
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -103,6 +109,8 @@ function createDot(pattern, index) {
                 vy: (Math.random() - 0.5) * 2
             };
     }
+    console.log(`Created dot for ${pattern}:`, dot);
+    return dot;
 }
 
 function initDots() {
@@ -114,18 +122,19 @@ function initDots() {
         'agent4': 'cluster'
     }[activeAgent] : 'random';
     for (let i = 0; i < DOT_COUNT; i++) {
-        dots.push(createDot(pattern, i));
+        const dot = createDot(pattern, i);
+        if (dot) dots.push(dot);
     }
+    console.log(`Initialized ${dots.length} dots for pattern: ${pattern}, randomMode: ${isRandomMode}`);
     animationPhase = activeAgent ? 'dissipate' : 'none';
     animationProgress = 0;
     if (isRandomMode) {
-        growthFactor = 1; // Reset growth factor for random mode
+        growthFactor = 1; // Reset growth factor
         stopRequested = false;
     }
 }
 
 function checkBounds() {
-    // Check if any dot is near the screen edges
     return dots.some(dot => 
         dot.x < 10 || dot.x > canvas.width - 10 || 
         dot.y < 10 || dot.y > canvas.height - 10
@@ -158,13 +167,16 @@ function drawDots() {
             }
         }
     }
+    console.log('Drawn dots:', dots.length);
 }
 
 function updateDots() {
-    if (stopRequested || checkBounds()) {
+    if (stopRequested || (isRandomMode && checkBounds())) {
+        console.log('Stopping random mode: ', { stopRequested, boundsHit: checkBounds() });
         isRandomMode = false;
-        animationPhase = 'none';
         growthFactor = 1;
+        animationPhase = 'none';
+        initDots();
         return;
     }
 
@@ -173,19 +185,20 @@ function updateDots() {
         dots.forEach(dot => {
             if (!dot) return;
             dot.opacity = Math.max(0, 1 - animationProgress);
-            dot.x += (Math.random() - 0.5) * 5; // Scatter during dissipation
+            dot.x += (Math.random() - 0.5) * 5;
             dot.y += (Math.random() - 0.5) * 5;
         });
         if (animationProgress >= 1) {
             animationPhase = 'reform';
             animationProgress = 0;
+            initDots(); // Reinitialize dots for reformation
         }
     } else if (animationPhase === 'reform') {
-        animationProgress += 0.02; // Slower reformation for effect
+        animationProgress += 0.02;
         dots.forEach(dot => {
             if (!dot) return;
             dot.opacity = animationProgress;
-            dot.x += (dot.targetX - dot.x) * 0.1; // Move toward target
+            dot.x += (dot.targetX - dot.x) * 0.1;
             dot.y += (dot.targetY - dot.y) * 0.1;
             if (activeAgent) {
                 if (activeAgent === 'agent1') { // Helix spin
@@ -255,8 +268,9 @@ function updateDots() {
             }
         });
         if (isRandomMode) {
-            growthFactor += 0.02; // Gradually expand pattern
-            initDots(); // Recalculate dot positions with updated growthFactor
+            growthFactor += 0.01; // Slower growth for smoother animation
+            console.log('Random mode: growthFactor =', growthFactor);
+            initDots(); // Update dot positions with new growthFactor
         }
     }
 }
@@ -271,7 +285,8 @@ window.setAgentsActive = function(active, agent = null, randomMode = false) {
     activeAgent = active ? agent : null;
     isRandomMode = randomMode;
     stopRequested = false;
-    patternSide = active ? (Math.random() < 0.5 ? 'left' : 'right') : 'left'; // Only left or right
+    patternSide = active ? (Math.random() < 0.5 ? 'left' : 'right') : 'left';
+    console.log(`setAgentsActive: agent=${agent}, randomMode=${randomMode}, patternSide=${patternSide}`);
     initDots();
 };
 
@@ -279,12 +294,18 @@ window.stopRandomMode = function() {
     stopRequested = true;
     isRandomMode = false;
     growthFactor = 1;
+    console.log('Random mode stopped');
     initDots();
 };
 
 window.initNeurots = function() {
+    if (!canvas || !ctx) {
+        console.error('Canvas or context not found');
+        return;
+    }
     setCanvasSize();
     initDots();
     animate();
     window.addEventListener('resize', setCanvasSize);
+    console.log('Neurots initialized');
 };
