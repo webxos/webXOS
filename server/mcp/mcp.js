@@ -127,7 +127,7 @@ module.exports.handler = async (event, context) => {
             .map(agent => agent.id);
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
                 status: 'healthy',
                 activeAgents,
@@ -139,7 +139,7 @@ module.exports.handler = async (event, context) => {
         if (!command) {
             return {
                 statusCode: 400,
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                 body: JSON.stringify({ error: 'Missing command' })
             };
         }
@@ -148,7 +148,7 @@ module.exports.handler = async (event, context) => {
                 const agentStatuses = await Promise.all(agents.map(checkAgentStatus));
                 return {
                     statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({
                         message: 'Diagnostics completed',
                         details: agentStatuses
@@ -157,20 +157,20 @@ module.exports.handler = async (event, context) => {
             case 'logs':
                 return {
                     statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ message: 'Logs not implemented yet' })
                 };
             case 'test':
                 return {
                     statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ message: 'Test command executed successfully' })
                 };
             case 'llm-test':
                 if (!apiKey) {
                     return {
                         statusCode: 400,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                         body: JSON.stringify({ error: 'Missing LLM API key' })
                     };
                 }
@@ -186,20 +186,20 @@ module.exports.handler = async (event, context) => {
                     const llmResults = await llmResponse.json();
                     return {
                         statusCode: 200,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                         body: JSON.stringify({ message: 'LLM test successful', details: llmResults })
                     };
                 } catch (error) {
                     return {
                         statusCode: 500,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                         body: JSON.stringify({ error: 'LLM test failed', details: error.message })
                     };
                 }
             default:
                 return {
                     statusCode: 400,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ error: `Unknown command: ${command}` })
                 };
         }
@@ -208,7 +208,7 @@ module.exports.handler = async (event, context) => {
         if (!command) {
             return {
                 statusCode: 400,
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                 body: JSON.stringify({ error: 'Missing debug command' })
             };
         }
@@ -216,27 +216,27 @@ module.exports.handler = async (event, context) => {
             case 'ping':
                 return {
                     statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ message: 'MCP ping successful' })
                 };
             case 'agent-status':
                 const agentStatuses = await Promise.all(agents.map(checkAgentStatus));
                 return {
                     statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ message: 'Agent status retrieved', details: agentStatuses })
                 };
             default:
                 return {
                     statusCode: 400,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
                     body: JSON.stringify({ error: `Unknown debug command: ${command}` })
                 };
         }
     }
     return {
         statusCode: 405,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({ error: 'Method not allowed' })
     };
 };
