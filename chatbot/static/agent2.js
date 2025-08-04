@@ -1,20 +1,11 @@
-async function agent2Search(query, index) {
-    try {
-        if (typeof Fuse === 'undefined') {
-            throw new Error('Fuse.js not loaded');
-        }
-        const fuse = new Fuse(index || [], {
-            keys: ['text.content'],
-            threshold: 0.4,
-            includeMatches: true
-        });
-        const results = fuse.search(query);
-        console.log('Agent2 results:', results);
-        return results;
-    } catch (error) {
-        console.error('Agent2 search failed:', error);
-        return [];
-    }
+async function agent2Search(query, siteIndex) {
+    if (!siteIndex || !Array.isArray(siteIndex)) return [];
+    const fuseOptions = {
+        includeScore: true,
+        includeMatches: true,
+        threshold: 0.4, // Agent2: Balanced search
+        keys: ['text.keywords']
+    };
+    const fuse = new Fuse(siteIndex, fuseOptions);
+    return fuse.search(query);
 }
-
-export { agent2Search };
