@@ -12,7 +12,6 @@
 
     let dots = [];
     let activeAgents = [];
-    let isRandomMode = false;
     let isMorphCollabMode = false;
     let isGalaxyMode = false;
     let growthFactor = 0.5; // Start small
@@ -21,7 +20,6 @@
     const MAX_COLLAB_DISTANCE = 120;
     let animationPhase = 'dissipate';
     let animationProgress = 0;
-    let stopRequested = false;
     let isInitialLoad = true;
 
     function setCanvasSize() {
@@ -76,16 +74,17 @@
             index: index,
             agent: agent
         };
-        let center = (isRandomMode || isMorphCollabMode) ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
+        let center = isMorphCollabMode || isGalaxyMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
         if (isGalaxyMode) {
-            center = { x: Math.random() * canvas.width, y: Math.random() * canvas.height };
             base.color = getAgentColor(index < 4 ? `agent${index + 1}` : `agent${Math.floor(Math.random() * 4) + 1}`);
-            base.type = index < 4 ? 'star' : Math.random() < 0.4 ? 'star' : Math.random() < 0.7 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'asteroid';
+            base.type = index < 4 ? 'star' : Math.random() < 0.3 ? 'star' : Math.random() < 0.6 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'smallPlanet';
             base.opacity = base.type === 'star' ? Math.random() * 0.5 + 0.5 : 1;
-            base.radius = base.type === 'planet' ? 3 + Math.random() * 2 : base.type === 'comet' ? 2 : 1;
+            base.radius = base.type === 'planet' ? 3 + Math.random() * 2 : base.type === 'comet' ? 2 : base.type === 'smallPlanet' ? 1 + Math.random() * 1 : 0.5 + Math.random() * 0.5;
             base.vx = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
             base.vy = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
             base.trail = base.type === 'comet' ? [] : null;
+            base.orbitCenter = base.type === 'smallPlanet' ? { x: center.x, y: center.y, radius: 10 + Math.random() * 10 } : null;
+            base.glow = base.type === 'star' ? Math.random() * 2 + 1 : 0;
         }
         let dot;
         switch (pattern) {
@@ -208,30 +207,26 @@
             }
             dotCount = 30;
         }
-        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'dna' : activeAgents[0] || 'random'}, randomMode: ${isRandomMode}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
+        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'dna' : activeAgents[0] || 'random'}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
         if (isInitialLoad || !activeAgents.length) {
             animationPhase = 'dissipate';
         } else {
             animationPhase = 'reform';
         }
         animationProgress = 0;
-        if (isRandomMode || isMorphCollabMode || isGalaxyMode) {
-            growthFactor = 0.5;
-            stopRequested = false;
-        }
-    }
-
-    function checkBounds() {
-        return dots.some(dot =>
-            dot.x < -50 || dot.x > canvas.width + 50 ||
-            dot.y < -50 || dot.y > canvas.height + 50
-        );
+        growthFactor = 0.5;
     }
 
     function drawDots() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         dots.forEach(dot => {
             if (!dot) return;
+            if (dot.glow) {
+                ctx.beginPath();
+                ctx.arc(dot.x, dot.y, dot.radius + dot.glow, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${parseInt(dot.color.slice(1, 3), 16)}, ${parseInt(dot.color.slice(3, 5), 16)}, ${parseInt(dot.color.slice(5, 7), 16)}, ${dot.opacity * 0.2})`;
+                ctx.fill();
+            }
             ctx.beginPath();
             ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
             ctx.fillStyle = dot.color.replace(')', `, ${dot.opacity})`).replace('rgb', 'rgba');
@@ -279,17 +274,84 @@
     }
 
     function updateDots() {
-        if (stopRequested || (isRandomMode && checkBounds())) {
-            console.log('Stopping mode: ', { stopRequested, boundsHit: checkBounds() });
-            isRandomMode = false;
-            isMorphCollabMode = false;
-            isGalaxyMode = false;
-            growthFactor = 0.5;
-            dotCount = 30;
-            animationPhase = 'none';
-            initDots();
-            return;
-        }
+        dots.forEach(dot => {
+            if (!dot) return;
+            if (isGalaxyMode) {
+                if (dot.type === 'star') {
+                    dot.opacity = 0.5 + Math.sin(Date.now() * 0.005 + dot.index) * 0.5;
+                } else if (dot.type === 'planet') {
+                    dot.angle += 0.01;
+                    dot.targetX = dot.x + Math.cos(dot.angle) * 10 * growthFactor;
+                    dot.targetY = dot.y + Math.sin(dot.angle) * 10 * growthFactor;
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
+                } else if (dot.type === 'comet') {
+                    dot.x += dot.vx;
+                    dot.y += dot.vy;
+                    if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
+                    if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+                    dot.trail.push({ x: dot.x, y: dot.y });
+                    if (dot.trail.length > 8) dot.trail.shift();
+                } else if (dot.type === 'smallPlanet') {
+                    dot.angle += 0.02;
+                    dot.targetX = dot.orbitCenter.x + Math.cos(dot.angle) * dot.orbitCenter.radius * growthFactor;
+                    dot.targetY = dot.orbitCenter.y + Math.sin(dot.angle) * dot.orbitCenter.radius * growthFactor;
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
+                }
+            } else {
+                dot.angle += dot.radiusSpeed;
+                const center = isMorphCollabMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
+                if (dot.agent === 'agent1' && !isMorphCollabMode) {
+                    const radius = 10 * growthFactor;
+                    dot.targetX = center.x + radius * Math.cos(dot.angle);
+                    dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 10 : -10);
+                } else if (dot.agent === 'agent2' && !isMorphCollabMode) {
+                    const cubeVertices = [
+                        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+                        [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+                    ];
+                    const vertex = cubeVertices[dot.index % cubeVertices.length];
+                    const cubeSize = 15 * growthFactor;
+                    const cosA = Math.cos(dot.angle);
+                    const sinA = Math.sin(dot.angle);
+                    const rotX = vertex[0] * cosA - vertex[1] * sinA;
+                    const rotY = vertex[0] * sinA + vertex[1] * cosA;
+                    const isoX = (rotX - vertex[2]) * cubeSize * 0.707;
+                    const isoY = (rotX + vertex[2]) * cubeSize * 0.5;
+                    dot.targetX = center.x + isoX;
+                    dot.targetY = center.y + isoY;
+                } else if (dot.agent === 'agent3' && !isMorphCollabMode) {
+                    const radius = 15 * growthFactor;
+                    dot.targetX = center.x + radius * Math.cos(dot.angle);
+                    dot.targetY = center.y + radius * Math.sin(dot.angle);
+                } else if (dot.agent === 'agent4' && !isMorphCollabMode) {
+                    const starAngle = (dot.index % 5) * (2 * Math.PI / 5);
+                    const offset = dot.index < 15 ? 0 : Math.PI / 5;
+                    const starRadius = (dot.index < 15 ? 15 : 10) * growthFactor;
+                    dot.targetX = center.x + starRadius * Math.cos(starAngle + dot.angle);
+                    dot.targetY = center.y + starRadius * Math.sin(starAngle + dot.angle);
+                } else if (isMorphCollabMode) {
+                    const dnaRadius = 8 * growthFactor;
+                    const strandOffset = (dot.index % 2) ? 10 : -10;
+                    dot.targetX = center.x + dnaRadius * Math.cos(dot.angle) + strandOffset;
+                    dot.targetY = center.y + dnaRadius * Math.sin(dot.angle) + strandOffset * 0.5;
+                    const morphCenterX = canvas.width / 2;
+                    const morphCenterY = canvas.height / 2;
+                    dot.targetX = dot.targetX + (morphCenterX - dot.targetX) * 0.005;
+                    dot.targetY = dot.targetY + (morphCenterY - dot.targetY) * 0.005;
+                } else {
+                    dot.x += dot.vx;
+                    dot.y += dot.vy;
+                    if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
+                    if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+                }
+                if (!isGalaxyMode) {
+                    dot.x += (dot.targetX - dot.x) * 0.1;
+                    dot.y += (dot.targetY - dot.y) * 0.1;
+                }
+            }
+        });
 
         if (animationPhase === 'dissipate') {
             animationProgress += 0.05;
@@ -316,94 +378,13 @@
                 animationPhase = 'none';
             }
         } else {
-            dots.forEach(dot => {
-                if (!dot) return;
-                if (isGalaxyMode) {
-                    if (dot.type === 'star') {
-                        dot.opacity = 0.5 + Math.sin(Date.now() * 0.005 + dot.index) * 0.5;
-                    } else if (dot.type === 'planet') {
-                        dot.angle += 0.01;
-                        dot.targetX = dot.x + Math.cos(dot.angle) * 10 * growthFactor;
-                        dot.targetY = dot.y + Math.sin(dot.angle) * 10 * growthFactor;
-                        dot.x += (dot.targetX - dot.x) * 0.05;
-                        dot.y += (dot.targetY - dot.y) * 0.05;
-                    } else if (dot.type === 'comet') {
-                        dot.x += dot.vx;
-                        dot.y += dot.vy;
-                        if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-                        if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
-                        dot.trail.push({ x: dot.x, y: dot.y });
-                        if (dot.trail.length > 8) dot.trail.shift();
-                    } else if (dot.type === 'asteroid') {
-                        dot.x += dot.vx * 2;
-                        dot.y += dot.vy * 2;
-                        if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-                        if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
-                    }
-                } else {
-                    dot.angle += dot.radiusSpeed;
-                    const center = (isRandomMode || isMorphCollabMode) ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
-                    if (dot.agent === 'agent1' && !isMorphCollabMode) {
-                        const radius = 10 * growthFactor;
-                        dot.targetX = center.x + radius * Math.cos(dot.angle);
-                        dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 10 : -10);
-                    } else if (dot.agent === 'agent2' && !isMorphCollabMode) {
-                        const cubeVertices = [
-                            [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-                            [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
-                        ];
-                        const vertex = cubeVertices[dot.index % cubeVertices.length];
-                        const cubeSize = 15 * growthFactor;
-                        const cosA = Math.cos(dot.angle);
-                        const sinA = Math.sin(dot.angle);
-                        const rotX = vertex[0] * cosA - vertex[1] * sinA;
-                        const rotY = vertex[0] * sinA + vertex[1] * cosA;
-                        const isoX = (rotX - vertex[2]) * cubeSize * 0.707;
-                        const isoY = (rotX + vertex[2]) * cubeSize * 0.5;
-                        dot.targetX = center.x + isoX;
-                        dot.targetY = center.y + isoY;
-                    } else if (dot.agent === 'agent3' && !isMorphCollabMode) {
-                        const radius = 15 * growthFactor;
-                        dot.targetX = center.x + radius * Math.cos(dot.angle);
-                        dot.targetY = center.y + radius * Math.sin(dot.angle);
-                    } else if (dot.agent === 'agent4' && !isMorphCollabMode) {
-                        const starAngle = (dot.index % 5) * (2 * Math.PI / 5);
-                        const offset = dot.index < 15 ? 0 : Math.PI / 5;
-                        const starRadius = (dot.index < 15 ? 15 : 10) * growthFactor;
-                        dot.targetX = center.x + starRadius * Math.cos(starAngle + dot.angle);
-                        dot.targetY = center.y + starRadius * Math.sin(starAngle + dot.angle);
-                    } else if (isMorphCollabMode) {
-                        const dnaRadius = 8 * growthFactor;
-                        const strandOffset = (dot.index % 2) ? 10 : -10;
-                        dot.targetX = center.x + dnaRadius * Math.cos(dot.angle) + strandOffset;
-                        dot.targetY = center.y + dnaRadius * Math.sin(dot.angle) + strandOffset * 0.5;
-                        const morphCenterX = canvas.width / 2;
-                        const morphCenterY = canvas.height / 2;
-                        dot.targetX = dot.targetX + (morphCenterX - dot.targetX) * 0.005;
-                        dot.targetY = dot.targetY + (morphCenterY - dot.targetY) * 0.005;
-                    } else {
-                        dot.x += dot.vx;
-                        dot.y += dot.vy;
-                        if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-                        if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
-                    }
-                    if (!isGalaxyMode && !isMorphCollabMode) {
-                        dot.x += (dot.targetX - dot.x) * 0.1;
-                        dot.y += (dot.targetY - dot.y) * 0.1;
-                    }
-                }
-            });
-            if (isRandomMode) {
+            if (isMorphCollabMode || isGalaxyMode || activeAgents.length > 0) {
                 growthFactor += 0.002;
-            } else if (isMorphCollabMode) {
-                growthFactor += 0.002;
-            } else if (isGalaxyMode) {
-                growthFactor += 0.002;
-                if (Math.random() < 0.02 && dotCount < 250) {
-                    const newIndex = dotCount++;
-                    const newDot = createDot('galaxy', newIndex, `agent${Math.floor(Math.random() * 4) + 1}`);
-                    if (newDot) dots.push(newDot);
-                }
+            }
+            if (isGalaxyMode && Math.random() < 0.02 && dotCount < 250) {
+                const newIndex = dotCount++;
+                const newDot = createDot('galaxy', newIndex, `agent${Math.floor(Math.random() * 4) + 1}`);
+                if (newDot) dots.push(newDot);
             }
         }
     }
@@ -414,35 +395,20 @@
         requestAnimationFrame(animate);
     }
 
-    window.setAgentsActive = function (active, agents = [], randomMode = false, morphCollab = false, galaxyMode = false) {
-        if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || randomMode !== isRandomMode || morphCollab !== isMorphCollabMode || galaxyMode !== isGalaxyMode)) {
+    window.setAgentsActive = function (active, agents = [], morphCollab = false, galaxyMode = false) {
+        if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || morphCollab !== isMorphCollabMode || galaxyMode !== isGalaxyMode)) {
             activeAgents = agents;
-            isRandomMode = randomMode;
             isMorphCollabMode = morphCollab;
             isGalaxyMode = galaxyMode;
-            stopRequested = false;
-            console.log(`setAgentsActive: agents=${agents.join(',')}, randomMode=${randomMode}, morphCollab=${morphCollab}, galaxyMode=${galaxyMode}`);
+            console.log(`setAgentsActive: agents=${agents.join(',')}, morphCollab=${morphCollab}, galaxyMode=${galaxyMode}`);
             initDots();
-        } else if (!active && (activeAgents.length > 0 || isRandomMode || isMorphCollabMode || isGalaxyMode)) {
+        } else if (!active && (activeAgents.length > 0 || isMorphCollabMode || isGalaxyMode)) {
             activeAgents = [];
-            isRandomMode = false;
             isMorphCollabMode = false;
             isGalaxyMode = false;
-            stopRequested = false;
             console.log('Resetting to default pattern');
             initDots();
         }
-    };
-
-    window.stopRandomMode = function () {
-        stopRequested = true;
-        isRandomMode = false;
-        isMorphCollabMode = false;
-        isGalaxyMode = false;
-        growthFactor = 0.5;
-        dotCount = 30;
-        console.log('Random mode stopped');
-        initDots();
     };
 
     window.initNeurots = function () {
