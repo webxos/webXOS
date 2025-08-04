@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXOS Searchbot</title>
+  <link rel="stylesheet" href="/chatbot/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6/dist/fuse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gun@0.2020/gun.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/compromise@14/builds/compromise.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/brain.js@2/dist/brain-browser.min.js"></script>
+  <script src="/chatbot/static/sync.js"></script>
+  <script src="/chatbot/static/nlp.js"></script>
+  <script src="/chatbot/static/learn.js"></script>
+  <script src="/chatbot/static/agent1.js"></script>
+  <script src="/chatbot/static/agent2.js"></script>
+  <script src="/chatbot/static/agent3.js"></script>
+  <script src="/chatbot/static/agent4.js"></script>
+  <script src="/chatbot/static/agentic.js"></script>
+  <script src="/chatbot/static/neurots.js"></script>
+</head>
+<body>
+  <canvas id="neuralCanvas"></canvas>
+  <h1 class="title">WebXOS Searchbot</h1>
+  <div class="container">
+    <div class="chatbox">
+      <div id="messages"></div>
+      <input id="query" type="text" placeholder="Type a command or query..." onkeypress="if(event.key === 'Enter') searchQuery(this.value)">
+      <div id="status"></div>
+    </div>
+  </div>
+  <script>
+    const CACHE_NAME = 'webxos-cache';
+    let cachedContent = { 'site_index': [] };
+    const messages = document.getElementById('messages');
+    const status = document.getElementById('status');
+    let activeAgents = [];
+
+    function updateStatus(message, error = false, details = '') {
+      status.innerHTML = `<p class="${error ? 'error' : ''}">${message}${details ? ': ' + details : ''}</p>`;
+    }
+
+    function displayHelpMenu() {
+      messages.innerHTML += `
+        <p><b>Commands:</b></p>
+        <p><b>/help</b> - Show this menu.</p>
+        <p><b>/agent1-4</b> - Activate specific agent.</p>
+        <p><b>/agentic</b> - Activate unified agentic mode.</p>
+      `;
+      syncResults('agentic', '/help', [{ item: { text: { content: 'Help menu displayed' } } }]);
+    }
+
+    function displayResults(results) {
+      results.forEach(result => {
+        messages.innerHTML += `<p>${result.item.text.content}</p>`;
+      });
+    }
+
+    async function searchQuery(query) {
+      messages.innerHTML += `<p><b>You:</b> ${query}</p>`;
+      const args = query.trim().split(/\s+/);
+      const command = args[0].toLowerCase();
+
+      switch (command) {
+        case '/help':
+          displayHelpMenu();
+          break;
+        case '/agent1':
+        case '/agent2':
+        case '/agent3':
+        case '/agent4':
+          activeAgents = [command.slice(1)];
+          setAgentsActive(true, activeAgents[0]);
+          const agentResults = await window[`${activeAgents[0]}Search`](query.replace(command, '').trim(), cachedContent['site_index']);
+          displayResults(agentResults);
+          break;
+        case '/agentic':
+          activeAgents = ['agent1', 'agent2', 'agent3', 'agent4'];
+          setAgentsActive(true, 'agentic');
+          const agenticResults = await agenticSearch(query.replace(command, '').trim(), cachedContent['site_index']);
+          displayResults(agenticResults);
+          break;
+        default:
+          updateStatus('Error: Unknown command.', true);
+      }
+    }
+
+    window.addEventListener('load', async () => {
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        const response = await fetch('/chatbot/static/site_index.json', { cache: 'no-cache' });
+        cachedContent['site_index'] = await response.json();
+        await cache.put('/chatbot/static/site_index.json', new Response(JSON.stringify(cachedContent['site_index'])));
+        updateStatus(`Success: Indexed ${cachedContent['site_index'].length} files`);
+      } catch (error) {
+        const cachedIndex = await cache.match('/chatbot/static/site_index.json');
+        if (cachedIndex) {
+          cachedContent['site_index'] = await cachedIndex.json();
+          updateStatus(`Success: Loaded ${cachedContent['site_index'].length} cached files`);
+        } else {
+          updateStatus('Error: Failed to load index.', true, error.message);
+        }
+      }
+      initGun();
+      initNLP();
+      initBrain();
+      displayHelpMenu();
+    });
+  </script>
+</body>
+</html>
