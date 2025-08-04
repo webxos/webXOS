@@ -20,7 +20,6 @@
     const MAX_COLLAB_DISTANCE = 120;
     let animationPhase = 'dissipate';
     let animationProgress = 0;
-    let isInitialLoad = true;
 
     // Set canvas size
     function setCanvasSize() {
@@ -61,7 +60,7 @@
     }
 
     // Create dot for pattern
-    function createDot(pattern, index, agent) {
+    function createDot(pattern, index, agent, strandIndex = 0) {
         const base = {
             radius: 2,
             color: getAgentColor(agent),
@@ -73,31 +72,23 @@
             index: index,
             agent: agent,
             x: canvas.width / 2,
-            y: canvas.height / 2
+            y: canvas.height / 2,
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2
         };
         let center = isDnaMode || isGalaxyMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
-        if (isGalaxyMode) {
-            base.color = getAgentColor(index < 4 ? `agent${index + 1}` : `agent${Math.floor(Math.random() * 4) + 1}`);
-            base.type = index < 4 ? 'star' : Math.random() < 0.3 ? 'star' : Math.random() < 0.6 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'smallPlanet';
-            base.opacity = base.type === 'star' ? Math.random() * 0.5 + 0.5 : 1;
-            base.radius = base.type === 'planet' ? 3 + Math.random() * 2 : base.type === 'comet' ? 2 : base.type === 'smallPlanet' ? 1 + Math.random() * 1 : 0.5 + Math.random() * 0.5;
-            base.vx = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
-            base.vy = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
-            base.trail = base.type === 'comet' ? [] : null;
-            base.orbitCenter = base.type === 'smallPlanet' ? { x: center.x, y: center.y, radius: 10 + Math.random() * 10 } : null;
-            base.glow = base.type === 'star' ? Math.random() * 2 + 1 : 0;
-        }
         let dot;
         switch (pattern) {
-            case 'helix':
-                const helixAngle = index * 0.6;
-                const helixRadius = 10 * growthFactor;
+            case 'globe':
+                const phi = Math.acos(1 - 2 * (index + 0.5) / 30);
+                const theta = Math.PI * (3 - Math.sqrt(5)) * index;
+                const globeRadius = 15 * growthFactor;
                 dot = {
                     ...base,
-                    targetX: center.x + helixRadius * Math.cos(helixAngle),
-                    targetY: center.y + helixRadius * Math.sin(helixAngle) + (index % 2 ? 10 : -10),
-                    angle: helixAngle,
-                    radiusSpeed: 0.03
+                    targetX: center.x + globeRadius * Math.sin(phi) * Math.cos(theta),
+                    targetY: center.y + globeRadius * Math.sin(phi) * Math.sin(theta),
+                    angle: index * 0.2,
+                    radiusSpeed: 0.02
                 };
                 break;
             case 'cube':
@@ -141,27 +132,38 @@
                 };
                 break;
             case 'dna':
-                const dnaAngle = index * 0.3;
-                const dnaRadius = 15 * growthFactor;
+                const dnaRadius = (strandIndex % 2 === 0 ? 15 : 30) * growthFactor;
+                const dnaAngle = index * 0.2;
                 const strandOffset = (index % 2) ? 10 : -10;
                 dot = {
                     ...base,
                     targetX: center.x + dnaRadius * Math.cos(dnaAngle) + strandOffset,
                     targetY: center.y + dnaRadius * Math.sin(dnaAngle),
                     angle: dnaAngle,
-                    radiusSpeed: 0.01
+                    radiusSpeed: 0.01,
+                    strandIndex: strandIndex
                 };
+                break;
+            case 'galaxy':
+                base.color = getAgentColor(index < 4 ? `agent${index + 1}` : `agent${Math.floor(Math.random() * 4) + 1}`);
+                base.type = index < 4 ? 'star' : Math.random() < 0.3 ? 'star' : Math.random() < 0.6 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'smallPlanet';
+                base.opacity = base.type === 'star' ? Math.random() * 0.5 + 0.5 : 1;
+                base.radius = base.type === 'planet' ? 3 + Math.random() * 2 : base.type === 'comet' ? 2 : base.type === 'smallPlanet' ? 1 + Math.random() * 1 : 0.5 + Math.random() * 0.5;
+                base.vx = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
+                base.vy = base.type === 'comet' ? (Math.random() - 0.5) * 6 : (Math.random() - 0.5) * 2;
+                base.trail = base.type === 'comet' ? [] : null;
+                base.orbitCenter = base.type === 'smallPlanet' ? { x: center.x, y: center.y, radius: 10 + Math.random() * 10 } : null;
+                base.glow = base.type === 'star' ? Math.random() * 2 + 1 : 0;
+                dot = { ...base };
                 break;
             default:
                 dot = {
                     ...base,
                     targetX: center.x + (Math.random() - 0.5) * 50,
-                    targetY: center.y + (Math.random() - 0.5) * 50,
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: (Math.random() - 0.5) * 2
+                    targetY: center.y + (Math.random() - 0.5) * 50
                 };
         }
-        console.log(`Created dot for ${pattern} (agent: ${agent}):`, dot);
+        console.log(`Created dot for ${pattern} (agent: ${agent}, strand: ${strandIndex}):`, dot);
         return dot;
     }
 
@@ -176,17 +178,29 @@
             dotCount = 4;
         } else if (isDnaMode) {
             activeAgents = ['agent1', 'agent2', 'agent3', 'agent4'];
-            activeAgents.forEach(agent => {
+            const strandCount = Math.floor(Math.random() * 6) + 5; // 5-10 strands
+            const colorPairs = [
+                ['agent1', 'agent2'],
+                ['agent2', 'agent3'],
+                ['agent3', 'agent4'],
+                ['agent4', 'agent1'],
+                ['agent1', 'agent3'],
+                ['agent2', 'agent4']
+            ];
+            for (let s = 0; s < strandCount; s++) {
+                const pair = colorPairs[s % colorPairs.length];
                 const pattern = 'dna';
-                for (let i = 0; i < 30; i++) {
-                    const dot = createDot(pattern, i, agent);
-                    if (dot) dots.push(dot);
+                for (let i = 0; i < 20; i++) {
+                    const dot1 = createDot(pattern, i, pair[0], s);
+                    const dot2 = createDot(pattern, i, pair[1], s);
+                    if (dot1) dots.push(dot1);
+                    if (dot2) dots.push(dot2);
                 }
-            });
-            dotCount = 30 * 4;
+            }
+            dotCount = strandCount * 20 * 2;
         } else {
             const pattern = activeAgents.length > 0 ? {
-                'agent1': 'helix',
+                'agent1': 'globe',
                 'agent2': 'cube',
                 'agent3': 'torus',
                 'agent4': 'star'
@@ -201,7 +215,6 @@
         animationPhase = 'dissipate';
         animationProgress = 0;
         growthFactor = 0.5;
-        isInitialLoad = false;
     }
 
     // Draw dots and connections
@@ -232,7 +245,7 @@
         for (let i = 0; i < dots.length; i++) {
             for (let j = i + 1; j < dots.length; j++) {
                 if (!dots[i] || !dots[j]) continue;
-                if (isDnaMode && dots[i].agent !== dots[j].agent) {
+                if (isDnaMode && dots[i].agent !== dots[j].agent && dots[i].strandIndex === dots[j].strandIndex) {
                     const dx = dots[i].x - dots[j].x;
                     const dy = dots[i].y - dots[j].y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -244,7 +257,7 @@
                         ctx.lineWidth = 0.5;
                         ctx.stroke();
                     }
-                } else if (!isDnaMode && !isGalaxyMode) {
+                } else if (!isDnaMode && !isGalaxyMode && animationPhase !== 'dissipate') {
                     const dx = dots[i].x - dots[j].x;
                     const dy = dots[i].y - dots[j].y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -288,13 +301,21 @@
                     dot.x += (dot.targetX - dot.x) * 0.05;
                     dot.y += (dot.targetY - dot.y) * 0.05;
                 }
+            } else if (animationPhase === 'dissipate') {
+                dot.x += dot.vx;
+                dot.y += dot.vy;
+                if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
+                if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+                dot.opacity = Math.max(0, 1 - animationProgress);
             } else {
                 dot.angle += dot.radiusSpeed;
                 const center = isDnaMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
                 if (dot.agent === 'agent1' && !isDnaMode) {
-                    const radius = 10 * growthFactor;
-                    dot.targetX = center.x + radius * Math.cos(dot.angle);
-                    dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.index % 2 ? 10 : -10);
+                    const phi = Math.acos(1 - 2 * (dot.index + 0.5) / 30);
+                    const theta = Math.PI * (3 - Math.sqrt(5)) * dot.index + dot.angle;
+                    const globeRadius = 15 * growthFactor;
+                    dot.targetX = center.x + globeRadius * Math.sin(phi) * Math.cos(theta);
+                    dot.targetY = center.y + globeRadius * Math.sin(phi) * Math.sin(theta);
                 } else if (dot.agent === 'agent2' && !isDnaMode) {
                     const cubeVertices = [
                         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
@@ -317,11 +338,11 @@
                 } else if (dot.agent === 'agent4' && !isDnaMode) {
                     const starAngle = (dot.index % 5) * (2 * Math.PI / 5);
                     const offset = dot.index < 15 ? 0 : Math.PI / 5;
-                    const starRadius = (dot.index < 15 ? 15 : 10) * growthFactor;
+                    const starRadius = (index < 15 ? 15 : 10) * growthFactor;
                     dot.targetX = center.x + starRadius * Math.cos(starAngle + dot.angle);
                     dot.targetY = center.y + starRadius * Math.sin(starAngle + dot.angle);
                 } else if (isDnaMode) {
-                    const dnaRadius = 15 * growthFactor;
+                    const dnaRadius = (dot.strandIndex % 2 === 0 ? 15 : 30) * growthFactor;
                     const strandOffset = (dot.index % 2) ? 10 : -10;
                     dot.targetX = center.x + dnaRadius * Math.cos(dot.angle) + strandOffset;
                     dot.targetY = center.y + dnaRadius * Math.sin(dot.angle);
@@ -331,7 +352,7 @@
                     if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
                     if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
                 }
-                if (!isGalaxyMode) {
+                if (!isGalaxyMode && animationPhase !== 'dissipate') {
                     dot.x += (dot.targetX - dot.x) * 0.05;
                     dot.y += (dot.targetY - dot.y) * 0.05;
                 }
@@ -340,27 +361,11 @@
 
         if (animationPhase === 'dissipate') {
             animationProgress += 0.02;
-            dots.forEach(dot => {
-                if (!dot) return;
-                dot.opacity = Math.max(0, 1 - animationProgress);
-                dot.x += (Math.random() - 0.5) * 5;
-                dot.y += (Math.random() - 0.5) * 5;
-            });
             if (animationProgress >= 1) {
-                animationPhase = 'reform';
-                animationProgress = 0;
+                animationPhase = 'bounce';
             }
-        } else if (animationPhase === 'reform') {
-            animationProgress += 0.01;
-            dots.forEach(dot => {
-                if (!dot) return;
-                dot.opacity = animationProgress;
-                dot.x += (dot.targetX - dot.x) * 0.1;
-                dot.y += (dot.targetY - dot.y) * 0.1;
-            });
-            if (animationProgress >= 1) {
-                animationPhase = 'none';
-            }
+        } else if (animationPhase === 'bounce') {
+            // Dots continue bouncing, no auto-reset
         } else {
             if (isDnaMode || isGalaxyMode || activeAgents.length > 0) {
                 growthFactor += 0.002;
