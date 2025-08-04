@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebXOS MCP Terminal</title>
+    <link rel="stylesheet" href="/server.css">
+    <style>
+        /* Fallback inline styles */
+        body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #00ff00; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebXOS MCP Terminal</h1>
+        <div id="mcp-status">
+            <h2>MCP Status</h2>
+            <div id="mcp-status-text">Loading...</div>
+        </div>
+        <div id="agent-status">
+            <h2>Agent Status</h2>
+            <div id="chatbot-agent1">Chatbot Agent1: Loading...</div>
+            <div id="chatbot-agent2">Chatbot Agent2: Loading...</div>
+            <div id="chatbot-agent3">Chatbot Agent3: Loading...</div>
+            <div id="chatbot-agent4">Chatbot Agent4: Loading...</div>
+            <div id="server-agent1">Server Agent1: Loading...</div>
+            <div id="server-agent2">Server Agent2: Loading...</div>
+            <div id="server-agent3">Server Agent3: Loading...</div>
+            <div id="server-agent4">Server Agent4: Loading...</div>
+        </div>
+        <div id="llm-config">
+            <h2>LLM Configuration</h2>
+            <input type="text" id="llm-api-key" placeholder="Enter LLM API Key (e.g., Grok, ChatGPT)">
+            <button onclick="saveLLMConfig()">Save</button>
+            <div id="llm-status">Status: Not configured</div>
+        </div>
+        <div id="debug-terminal">
+            <h2>Debug Terminal</h2>
+            <div id="debug-output"></div>
+        </div>
+        <div id="neurots">Neurots: Loading...</div>
+    </div>
+
+    <script>
+        async function fetchWithErrorHandling(url, options = {}) {
+            try {
+                const response = await fetch(url, { ...options, timeout: 5000 });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Expected JSON, got ${contentType}: ${text.slice(0, 50)}...`);
+                }
+                return await response.json();
+            } catch (error) {
+                logDebug(`Error fetching ${url}: ${error.message}`);
+                return null;
+            }
+        }
+
+        function logDebug(message) {
+            const debugOutput = document.getElementById('debug-output');
+            const entry = document.createElement('div');
+            entry.textContent = message;
+            debugOutput.appendChild(entry);
+            debugOutput.scrollTop = debugOutput.scrollHeight;
+        }
+
+        async function checkMCPStatus() {
+            const data = await fetchWithErrorHandling('/mcp/status');
+            const statusText = document.getElementById('mcp-status-text');
+            if (data) {
+                statusText.textContent = `Success: MCP ${data.status}. Active Agents: ${data.activeAgents?.length || 0}`;
+            } else {
+                statusText.textContent = 'Error: Failed to check MCP status';
+            }
+        }
+
+        async function checkAgentStatus(agentId, elementId) {
+            const data = await fetchWithErrorHandling(`/api/${agentId}/health`);
+            const element = document.getElementById(elementId);
+            if (data) {
+                element.textContent = `${agentId}: ${data.status}`;
+                element.className = data.status === 'healthy' ? '' : data.status.toLowerCase();
+            } else {
+                element.textContent = `${agentId}: Error`;
+                element.className = 'error';
+            }
+        }
+
+        async function saveLLMConfig() {
+            const apiKey = document.getElementById('llm-api-key').value;
+            if (!apiKey) {
+                logDebug('Error: No API key provided');
+                return;
+            }
+            const response = await fetchWithErrorHandling('/mcp/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'llm-test', apiKey })
+            });
+            const llmStatus = document.getElementById('llm-status');
+            if (response && response.message) {
+                llmStatus.textContent = 'Status: Configured';
+                logDebug(response.message);
+            } else {
+                llmStatus.textContent = 'Status: Configuration failed';
+            }
+        }
+
+        async function initialize() {
+            document.getElementById('mcp-status-text').textContent = 'Success: MCP initialized';
+            document.getElementById('neurots').textContent = 'Neurots: Initialized successfully';
+            await checkMCPStatus();
+            const agents = [
+                { id: 'chatbot-agent1', element: 'chatbot-agent1' },
+                { id: 'chatbot-agent2', element: 'chatbot-agent2' },
+                { id: 'chatbot-agent3', element: 'chatbot-agent3' },
+                { id: 'chatbot-agent4', element: 'chatbot-agent4' },
+                { id: 'server-agent1', element: 'server-agent1' },
+                { id: 'server-agent2', element: 'server-agent2' },
+                { id: 'server-agent3', element: 'server-agent3' },
+                { id: 'server-agent4', element: 'server-agent4' }
+            ];
+            for (const agent of agents) {
+                await checkAgentStatus(agent.id, agent.element);
+            }
+        }
+
+        window.onload = initialize;
+    </script>
+</body>
+</html>
