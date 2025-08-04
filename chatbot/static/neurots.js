@@ -1,5 +1,4 @@
 (function () {
-    // Canvas setup
     const canvas = document.getElementById('neuralCanvas');
     if (!canvas) {
         console.error('Canvas element with ID "neuralCanvas" not found');
@@ -11,14 +10,13 @@
         return;
     }
 
-    // State variables
     let dots = [];
     let activeAgents = [];
     let isRandomMode = false;
     let isMorphCollabMode = false;
     let isGalaxyMode = false;
     let growthFactor = 1;
-    const DOT_COUNT = 30;
+    let dotCount = 30;
     const MAX_DISTANCE = 80;
     const MAX_COLLAB_DISTANCE = 120;
     let patternSide = 'center';
@@ -27,14 +25,12 @@
     let stopRequested = false;
     let isInitialLoad = true;
 
-    // Set canvas size
     function setCanvasSize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         console.log('Canvas resized:', canvas.width, canvas.height);
     }
 
-    // Get agent color
     function getAgentColor(agent) {
         const colors = {
             'agent1': '#00cc00',
@@ -45,7 +41,6 @@
         return colors[agent] || '#00ff00';
     }
 
-    // Get random position outside text container
     function getRandomPosition() {
         const isMobile = window.innerWidth <= 768;
         const textContainer = {
@@ -58,7 +53,7 @@
         do {
             if (isMobile) {
                 x = Math.random() * canvas.width;
-                y = Math.random() * 100; // Top near logo
+                y = Math.random() * 100;
             } else {
                 x = Math.random() * canvas.width;
                 y = Math.random() * canvas.height;
@@ -70,18 +65,6 @@
         return { x, y };
     }
 
-    // Generate random pattern parameters
-    function generateRandomPattern(basePattern, index) {
-        const params = {
-            helix: { radius: 10 + Math.random() * 5, twist: 0.4 + Math.random() * 0.4 },
-            cube: { size: 12 + Math.random() * 6, rotationSpeed: 0.01 + Math.random() * 0.02 },
-            torus: { radius: 12 + Math.random() * 6, thickness: 0.3 + Math.random() * 0.2 },
-            star: { radius: 12 + Math.random() * 6, arms: 4 + Math.floor(Math.random() * 3) }
-        };
-        return params[basePattern] || { radius: 10, twist: 0.6 };
-    }
-
-    // Create a dot for a pattern
     function createDot(pattern, index, agent) {
         const base = {
             radius: Math.random() * 2 + 1,
@@ -99,20 +82,19 @@
         let center = (isRandomMode || isMorphCollabMode) ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
         if (isGalaxyMode) {
             center = { x: Math.random() * canvas.width, y: Math.random() * canvas.height };
-            base.color = getAgentColor(`agent${Math.floor(Math.random() * 4) + 1}`);
-            base.type = Math.random() < 0.5 ? 'star' : Math.random() < 0.7 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'asteroid';
+            base.color = getAgentColor(index < 4 ? `agent${index + 1}` : `agent${Math.floor(Math.random() * 4) + 1}`);
+            base.type = index < 4 ? 'star' : Math.random() < 0.5 ? 'star' : Math.random() < 0.7 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'asteroid';
             base.opacity = base.type === 'star' ? Math.random() * 0.5 + 0.5 : 1;
             base.radius = base.type === 'planet' ? 3 + Math.random() * 2 : base.type === 'comet' ? 2 : 1;
             base.vx = base.type === 'comet' ? (Math.random() - 0.5) * 4 : base.vx;
             base.vy = base.type === 'comet' ? (Math.random() - 0.5) * 4 : base.vy;
             base.trail = base.type === 'comet' ? [] : null;
         }
-        const patternParams = isMorphCollabMode ? generateRandomPattern(pattern, index) : null;
         let dot;
         switch (pattern) {
             case 'helix':
-                const helixAngle = index * (patternParams ? patternParams.twist : 0.6);
-                const helixRadius = (patternParams ? patternParams.radius : 10 + index * 1) * growthFactor;
+                const helixAngle = index * 0.6;
+                const helixRadius = (10 + index * 1) * growthFactor;
                 dot = {
                     ...base,
                     x: center.x,
@@ -133,7 +115,7 @@
                     [0, -1, 1], [0, 1, 1], [-1, 0, 1], [1, 0, 1]
                 ];
                 const vertex = cubeVertices[index % cubeVertices.length];
-                const cubeSize = (patternParams ? patternParams.size : 15) * growthFactor;
+                const cubeSize = 15 * growthFactor;
                 const isoX = (vertex[0] - vertex[1]) * cubeSize * 0.707;
                 const isoY = (vertex[0] + vertex[1] - 2 * vertex[2]) * cubeSize * 0.5;
                 dot = {
@@ -145,12 +127,12 @@
                     vx: (Math.random() - 0.5) * 0.2,
                     vy: (Math.random() - 0.5) * 0.2,
                     angle: index * 0.4,
-                    radiusSpeed: patternParams ? patternParams.rotationSpeed : 0.02
+                    radiusSpeed: 0.02
                 };
                 break;
             case 'torus':
-                const torusAngle = index * (patternParams ? patternParams.thickness : 0.4);
-                const torusRadius = (patternParams ? patternParams.radius : 15) * growthFactor;
+                const torusAngle = index * 0.4;
+                const torusRadius = 15 * growthFactor;
                 dot = {
                     ...base,
                     x: center.x,
@@ -164,10 +146,9 @@
                 };
                 break;
             case 'star':
-                const starArms = patternParams ? patternParams.arms : 5;
-                const starAngle = (index % starArms) * (2 * Math.PI / starArms);
-                const starRadius = (index < 15 ? (patternParams ? patternParams.radius : 15) : 10) * growthFactor;
-                const offset = index < 15 ? 0 : Math.PI / starArms;
+                const starAngle = (index % 5) * (2 * Math.PI / 5);
+                const starRadius = (index < 15 ? 15 : 10) * growthFactor;
+                const offset = index < 15 ? 0 : Math.PI / 5;
                 dot = {
                     ...base,
                     x: center.x,
@@ -195,23 +176,25 @@
         return dot;
     }
 
-    // Initialize dots
     function initDots() {
         dots = [];
         if (isGalaxyMode) {
-            for (let i = 0; i < DOT_COUNT * 2; i++) {
-                const dot = createDot('galaxy', i, `agent${Math.floor(Math.random() * 4) + 1}`);
+            // Start with one star per agent
+            for (let i = 0; i < 4; i++) {
+                const dot = createDot('galaxy', i, `agent${i + 1}`);
                 if (dot) dots.push(dot);
             }
+            dotCount = 4; // Start with 4 stars
         } else if (isMorphCollabMode) {
             activeAgents = ['agent1', 'agent2', 'agent3', 'agent4'];
             activeAgents.forEach(agent => {
                 const pattern = { agent1: 'helix', agent2: 'cube', agent3: 'torus', agent4: 'star' }[agent];
-                for (let i = 0; i < DOT_COUNT; i++) {
+                for (let i = 0; i < 30; i++) {
                     const dot = createDot(pattern, i, agent);
                     if (dot) dots.push(dot);
                 }
             });
+            dotCount = 30 * 4; // Fixed for morphcollab
         } else {
             const pattern = activeAgents.length > 0 ? {
                 'agent1': 'helix',
@@ -219,12 +202,13 @@
                 'agent3': 'torus',
                 'agent4': 'star'
             }[activeAgents[0]] : 'random';
-            for (let i = 0; i < DOT_COUNT; i++) {
+            for (let i = 0; i < 30; i++) {
                 const dot = createDot(pattern, i, activeAgents[0] || 'default');
                 if (dot) dots.push(dot);
             }
+            dotCount = 30; // Fixed for agents
         }
-        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'morphcollab' : activeAgents[0] || 'random'}, randomMode: ${isRandomMode}, growthFactor: ${growthFactor}`);
+        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'morphcollab' : activeAgents[0] || 'random'}, randomMode: ${isRandomMode}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
         if (isInitialLoad || !activeAgents.length) {
             animationPhase = 'dissipate';
         } else {
@@ -237,7 +221,6 @@
         }
     }
 
-    // Check bounds for stopping random mode
     function checkBounds() {
         return dots.some(dot =>
             dot.x < -50 || dot.x > canvas.width + 50 ||
@@ -245,7 +228,6 @@
         );
     }
 
-    // Draw dots and connections
     function drawDots() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         dots.forEach(dot => {
@@ -296,14 +278,14 @@
         }
     }
 
-    // Update dot positions and animations
     function updateDots() {
-        if (stopRequested || ((isRandomMode || isMorphCollabMode || isGalaxyMode) && checkBounds())) {
+        if (stopRequested || (isRandomMode && checkBounds())) {
             console.log('Stopping mode: ', { stopRequested, boundsHit: checkBounds() });
             isRandomMode = false;
             isMorphCollabMode = false;
             isGalaxyMode = false;
             growthFactor = 1;
+            dotCount = 30;
             animationPhase = 'none';
             initDots();
             return;
@@ -421,8 +403,8 @@
                     if (isMorphCollabMode) {
                         const morphCenterX = canvas.width / 2;
                         const morphCenterY = canvas.height / 2;
-                        dot.targetX = dot.targetX + (morphCenterX - dot.targetX) * 0.01;
-                        dot.targetY = dot.targetY + (morphCenterY - dot.targetY) * 0.01;
+                        dot.targetX = dot.targetX + (morphCenterX - dot.targetX) * 0.005;
+                        dot.targetY = dot.targetY + (morphCenterY - dot.targetY) * 0.005;
                     }
                 } else {
                     dot.x += dot.vx;
@@ -434,21 +416,24 @@
             if (isRandomMode) {
                 growthFactor += 0.005;
             } else if (isMorphCollabMode) {
-                growthFactor += 0.01;
+                growthFactor += 0.002;
             } else if (isGalaxyMode) {
-                growthFactor += 0.007;
+                growthFactor += 0.002;
+                if (Math.random() < 0.02 && dotCount < 200) { // Slowly add dots
+                    const newIndex = dotCount++;
+                    const newDot = createDot('galaxy', newIndex, `agent${Math.floor(Math.random() * 4) + 1}`);
+                    if (newDot) dots.push(newDot);
+                }
             }
         }
     }
 
-    // Animation loop
     function animate() {
         updateDots();
         drawDots();
         requestAnimationFrame(animate);
     }
 
-    // Expose setAgentsActive
     window.setAgentsActive = function (active, agents = [], randomMode = false, morphCollab = false, galaxyMode = false) {
         if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || randomMode !== isRandomMode || morphCollab !== isMorphCollabMode || galaxyMode !== isGalaxyMode)) {
             activeAgents = agents;
@@ -471,18 +456,17 @@
         }
     };
 
-    // Expose stopRandomMode
     window.stopRandomMode = function () {
         stopRequested = true;
         isRandomMode = false;
         isMorphCollabMode = false;
         isGalaxyMode = false;
         growthFactor = 1;
+        dotCount = 30;
         console.log('Random mode stopped');
         initDots();
     };
 
-    // Expose initNeurots
     window.initNeurots = function () {
         if (!canvas || !ctx) {
             console.error('Canvas or context not found');
