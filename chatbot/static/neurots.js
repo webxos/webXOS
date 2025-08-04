@@ -6,7 +6,7 @@ let isRandomMode = false; // Track random mode
 let growthFactor = 1; // Controls pattern expansion
 const DOT_COUNT = 30; // Number of dots
 const MAX_DISTANCE = 80; // Max distance for connecting lines
-let patternSide = 'left'; // Left or right for pattern placement
+let patternSide = 'center'; // Center for all patterns
 let animationPhase = 'none'; // 'dissipate', 'reform', or 'none'
 let animationProgress = 0; // 0 to 1 for animation transitions
 let stopRequested = false; // Track stop command
@@ -39,18 +39,19 @@ function createDot(pattern, index) {
         targetX: 0,
         targetY: 0
     };
-    const sideOffset = patternSide === 'left' ? 50 : canvas.width - 150;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
     let dot;
     switch (pattern) {
         case 'helix': // Agent1: Double helix
             const helixAngle = index * 0.6;
-            const helixRadius = (20 + index * 2) * growthFactor;
+            const helixRadius = (10 + index * 1) * growthFactor; // Smaller initial size
             dot = {
                 ...base,
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                targetX: sideOffset + helixRadius * Math.cos(helixAngle),
-                targetY: canvas.height / 2 + helixRadius * Math.sin(helixAngle) + (index % 2 ? 15 : -15),
+                x: centerX, // Start at center
+                y: centerY,
+                targetX: centerX + helixRadius * Math.cos(helixAngle),
+                targetY: centerY + helixRadius * Math.sin(helixAngle) + (index % 2 ? 10 : -10),
                 vx: (Math.random() - 0.5) * 0.5,
                 vy: (Math.random() - 0.5) * 0.5,
                 angle: helixAngle,
@@ -58,27 +59,27 @@ function createDot(pattern, index) {
             };
             break;
         case 'grid': // Agent2: Compact 4x4 grid
-            const gridX = (index % 4) * 15 * growthFactor;
-            const gridY = Math.floor(index / 4) * 15 * growthFactor;
+            const gridX = (index % 4) * 10 * growthFactor; // Smaller initial spacing
+            const gridY = Math.floor(index / 4) * 10 * growthFactor;
             dot = {
                 ...base,
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                targetX: sideOffset + gridX - 30 * growthFactor,
-                targetY: canvas.height / 2 - 30 * growthFactor + gridY,
+                x: centerX,
+                y: centerY,
+                targetX: centerX + gridX - 20 * growthFactor,
+                targetY: centerY - 20 * growthFactor + gridY,
                 vx: (Math.random() - 0.5) * 0.2,
                 vy: (Math.random() - 0.5) * 0.2
             };
             break;
         case 'torus': // Agent3: Torus (ring)
             const torusAngle = index * 0.4;
-            const torusRadius = 25 * growthFactor;
+            const torusRadius = 15 * growthFactor; // Smaller initial radius
             dot = {
                 ...base,
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                targetX: sideOffset + torusRadius * Math.cos(torusAngle),
-                targetY: canvas.height / 2 + torusRadius * Math.sin(torusAngle),
+                x: centerX,
+                y: centerY,
+                targetX: centerX + torusRadius * Math.cos(torusAngle),
+                targetY: centerY + torusRadius * Math.sin(torusAngle),
                 vx: (Math.random() - 0.5) * 0.3,
                 vy: (Math.random() - 0.5) * 0.3,
                 angle: torusAngle,
@@ -87,13 +88,13 @@ function createDot(pattern, index) {
             break;
         case 'cluster': // Agent4: Dense spherical cluster
             const clusterAngle = Math.random() * Math.PI * 2;
-            const clusterRadius = Math.random() * 20 * growthFactor;
+            const clusterRadius = Math.random() * 15 * growthFactor; // Smaller initial radius
             dot = {
                 ...base,
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                targetX: sideOffset + clusterRadius * Math.cos(clusterAngle),
-                targetY: canvas.height / 2 + clusterRadius * Math.sin(clusterAngle),
+                x: centerX,
+                y: centerY,
+                targetX: centerX + clusterRadius * Math.cos(clusterAngle),
+                targetY: centerY + clusterRadius * Math.sin(clusterAngle),
                 vx: (Math.random() - 0.5) * 0.3,
                 vy: (Math.random() - 0.5) * 0.3
             };
@@ -101,10 +102,10 @@ function createDot(pattern, index) {
         default: // Default random pattern
             dot = {
                 ...base,
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                targetX: Math.random() * canvas.width,
-                targetY: Math.random() * canvas.height,
+                x: centerX,
+                y: centerY,
+                targetX: centerX + (Math.random() - 0.5) * canvas.width,
+                targetY: centerY + (Math.random() - 0.5) * canvas.height,
                 vx: (Math.random() - 0.5) * 2,
                 vy: (Math.random() - 0.5) * 2
             };
@@ -125,7 +126,7 @@ function initDots() {
         const dot = createDot(pattern, i);
         if (dot) dots.push(dot);
     }
-    console.log(`Initialized ${dots.length} dots for pattern: ${pattern}, randomMode: ${isRandomMode}`);
+    console.log(`Initialized ${dots.length} dots for pattern: ${pattern}, randomMode: ${isRandomMode}, growthFactor: ${growthFactor}`);
     animationPhase = activeAgent ? 'dissipate' : 'none';
     animationProgress = 0;
     if (isRandomMode) {
@@ -136,8 +137,8 @@ function initDots() {
 
 function checkBounds() {
     return dots.some(dot => 
-        dot.x < 10 || dot.x > canvas.width - 10 || 
-        dot.y < 10 || dot.y > canvas.height - 10
+        dot.x < 5 || dot.x > canvas.width - 5 || 
+        dot.y < 5 || dot.y > canvas.height - 5
     );
 }
 
@@ -185,48 +186,20 @@ function updateDots() {
         dots.forEach(dot => {
             if (!dot) return;
             dot.opacity = Math.max(0, 1 - animationProgress);
-            dot.x += (Math.random() - 0.5) * 5;
-            dot.y += (Math.random() - 0.5) * 5;
+            dot.x += (Math.random() - 0.5) * 3; // Reduced scatter for smoother start
+            dot.y += (Math.random() - 0.5) * 3;
         });
         if (animationProgress >= 1) {
             animationPhase = 'reform';
             animationProgress = 0;
-            initDots(); // Reinitialize dots for reformation
         }
     } else if (animationPhase === 'reform') {
-        animationProgress += 0.02;
+        animationProgress += 0.03; // Slightly faster reformation
         dots.forEach(dot => {
             if (!dot) return;
             dot.opacity = animationProgress;
-            dot.x += (dot.targetX - dot.x) * 0.1;
+            dot.x += (dot.targetX - dot.x) * 0.1; // Smoothly move to target
             dot.y += (dot.targetY - dot.y) * 0.1;
-            if (activeAgent) {
-                if (activeAgent === 'agent1') { // Helix spin
-                    dot.angle += dot.radiusSpeed;
-                    const radius = (20 + dot.radius * 2) * growthFactor;
-                    dot.targetX = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
-                    dot.targetY = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 15 : -15);
-                } else if (activeAgent === 'agent2') { // Grid oscillation
-                    dot.x += dot.vx;
-                    dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
-                    if (dot.x < baseX - 30 * growthFactor || dot.x > baseX + 30 * growthFactor) dot.vx *= -1;
-                    if (dot.y < canvas.height / 2 - 30 * growthFactor || dot.y > canvas.height / 2 + 30 * growthFactor) dot.vy *= -1;
-                } else if (activeAgent === 'agent3') { // Torus rotation
-                    dot.angle += dot.radiusSpeed;
-                    const radius = 25 * growthFactor;
-                    dot.targetX = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
-                    dot.targetY = canvas.height / 2 + radius * Math.sin(dot.angle);
-                } else if (activeAgent === 'agent4') { // Cluster pulse
-                    dot.x += dot.vx;
-                    dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
-                    if (Math.abs(dot.x - baseX) > 20 * growthFactor || Math.abs(dot.y - canvas.height / 2) > 20 * growthFactor) {
-                        dot.vx *= -1;
-                        dot.vy *= -1;
-                    }
-                }
-            }
         });
         if (animationProgress >= 1) {
             animationPhase = 'none';
@@ -235,30 +208,48 @@ function updateDots() {
         dots.forEach(dot => {
             if (!dot) return;
             if (activeAgent) {
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
                 if (activeAgent === 'agent1') { // Helix spin
                     dot.angle += dot.radiusSpeed;
-                    const radius = (20 + dot.radius * 2) * growthFactor;
-                    dot.x = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
-                    dot.y = canvas.height / 2 + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 15 : -15);
+                    const radius = (10 + dot.radius * 1) * growthFactor;
+                    dot.targetX = centerX + radius * Math.cos(dot.angle);
+                    dot.targetY = centerY + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 10 : -10);
+                    dot.x += (dot.targetX - dot.x) * 0.05; // Smooth movement
+                    dot.y += (dot.targetY - dot.y) * 0.05;
                 } else if (activeAgent === 'agent2') { // Grid oscillation
+                    const gridX = (dot.index % 4) * 10 * growthFactor;
+                    const gridY = Math.floor(dot.index / 4) * 10 * growthFactor;
+                    dot.targetX = centerX + gridX - 20 * growthFactor;
+                    dot.targetY = centerY - 20 * growthFactor + gridY;
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
+                    dot.vx = dot.vx || (Math.random() - 0.5) * 0.2;
+                    dot.vy = dot.vy || (Math.random() - 0.5) * 0.2;
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
-                    if (dot.x < baseX - 30 * growthFactor || dot.x > baseX + 30 * growthFactor) dot.vx *= -1;
-                    if (dot.y < canvas.height / 2 - 30 * growthFactor || dot.y > canvas.height / 2 + 30 * growthFactor) dot.vy *= -1;
+                    if (Math.abs(dot.x - dot.targetX) > 20 * growthFactor) dot.vx *= -1;
+                    if (Math.abs(dot.y - dot.targetY) > 20 * growthFactor) dot.vy *= -1;
                 } else if (activeAgent === 'agent3') { // Torus rotation
                     dot.angle += dot.radiusSpeed;
-                    const radius = 25 * growthFactor;
-                    dot.x = (patternSide === 'left' ? 50 : canvas.width - 150) + radius * Math.cos(dot.angle);
-                    dot.y = canvas.height / 2 + radius * Math.sin(dot.angle);
+                    const radius = 15 * growthFactor;
+                    dot.targetX = centerX + radius * Math.cos(dot.angle);
+                    dot.targetY = centerY + radius * Math.sin(dot.angle);
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
                 } else if (activeAgent === 'agent4') { // Cluster pulse
+                    const clusterAngle = dot.angle || Math.random() * Math.PI * 2;
+                    const clusterRadius = (Math.random() * 15) * growthFactor;
+                    dot.targetX = centerX + clusterRadius * Math.cos(clusterAngle);
+                    dot.targetY = centerY + clusterRadius * Math.sin(clusterAngle);
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
+                    dot.vx = dot.vx || (Math.random() - 0.5) * 0.3;
+                    dot.vy = dot.vy || (Math.random() - 0.5) * 0.3;
                     dot.x += dot.vx;
                     dot.y += dot.vy;
-                    const baseX = patternSide === 'left' ? 50 : canvas.width - 150;
-                    if (Math.abs(dot.x - baseX) > 20 * growthFactor || Math.abs(dot.y - canvas.height / 2) > 20 * growthFactor) {
-                        dot.vx *= -1;
-                        dot.vy *= -1;
-                    }
+                    if (Math.abs(dot.x - centerX) > 15 * growthFactor) dot.vx *= -1;
+                    if (Math.abs(dot.y - centerY) > 15 * growthFactor) dot.vy *= -1;
                 }
             } else {
                 dot.x += dot.vx;
@@ -268,9 +259,8 @@ function updateDots() {
             }
         });
         if (isRandomMode) {
-            growthFactor += 0.01; // Slower growth for smoother animation
+            growthFactor += 0.005; // Very slow growth for organic effect
             console.log('Random mode: growthFactor =', growthFactor);
-            initDots(); // Update dot positions with new growthFactor
         }
     }
 }
@@ -285,7 +275,7 @@ window.setAgentsActive = function(active, agent = null, randomMode = false) {
     activeAgent = active ? agent : null;
     isRandomMode = randomMode;
     stopRequested = false;
-    patternSide = active ? (Math.random() < 0.5 ? 'left' : 'right') : 'left';
+    patternSide = 'center'; // Always center for patterns
     console.log(`setAgentsActive: agent=${agent}, randomMode=${randomMode}, patternSide=${patternSide}`);
     initDots();
 };
