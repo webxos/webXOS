@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webxos-searchbot-v20';
+const CACHE_NAME = 'webxos-searchbot-v21';
 const urlsToCache = [
     '/chatbot/static/chatbot.html',
     '/chatbot/static/style.css',
