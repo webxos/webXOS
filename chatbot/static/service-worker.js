@@ -11,12 +11,11 @@ const urlsToCache = [
   '/chatbot/static/neurots.js',
   '/chatbot/static/sync.js',
   '/chatbot/static/nlp.js',
-  '/chatbot/static/learn.js',
   '/chatbot/static/tree.txt',
   'https://cdn.jsdelivr.net/npm/fuse.js@6/dist/fuse.min.js',
   'https://cdn.jsdelivr.net/npm/gun@0.2020/gun.min.js',
   'https://cdn.jsdelivr.net/npm/compromise@14/builds/compromise.min.js',
-  'https://cdn.jsdelivr.net/npm/brain.js@2.0.0-beta.24/dist/brain-browser.min.js'
+  'https://cdn.jsdelivr.net/npm/q@1.5.1/dist/q.min.js'
 ];
 const FALLBACK_INDEX = { site_index: [] };
 
