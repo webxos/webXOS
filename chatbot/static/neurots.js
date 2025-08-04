@@ -123,7 +123,7 @@ function drawDots() {
         if (!dot) return;
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-        ctx.fillStyle = dot.color.replace(')', `, ${dot.opacity})`).replace('rgb(binding.py', 'rgba');
+        ctx.fillStyle = dot.color.replace(')', `, ${dot.opacity})`).replace('rgb', 'rgba');
         ctx.fill();
     });
 
