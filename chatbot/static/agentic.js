@@ -1,22 +1,21 @@
-import { syncResults } from './sync.js';
-import { processQuery } from './nlp.js';
-
-async function agenticSearch(query, siteIndex) {
-    const processedQuery = processQuery(query);
-    if (!processedQuery.topics.some(t => ['webxos', 'decentralized', 'pwa', 'webgl'].includes(t.toLowerCase()))) {
-        return [{ item: { text: { content: 'Agentic: Sorry, I’m designed to assist with WebXOS-related queries. Try asking about our decentralized features!' } } }];
+async function agenticSearch(query, index) {
+    try {
+        if (typeof Fuse === 'undefined') {
+            throw new Error('Fuse.js not loaded');
+        }
+        const results = await Promise.all([
+            agent1Search(query, index),
+            agent2Search(query, index),
+            agent3Search(query, index),
+            agent4Search(query, index)
+        ]);
+        const combined = results.flat().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10);
+        console.log('Agentic results:', combined);
+        return combined;
+    } catch (error) {
+        console.error('Agentic search failed:', error);
+        return [];
     }
-    const agentPromises = [
-        window.agent1Search(query, siteIndex),
-        window.agent2Search(query, siteIndex),
-        window.agent3Search(query, siteIndex),
-        window.agent4Search(query, siteIndex)
-    ];
-    const results = (await Promise.all(agentPromises)).flat().map(result => ({
-        item: { text: { content: `Agentic: ${result.item.text.content}` }, path: result.item.path, source: result.item.source }
-    }));
-    await syncResults('agentic', query, results);
-    return results;
 }
 
 export { agenticSearch };
