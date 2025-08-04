@@ -1,124 +1,70 @@
-const canvas = document.getElementById('neuralCanvas');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+function setNeuralPattern(agent) {
+    try {
+        const canvas = document.getElementById('neuralCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-const dots = [];
-const colors = {
-  agent1: '#00cc00',
-  agent2: '#00ffff',
-  agent3: '#ff00ff',
-  agent4: '#0000ff',
-  agentic: ['#00cc00', '#00ffff', '#ff00ff', '#0000ff']
-};
-const shapes = ['circle', 'square', 'triangle', 'star'];
+        const patterns = {
+            agent1: { color: '#00ff00', shape: 'circle' },
+            agent2: { color: '#00ffff', shape: 'square' },
+            agent3: { color: '#ff00ff', shape: 'triangle' },
+            agent4: { color: '#0000ff', shape: 'star' },
+            agentic: [
+                { color: '#00ff00', shape: 'circle' },
+                { color: '#00ffff', shape: 'square' },
+                { color: '#ff00ff', shape: 'triangle' },
+                { color: '#0000ff', shape: 'star' }
+            ]
+        };
 
-class Dot {
-  constructor(x, y, color, shape, agent) {
-    this.x = x;
-    this.y = y;
-    this.color = color;
-    this.shape = shape;
-    this.agent = agent;
-    this.vx = (Math.random() - 0.5) * 2;
-    this.vy = (Math.random() - 0.5) * 2;
-  }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!agent) return;
 
-  draw() {
-    ctx.beginPath();
-    ctx.fillStyle = this.color;
-    if (this.shape === 'circle') {
-      ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
-    } else if (this.shape === 'square') {
-      ctx.rect(this.x - 3, this.y - 3, 6, 6);
-    } else if (this.shape === 'triangle') {
-      ctx.moveTo(this.x, this.y - 3);
-      ctx.lineTo(this.x - 3, this.y + 3);
-      ctx.lineTo(this.x + 3, this.y + 3);
-      ctx.closePath();
-    } else if (this.shape === 'star') {
-      for (let i = 0; i < 5; i++) {
-        ctx.lineTo(
-          this.x + 3 * Math.cos((18 + i * 72) * Math.PI / 180),
-          this.y - 3 * Math.sin((18 + i * 72) * Math.PI / 180)
-        );
-        ctx.lineTo(
-          this.x + 1.5 * Math.cos((54 + i * 72) * Math.PI / 180),
-          this.y - 1.5 * Math.sin((54 + i * 72) * Math.PI / 180)
-        );
-      }
-      ctx.closePath();
+        const drawShape = (x, y, type, color, size) => {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            if (type === 'circle') {
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+            } else if (type === 'square') {
+                ctx.rect(x - size, y - size, size * 2, size * 2);
+            } else if (type === 'triangle') {
+                ctx.moveTo(x, y - size);
+                ctx.lineTo(x - size, y + size);
+                ctx.lineTo(x + size, y + size);
+                ctx.closePath();
+            } else if (type === 'star') {
+                for (let i = 0; i < 5; i++) {
+                    ctx.lineTo(
+                        x + size * Math.cos((Math.PI * 2 * i) / 5 - Math.PI / 2),
+                        y + size * Math.sin((Math.PI * 2 * i) / 5 - Math.PI / 2)
+                    );
+                    ctx.lineTo(
+                        x + (size / 2) * Math.cos((Math.PI * 2 * i + Math.PI) / 5 - Math.PI / 2),
+                        y + (size / 2) * Math.sin((Math.PI * 2 * i + Math.PI) / 5 - Math.PI / 2)
+                    );
+                }
+                ctx.closePath();
+            }
+            ctx.fill();
+        };
+
+        const selected = patterns[agent] || patterns.agentic;
+        const dots = Array.isArray(selected) ? selected : [selected];
+        dots.forEach(({ color, shape }) => {
+            for (let i = 0; i < 10; i++) {
+                drawShape(
+                    Math.random() * canvas.width,
+                    Math.random() * canvas.height,
+                    shape,
+                    color,
+                    10 + Math.random() * 10
+                );
+            }
+        });
+    } catch (error) {
+        console.error('Neural visualization failed:', error);
     }
-    ctx.fill();
-  }
-
-  update() {
-    if (window.innerWidth < 768) {
-      const titleHeight = 50;
-      const safeY = Math.min(Math.max(this.y, 10), 140);
-      const safeX = Math.min(Math.max(this.x, 10), canvas.width - 10);
-      this.x = safeX;
-      this.y = safeY;
-    } else {
-      this.x += this.vx;
-      this.y += this.vy;
-      if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
-      if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
-    }
-  }
 }
 
-function animateDots() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  dots.forEach(dot => {
-    dot.update();
-    dot.draw();
-  });
-  requestAnimationFrame(animateDots);
-}
-
-function initDots(agent) {
-  dots.length = 0;
-  const numDots = 100;
-  const isMobile = window.innerWidth < 768;
-  if (agent === 'agentic') {
-    for (let i = 0; i < numDots; i++) {
-      const color = colors.agentic[i % 4];
-      const shape = shapes[i % 4];
-      const agentIdx = i % 4;
-      let x, y;
-      if (isMobile) {
-        x = Math.random() * (canvas.width - 20) + 10;
-        y = Math.random() * (140 - 10) + 10;
-      } else {
-        x = agentIdx % 2 ? canvas.width * 0.75 : canvas.width * 0.25;
-        y = Math.random() * canvas.height;
-      }
-      dots.push(new Dot(x, y, color, shape, `agent${agentIdx + 1}`));
-    }
-  } else {
-    const color = colors[agent];
-    const shape = shapes[parseInt(agent.replace('agent', '')) - 1] || 'circle';
-    for (let i = 0; i < numDots; i++) {
-      let x, y;
-      if (isMobile) {
-        x = Math.random() * (canvas.width - 20) + 10;
-        y = Math.random() * (140 - 10) + 10;
-      } else {
-        x = i % 2 ? canvas.width * 0.75 : canvas.width * 0.25;
-        y = Math.random() * canvas.height;
-      }
-      dots.push(new Dot(x, y, color, shape, agent));
-    }
-  }
-  animateDots();
-}
-
-window.setAgentsActive = function(active, agent) {
-  if (active) {
-    initDots(agent);
-  } else {
-    dots.length = 0;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
-};
+window.setNeuralPattern = setNeuralPattern;
