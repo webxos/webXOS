@@ -46,7 +46,7 @@ self.addEventListener('fetch', event => {
         });
       }).catch(error => {
         if (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json')) {
-          console.warn(`Network fetch failed for ${event.request.url}, using fallback`);
+          console.warn(`Network fetch failed for ${event.request.url} (Base: ${self.location.origin}), using fallback`);
           return new Response(JSON.stringify(FALLBACK_INDEX), {
             headers: { 'Content-Type': 'application/json' }
           });
