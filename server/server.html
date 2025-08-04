@@ -6,42 +6,27 @@
     <title>WebXOS MCP Terminal</title>
     <link rel="stylesheet" href="/server.css">
     <style>
-        /* Fallback inline styles */
-        body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #00ff00; }
+        body { font-family: 'Courier New', monospace; background: #000000; color: #00ff00; margin: 0; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="console-container">
         <h1>WebXOS MCP Terminal</h1>
-        <div id="mcp-status">
-            <h2>MCP Status</h2>
-            <div id="mcp-status-text">Loading...</div>
+        <div id="console-output"></div>
+        <div class="input-container">
+            <span>&gt;</span>
+            <input type="text" id="console-input" placeholder="Type /help for commands" autofocus>
         </div>
-        <div id="agent-status">
-            <h2>Agent Status</h2>
-            <div id="chatbot-agent1">Chatbot Agent1: Loading...</div>
-            <div id="chatbot-agent2">Chatbot Agent2: Loading...</div>
-            <div id="chatbot-agent3">Chatbot Agent3: Loading...</div>
-            <div id="chatbot-agent4">Chatbot Agent4: Loading...</div>
-            <div id="server-agent1">Server Agent1: Loading...</div>
-            <div id="server-agent2">Server Agent2: Loading...</div>
-            <div id="server-agent3">Server Agent3: Loading...</div>
-            <div id="server-agent4">Server Agent4: Loading...</div>
-        </div>
-        <div id="llm-config">
-            <h2>LLM Configuration</h2>
-            <input type="text" id="llm-api-key" placeholder="Enter LLM API Key (e.g., Grok, ChatGPT)">
-            <button onclick="saveLLMConfig()">Save</button>
-            <div id="llm-status">Status: Not configured</div>
-        </div>
-        <div id="debug-terminal">
-            <h2>Debug Terminal</h2>
-            <div id="debug-output"></div>
-        </div>
-        <div id="neurots">Neurots: Initialized successfully</div>
     </div>
 
     <script>
+        const commands = {
+            '/help': 'Available commands:\n/status - Check MCP and agent status\n/debug - Run diagnostics with tracebacks\n/llm - Configure LLM API key\n/help - Show this help menu',
+            '/status': async () => await checkStatus(),
+            '/debug': async () => await runDebug(),
+            '/llm': async (args) => await configureLLM(args)
+        };
+
         async function fetchWithErrorHandling(url, options = {}) {
             try {
                 const response = await fetch(url, { ...options, timeout: 5000 });
@@ -55,81 +40,113 @@
                 }
                 return await response.json();
             } catch (error) {
-                logDebug(`Error fetching ${url}: ${error.message}`);
+                const stack = error.stack || 'No stack trace available';
+                const aiAnalysis = analyzeError(error.message, stack, url);
+                logOutput(`Error fetching ${url}: ${error.message}\nStack Trace:\n${stack}\nAI Analysis: ${aiAnalysis}`);
                 return null;
             }
         }
 
-        function logDebug(message) {
-            const debugOutput = document.getElementById('debug-output');
+        function analyzeError(message, stack, url) {
+            const analysis = [];
+            if (message.includes('HTTP 404')) {
+                analysis.push('404 Error: Endpoint not found. Verify Netlify Function deployment and routing in netlify.toml.');
+                analysis.push(`Check if ${url} exists in server/[function]/index.js and is deployed to /.netlify/functions/[function].`);
+            }
+            if (message.includes('Expected JSON')) {
+                analysis.push('Server returned non-JSON response. Ensure the endpoint returns Content-Type: application/json.');
+            }
+            if (stack.includes('Timeout')) {
+                analysis.push('Request timed out. Check server availability or increase timeout in fetch options.');
+            }
+            return analysis.length ? analysis.join('\n') : 'No specific issues identified. Check server logs and network configuration.';
+        }
+
+        function logOutput(message) {
+            const output = document.getElementById('console-output');
             const entry = document.createElement('div');
             entry.textContent = message;
-            debugOutput.appendChild(entry);
-            debugOutput.scrollTop = debugOutput.scrollHeight;
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
         }
 
-        async function checkMCPStatus() {
-            const data = await fetchWithErrorHandling('/.netlify/functions/mcp/status');
-            const statusText = document.getElementById('mcp-status-text');
-            if (data) {
-                statusText.textContent = `Success: MCP ${data.status}. Active Agents: ${data.activeAgents?.length || 0}`;
+        async function checkStatus() {
+            logOutput('Checking MCP and agent status...');
+            const mcpData = await fetchWithErrorHandling('/.netlify/functions/mcp/status');
+            if (mcpData) {
+                logOutput(`MCP Status: ${mcpData.status}, Active Agents: ${mcpData.activeAgents?.length || 0}`);
+                mcpData.details.forEach(agent => {
+                    logOutput(`${agent.id}: ${agent.status}${agent.error ? ` (Error: ${agent.error})` : ''}`);
+                });
             } else {
-                statusText.textContent = 'Error: Failed to check MCP status';
+                logOutput('Failed to retrieve MCP status.');
             }
         }
 
-        async function checkAgentStatus(agentId, elementId) {
-            const data = await fetchWithErrorHandling(`/.netlify/functions/${agentId}/health`);
-            const element = document.getElementById(elementId);
-            if (data) {
-                element.textContent = `${agentId}: ${data.status}`;
-                element.className = data.status === 'healthy' ? '' : data.status.toLowerCase();
+        async function runDebug() {
+            logOutput('Running diagnostics...');
+            const debugData = await fetchWithErrorHandling('/.netlify/functions/mcp/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'diagnostics' })
+            });
+            if (debugData) {
+                logOutput(`Diagnostics: ${debugData.message}`);
+                debugData.details.forEach(agent => {
+                    logOutput(`${agent.id}: ${agent.status}${agent.error ? ` (Error: ${agent.error})` : ''}`);
+                });
+                // Pipeline testing
+                const agents = ['chatbot-agent1', 'chatbot-agent2', 'chatbot-agent3', 'chatbot-agent4', 'server-agent1', 'server-agent2', 'server-agent3', 'server-agent4'];
+                for (const agent of agents) {
+                    const healthData = await fetchWithErrorHandling(`/.netlify/functions/${agent}/health`);
+                    logOutput(`Pipeline Test - ${agent}: ${healthData ? healthData.status : 'Failed'}`);
+                }
             } else {
-                element.textContent = `${agentId}: Error`;
-                element.className = 'error';
+                logOutput('Diagnostics failed.');
             }
         }
 
-        async function saveLLMConfig() {
-            const apiKey = document.getElementById('llm-api-key').value;
+        async function configureLLM(args) {
+            const apiKey = args.trim();
             if (!apiKey) {
-                logDebug('Error: No API key provided');
+                logOutput('Error: No API key provided. Usage: /llm <api-key>');
                 return;
             }
+            logOutput('Configuring LLM...');
             const response = await fetchWithErrorHandling('/.netlify/functions/mcp/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ command: 'llm-test', apiKey })
             });
-            const llmStatus = document.getElementById('llm-status');
-            if (response && response.message) {
-                llmStatus.textContent = 'Status: Configured';
-                logDebug(response.message);
+            logOutput(response ? `LLM Config: ${response.message}` : 'LLM configuration failed.');
+        }
+
+        function handleCommand(input) {
+            const [command, ...args] = input.trim().split(' ');
+            if (commands[command]) {
+                if (typeof commands[command] === 'string') {
+                    logOutput(commands[command]);
+                } else {
+                    commands[command](args.join(' '));
+                }
             } else {
-                llmStatus.textContent = 'Status: Configuration failed';
+                logOutput(`Unknown command: ${command}. Type /help for available commands.`);
             }
         }
 
-        async function initialize() {
-            document.getElementById('mcp-status-text').textContent = 'Success: MCP initialized';
-            document.getElementById('neurots').textContent = 'Neurots: Initialized successfully';
-            await checkMCPStatus();
-            const agents = [
-                { id: 'chatbot-agent1', element: 'chatbot-agent1' },
-                { id: 'chatbot-agent2', element: 'chatbot-agent2' },
-                { id: 'chatbot-agent3', element: 'chatbot-agent3' },
-                { id: 'chatbot-agent4', element: 'chatbot-agent4' },
-                { id: 'server-agent1', element: 'server-agent1' },
-                { id: 'server-agent2', element: 'server-agent2' },
-                { id: 'server-agent3', element: 'server-agent3' },
-                { id: 'server-agent4', element: 'server-agent4' }
-            ];
-            for (const agent of agents) {
-                await checkAgentStatus(agent.id, agent.element);
+        document.getElementById('console-input').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                const input = event.target.value;
+                logOutput(`> ${input}`);
+                handleCommand(input);
+                event.target.value = '';
             }
-        }
+        });
 
-        window.onload = initialize;
+        window.onload = () => {
+            logOutput('WebXOS MCP Terminal initialized. Type /help for commands.');
+            logOutput('Neurots: Initialized successfully');
+        };
     </script>
 </body>
 </html>
