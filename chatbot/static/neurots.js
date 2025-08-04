@@ -14,7 +14,7 @@
     let activeAgents = [];
     let isMorphCollabMode = false;
     let isGalaxyMode = false;
-    let growthFactor = 0.5; // Start small
+    let growthFactor = 0.5;
     let dotCount = 30;
     const MAX_DISTANCE = 80;
     const MAX_COLLAB_DISTANCE = 120;
@@ -22,14 +22,14 @@
     let animationProgress = 0;
     let isInitialLoad = true;
 
-    // Set canvas size to match window
+    // Set canvas size
     function setCanvasSize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         console.log('Canvas resized:', canvas.width, canvas.height);
     }
 
-    // Get agent-specific color
+    // Get agent color
     function getAgentColor(agent) {
         const colors = {
             'agent1': '#00cc00',
@@ -40,7 +40,7 @@
         return colors[agent] || '#00ff00';
     }
 
-    // Get random position avoiding chatbox
+    // Get position avoiding chatbox for morphcollab/galaxy
     function getRandomPosition() {
         const isMobile = window.innerWidth <= 768;
         const textContainer = {
@@ -51,13 +51,8 @@
         };
         let x, y;
         do {
-            if (isMobile) {
-                x = Math.random() * canvas.width;
-                y = Math.random() * 100;
-            } else {
-                x = Math.random() * canvas.width;
-                y = Math.random() * canvas.height;
-            }
+            x = Math.random() * canvas.width;
+            y = isMobile ? Math.random() * 100 : Math.random() * canvas.height;
         } while (
             x > textContainer.x && x < textContainer.x + textContainer.width &&
             y > textContainer.y && y < textContainer.y + textContainer.height
@@ -65,7 +60,7 @@
         return { x, y };
     }
 
-    // Create a dot for a specific pattern
+    // Create dot for pattern
     function createDot(pattern, index, agent) {
         const base = {
             radius: 2,
@@ -170,8 +165,8 @@
                     ...base,
                     x: center.x,
                     y: center.y,
-                    targetX: center.x + (Math.random() - 0.5) * canvas.width,
-                    targetY: center.y + (Math.random() - 0.5) * canvas.height,
+                    targetX: center.x,
+                    targetY: center.y,
                     vx: (Math.random() - 0.5) * 2,
                     vy: (Math.random() - 0.5) * 2
                 };
@@ -180,7 +175,7 @@
         return dot;
     }
 
-    // Initialize dots based on mode
+    // Initialize dots
     function initDots() {
         dots = [];
         if (isGalaxyMode) {
@@ -213,13 +208,10 @@
             dotCount = 30;
         }
         console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'dna' : activeAgents[0] || 'random'}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
-        if (isInitialLoad || !activeAgents.length) {
-            animationPhase = 'dissipate';
-        } else {
-            animationPhase = 'reform';
-        }
+        animationPhase = 'dissipate';
         animationProgress = 0;
         growthFactor = 0.5;
+        isInitialLoad = false;
     }
 
     // Draw dots and connections
@@ -279,7 +271,7 @@
         }
     }
 
-    // Update dot positions and animations
+    // Update dot positions
     function updateDots() {
         dots.forEach(dot => {
             if (!dot) return;
@@ -312,7 +304,7 @@
                 if (dot.agent === 'agent1' && !isMorphCollabMode) {
                     const radius = 10 * growthFactor;
                     dot.targetX = center.x + radius * Math.cos(dot.angle);
-                    dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.angle % 2 ? 10 : -10);
+                    dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.index % 2 ? 10 : -10);
                 } else if (dot.agent === 'agent2' && !isMorphCollabMode) {
                     const cubeVertices = [
                         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
@@ -343,10 +335,6 @@
                     const strandOffset = (dot.index % 2) ? 10 : -10;
                     dot.targetX = center.x + dnaRadius * Math.cos(dot.angle) + strandOffset;
                     dot.targetY = center.y + dnaRadius * Math.sin(dot.angle) + strandOffset * 0.5;
-                    const morphCenterX = canvas.width / 2;
-                    const morphCenterY = canvas.height / 2;
-                    dot.targetX = dot.targetX + (morphCenterX - dot.targetX) * 0.005;
-                    dot.targetY = dot.targetY + (morphCenterY - dot.targetY) * 0.005;
                 } else {
                     dot.x += dot.vx;
                     dot.y += dot.vy;
@@ -371,7 +359,6 @@
             if (animationProgress >= 1) {
                 animationPhase = 'reform';
                 animationProgress = 0;
-                isInitialLoad = false;
             }
         } else if (animationPhase === 'reform') {
             animationProgress += 0.03;
