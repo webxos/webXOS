@@ -1,5 +1,3 @@
-
-
 async function agent3Search(query, siteIndex) {
     if (!siteIndex || !Array.isArray(siteIndex)) return [];
     const fuseOptions = {
