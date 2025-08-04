@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webxos-searchbot-v19';
+const CACHE_NAME = 'webxos-searchbot-v20';
 const urlsToCache = [
     '/chatbot/static/chatbot.html',
     '/chatbot/static/style.css',
@@ -33,27 +33,25 @@ self.addEventListener('fetch', event => {
         caches.match(event.request).then(cachedResponse => {
             if (cachedResponse) return cachedResponse;
             return fetch(event.request).then(networkResponse => {
-                if (!networkResponse.ok && (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json'))) {
-                    console.warn(`Fetch failed for ${event.request.url} (Base: ${self.location.origin}), using fallback`);
-                    return new Response(JSON.stringify(FALLBACK_INDEX), {
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                }
-                if (!networkResponse.ok && event.request.url.includes('sync.js')) {
-                    console.error(`Failed to fetch sync.js: HTTP ${networkResponse.status} ${networkResponse.statusText}`);
+                if (!networkResponse.ok) {
+                    console.warn(`Fetch failed for ${event.request.url}: HTTP ${networkResponse.status} ${networkResponse.statusText}`);
+                    if (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json')) {
+                        return new Response(JSON.stringify(FALLBACK_INDEX), {
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                    }
                 }
                 return caches.open(CACHE_NAME).then(cache => {
                     cache.put(event.request, networkResponse.clone());
                     return networkResponse;
                 });
             }).catch(error => {
+                console.error(`Network fetch failed for ${event.request.url}:`, error);
                 if (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json')) {
-                    console.warn(`Network fetch failed for ${event.request.url} (Base: ${self.location.origin}), using fallback`);
                     return new Response(JSON.stringify(FALLBACK_INDEX), {
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
-                console.error(`Fetch error for ${event.request.url}:`, error);
                 throw error;
             });
         })
