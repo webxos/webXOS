@@ -1,5 +1,14 @@
 const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
 
+function initGun() {
+    try {
+        gun.get('webxos-search').put({ initialized: true, timestamp: new Date().toISOString() });
+        console.log('Gun.js initialized');
+    } catch (error) {
+        console.error('Gun.js initialization failed:', error);
+    }
+}
+
 function syncResults(agent, query, results) {
     try {
         const timestamp = new Date().toISOString();
@@ -20,4 +29,4 @@ function syncResults(agent, query, results) {
     }
 }
 
-export { syncResults };
+export { initGun, syncResults };
