@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webxos-searchbot-v21';
+const CACHE_NAME = 'webxos-searchbot-v23';
 const urlsToCache = [
     '/chatbot/static/chatbot.html',
     '/chatbot/static/style.css',
@@ -11,8 +11,9 @@ const urlsToCache = [
     '/chatbot/static/neurots.js',
     '/chatbot/static/sync.js',
     '/chatbot/static/nlp.js',
-    '/chatbot/static/tree.txt',
     '/chatbot/static/fuse.min.js',
+    '/chatbot/static/icon.png',
+    '/manifest.json',
     'https://cdn.jsdelivr.net/npm/gun@0.2020/gun.min.js',
     'https://cdn.jsdelivr.net/npm/compromise@14/builds/compromise.min.js'
 ];
@@ -50,7 +51,7 @@ self.addEventListener('fetch', event => {
                 if (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json')) {
                     return new Response(JSON.stringify(FALLBACK_INDEX), {
                         headers: { 'Content-Type': 'application/json' }
-                    });
+                        });
                 }
                 throw error;
             });
