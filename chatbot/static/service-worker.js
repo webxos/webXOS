@@ -35,8 +35,8 @@ self.addEventListener('fetch', event => {
     caches.match(event.request).then(cachedResponse => {
       if (cachedResponse) return cachedResponse;
       return fetch(event.request).then(networkResponse => {
-        if (!networkResponse.ok && event.request.url.includes('site_index.json')) {
-          console.warn('Fetch failed for site_index.json, using fallback');
+        if (!networkResponse.ok && (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json'))) {
+          console.warn(`Fetch failed for ${event.request.url}, using fallback`);
           return new Response(JSON.stringify(FALLBACK_INDEX), {
             headers: { 'Content-Type': 'application/json' }
           });
@@ -46,8 +46,8 @@ self.addEventListener('fetch', event => {
           return networkResponse;
         });
       }).catch(error => {
-        if (event.request.url.includes('site_index.json')) {
-          console.warn('Network fetch failed for site_index.json, using fallback');
+        if (event.request.url.includes('site_index.json') || event.request.url.endsWith('./site_index.json')) {
+          console.warn(`Network fetch failed for ${event.request.url}, using fallback`);
           return new Response(JSON.stringify(FALLBACK_INDEX), {
             headers: { 'Content-Type': 'application/json' }
           });
