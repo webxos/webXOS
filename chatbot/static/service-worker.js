@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webxos-searchbot-v17';
+const CACHE_NAME = 'webxos-searchbot-v18';
 const urlsToCache = [
     '/chatbot/static/chatbot.html',
     '/chatbot/static/style.css',
@@ -39,6 +39,9 @@ self.addEventListener('fetch', event => {
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
+                if (!networkResponse.ok && event.request.url.includes('sync.js')) {
+                    console.error(`Failed to fetch sync.js: HTTP ${networkResponse.status} ${networkResponse.statusText}`);
+                }
                 return caches.open(CACHE_NAME).then(cache => {
                     cache.put(event.request, networkResponse.clone());
                     return networkResponse;
@@ -50,6 +53,7 @@ self.addEventListener('fetch', event => {
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
+                console.error(`Fetch error for ${event.request.url}:`, error);
                 throw error;
             });
         })
