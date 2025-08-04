@@ -22,12 +22,14 @@
     let animationProgress = 0;
     let isInitialLoad = true;
 
+    // Set canvas size to match window
     function setCanvasSize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         console.log('Canvas resized:', canvas.width, canvas.height);
     }
 
+    // Get agent-specific color
     function getAgentColor(agent) {
         const colors = {
             'agent1': '#00cc00',
@@ -38,6 +40,7 @@
         return colors[agent] || '#00ff00';
     }
 
+    // Get random position avoiding chatbox
     function getRandomPosition() {
         const isMobile = window.innerWidth <= 768;
         const textContainer = {
@@ -62,6 +65,7 @@
         return { x, y };
     }
 
+    // Create a dot for a specific pattern
     function createDot(pattern, index, agent) {
         const base = {
             radius: 2,
@@ -176,6 +180,7 @@
         return dot;
     }
 
+    // Initialize dots based on mode
     function initDots() {
         dots = [];
         if (isGalaxyMode) {
@@ -217,6 +222,7 @@
         growthFactor = 0.5;
     }
 
+    // Draw dots and connections
     function drawDots() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         dots.forEach(dot => {
@@ -273,6 +279,7 @@
         }
     }
 
+    // Update dot positions and animations
     function updateDots() {
         dots.forEach(dot => {
             if (!dot) return;
@@ -389,12 +396,14 @@
         }
     }
 
+    // Animation loop
     function animate() {
         updateDots();
         drawDots();
         requestAnimationFrame(animate);
     }
 
+    // Global function to set active agents
     window.setAgentsActive = function (active, agents = [], morphCollab = false, galaxyMode = false) {
         if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || morphCollab !== isMorphCollabMode || galaxyMode !== isGalaxyMode)) {
             activeAgents = agents;
@@ -411,6 +420,7 @@
         }
     };
 
+    // Initialize neural dots
     window.initNeurots = function () {
         if (!canvas || !ctx) {
             console.error('Canvas or context not found');
