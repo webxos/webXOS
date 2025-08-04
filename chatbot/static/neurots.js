@@ -12,7 +12,7 @@
 
     let dots = [];
     let activeAgents = [];
-    let isMorphCollabMode = false;
+    let isDnaMode = false;
     let isGalaxyMode = false;
     let growthFactor = 0.5;
     let dotCount = 30;
@@ -40,7 +40,7 @@
         return colors[agent] || '#00ff00';
     }
 
-    // Get position avoiding chatbox for morphcollab/galaxy
+    // Get position avoiding chatbox for dna/galaxy
     function getRandomPosition() {
         const isMobile = window.innerWidth <= 768;
         const textContainer = {
@@ -71,9 +71,11 @@
             targetX: 0,
             targetY: 0,
             index: index,
-            agent: agent
+            agent: agent,
+            x: canvas.width / 2,
+            y: canvas.height / 2
         };
-        let center = isMorphCollabMode || isGalaxyMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
+        let center = isDnaMode || isGalaxyMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
         if (isGalaxyMode) {
             base.color = getAgentColor(index < 4 ? `agent${index + 1}` : `agent${Math.floor(Math.random() * 4) + 1}`);
             base.type = index < 4 ? 'star' : Math.random() < 0.3 ? 'star' : Math.random() < 0.6 ? 'planet' : Math.random() < 0.9 ? 'comet' : 'smallPlanet';
@@ -92,8 +94,6 @@
                 const helixRadius = 10 * growthFactor;
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
                     targetX: center.x + helixRadius * Math.cos(helixAngle),
                     targetY: center.y + helixRadius * Math.sin(helixAngle) + (index % 2 ? 10 : -10),
                     angle: helixAngle,
@@ -111,8 +111,6 @@
                 const isoY = (vertex[0] + vertex[1] - 2 * vertex[2]) * cubeSize * 0.5;
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
                     targetX: center.x + isoX,
                     targetY: center.y + isoY,
                     angle: index * 0.4,
@@ -124,8 +122,6 @@
                 const torusRadius = 15 * growthFactor;
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
                     targetX: center.x + torusRadius * Math.cos(torusAngle),
                     targetY: center.y + torusRadius * Math.sin(torusAngle),
                     angle: torusAngle,
@@ -138,8 +134,6 @@
                 const offset = index < 15 ? 0 : Math.PI / 5;
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
                     targetX: center.x + starRadius * Math.cos(starAngle + offset),
                     targetY: center.y + starRadius * Math.sin(starAngle + offset),
                     angle: starAngle,
@@ -147,26 +141,22 @@
                 };
                 break;
             case 'dna':
-                const dnaAngle = index * 0.4;
-                const dnaRadius = 8 * growthFactor;
+                const dnaAngle = index * 0.3;
+                const dnaRadius = 15 * growthFactor;
                 const strandOffset = (index % 2) ? 10 : -10;
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
                     targetX: center.x + dnaRadius * Math.cos(dnaAngle) + strandOffset,
-                    targetY: center.y + dnaRadius * Math.sin(dnaAngle) + strandOffset * 0.5,
+                    targetY: center.y + dnaRadius * Math.sin(dnaAngle),
                     angle: dnaAngle,
-                    radiusSpeed: 0.02
+                    radiusSpeed: 0.01
                 };
                 break;
             default:
                 dot = {
                     ...base,
-                    x: center.x,
-                    y: center.y,
-                    targetX: center.x,
-                    targetY: center.y,
+                    targetX: center.x + (Math.random() - 0.5) * 50,
+                    targetY: center.y + (Math.random() - 0.5) * 50,
                     vx: (Math.random() - 0.5) * 2,
                     vy: (Math.random() - 0.5) * 2
                 };
@@ -184,7 +174,7 @@
                 if (dot) dots.push(dot);
             }
             dotCount = 4;
-        } else if (isMorphCollabMode) {
+        } else if (isDnaMode) {
             activeAgents = ['agent1', 'agent2', 'agent3', 'agent4'];
             activeAgents.forEach(agent => {
                 const pattern = 'dna';
@@ -207,7 +197,7 @@
             }
             dotCount = 30;
         }
-        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isMorphCollabMode ? 'dna' : activeAgents[0] || 'random'}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
+        console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isDnaMode ? 'dna' : activeAgents[0] || 'random'}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
         animationPhase = 'dissipate';
         animationProgress = 0;
         growthFactor = 0.5;
@@ -238,11 +228,11 @@
             }
         });
 
-        const maxDistance = isMorphCollabMode ? MAX_COLLAB_DISTANCE : MAX_DISTANCE;
+        const maxDistance = isDnaMode ? MAX_COLLAB_DISTANCE : MAX_DISTANCE;
         for (let i = 0; i < dots.length; i++) {
             for (let j = i + 1; j < dots.length; j++) {
                 if (!dots[i] || !dots[j]) continue;
-                if (isMorphCollabMode && dots[i].agent !== dots[j].agent) {
+                if (isDnaMode && dots[i].agent !== dots[j].agent) {
                     const dx = dots[i].x - dots[j].x;
                     const dy = dots[i].y - dots[j].y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -254,7 +244,7 @@
                         ctx.lineWidth = 0.5;
                         ctx.stroke();
                     }
-                } else if (!isMorphCollabMode && !isGalaxyMode) {
+                } else if (!isDnaMode && !isGalaxyMode) {
                     const dx = dots[i].x - dots[j].x;
                     const dy = dots[i].y - dots[j].y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -300,12 +290,12 @@
                 }
             } else {
                 dot.angle += dot.radiusSpeed;
-                const center = isMorphCollabMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
-                if (dot.agent === 'agent1' && !isMorphCollabMode) {
+                const center = isDnaMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
+                if (dot.agent === 'agent1' && !isDnaMode) {
                     const radius = 10 * growthFactor;
                     dot.targetX = center.x + radius * Math.cos(dot.angle);
                     dot.targetY = center.y + radius * Math.sin(dot.angle) + (dot.index % 2 ? 10 : -10);
-                } else if (dot.agent === 'agent2' && !isMorphCollabMode) {
+                } else if (dot.agent === 'agent2' && !isDnaMode) {
                     const cubeVertices = [
                         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
                         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
@@ -320,21 +310,21 @@
                     const isoY = (rotX + vertex[2]) * cubeSize * 0.5;
                     dot.targetX = center.x + isoX;
                     dot.targetY = center.y + isoY;
-                } else if (dot.agent === 'agent3' && !isMorphCollabMode) {
+                } else if (dot.agent === 'agent3' && !isDnaMode) {
                     const radius = 15 * growthFactor;
                     dot.targetX = center.x + radius * Math.cos(dot.angle);
                     dot.targetY = center.y + radius * Math.sin(dot.angle);
-                } else if (dot.agent === 'agent4' && !isMorphCollabMode) {
+                } else if (dot.agent === 'agent4' && !isDnaMode) {
                     const starAngle = (dot.index % 5) * (2 * Math.PI / 5);
                     const offset = dot.index < 15 ? 0 : Math.PI / 5;
                     const starRadius = (dot.index < 15 ? 15 : 10) * growthFactor;
                     dot.targetX = center.x + starRadius * Math.cos(starAngle + dot.angle);
                     dot.targetY = center.y + starRadius * Math.sin(starAngle + dot.angle);
-                } else if (isMorphCollabMode) {
-                    const dnaRadius = 8 * growthFactor;
+                } else if (isDnaMode) {
+                    const dnaRadius = 15 * growthFactor;
                     const strandOffset = (dot.index % 2) ? 10 : -10;
                     dot.targetX = center.x + dnaRadius * Math.cos(dot.angle) + strandOffset;
-                    dot.targetY = center.y + dnaRadius * Math.sin(dot.angle) + strandOffset * 0.5;
+                    dot.targetY = center.y + dnaRadius * Math.sin(dot.angle);
                 } else {
                     dot.x += dot.vx;
                     dot.y += dot.vy;
@@ -342,26 +332,26 @@
                     if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
                 }
                 if (!isGalaxyMode) {
-                    dot.x += (dot.targetX - dot.x) * 0.1;
-                    dot.y += (dot.targetY - dot.y) * 0.1;
+                    dot.x += (dot.targetX - dot.x) * 0.05;
+                    dot.y += (dot.targetY - dot.y) * 0.05;
                 }
             }
         });
 
         if (animationPhase === 'dissipate') {
-            animationProgress += 0.05;
+            animationProgress += 0.02;
             dots.forEach(dot => {
                 if (!dot) return;
                 dot.opacity = Math.max(0, 1 - animationProgress);
-                dot.x += (Math.random() - 0.5) * 3;
-                dot.y += (Math.random() - 0.5) * 3;
+                dot.x += (Math.random() - 0.5) * 5;
+                dot.y += (Math.random() - 0.5) * 5;
             });
             if (animationProgress >= 1) {
                 animationPhase = 'reform';
                 animationProgress = 0;
             }
         } else if (animationPhase === 'reform') {
-            animationProgress += 0.03;
+            animationProgress += 0.01;
             dots.forEach(dot => {
                 if (!dot) return;
                 dot.opacity = animationProgress;
@@ -372,7 +362,7 @@
                 animationPhase = 'none';
             }
         } else {
-            if (isMorphCollabMode || isGalaxyMode || activeAgents.length > 0) {
+            if (isDnaMode || isGalaxyMode || activeAgents.length > 0) {
                 growthFactor += 0.002;
             }
             if (isGalaxyMode && Math.random() < 0.02 && dotCount < 250) {
@@ -391,16 +381,16 @@
     }
 
     // Global function to set active agents
-    window.setAgentsActive = function (active, agents = [], morphCollab = false, galaxyMode = false) {
-        if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || morphCollab !== isMorphCollabMode || galaxyMode !== isGalaxyMode)) {
+    window.setAgentsActive = function (active, agents = [], dnaMode = false, galaxyMode = false) {
+        if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || dnaMode !== isDnaMode || galaxyMode !== isGalaxyMode)) {
             activeAgents = agents;
-            isMorphCollabMode = morphCollab;
+            isDnaMode = dnaMode;
             isGalaxyMode = galaxyMode;
-            console.log(`setAgentsActive: agents=${agents.join(',')}, morphCollab=${morphCollab}, galaxyMode=${galaxyMode}`);
+            console.log(`setAgentsActive: agents=${agents.join(',')}, dnaMode=${dnaMode}, galaxyMode=${galaxyMode}`);
             initDots();
-        } else if (!active && (activeAgents.length > 0 || isMorphCollabMode || isGalaxyMode)) {
+        } else if (!active && (activeAgents.length > 0 || isDnaMode || isGalaxyMode)) {
             activeAgents = [];
-            isMorphCollabMode = false;
+            isDnaMode = false;
             isGalaxyMode = false;
             console.log('Resetting to default pattern');
             initDots();
