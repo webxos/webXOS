@@ -1,15 +1,23 @@
-import GUN from 'https://cdn.jsdelivr.net/npm/gun@0.2020/gun.min.js';
+const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
 
-const gun = GUN();
-function initGun() {
-  gun.get('webxos-results').on(data => {
-    const messages = document.getElementById('messages');
-    messages.innerHTML += `<p>Real-time sync: ${JSON.stringify(data)}</p>`;
-  });
+function syncResults(agent, query, results) {
+    try {
+        const timestamp = new Date().toISOString();
+        const data = {
+            agent,
+            query,
+            results: results.map(r => ({
+                content: r.item.text.content,
+                path: r.item.path || '',
+                source: r.item.source || 'WebXOS'
+            })),
+            timestamp
+        };
+        gun.get('webxos-search').get(timestamp).put(data);
+        console.log(`Synced results for ${agent}: ${query}`);
+    } catch (error) {
+        console.error('Sync failed:', error);
+    }
 }
 
-async function syncResults(agent, query, results) {
-  gun.get('webxos-results').put({ [query]: { agent, results, timestamp: Date.now() } });
-}
-
-export { initGun, syncResults };
+export { syncResults };
