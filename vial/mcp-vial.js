@@ -1,311 +1,219 @@
-const { Server } = require('socket.io');
-const http = require('http');
 const express = require('express');
-const bodyParser = require('body-parser');
-const multer = require('multer');
+const http = require('http');
+const socketIo = require('socket.io');
+const fs = require('fs').promises;
+const path = require('path');
 const jwt = require('jsonwebtoken');
-const { MongoClient } = require('mongodb');
-const { loadPyodide } = require('pyodide');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: '*' },
-    maxHttpBufferSize: 1e7
+const io = socketIo(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
 });
 
-app.use(bodyParser.json());
-app.use(express.static('static'));
+const SECRET_KEY = 'your-secret-key';
+const VIAL_LIMIT = 4;
+let activeVials = [];
 
-const upload = multer({ storage: multer.memoryStorage() });
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vial_mcp';
-let db = null;
-let pyodide = null;
+app.use(express.json());
+app.use('/static', express.static(path.join(__dirname, 'static')));
+app.use('/webxos/vial/lab', express.static(path.join(__dirname, 'webxos/vial/lab')));
 
-async function initMongoDB() {
+app.get('/', async (req, res) => {
     try {
-        const client = new MongoClient(MONGODB_URI);
-        await client.connect();
-        db = client.db('vial_mcp');
-        console.log('[VIAL] Connected to MongoDB');
+        const html = await fs.readFile(path.join(__dirname, 'Vial.html'), 'utf8');
+        res.send(html);
     } catch (err) {
-        console.error('[VIAL] MongoDB Connection Error:', err);
+        console.error(`[MCP-VIAL] Error serving Vial.html: ${err.message}`);
+        res.status(500).send('Server Error');
     }
-}
-
-async function initPyodide() {
-    try {
-        pyodide = await loadPyodide({ indexURL: 'https://cdn.pyodide.org/v0.26.2/full/' });
-        await pyodide.loadPackage(['micropip']);
-        await pyodide.runPythonAsync(`
-            import micropip
-            await micropip.install('numpy')
-        `);
-        console.log('[VIAL] Pyodide initialized with numpy');
-    } catch (err) {
-        console.error('[VIAL] Pyodide Init Error:', err);
-    }
-}
-
-function logError(message, error) {
-    console.error(`[VIAL] ${message}: ${error.message}\nStack: ${error.stack}`);
-}
-
-function generateVialId() {
-    return `vial${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function verifyToken(req, res, next) {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'No token provided' });
-    try {
-        req.user = jwt.verify(token, JWT_SECRET);
-        next();
-    } catch (err) {
-        res.status(403).json({ error: 'Invalid token' });
-    }
-}
+});
 
 app.post('/api/auth/login', (req, res) => {
     try {
         const { username, password } = req.body;
         if (username === 'user' && password === 'pass') {
-            const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '1h' });
+            const token = jwt.sign({ username }, SECRET_KEY, { expiresIn: '1h' });
             res.json({ token });
         } else {
-            res.status(401).json({ error: 'Invalid credentials' });
+            throw new Error('Invalid credentials');
         }
     } catch (err) {
-        logError('Login Error', err);
-        res.status(500).json({ error: err.message });
+        console.error(`[MCP-VIAL] Auth Error: ${err.message}`);
+        res.status(401).json({ message: 'Authentication failed', analysis: 'Check username or password.' });
     }
 });
 
-app.post('/api/input', verifyToken, upload.single('file'), async (req, res) => {
+app.post('/api/input', async (req, res) => {
     try {
-        const { code, vialId } = req.body;
-        const file = req.file;
-        if (!code && !file) {
-            return res.status(400).json({ error: 'Missing code or file' });
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            throw new Error('No token provided');
         }
-        if (!vialId) {
-            return res.status(400).json({ error: 'Missing vialId' });
-        }
-        const content = file ? file.buffer.toString() : code;
-        console.log(`[VIAL] Received code for ${vialId}: ${content.substring(0, 50)}...`);
-        if (db) {
-            await db.collection('vials').updateOne(
-                { name: vialId },
-                { $set: { code: content, updatedAt: new Date() } },
-                { upsert: true }
-            );
-        }
-        if (content.endsWith('.py') && pyodide) {
-            try {
-                const pyResult = await pyodide.runPythonAsync(content);
-                res.json({ message: `Code executed for ${vialId}`, vialId, pyResult });
-            } catch (pyErr) {
-                res.status(400).json({ error: pyErr.message, analysis: 'Check Python syntax' });
-            }
-        } else {
-            res.json({ message: `Code received for ${vialId}`, vialId });
-        }
+        const token = authHeader.split(' ')[1];
+        jwt.verify(token, SECRET_KEY);
+        res.json({ message: 'File uploaded successfully' });
     } catch (err) {
-        logError('API Input Error', err);
-        res.status(500).json({ error: err.message, analysis: 'Check server logs.' });
+        console.error(`[MCP-VIAL] File Upload Error: ${err.message}`);
+        res.status(401).json({ message: `File upload failed: ${err.message}`, analysis: 'Check token or file format.' });
     }
 });
 
-app.get('/api/output/:vialId', verifyToken, async (req, res) => {
+async function generateVialFile(vialId, code) {
     try {
-        const { vialId } = req.params;
-        let vial = null;
-        if (db) {
-            vial = await db.collection('vials').findOne({ name: vialId });
-        }
-        if (!vial) {
-            return res.status(404).json({ error: `Vial ${vialId} not found` });
-        }
-        res.json({ vialId, output: vial.output || `Simulated output for ${vialId}` });
-    } catch (err) {
-        logError('API Output Error', err);
-        res.status(500).json({ error: err.message, analysis: 'Check server logs.' });
+        const labDir = path.join(__dirname, 'webxos/vial/lab');
+        await fs.mkdir(labDir, { recursive: true });
+        
+        const vialScript = `
+/**
+ * Vial Agent Script for ${vialId}
+ * Generated automatically by Vial MCP Server
+ * @module ${vialId}
+ */
+class VialAgent {
+    constructor(id) {
+        this.id = id;
+        this.status = 'running';
+        this.createdAt = new Date().toISOString();
+        this.code = \`${code || 'default'}\`;
     }
-});
+
+    async init() {
+        try {
+            console.log(\`[VIAL \${this.id}] Initializing vial agent\`);
+            // Placeholder for WebXOS integration
+            return { status: this.status, latency: Math.random() * 100 };
+        } catch (err) {
+            console.error(\`[VIAL \${this.id}] Init Error: \${err.message}\`);
+            throw err;
+        }
+    }
+
+    async process() {
+        try {
+            console.log(\`[VIAL \${this.id}] Processing vial agent\`);
+            // Simulate processing with WebXOS
+            return { result: Math.random(), latency: Math.random() * 100 };
+        } catch (err) {
+            console.error(\`[VIAL \${this.id}] Process Error: \${err.message}\`);
+            throw err;
+        }
+    }
+}
+
+export default new VialAgent('${vialId}');
+`;
+
+        const filePath = path.join(labDir, `vial${vialId}.js`);
+        await fs.writeFile(filePath, vialScript);
+        console.log(`[MCP-VIAL] Generated ${filePath}`);
+        return filePath;
+    } catch (err) {
+        console.error(`[MCP-VIAL] File Generation Error: ${err.message}`);
+        throw err;
+    }
+}
 
 io.on('connection', (socket) => {
-    console.log('[VIAL] Client connected:', socket.id);
-
+    console.log('[MCP-VIAL] Client connected');
+    
     socket.on('create-vial', async (data) => {
         try {
-            if (!socket.handshake.auth.token) {
-                socket.emit('server-error', { message: 'Authentication required', analysis: 'Provide valid JWT token' });
-                return;
-            }
-            jwt.verify(socket.handshake.auth.token, JWT_SECRET);
-            const vialId = generateVialId();
-            const newVial = { name: vialId, status: 'running', startTime: new Date(), code: data.code || 'default', output: '' };
-            if (db) {
-                await db.collection('vials').insertOne(newVial);
-            }
-            const latency = Math.random() * 100;
-            socket.emit('vial-created', { vialId, message: `Vial ${vialId} created.`, latency });
-            socket.emit('vial-status', {
-                vial: vialId,
-                status: 'started',
-                latency,
-                timestamp: newVial.startTime.toISOString()
-            });
-            console.log(`[VIAL] ${vialId} created at ${newVial.startTime.toISOString()} with code: ${newVial.code.substring(0, 50)}...`);
-            if (data.code.endsWith('.py') && pyodide) {
-                try {
-                    const pyResult = await pyodide.runPythonAsync(data.code);
-                    newVial.output = pyResult;
-                    if (db) {
-                        await db.collection('vials').updateOne(
-                            { name: vialId },
-                            { $set: { output: pyResult } }
-                        );
-                    }
-                } catch (pyErr) {
-                    socket.emit('server-error', { message: pyErr.message, analysis: 'Check Python syntax' });
-                }
-            }
-        } catch (err) {
-            socket.emit('server-error', { 
-                message: err.message, 
-                analysis: 'Failed to create vial. Check server logs and ensure WebXOS tools are accessible at webxos.netlify.app.' 
-            });
-            logError('Create Vial Error', err);
-        }
-    });
-
-    socket.on('troubleshoot-vials', async () => {
-        try {
-            if (!socket.handshake.auth.token) {
-                socket.emit('server-error', { message: 'Authentication required', analysis: 'Provide valid JWT token' });
-                return;
-            }
-            let vials = [];
-            if (db) {
-                vials = await db.collection('vials').find({}).toArray();
-            }
-            if (vials.length === 0) {
-                socket.emit('server-error', { message: 'No vials found.', analysis: 'Create a vial first.' });
-                return;
-            }
-            vials.forEach(vial => {
-                const errorChance = Math.random();
-                let analysis = 'No issues detected.';
-                if (errorChance > 0.7) {
-                    analysis = `Potential issue in ${vial.name}: Check code syntax or WebXOS integration at webxos.netlify.app.`;
-                } else if (errorChance > 0.4) {
-                    analysis = `Warning in ${vial.name}: Possible performance bottleneck in code execution.`;
-                }
-                socket.emit('vial-status', {
-                    vial: vial.name,
-                    status: `troubleshooted: ${analysis}`,
-                    latency: vial.status === 'running' ? Math.random() * 100 : 0,
-                    timestamp: new Date().toISOString()
+            if (activeVials.length >= VIAL_LIMIT) {
+                socket.emit('server-error', {
+                    message: 'Maximum 4 vials allowed per session',
+                    analysis: 'VOID existing vials to create new ones.'
                 });
-                console.log(`[VIAL] ${vial.name} troubleshooted: ${analysis}`);
+                return;
+            }
+
+            const vialId = Math.floor(100000 + Math.random() * 900000).toString();
+            const filePath = await generateVialFile(vialId, data.code);
+            activeVials.push({ id: vialId, status: 'running', createdAt: new Date(), filePath });
+
+            socket.emit('vial-created', {
+                vialId,
+                latency: Math.random() * 100,
+                code: data.code
             });
+
+            console.log(`[MCP-VIAL] Vial ${vialId} created at ${filePath}`);
         } catch (err) {
-            socket.emit('server-error', { 
-                message: err.message, 
-                analysis: 'Failed to troubleshoot vials. Check server logs and WebXOS integration.' 
+            console.error(`[MCP-VIAL] Create Vial Error: ${err.message}`);
+            socket.emit('server-error', {
+                message: `Failed to create vial: ${err.message}`,
+                analysis: 'Check server file system permissions or WebXOS integration.'
             });
-            logError('Troubleshoot Vials Error', err);
         }
     });
 
-    socket.on('check-vials', async () => {
+    socket.on('check-vials', () => {
         try {
-            if (!socket.handshake.auth.token) {
-                socket.emit('server-error', { message: 'Authentication required', analysis: 'Provide valid JWT token' });
-                return;
-            }
-            let vials = [];
-            if (db) {
-                vials = await db.collection('vials').find({}).toArray();
-            }
-            if (vials.length === 0) {
-                socket.emit('server-error', { message: 'No vials found.', analysis: 'Create a vial first.' });
-                return;
-            }
-            vials.forEach(vial => {
-                const latency = Math.random() * 100;
+            activeVials.forEach(vial => {
                 socket.emit('vial-status', {
-                    vial: vial.name,
+                    vial: vial.id,
                     status: vial.status,
-                    latency: vial.status === 'running' ? latency : 0,
-                    timestamp: new Date().toISOString()
+                    latency: Math.random() * 100
                 });
-                console.log(`[VIAL] ${vial.name} checked: ${vial.status}, Latency: ${latency.toFixed(2)}ms`);
             });
         } catch (err) {
-            socket.emit('server-error', { 
-                message: err.message, 
-                analysis: 'Failed to check vials. Check server logs.' 
+            console.error(`[MCP-VIAL] Check Vials Error: ${err.message}`);
+            socket.emit('server-error', {
+                message: `Failed to check vials: ${err.message}`,
+                analysis: 'Check server state or vial data.'
             });
-            logError('Check Vials Error', err);
         }
     });
 
-    socket.on('void-vials', async () => {
+    socket.on('troubleshoot-vials', () => {
         try {
-            if (!socket.handshake.auth.token) {
-                socket.emit('server-error', { message: 'Authentication required', analysis: 'Provide valid JWT token' });
-                return;
-            }
-            let vials = [];
-            if (db) {
-                vials = await db.collection('vials').find({}).toArray();
-                await db.collection('vials').deleteMany({});
-            }
-            vials.forEach(vial => {
-                if (vial.status === 'running') {
-                    const runTime = Math.round((new Date() - vial.startTime) / 1000);
-                    socket.emit('vial-status', {
-                        vial: vial.name,
-                        status: `destroyed, ran for ${runTime}s`,
-                        latency: 0,
-                        timestamp: new Date().toISOString()
-                    });
-                    console.log(`[VIAL] ${vial.name} destroyed, ran for ${runTime}s`);
-                }
-            });
-            socket.emit('server-error', { 
-                message: 'All vials destroyed.', 
-                analysis: 'System reset successfully.' 
+            activeVials.forEach(vial => {
+                socket.emit('vial-status', {
+                    vial: vial.id,
+                    status: vial.status,
+                    latency: Math.random() * 100
+                });
             });
         } catch (err) {
-            socket.emit('server-error', { 
-                message: err.message, 
-                analysis: 'Failed to void vials. Check server logs.' 
+            console.error(`[MCP-VIAL] Troubleshoot Error: ${err.message}`);
+            socket.emit('server-error', {
+                message: `Troubleshoot failed: ${err.message}`,
+                analysis: 'Check server logs or vial status.'
             });
-            logError('Void Vials Error', err);
+        }
+    });
+
+    socket.on('void-vials', () => {
+        try {
+            activeVials = [];
+            socket.emit('server-error', {
+                message: 'All vials destroyed',
+                analysis: 'Vial state reset successfully.'
+            });
+            console.log('[MCP-VIAL] All vials destroyed');
+        } catch (err) {
+            console.error(`[MCP-VIAL] Void Vials Error: ${err.message}`);
+            socket.emit('server-error', {
+                message: `Failed to void vials: ${err.message}`,
+                analysis: 'Check server state.'
+            });
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('[VIAL] Client disconnected:', socket.id);
+        console.log('[MCP-VIAL] Client disconnected');
     });
 });
 
-server.listen(8080, async () => {
-    console.log('[VIAL] Server running on ws://localhost:8080');
-    await initMongoDB();
-    await initPyodide();
-});
-
-process.on('uncaughtException', (err) => {
-    console.error('[VIAL] Uncaught Exception:', err.message, '\nStack:', err.stack);
-    io.emit('server-error', { message: 'Server encountered an unexpected error.', analysis: 'Check server logs.' });
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('[VIAL] Unhandled Rejection at:', promise, 'Reason:', reason);
-    io.emit('server-error', { message: 'Server encountered an unexpected error.', analysis: 'Check server logs.' });
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, async () => {
+    try {
+        await fs.mkdir(path.join(__dirname, 'webxos/vial/lab'), { recursive: true });
+        console.log(`[MCP-VIAL] Server running on port ${PORT}`);
+    } catch (err) {
+        console.error(`[MCP-VIAL] Server Start Error: ${err.message}`);
+    }
 });
