@@ -1,4 +1,4 @@
-console.log('[WebXOSMCP] Loading mcp.js');
+console.log('[WebXOSMCP] Loading mcp.js at /server/mcp/mcp.js');
 const WebXOSMCP = {
   async init() {
     console.log('[WebXOSMCP] Initializing MCP');
