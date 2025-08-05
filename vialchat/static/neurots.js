@@ -3,8 +3,8 @@ const ctx = canvas.getContext('2d');
 let dots = [];
 let active = false;
 let agents = [];
-let isDNA = false;
-let isGalaxy = false;
+let isSync = false;
+let isTrain = false;
 
 function resizeCanvas() {
     canvas.width = window.innerWidth;
@@ -24,11 +24,11 @@ function initNeurots() {
     animate();
 }
 
-function setAgentsActive(isActive, agentNames = [], dnaActive = false, galaxyActive = false) {
+function setAgentsActive(isActive, agentNames = [], syncActive = false, trainActive = false) {
     active = isActive;
     agents = agentNames;
-    isDNA = dnaActive;
-    isGalaxy = galaxyActive;
+    isSync = syncActive;
+    isTrain = trainActive;
     dots = [];
     if (!active) return;
     const colors = {
@@ -37,7 +37,7 @@ function setAgentsActive(isActive, agentNames = [], dnaActive = false, galaxyAct
         agent3: '#ff33cc',
         agent4: '#33ccff'
     };
-    if (isGalaxy) {
+    if (isTrain) {
         for (let i = 0; i < 200; i++) {
             const hue = `hsl(${Math.random() * 30 + 50}, 100%, ${Math.random() * 20 + 70}%)`; // Yellow-white-gold hues
             dots.push(createDot(canvas.width / 2, canvas.height / 2, hue, 3));
@@ -45,7 +45,7 @@ function setAgentsActive(isActive, agentNames = [], dnaActive = false, galaxyAct
     } else {
         for (let i = 0; i < 100; i++) {
             const color = agents.length === 1 ? colors[agents[0]] : '#00ff00';
-            dots.push(createDot(Math.random() * canvas.width, Math.random() * canvas.height, color, 2));
+            dots.push(createDot(canvas.width / 2, canvas.height / 2, color, 2));
         }
     }
 }
@@ -59,13 +59,13 @@ function animate() {
 
     dots.forEach(dot => {
         dot.t += 0.05;
-        if (isGalaxy) {
+        if (isTrain) {
             const angle = dot.t * 2;
             const radius = 100 + Math.sin(dot.t) * 50;
             dot.x = canvas.width / 2 + Math.cos(angle) * radius;
             dot.y = canvas.height / 2 + Math.sin(angle) * radius;
             dot.radius = 3 + Math.sin(dot.t * 2) * 2; // Twinkling effect
-        } else if (isDNA) {
+        } else if (isSync) {
             const radius = 50;
             const angle = dot.t + (dot.y / canvas.height) * Math.PI * 2;
             dot.x = canvas.width / 2 + Math.cos(angle) * radius;
@@ -79,10 +79,8 @@ function animate() {
                 dot.y += 1;
                 if (dot.y > canvas.height) dot.y -= canvas.height;
             } else if (pattern === 'cube') {
-                dot.x += dot.vx;
-                dot.y += dot.vy;
-                if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-                if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+                dot.x = canvas.width / 2 + Math.cos(dot.t) * 50;
+                dot.y = canvas.height / 2 + Math.sin(dot.t) * 50;
             } else if (pattern === 'torus') {
                 const angle = dot.t * 2;
                 dot.x = canvas.width / 2 + Math.cos(angle) * (50 + Math.sin(angle * 2) * 20);
@@ -96,9 +94,9 @@ function animate() {
 
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isGalaxy ? `${dot.color}ee` : dot.color; // Enhanced glow for galaxy
-        ctx.shadowBlur = isGalaxy ? 15 : 5;
-        ctx.shadowColor = isGalaxy ? dot.color : dot.color;
+        ctx.fillStyle = isTrain ? `${dot.color}ee` : dot.color;
+        ctx.shadowBlur = isTrain ? 15 : 5;
+        ctx.shadowColor = isTrain ? dot.color : dot.color;
         ctx.fill();
     });
 
@@ -110,7 +108,7 @@ function animate() {
                 ctx.beginPath();
                 ctx.moveTo(dot.x, dot.y);
                 ctx.lineTo(other.x, other.y);
-                ctx.strokeStyle = isGalaxy ? `rgba(255, 255, 200, ${1 - dist / 100})` : `rgba(0, 255, 0, ${1 - dist / 100})`;
+                ctx.strokeStyle = isTrain ? `rgba(255, 255, 200, ${1 - dist / 100})` : `rgba(0, 255, 0, ${1 - dist / 100})`;
                 ctx.lineWidth = 0.5;
                 ctx.stroke();
             }
