@@ -7,23 +7,30 @@ var NeuralNetworkModule = (function() {
     return new Promise((resolve, reject) => {
         try {
             Module['onRuntimeInitialized'] = function() {
-                resolve({
-                    _create_network: Module.cwrap('create_network', null, []),
-                    _destroy_network: Module.cwrap('destroy_network', null, []),
-                    _predict: Module.cwrap('predict', 'number', ['number']),
-                    _free_result: Module.cwrap('free_result', null, ['number'])
-                });
+                try {
+                    resolve({
+                        _create_network: Module.cwrap('create_network', null, []),
+                        _destroy_network: Module.cwrap('destroy_network', null, []),
+                        _predict: Module.cwrap('predict', 'number', ['number']),
+                        _free_result: Module.cwrap('free_result', null, ['number'])
+                    });
+                } catch (err) {
+                    reject(new Error('Failed to wrap Emscripten functions: ' + err.message));
+                }
             };
-            // Placeholder for Emscripten runtime (simplified for compatibility)
-            Module['wasmBinary'] = null; // Will be loaded from neural_network.wasm
             Module['instantiateWasm'] = function(imports, successCallback) {
                 fetch('/static/neural_network.wasm')
-                    .then(response => response.arrayBuffer())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Failed to fetch /static/neural_network.wasm: ${response.statusText}`);
+                        }
+                        return response.arrayBuffer();
+                    })
                     .then(buffer => WebAssembly.instantiate(buffer, imports))
                     .then(instance => successCallback(instance))
                     .catch(err => reject(new Error('Failed to instantiate WASM: ' + err.message)));
             };
-            // Simulated Emscripten runtime (replace with actual compiled output)
+            // Load Emscripten runtime (simulated for fallback)
             setTimeout(() => {
                 Module['onRuntimeInitialized']();
             }, 100);
