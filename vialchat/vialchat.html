@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="VIALCHAT: Pure chatbot with vial agent integration and neural dot visualization.">
+    <meta name="keywords" content="webXOS, vialchat, chatbot, vial agents, AI tools, neural visualization, digital solutions, AI-powered chat, webXOS AI, browser-based tools, innovative web apps, digital experience, web development, modular web tools, sustainable web solutions, webXOS research, exoskeleton AI technology, green technology, front-end development, AI applications, web accessibility, interactive web, modern web design, eco-conscious software, AI research, digital transformation, web performance, sustainable digital tools">
+    <meta name="robots" content="index, follow">
+    <meta name="author" content="webXOS">
+    <meta property="og:title" content="VIALCHAT - Chat with Vial Agents">
+    <meta property="og:description" content="Interact with VIALCHAT, integrating vial agents for AI-driven chat with neural dot visualization.">
+    <meta property="og:url" content="https://webxos.netlify.app/vialchat/VialChat.html">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="webXOS">
+    <meta property="og:locale" content="en_US">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@webxos">
+    <meta name="twitter:creator" content="@webxos">
+    <meta name="twitter:title" content="VIALCHAT - Chat with Vial Agents">
+    <meta name="twitter:description" content="Interact with VIALCHAT, integrating vial agents for AI-driven chat.">
+    <link rel="canonical" href="https://webxos.netlify.app/vialchat/VialChat.html">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=OCR-A&display=swap">
+    <link rel="stylesheet" href="/vialchat/static/style.css">
+    <link rel="manifest" href="/vialchat/manifest.json">
+    <link rel="icon" href="/vialchat/static/icon.png">
+    <title>VIALCHAT</title>
+</head>
+<body>
+    <canvas id="neuralCanvas" style="pointer-events: none;"></canvas>
+    <h1 class="title">VIALCHAT</h1>
+    <div class="input-container">
+        <div id="status" class="error-message"></div>
+        <div id="chatbox">
+            <div id="messages"></div>
+            <div class="input-group">
+                <input id="vial-input" type="file" accept=".md,.txt" aria-label="Upload vial or text file for agent">
+                <input type="text" id="userInput" placeholder="Chat with /agent1-4, /train, /sync, /help, /guide, or /version...">
+                <button id="searchButton">Chat</button>
+                <button id="clearButton">Clear</button>
+            </div>
+            <div id="loading" class="loading-spinner"></div>
+        </div>
+    </div>
+    <footer>
+        <div class="copyright">© 2025 WebXOS - VIALCHAT with Agents</div>
+    </footer>
+    <script src="/vialchat/static/neurots.js" defer></script>
+    <script type="module">
+        const BOT_VERSION = '1.1.6';
+        let activeAgents = [];
+        let agents = [
+            { name: 'agent1', color: 'agent1-color', vial: null, pattern: 'helix' },
+            { name: 'agent2', color: 'agent2-color', vial: null, pattern: 'cube' },
+            { name: 'agent3', color: 'agent3-color', vial: null, pattern: 'torus' },
+            { name: 'agent4', color: 'agent4-color', vial: null, pattern: 'star' }
+        ];
+        let logQueue = [];
+        let errorLog = [];
+
+        // DOM elements with fallbacks
+        const messages = document.getElementById('messages') || document.createElement('div');
+        const userInput = document.getElementById('userInput') || null;
+        const vialInput = document.getElementById('vial-input') || null;
+        const statusDiv = document.getElementById('status') || document.createElement('div');
+        const loading = document.getElementById('loading') || document.createElement('div');
+
+        function serverLog(message) {
+            console.log(`[VIALCHAT] ${message}`);
+        }
+
+        function logMessage(message, isCommand = false, colorClass = '') {
+            try {
+                const timestamp = new Date().toISOString();
+                const formattedMessage = isCommand 
+                    ? `<span class="${colorClass}">[${timestamp}] COMMAND: ${message}</span>`
+                    : `<span class="${colorClass}">[${timestamp}] ${message}</span>`;
+                logQueue.push(formattedMessage);
+                if (logQueue.length > 50) logQueue.shift();
+                updateChatbox();
+            } catch (err) {
+                logError(`Log Message Error: ${err.message}`, 'Check chatbox update logic.', err.stack, 'LOW');
+            }
+        }
+
+        function logError(message, analysis, stack = '', urgency = 'HIGH') {
+            try {
+                const timestamp = new Date().toISOString();
+                const errorMessage = `[${timestamp}] ERROR: ${message}\nAnalysis: ${analysis}\nTraceback: ${stack || 'No stack available'}\nUrgency: ${urgency}`;
+                errorLog.push({ message: errorMessage, urgency });
+                errorLog.sort((a, b) => {
+                    const urgencyOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+                    return urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
+                });
+                logQueue.push(`<span class="error">${errorMessage}</span>`);
+                if (logQueue.length > 50) logQueue.shift();
+                updateChatbox();
+                if (urgency !== 'LOW') flashRedGlow();
+            } catch (err) {
+                console.error(`[VIALCHAT] Log Error Error: ${err.message}`, err.stack);
+            }
+        }
+
+        function updateChatbox() {
+            try {
+                if (!messages) {
+                    logError('Chatbox Update Error: messages div not found', 'Check HTML structure for id="messages".', '', 'CRITICAL');
+                    return;
+                }
+                messages.innerHTML = logQueue.map(msg => `<p>${msg}</p>`).join('');
+                messages.scrollTop = messages.scrollHeight;
+            } catch (err) {
+                logError(`Chatbox Update Error: ${err.message}`, 'Check messages DOM or JavaScript execution.', err.stack, 'HIGH');
+            }
+        }
+
+        function flashRedGlow() {
+            try {
+                if (!messages) {
+                    logError('Flash Red Glow Error: messages div not found', 'Check HTML structure for id="messages".', '', 'MEDIUM');
+                    return;
+                }
+                messages.classList.add('error');
+                setTimeout(() => messages.classList.remove('error'), 500);
+                setTimeout(() => {
+                    messages.classList.add('error');
+                    setTimeout(() => messages.classList.remove('error'), 500);
+                }, 1000);
+            } catch (err) {
+                logError(`Flash Red Glow Error: ${err.message}`, 'Check DOM or CSS classes.', err.stack, 'LOW');
+            }
+        }
+
+        function showHelp() {
+            try {
+                logQueue = [];
+                updateChatbox();
+                messages.innerHTML = `
+                    <p><b>Commands:</b></p>
+                    <p><b>/help</b> - Show this menu.</p>
+                    <p><b>/guide</b> - Show usage and training guide.</p>
+                    <p><b>/version</b> - Show bot version.</p>
+                    <p><b>/clear</b> - Clear chatbox and reset neural dots.</p>
+                    <p><b>/agent1</b> - Engage Agent 1 (helix pattern) for conversation.</p>
+                    <p><b>/agent2</b> - Engage Agent 2 (cube pattern) for conversation.</p>
+                    <p><b>/agent3</b> - Engage Agent 3 (torus pattern) for conversation.</p>
+                    <p><b>/agent4</b> - Engage Agent 4 (star pattern) for conversation.</p>
+                    <p><b>/sync</b> - Engage all agents in a collaborative conversation.</p>
+                    <p><b>/train</b> - Train all agents with uploaded data.</p>`;
+                messages.scrollTop = messages.scrollHeight;
+                updateStatus('Success: Help menu displayed.');
+                setAgentsActive(false);
+            } catch (err) {
+                logError(`Help Error: ${err.message}`, 'Check help menu logic.', err.stack, 'MEDIUM');
+            }
+        }
+
+        function showGuide() {
+            try {
+                logQueue = [];
+                updateChatbox();
+                messages.innerHTML = `
+                    <p><b>VIALCHAT Usage Guide</b></p>
+                    <p>VIALCHAT is a pure chatbot with neural visualizations. Follow these steps:</p>
+                    <p><b>1. Train an Agent:</b></p>
+                    <p>- Enter /agent1, /agent2, /agent3, or /agent4.</p>
+                    <p>- Upload a .md (from Vial.html) or .txt file via the file input.</p>
+                    <p>- The agent will train with the file's content (code block for .md).</p>
+                    <p><b>2. Engage an Agent:</b></p>
+                    <p>- Type /agent1-4 to start a conversation with that agent.</p>
+                    <p>- The agent's trained data will display with a centered visualization.</p>
+                    <p><b>3. Sync Agents:</b></p>
+                    <p>- Type /sync to engage all agents in a conversation with a DNA-like visualization.</p>
+                    <p><b>4. Train All Agents:</b></p>
+                    <p>- Type /train, then upload a .md or .txt file.</p>
+                    <p>- All agents will train with the file's content, shown with a glowing galaxy effect.</p>
+                    <p><b>5. Other Commands:</b></p>
+                    <p>- /help: Show commands.</p>
+                    <p>- /version: Show bot version.</p>
+                    <p>- /clear: Reset chatbox and visuals.</p>
+                    <p><b>Test File:</b> Use chatbot_training.md to test training and responses.</p>`;
+                messages.scrollTop = messages.scrollHeight;
+                updateStatus('Success: Guide displayed.');
+                setAgentsActive(false);
+            } catch (err) {
+                logError(`Guide Error: ${err.message}`, 'Check guide logic.', err.stack, 'MEDIUM');
+            }
+        }
+
+        function updateStatus(message, isError = false, details = '') {
+            try {
+                if (!statusDiv) {
+                    logError('Status Update Error: status div not found', 'Check HTML structure for id="status".', '', 'CRITICAL');
+                    return;
+                }
+                const timestamp = new Date().toLocaleTimeString();
+                statusDiv.innerHTML = `<span class="${isError ? 'error' : 'success'}">${message}${isError || details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}</span>`;
+                statusDiv.classList.add('show');
+                setTimeout(() => statusDiv.classList.remove('show'), 3000);
+            } catch (err) {
+                logError(`Status Update Error: ${err.message}`, 'Check status div or JavaScript execution.', err.stack, 'HIGH');
+            }
+        }
+
+        async function loadVialFile(file, agentIndices) {
+            try {
+                const text = await file.text();
+                let trainedData = text;
+                if (file.name.endsWith('.md')) {
+                    const codeMatch = text.match(/```[\s\S]*?\n([\s\S]*?)\n```/);
+                    trainedData = codeMatch ? codeMatch[1].trim() : text;
+                }
+                agentIndices.forEach(index => {
+                    agents[index].vial = trainedData;
+                });
+                updateStatus(`Success: Trained agent(s) with ${file.name}.`);
+                serverLog(`Trained agent(s) ${agentIndices.map(i => agents[i].name).join(', ')} with ${file.name}`);
+            } catch (err) {
+                logError(`Vial Load Error: ${err.message}`, `Check file format (.md or .txt) for ${file.name}.`, err.stack, 'HIGH');
+            }
+        }
+
+        async function handleCommand(query) {
+            try {
+                const command = query.trim().toLowerCase();
+                if (!command) {
+                    logError('Empty Command Error', 'No input provided.', '', 'MEDIUM');
+                    return;
+                }
+                loading.style.display = 'block';
+                let colorClass = '';
+                if (command.startsWith('/agent1')) colorClass = 'agent1-color';
+                else if (command.startsWith('/agent2')) colorClass = 'agent2-color';
+                else if (command.startsWith('/agent3')) colorClass = 'agent3-color';
+                else if (command.startsWith('/agent4')) colorClass = 'agent4-color';
+                logMessage(`You: ${command}`, true, colorClass);
+                if (command === '/help') {
+                    showHelp();
+                } else if (command === '/guide') {
+                    showGuide();
+                } else if (command === '/version') {
+                    logMessage(`Version: VIALCHAT v${BOT_VERSION}`, false);
+                    updateStatus('Success: Version displayed.');
+                    setAgentsActive(false);
+                } else if (command === '/clear') {
+                    clearChat();
+                } else if (command.match(/^\/agent[1-4]$/)) {
+                    const agentIndex = parseInt(command.slice(-1)) - 1;
+                    const agent = agents[agentIndex];
+                    activeAgents = [agent.name];
+                    setAgentsActive(true, [agent.name], false, false);
+                    if (!agent.vial) {
+                        logMessage(`${agent.name.toUpperCase()}: No training data loaded. Please upload a .md or .txt file.`, false, agent.color);
+                        updateStatus(`Warning: ${agent.name.toUpperCase()} requires training data.`, false);
+                    } else {
+                        logMessage(`${agent.name.toUpperCase()}: ${agent.vial}`, false, agent.color);
+                        updateStatus(`Success: Engaged ${agent.name.toUpperCase()} in conversation.`);
+                    }
+                } else if (command === '/sync') {
+                    activeAgents = agents.map(a => a.name);
+                    setAgentsActive(true, activeAgents, true, false);
+                    const combinedData = agents
+                        .filter(a => a.vial)
+                        .map(a => `${a.name.toUpperCase()}: ${a.vial}`)
+                        .join('\n\n');
+                    if (!combinedData) {
+                        logMessage('SYNC: No training data loaded for any agent.', false);
+                        updateStatus('Warning: No trained agents for /sync.', false);
+                    } else {
+                        logMessage(`SYNC: Collaborative conversation:\n${combinedData}`, false);
+                        updateStatus('Success: All agents synced.');
+                    }
+                } else if (command === '/train') {
+                    activeAgents = agents.map(a => a.name);
+                    setAgentsActive(true, activeAgents, false, true);
+                    logMessage('TRAIN: Please upload a .md or .txt file to train all agents.', false);
+                    updateStatus('Info: Upload file for /train.');
+                } else {
+                    logError(`Unknown Command: ${command}`, 'Type /help for available commands.', '', 'MEDIUM');
+                }
+            } catch (err) {
+                logError(`Command Error: ${err.message}`, 'Check command processing logic.', err.stack, 'HIGH');
+            } finally {
+                loading.style.display = 'none';
+                if (userInput) userInput.value = '';
+            }
+        }
+
+        function clearChat() {
+            try {
+                logQueue = [];
+                activeAgents = [];
+                setAgentsActive(false);
+                updateChatbox();
+                updateStatus('Success: Chatbox cleared.');
+                showHelp();
+            } catch (err) {
+                logError(`Clear Chat Error: ${err.message}`, 'Check clear logic or DOM.', err.stack, 'MEDIUM');
+            }
+        }
+
+        // Initialize
+        window.addEventListener('load', async () => {
+            try {
+                if (typeof window.initNeurots !== 'function') {
+                    logError('Neurots Initialization Error', 'neurots.js failed to load or initNeurots not defined.', '', 'CRITICAL');
+                    return;
+                }
+                initNeurots();
+                serverLog('Neurots initialized successfully');
+                showHelp();
+            } catch (err) {
+                logError(`Initialization Error: ${err.message}`, 'Check neurots.js loading or initialization.', err.stack, 'CRITICAL');
+            }
+        });
+
+        // Event listeners
+        if (userInput) {
+            userInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleCommand(userInput.value);
+                }
+            });
+        }
+        if (vialInput) {
+            vialInput.addEventListener('change', async (event) => {
+                try {
+                    const file = event.target.files[0];
+                    if (!file) {
+                        logError('Vial Upload Error', 'No file selected.', '', 'MEDIUM');
+                        return;
+                    }
+                    if (!file.name.match(/\.(md|txt)$/)) {
+                        logError('Vial Upload Error', 'Invalid file type. Use .md or .txt.', '', 'HIGH');
+                        return;
+                    }
+                    const command = userInput.value.trim().toLowerCase();
+                    let agentIndices = [];
+                    if (command.match(/^\/agent([1-4])$/)) {
+                        agentIndices = [parseInt(command.slice(-1)) - 1];
+                    } else if (command === '/train') {
+                        agentIndices = [0, 1, 2, 3];
+                    } else {
+                        logError('Vial Upload Error', 'Select /agent1-4 or /train before uploading.', '', 'MEDIUM');
+                        return;
+                    }
+                    loading.style.display = 'block';
+                    await loadVialFile(file, agentIndices);
+                    setAgentsActive(true, agentIndices.map(i => agents[i].name), false, command === '/train');
+                    logMessage(`Trained ${agentIndices.map(i => agents[i].name.toUpperCase()).join(', ')} with ${file.name}.`, false, command === '/train' ? '' : agents[agentIndices[0]].color);
+                    vialInput.value = '';
+                } catch (err) {
+                    logError(`Vial Upload Error: ${err.message}`, 'Check file reading or agent selection.', err.stack, 'HIGH');
+                } finally {
+                    loading.style.display = 'none';
+                }
+            });
+        }
+        document.getElementById('searchButton').addEventListener('click', () => {
+            if (userInput) handleCommand(userInput.value);
+        });
+        document.getElementById('clearButton').addEventListener('click', clearChat);
+    </script>
+</body>
+</html>
