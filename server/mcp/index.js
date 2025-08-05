@@ -1,4 +1,3 @@
-```javascript
 exports.handler = async (event, context) => {
   if (event.path === '/api/mcp/log' && event.httpMethod === 'POST') {
     try {
@@ -12,7 +11,7 @@ exports.handler = async (event, context) => {
       console.log(`[${timestamp}] [MCP] ${message}`);
       return {
         statusCode: 200,
-        body: JSON.stringify({ status: 'Log received' })
+        body: JSON.stringify({ status: 'Log received', message, timestamp })
       };
     } catch (err) {
       console.error(`Log Error: ${err.message}`);
@@ -27,4 +26,3 @@ exports.handler = async (event, context) => {
     body: JSON.stringify({ error: 'Endpoint not found' })
   };
 };
-```
