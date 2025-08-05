@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webxos-server-v2';
+const CACHE_NAME = 'webxos-server-v3'; // Updated cache version to force refresh
 const urlsToCache = [
     '/server.html',
     '/static/style.css',
@@ -15,14 +15,26 @@ const urlsToCache = [
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(urlsToCache))
+            .then(cache => {
+                console.log('Service Worker: Caching files');
+                return cache.addAll(urlsToCache);
+            })
+            .catch(err => console.error('Service Worker: Cache failed', err))
     );
 });
 
 self.addEventListener('fetch', event => {
     event.respondWith(
         caches.match(event.request)
-            .then(response => response || fetch(event.request))
+            .then(response => {
+                if (response) {
+                    return response;
+                }
+                return fetch(event.request).catch(err => {
+                    console.error('Service Worker: Fetch failed', err);
+                    return new Response('Offline: Resource not available', { status: 503 });
+                });
+            })
     );
 });
 
@@ -33,6 +45,7 @@ self.addEventListener('activate', event => {
             return Promise.all(
                 cacheNames.map(cacheName => {
                     if (!cacheWhitelist.includes(cacheName)) {
+                        console.log('Service Worker: Deleting old cache', cacheName);
                         return caches.delete(cacheName);
                     }
                 })
