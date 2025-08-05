@@ -1,22 +1,21 @@
 const WebXOSMCP = {
-    async init() {
-        // Initialize MCP-specific logic (e.g., decentralized coordination)
-        return true;
-    },
-
-    analyzeAgent(agentName, latency, status) {
-        // Mock MCP analysis: combine with NeuroTS if available
-        let analysis = `${agentName} (Latency: ${latency.toFixed(2)}ms, Status: ${status})`;
-        if (latency > 100) {
-            analysis += ' - High latency detected. Consider scaling resources or checking network.';
-        } else if (status === 'Error') {
-            analysis += ' - Agent error detected. Review server logs.';
-        } else {
-            analysis += ' - Operating normally.';
-        }
-        return analysis;
+  async init() {
+    try {
+      console.log('[WebXOSMCP] Initializing MCP');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[WebXOSMCP] MCP initialized');
+      return true;
+    } catch (err) {
+      console.error(`[WebXOSMCP] Initialization failed: ${err.message}`);
+      throw err;
     }
+  },
+
+  analyzeAgent(agentName, latency, status) {
+    const threshold = 100;
+    const analysis = latency > threshold ? `High latency detected for ${agentName}` : `Stable performance for ${agentName}`;
+    return `MCP Analysis: ${analysis} (Status: ${status}, Latency: ${latency.toFixed(2)}ms)`;
+  }
 };
 
-// Expose WebXOSMCP globally
-window.WebXOSMCP = WebXOSMCP;
+export { WebXOSMCP };
