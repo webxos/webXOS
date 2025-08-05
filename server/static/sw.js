@@ -9,7 +9,6 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Basic caching strategy for static assets
   event.respondWith(
     caches.match(event.request).then(response => {
       return response || fetch(event.request);
