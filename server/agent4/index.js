@@ -2,7 +2,7 @@ const { handleHealthCheck } = require('../utils/agent-base');
 
 exports.handler = async (event) => {
     if (event.path.endsWith('/health')) {
-        return handleHealthCheck('server-agent3');
+        return handleHealthCheck('server-agent4');
     }
     return {
         statusCode: 404,
