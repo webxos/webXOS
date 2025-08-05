@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP Controller</title>
+    <link rel="icon" href="/static/icon.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <script src="/static/preact.min.js"></script>
+    <script src="/static/zustand.min.js"></script>
+    <script src="/static/redaxios.min.js"></script>
+    <script src="/static/sql-wasm.js"></script>
+    <script src="/static/three.min.js"></script>
+    <script src="/static/tfjs.min.js"></script>
+    <script src="/static/lz-string.min.js"></script>
+    <script src="/static/mustache.min.js"></script>
+    <script src="/static/dexie.min.js"></script>
+    <style>
+        body { font-family: 'Orbitron', sans-serif; background: #1a1a1a; color: #fff; margin: 0; }
+        #container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .vial { margin: 10px 0; padding: 10px; background: #333; border-radius: 5px; }
+        button { background: #0f0; color: #000; border: none; padding: 10px; cursor: pointer; }
+        button:hover { background: #0c0; }
+        #error-log { color: #f00; }
+        #md-export { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>Vial MCP Controller</h1>
+        <div id="vials"></div>
+        <button id="monitor-btn">Start Monitor</button>
+        <button id="train-btn">Start Training</button>
+        <button id="export-md-btn">Export Logs as Markdown</button>
+        <pre id="error-log"></pre>
+        <pre id="md-export"></pre>
+    </div>
+    <script type="module">
+        import { h, render } from '/static/preact.min.js';
+        import createStore from '/static/zustand.min.js';
+        import redaxios from '/static/redaxios.min.js';
+        import Dexie from '/static/dexie.min.js';
+        import * as THREE from '/static/three.min.js';
+        import * as tf from '/static/tfjs.min.js';
+        import LZString from '/static/lz-string.min.js';
+        import Mustache from '/static/mustache.min.js';
+
+        // State management with Zustand
+        const useStore = createStore((set) => ({
+            monitorActive: false,
+            trainActive: false,
+            vials: [
+                { name: 'vial1', latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 },
+                { name: 'vial2', latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 },
+                { name: 'vial3', latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 },
+                { name: 'vial4', latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 }
+            ],
+            errorLog: [],
+            setMonitorActive: (active) => set({ monitorActive: active }),
+            setTrainActive: (active) => set({ trainActive: active }),
+            updateVial: (index, updates) => set((state) => ({
+                vials: state.vials.map((vial, i) => (i === index ? { ...vial, ...updates } : vial))
+            })),
+            addError: (error) => set((state) => ({ errorLog: [...state.errorLog, error] }))
+        }));
+
+        // Dexie for IndexedDB
+        const db = new Dexie('VialMCP');
+        db.version(1).stores({ logs: '++id,timestamp,event_type' });
+
+        // Web Worker for SQLite
+        const worker = new Worker('/static/worker.js');
+        worker.onmessage = (e) => {
+            const { status, logs } = e.data;
+            if (status === 'initialized') {
+                console.log('SQLite initialized');
+                logEvent('system', 'SQLite initialized', { component: 'worker' }, 'info');
+            } else if (status === 'logs') {
+                renderLogs(logs);
+            }
+        };
+        worker.postMessage({ action: 'init' });
+
+        // Log event to SQLite and IndexedDB
+        async function logEvent(event_type, message, metadata, urgency = 'info') {
+            const timestamp = new Date().toISOString();
+            worker.postMessage({ action: 'log', data: { timestamp, event_type, message, metadata, urgency } });
+            await db.logs.add({ timestamp, event_type, message, metadata, urgency });
+            // Sync to server (compressed)
+            const compressedLog = LZString.compressToUTF16(JSON.stringify({ timestamp, event_type, message, metadata, urgency }));
+            redaxios.post('http://localhost:8080/mcp/log-sync', { log: compressedLog })
+                .catch((err) => useStore.getState().addError(`Sync failed: ${err.message}`));
+        }
+
+        // Fetch and render logs
+        async function renderLogs(logs) {
+            const md = Mustache.render(
+                '{{#logs}}## Log Entry #{{id}}\n**Timestamp**: {{timestamp}}\n**Event Type**: {{event_type}}\n**Message**: {{message}}\n**Metadata**: {{metadata}}\n**Urgency**: {{urgency}}\n\n{{/logs}}',
+                { logs }
+            );
+            document.getElementById('md-export').textContent = md;
+        }
+
+        // Vial component
+        const Vial = ({ vial, index }) => {
+            const { updateVial } = useStore();
+            return h('div', { class: 'vial' },
+                h('h2', {}, vial.name),
+                h('p', {}, `Status: ${vial.status}`),
+                h('input', {
+                    type: 'file',
+                    onChange: async (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const code = await file.text();
+                            updateVial(index, { code, filePath: file.name, codeLength: code.length });
+                            logEvent('vial', `Uploaded file for ${vial.name}`, { file: file.name, size: file.size }, 'info');
+                        }
+                    }
+                }),
+                h('button', {
+                    onClick: async () => {
+                        updateVial(index, { status: 'running' });
+                        logEvent('vial', `Started ${vial.name}`, { vial: vial.name }, 'info');
+                        try {
+                            const res = await redaxios.post('http://localhost:8080/mcp/vial', { name: vial.name, code: vial.code });
+                            updateVial(index, { status: 'running', createdAt: res.data.createdAt });
+                        } catch (err) {
+                            updateVial(index, { status: 'error' });
+                            logEvent('vial', `Error starting ${vial.name}`, { error: err.message }, 'error');
+                            useStore.getState().addError(`Vial ${vial.name} failed: ${err.message}`);
+                        }
+                    }
+                }, 'Start'),
+                h('button', {
+                    onClick: async () => {
+                        updateVial(index, { status: 'stopped' });
+                        logEvent('vial', `Stopped ${vial.name}`, { vial: vial.name }, 'info');
+                    }
+                }, 'Stop')
+            );
+        };
+
+        // Main app component
+        const App = () => {
+            const { vials, monitorActive, trainActive, errorLog, setMonitorActive, setTrainActive } = useStore();
+            return h('div', {},
+                vials.map((vial, index) => h(Vial, { vial, index })),
+                h('button', {
+                    id: 'monitor-btn',
+                    onClick: () => {
+                        setMonitorActive(!monitorActive);
+                        logEvent('monitor', monitorActive ? 'Monitor stopped' : 'Monitor started', {}, 'info');
+                    }
+                }, monitorActive ? 'Stop Monitor' : 'Start Monitor'),
+                h('button', {
+                    id: 'train-btn',
+                    onClick: async () => {
+                        setTrainActive(!trainActive);
+                        logEvent('training', trainActive ? 'Training stopped' : 'Training started', {}, 'info');
+                        if (!trainActive) {
+                            try {
+                                const model = tf.sequential();
+                                model.add(tf.layers.dense({ units: 10, inputShape: [10], activation: 'relu' }));
+                                model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
+                                model.compile({ optimizer: 'adam', loss: 'binaryCrossentropy' });
+                                logEvent('training', 'Model compiled', { layers: 2 }, 'info');
+                            } catch (err) {
+                                logEvent('training', 'Training failed', { error: err.message }, 'error');
+                            }
+                        }
+                    }
+                }, trainActive ? 'Stop Training' : 'Start Training'),
+                h('button', {
+                    id: 'export-md-btn',
+                    onClick: () => {
+                        worker.postMessage({ action: 'getLogs' });
+                        logEvent('export', 'Exported logs as Markdown', {}, 'info');
+                    }
+                }, 'Export Logs as Markdown'),
+                h('pre', { id: 'error-log' }, errorLog.join('\n'))
+            );
+        };
+
+        // Render app
+        render(h(App), document.getElementById('vials'));
+
+        // Three.js visualization
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(200, 200);
+        document.getElementById('container').appendChild(renderer.domElement);
+        const geometry = new THREE.BoxGeometry();
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        const cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+        camera.position.z = 5;
+        function animate() {
+            requestAnimationFrame(animate);
+            cube.rotation.x += 0.01;
+            cube.rotation.y += 0.01;
+            renderer.render(scene, camera);
+        }
+        animate();
+        logEvent('visualization', 'Three.js initialized', {}, 'info');
+
+        // Pyodide for Python ML
+        import('https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js').then(async (pyodide) => {
+            const py = await pyodide.loadPyodide();
+            await py.loadPackage('micropip');
+            await py.runPythonAsync(`
+                import micropip
+                await micropip.install('torch')
+                import torch
+                print("PyTorch loaded in Pyodide")
+            `);
+            logEvent('pyodide', 'PyTorch initialized', {}, 'info');
+        });
+    </script>
+</body>
+</html>
