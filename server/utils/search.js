@@ -1,4 +1,4 @@
-console.log('[WebXOSSearch] Loading search.js');
+console.log('[WebXOSSearch] Loading search.js at /server/utils/search.js');
 import Fuse from '/static/fuse.min.js';
 
 const WebXOSSearch = {
