@@ -1,3 +1,4 @@
+console.log('[WebXOSSearch] Loading search.js');
 import Fuse from '/static/fuse.min.js';
 
 const WebXOSSearch = {
@@ -5,27 +6,24 @@ const WebXOSSearch = {
   fuse: null,
 
   async init(indexPath) {
-    try {
-      console.log(`[WebXOSSearch] Initializing search with index at ${indexPath}`);
-      this.logs = [{ message: 'Initial log', timestamp: new Date().toLocaleTimeString() }];
-      this.fuse = new Fuse(this.logs, {
-        keys: ['message'],
-        threshold: 0.4
-      });
-      console.log('[WebXOSSearch] Search initialized');
-      return true;
-    } catch (err) {
-      console.error(`[WebXOSSearch] Initialization failed: ${err.message}`);
-      throw err;
-    }
+    console.log(`[WebXOSSearch] Initializing with index at ${indexPath}`);
+    this.logs = [{ message: 'Initial log', timestamp: new Date().toLocaleTimeString() }];
+    this.fuse = new Fuse(this.logs, {
+      keys: ['message'],
+      threshold: 0.4
+    });
+    console.log('[WebXOSSearch] Initialization complete');
+    return true;
   },
 
   search(query) {
+    console.log(`[WebXOSSearch] Searching for: ${query}`);
     if (!this.fuse) return [];
     return this.fuse.search(query);
   },
 
   updateLog(log) {
+    console.log('[WebXOSSearch] Updating log:', log);
     this.logs.push(log);
     this.fuse = new Fuse(this.logs, {
       keys: ['message'],
@@ -34,6 +32,7 @@ const WebXOSSearch = {
   },
 
   clearLogs() {
+    console.log('[WebXOSSearch] Clearing logs');
     this.logs = [];
     this.fuse = new Fuse(this.logs, {
       keys: ['message'],
@@ -42,4 +41,5 @@ const WebXOSSearch = {
   }
 };
 
+window.WebXOSSearch = WebXOSSearch;
 export { WebXOSSearch };
