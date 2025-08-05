@@ -263,18 +263,31 @@
                 const localScript = document.createElement('script');
                 localScript.src = '/static/socket.io.min.js';
                 localScript.onload = () => serverLog('Socket.IO loaded from local fallback');
-                localScript.onerror = () => logError('Socket.IO Load Error', new Error('Failed to load Socket.IO from both CDN and local fallback'), 'Verify /static/socket.io.min.js exists and is accessible.');
+                localScript.onerror = () => logError('Socket.IO Load Error', new Error('Failed to load Socket.IO from both CDN and local fallback'), 'Verify /static/socket.io.min.js exists and is accessible. Download from https://cdn.jsdelivr.net/npm/socket.io@4.7.5/dist/socket.io.min.js and place in aserver/static/.');
                 document.head.appendChild(localScript);
             };
             document.head.appendChild(cdnScript);
         })();
 
-        // Load Neural Network
-        const neuralScript = document.createElement('script');
-        neuralScript.src = '/static/neural_network.js';
-        neuralScript.onload = () => serverLog('Neural Network script loaded');
-        neuralScript.onerror = () => logError('Neural Network Script Load Error', new Error('Failed to load /static/neural_network.js'), 'Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly.');
-        document.head.appendChild(neuralScript);
+        // Load Neural Network with enhanced error handling
+        function loadNeuralNetwork() {
+            return new Promise((resolve, reject) => {
+                const neuralScript = document.createElement('script');
+                neuralScript.src = '/static/neural_network.js';
+                neuralScript.onload = () => {
+                    serverLog('Neural Network script loaded');
+                    if (typeof NeuralNetworkModule === 'undefined') {
+                        reject(new Error('NeuralNetworkModule not defined after script load'));
+                    } else {
+                        resolve();
+                    }
+                };
+                neuralScript.onerror = () => {
+                    reject(new Error('Failed to load /static/neural_network.js'));
+                };
+                document.head.appendChild(neuralScript);
+            });
+        }
 
         let socket = null;
         let serverRunning = false;
@@ -409,10 +422,10 @@
                             const result = module._predict(1.0);
                             logMessage(`Neural Network initialized, test prediction: ${result}`, true);
                         }).catch(err => {
-                            logError('Neural Network Error', err, 'Failed to initialize neural network. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly.');
+                            logError('Neural Network Error', err, 'Failed to initialize neural network. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly. Ensure emcc compilation was successful.');
                         });
                     } catch (err) {
-                        logError('Neural Network Load Error', err, 'NeuralNetworkModule not defined. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly.');
+                        logError('Neural Network Load Error', err, 'NeuralNetworkModule not defined. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly. Ensure emcc compilation was successful.');
                     }
                 });
 
@@ -588,13 +601,11 @@
         window.onload = async () => {
             logMessage('Server MCP Controller: Start Server: Launch MCP server | End Server: Stop MCP server | Check: Run health checks | Monitor: Toggle latency monitoring | Clear: Reset console | Copy Logs: Copy logs for analysis | Search: Query logs', true);
             try {
-                if (typeof NeuralNetworkModule === 'undefined') {
-                    throw new Error('NeuralNetworkModule not defined');
-                }
+                await loadNeuralNetwork();
                 await NeuralNetworkModule();
                 logMessage('Neural Network module loaded successfully.', true);
             } catch (err) {
-                logError('Neural Network Load Error', err, 'NeuralNetworkModule not defined. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly. Ensure emcc compilation was successful.');
+                logError('Neural Network Load Error', err, 'NeuralNetworkModule not defined. Verify /static/neural_network.js and /static/neural_network.wasm are deployed correctly. Run: emcc aserver/neural_network.cpp -o aserver/static/neural_network.js -s WASM=1 -s EXPORTED_FUNCTIONS="[\'_create_network\', \'_destroy_network\', \'_predict\', \'_free_result\']" -s EXPORTED_RUNTIME_METHODS="[\'ccall\', \'cwrap\', \'getValue\', \'HEAPF32\']" -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1 -s EXPORT_NAME="NeuralNetworkModule" -O3');
             }
         };
     </script>
