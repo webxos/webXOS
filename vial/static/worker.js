@@ -1,10 +1,11 @@
-importScripts('https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.min.js');
+// worker.js
+importScripts('/static/sql-wasm.js');
 
 let db = null;
 
 self.onmessage = async (e) => {
-    const { action, data } = e.data;
     try {
+        const { action, data } = e.data;
         if (action === 'init') {
             const SQL = await initSqlJs({ locateFile: () => '/static/sql-wasm.wasm' });
             db = new SQL.Database();
@@ -26,12 +27,7 @@ self.onmessage = async (e) => {
         } else if (action === 'getLogs') {
             const results = db.exec('SELECT * FROM logs ORDER BY timestamp DESC LIMIT 50');
             const logs = results.length ? results[0].values.map(row => ({
-                id: row[0],
-                timestamp: row[1],
-                event_type: row[2],
-                message: row[3],
-                metadata: JSON.parse(row[4]),
-                urgency: row[5]
+                id: row[0], timestamp: row[1], event_type: row[2], message: row[3], metadata: JSON.parse(row[4]), urgency: row[5]
             })) : [];
             self.postMessage({ status: 'logs', logs });
         }
@@ -39,3 +35,9 @@ self.onmessage = async (e) => {
         self.postMessage({ status: 'error', message: err.message });
     }
 };
+
+// Instructions:
+// - Web Worker for SQLite WASM logging
+// - Actions: init, log, getLogs
+// - Requires: sql-wasm.js, sql-wasm.wasm
+// - Run: Loaded by vial.html
