@@ -5,12 +5,12 @@ set -e
 # Ensure we're in the vialchat directory
 cd "$(dirname "$0")"
 
-# Install dependencies (none needed for static site, but included for completeness)
+# Install dependencies (none needed for static site)
 echo "No external dependencies required for VIALCHAT."
 
 # Validate files
 echo "Validating files..."
-if [ ! -f "VialChat.html" ] || [ ! -f "static/style.css" ] || [ ! -f "static/neurots.js" ]; then
+if [ ! -f "VialChat.html" ] || [ ! -f "static/style.css" ] || [ ! -f "static/neurots.js" ] || [ ! -f "chatbot_training.md" ]; then
     echo "Error: Missing required files in /vialchat/"
     exit 1
 fi
