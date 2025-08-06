@@ -1,56 +1,43 @@
-/**
- * OAuth handling for Vial MCP Controller
- * Dependencies: jsonwebtoken, /vial/schemas/oauth.schema.json
- * Manages token generation and validation
- * Rebuild: Ensure /vial/schemas/oauth.schema.json and /vial/mcp.json exist
- */
-const fs = require('fs');
-const path = require('path');
+const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
-const Ajv = require('ajv');
-const ajv = new Ajv();
-const oauthSchema = JSON.parse(fs.readFileSync(path.join(__dirname, '../schemas/oauth.schema.json')));
-const config = JSON.parse(fs.readFileSync(path.join(__dirname, '../mcp.json')));
+const fs = require('fs').promises;
 
-function validateOAuthToken(tokenData) {
-  try {
-    const validate = ajv.compile(oauthSchema);
-    const valid = validate(tokenData);
-    if (!valid) throw new Error(`OAuth validation failed: ${JSON.stringify(validate.errors)}`);
-    return true;
-  } catch (err) {
-    console.error(`[ERROR] OAuth Validation: ${err.message}`);
-    return false;
-  }
+const secret = process.env.OAUTH_CLIENT_SECRET || 'default_secret';
+const errorLogPath = '/vial/errorlog.md';
+
+async function logError(message, analysis, stack, urgency) {
+    const timestamp = new Date().toISOString();
+    const errorMessage = `[${timestamp}] ERROR: ${message}\nAnalysis: ${analysis}\nTraceback: ${stack || 'No stack'}\n---\n`;
+    try {
+        await fs.appendFile(errorLogPath, errorMessage);
+    } catch (err) {
+        console.error(`Failed to write to errorlog.md: ${err.message}`);
+    }
 }
 
-function generateToken(clientId, scopes) {
-  try {
-    const tokenData = {
-      client_id: clientId,
-      scopes,
-      exp: Math.floor(Date.now() / 1000) + 3600,
-      iat: Math.floor(Date.now() / 1000)
-    };
-    if (!validateOAuthToken(tokenData)) throw new Error('Invalid token data');
-    return jwt.sign(tokenData, process.env.OAUTH_CLIENT_SECRET || config.oauth.client_secret);
-  } catch (err) {
-    console.error(`[ERROR] Token Generation: ${err.message}`);
-    throw err;
-  }
+async function authenticate(token) {
+    try {
+        const client = new OAuth2Client();
+        const ticket = await client.verifyIdToken({ idToken: token, audience: secret });
+        const payload = ticket.getPayload();
+        const newToken = jwt.sign({ sub: payload.sub, exp: Math.floor(Date.now() / 1000) + 3600 }, secret);
+        await logError('OAuth Authenticated', 'Token verified in /vial/src/oauth.js:20', 'No stack', 'INFO');
+        return newToken;
+    } catch (err) {
+        await logError(`OAuth Error: ${err.message}`, 'Check /vial/src/oauth.js:20 or /vial/mcp.json:10', err.stack || 'No stack', 'HIGH');
+        throw err;
+    }
 }
 
-function verifyToken(token) {
-  try {
-    const decoded = jwt.verify(token, process.env.OAUTH_CLIENT_SECRET || config.oauth.client_secret);
-    if (!validateOAuthToken(decoded)) throw new Error('Invalid token');
-    return decoded;
-  } catch (err) {
-    console.error(`[ERROR] Token Verification: ${err.message}`);
-    throw err;
-  }
+async function verifyToken(token) {
+    try {
+        const decoded = jwt.verify(token, secret);
+        await logError('Token Verified', 'Token validated in /vial/src/oauth.js:30', 'No stack', 'INFO');
+        return decoded;
+    } catch (err) {
+        await logError(`Token Verification Error: ${err.message}`, 'Check /vial/src/oauth.js:30 or /vial/mcp.json:10', err.stack || 'No stack', 'HIGH');
+        throw err;
+    }
 }
 
-module.exports = { generateToken, verifyToken, validateOAuthToken };
-
-// Rebuild Instructions: Place in /vial/src/tools/. Install dependencies: `npm install jsonwebtoken ajv`. Ensure /vial/schemas/oauth.schema.json and /vial/mcp.json exist. Run Troubleshoot in vial.html to check for errors.
+module.exports = { authenticate, verifyToken };
