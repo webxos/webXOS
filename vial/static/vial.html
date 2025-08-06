@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Vial MCP Controller</title>
-    <link rel="icon" href="/vial/static/icon.png">
-    <link rel="manifest" href="/vial/static/manifest.json">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="/vial/static/icon.png" onerror="logError('Icon Load Error', 'Check /vial/static/icon.png', 'No stack', 'LOW')">
+    <link rel="manifest" href="/vial/static/manifest.json" onerror="logError('Manifest Load Error', 'Check /vial/static/manifest.json', 'No stack', 'LOW')">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet" onerror="logError('Font Load Error', 'Check Google Fonts CDN or use local font', 'No stack', 'LOW')">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: monospace, sans-serif; }
         html, body { height: 100vh; overflow: hidden; background: #000 !important; color: #0f0 !important; display: flex; flex-direction: column; align-items: center; transition: background 0.3s, box-shadow 0.3s; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
@@ -51,50 +51,63 @@
             #vial-stats { gap: 0.15rem; }
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js"></script>
-    <script src="/vial/static/worker.js"></script>
     <script>
-        // Dependency checks
-        const dependencies = [
-            { name: 'redaxios', check: () => typeof redaxios !== 'undefined', path: 'https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js' },
-            { name: 'LZString', check: () => typeof LZString !== 'undefined', path: 'https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js' },
-            { name: 'Mustache', check: () => typeof Mustache !== 'undefined', path: 'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js' },
-            { name: 'Dexie', check: () => typeof Dexie !== 'undefined', path: 'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js' },
-            { name: 'jwt_decode', check: () => typeof jwt_decode !== 'undefined', path: 'https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js' },
-            { name: 'worker', check: () => typeof Worker !== 'undefined', path: '/vial/static/worker.js' }
-        ];
-
+        // Early definition of logError to prevent ReferenceError
+        let errorLog = [], logQueue = ['<p>Vial MCP Controller initialized</p>'];
+        function logError(message, analysis, stack, urgency) {
+            const timestamp = new Date().toISOString();
+            const errorMessage = `[${timestamp}] ERROR: ${message}\nAnalysis: ${analysis}\nTraceback: ${stack || 'No stack'}`;
+            errorLog.push(errorMessage);
+            logQueue.push(`<p class="error">${errorMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            const consoleDiv = document.getElementById('console');
+            if (consoleDiv) {
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+            if (typeof worker !== 'undefined' && worker) {
+                worker.postMessage({ action: 'saveErrorLog', content: errorLog.join('\n---\n') });
+            }
+        }
+    </script>
+    <script src="/vial/static/redaxios.min.js" onerror="logError('redaxios Load Error', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/lz-string.min.js" onerror="logError('LZString Load Error', 'Check /vial/static/lz-string.min.js or download from https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/mustache.min.js" onerror="logError('Mustache Load Error', 'Check /vial/static/mustache.min.js or download from https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/dexie.min.js" onerror="logError('Dexie Load Error', 'Check /vial/static/dexie.min.js or download from https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/jwt-decode.min.js" onerror="logError('jwt-decode Load Error', 'Check /vial/static/jwt-decode.min.js or download from https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/sql-wasm.wasm" type="application/wasm" onerror="logError('sql-wasm Load Error', 'Check /vial/static/sql-wasm.wasm or download from https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/dist/sql-wasm.wasm', 'No stack', 'CRITICAL')"></script>
+    <script src="/vial/static/worker.js" onerror="logError('worker.js Load Error', 'Check /vial/static/worker.js or restore from /vial/src/worker.js', 'No stack', 'CRITICAL')"></script>
+    <script>
+        // Global state
         const API_BASE_URL = 'http://localhost:8080/mcp';
         const WS_URL = 'ws://localhost:8080/ws';
         let ws = null, monitorActive = false, trainActive = false, monitorInterval = null, trainTimeout = null;
         let vials = Array(4).fill().map((_, i) => ({ name: `vial${i+1}`, latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 }));
-        let logQueue = ['<p>Vial MCP Controller initialized</p>'], errorLog = [], isOnline = navigator.onLine, oauthToken = null;
+        let isOnline = navigator.onLine, oauthToken = null;
         let db = null, isUpdatingConsole = false;
 
-        // Initialize Dexie
-        if (typeof Dexie !== 'undefined') {
+        // Core logging functions
+        function logEvent(event_type, message, metadata, urgency) {
             try {
-                db = new Dexie('VialMCP');
-                db.version(1).stores({ logs: '++id,timestamp,event_type', vials: 'name' });
+                const timestamp = new Date().toISOString();
+                const logData = { timestamp, event_type, message, metadata, urgency };
+                if (worker) worker.postMessage({ action: 'log', data: logData });
+                if (db) db.logs.add(logData).catch(err => logError(`Log Save Error: ${err.message}`, 'Check Dexie or /vial/static/dexie.min.js', err.stack || 'No stack', 'HIGH'));
+                const compressedLog = typeof LZString !== 'undefined' ? LZString.compressToUTF16(JSON.stringify(logData)) : JSON.stringify(logData);
+                if (isOnline && oauthToken && typeof redaxios !== 'undefined') {
+                    redaxios.post(`${API_BASE_URL}/log-sync`, { log: compressedLog }, { headers: { Authorization: `Bearer ${oauthToken}` } })
+                        .catch(err => logError(`Log Sync Error: ${err.message}`, 'Check /vial/src/log_manager.js or network', err.stack || 'No stack', 'HIGH'));
+                } else if (db) {
+                    db.logs.add({ ...logData, synced: false }).catch(err => logError(`Log Save Error: ${err.message}`, 'Check Dexie or /vial/static/dexie.min.js', err.stack || 'No stack', 'HIGH'));
+                }
+                logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">[${timestamp}] ${message}</p>`);
+                if (logQueue.length > 50) logQueue.shift();
+                debouncedUpdateConsole();
             } catch (err) {
-                errorLog.push(`[${new Date().toISOString()}] Dexie Init Error: ${err.message}\nAnalysis: Check Dexie configuration\nTraceback: ${err.stack || 'No stack'}`);
+                logError(`Log Error: ${err.message}`, 'Check worker or /vial/src/log_manager.js', err.stack || 'No stack', 'CRITICAL');
             }
-        } else {
-            errorLog.push(`[${new Date().toISOString()}] Dexie Not Loaded\nAnalysis: Check CDN https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js\nTraceback: No stack`);
         }
 
-        let worker;
-        try {
-            worker = new Worker('/vial/static/worker.js');
-        } catch (err) {
-            errorLog.push(`[${new Date().toISOString()}] Worker Init Error: ${err.message}\nAnalysis: Check /vial/static/worker.js\nTraceback: ${err.stack || 'No stack'}`);
-        }
-
-        // Debounce utility
         function debounce(func, wait) {
             let timeout;
             return (...args) => {
@@ -103,7 +116,6 @@
             };
         }
 
-        // Console update function
         const debouncedUpdateConsole = debounce((logs = null) => {
             if (isUpdatingConsole) return;
             isUpdatingConsole = true;
@@ -112,10 +124,38 @@
                 consoleDiv.innerHTML = logs ? (typeof Mustache !== 'undefined' ? Mustache.render('{{#logs}}<p>{{message}}</p>{{/logs}}', { logs }) : '<p>Error: Mustache not loaded</p>') : logQueue.join('');
                 consoleDiv.scrollTop = consoleDiv.scrollHeight;
             } else {
-                errorLog.push(`[${new Date().toISOString()}] Console Div Missing\nAnalysis: Check HTML for console element\nTraceback: No stack`);
+                logError(`Console Div Missing`, 'Check HTML for console element', 'No stack', 'CRITICAL');
             }
             isUpdatingConsole = false;
         }, 100);
+
+        // Dependency checks
+        const dependencies = [
+            { name: 'redaxios', check: () => typeof redaxios !== 'undefined', path: '/vial/static/redaxios.min.js', cdn: 'https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js' },
+            { name: 'LZString', check: () => typeof LZString !== 'undefined', path: '/vial/static/lz-string.min.js', cdn: 'https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js' },
+            { name: 'Mustache', check: () => typeof Mustache !== 'undefined', path: '/vial/static/mustache.min.js', cdn: 'https://cdn.jsdelivr.net/npm/mustache@4.2.0/mustache.min.js' },
+            { name: 'Dexie', check: () => typeof Dexie !== 'undefined', path: '/vial/static/dexie.min.js', cdn: 'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js' },
+            { name: 'jwt_decode', check: () => typeof jwt_decode !== 'undefined', path: '/vial/static/jwt-decode.min.js', cdn: 'https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js' },
+            { name: 'sql-wasm', check: () => typeof SQL !== 'undefined', path: '/vial/static/sql-wasm.wasm', cdn: 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/dist/sql-wasm.wasm' },
+            { name: 'worker', check: () => typeof Worker !== 'undefined', path: '/vial/static/worker.js', cdn: 'N/A (restore from /vial/src/worker.js)' }
+        ];
+
+        async function initWorker() {
+            try {
+                const workerResponse = await fetch('/vial/static/worker.js', { method: 'HEAD' });
+                if (!workerResponse.ok) throw new Error('Worker script not found');
+                worker = new Worker('/vial/static/worker.js');
+                worker.onmessage = (e) => {
+                    const { status, logs, message } = e.data;
+                    if (status === 'initialized') logEvent('system', 'SQLite initialized', { component: 'worker' }, 'LOW');
+                    else if (status === 'logs') debouncedUpdateConsole(logs);
+                    else if (status === 'error') logError(`Worker Error: ${message}`, 'Check /vial/static/worker.js', message.stack || 'No stack', 'HIGH');
+                };
+                worker.postMessage({ action: 'init' });
+            } catch (err) {
+                logError(`Worker Init Error: ${err.message}`, 'Check /vial/static/worker.js or restore from /vial/src/worker.js', err.stack || 'No stack', 'CRITICAL');
+            }
+        }
 
         function initializeWebSocket() {
             try {
@@ -128,19 +168,19 @@
                         logEvent(event_type, message, metadata, 'INFO');
                         updateVialStatsUI();
                     } catch (err) {
-                        logError(`WebSocket Message Error: ${err.message}`, 'Invalid message format', err.stack, 'HIGH');
+                        logError(`WebSocket Message Error: ${err.message}`, 'Invalid message format', err.stack || 'No stack', 'HIGH');
                     }
                 };
-                ws.onerror = (e) => { logError('WebSocket Error', 'Check server or token', e.message, 'CRITICAL'); isOnline = false; };
+                ws.onerror = (e) => { logError('WebSocket Error', 'Check server, token, or /vial/src/server.js', e.message, 'CRITICAL'); isOnline = false; };
                 ws.onclose = () => { logEvent('websocket', 'Disconnected', {}, 'HIGH'); isOnline = false; setTimeout(initializeWebSocket, 5000); };
             } catch (err) {
-                logError(`WebSocket Init Error: ${err.message}`, 'Check OAuth or network', err.stack, 'CRITICAL');
+                logError(`WebSocket Init Error: ${err.message}`, 'Check OAuth, network, or /vial/src/server.js', err.stack || 'No stack', 'CRITICAL');
             }
         }
 
         async function authenticateOAuth() {
             if (typeof redaxios === 'undefined') {
-                logError('OAuth Error: redaxios not defined', 'Check CDN https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
+                logError('OAuth Error: redaxios not defined', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
                 return;
             }
             try {
@@ -148,6 +188,7 @@
                 if (storedToken && typeof jwt_decode !== 'undefined' && jwt_decode(storedToken).exp * 1000 > Date.now()) {
                     oauthToken = storedToken;
                     initializeWebSocket();
+                    logEvent('auth', 'OAuth token loaded from localStorage', { token: oauthToken.slice(0, 10) + '...' }, 'INFO');
                     return;
                 }
                 const res = await redaxios.post(`${API_BASE_URL}/auth`, { token: storedToken || 'anonymous' });
@@ -156,62 +197,20 @@
                 initializeWebSocket();
                 logEvent('auth', 'OAuth authenticated', { token: oauthToken.slice(0, 10) + '...' }, 'INFO');
             } catch (err) {
-                logError(`OAuth Error: ${err.message}`, 'Check auth endpoint or network', err.stack, 'CRITICAL');
+                logError(`OAuth Error: ${err.message}`, 'Check /vial/src/oauth.js, /vial/mcp.json, or network', err.stack || 'No stack', 'CRITICAL');
                 oauthToken = null;
             }
-        }
-
-        if (worker) {
-            worker.onmessage = (e) => {
-                const { status, logs, message } = e.data;
-                if (status === 'initialized') logEvent('system', 'SQLite initialized', { component: 'worker' }, 'LOW');
-                else if (status === 'logs') debouncedUpdateConsole(logs);
-                else if (status === 'error') logError(`Worker Error: ${message}`, 'Check worker.js', '', 'HIGH');
-            };
-            worker.postMessage({ action: 'init' });
-        }
-
-        async function logEvent(event_type, message, metadata, urgency) {
-            try {
-                const timestamp = new Date().toISOString();
-                const logData = { timestamp, event_type, message, metadata, urgency };
-                if (worker) worker.postMessage({ action: 'log', data: logData });
-                if (db) await db.logs.add(logData);
-                const compressedLog = typeof LZString !== 'undefined' ? LZString.compressToUTF16(JSON.stringify(logData)) : JSON.stringify(logData);
-                if (isOnline && oauthToken && typeof redaxios !== 'undefined') {
-                    await redaxios.post(`${API_BASE_URL}/log-sync`, { log: compressedLog }, { headers: { Authorization: `Bearer ${oauthToken}` } });
-                } else if (db) {
-                    await db.logs.add({ ...logData, synced: false });
-                }
-                logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">[${timestamp}] ${message}</p>`);
-                if (logQueue.length > 50) logQueue.shift();
-                debouncedUpdateConsole();
-            } catch (err) {
-                errorLog.push(`[${new Date().toISOString()}] Log Error: ${err.message}\nAnalysis: Check worker or server\nTraceback: ${err.stack || 'No stack'}`);
-                debouncedUpdateConsole();
-                if (worker) worker.postMessage({ action: 'saveErrorLog', content: errorLog.join('\n---\n') });
-            }
-        }
-
-        function logError(message, analysis, stack, urgency) {
-            const timestamp = new Date().toISOString();
-            const errorMessage = `[${timestamp}] ERROR: ${message}\nAnalysis: ${analysis}\nTraceback: ${stack || 'No stack'}`;
-            errorLog.push(errorMessage);
-            logQueue.push(`<p class="error">${errorMessage}</p>`);
-            if (logQueue.length > 50) logQueue.shift();
-            debouncedUpdateConsole();
-            if (worker) worker.postMessage({ action: 'saveErrorLog', content: errorLog.join('\n---\n') });
         }
 
         async function systemDiagnostics() {
             try {
                 logEvent('diagnostics', 'Starting system diagnostics', {}, 'INFO');
                 const checks = [
-                    { name: 'Network', test: () => navigator.onLine, error: 'Offline mode detected' },
-                    { name: 'WebSocket', test: () => ws?.readyState === WebSocket.OPEN, error: 'WebSocket disconnected' },
-                    { name: 'OAuth', test: () => !!oauthToken && typeof jwt_decode !== 'undefined' && jwt_decode(oauthToken).exp * 1000 > Date.now(), error: 'Invalid or expired OAuth token' },
-                    { name: 'Worker', test: () => !!worker, error: 'Web Worker not initialized' },
-                    { name: 'Dexie', test: async () => db && (await db.logs.count()) >= 0, error: 'IndexedDB failure' },
+                    { name: 'Network', test: () => navigator.onLine, error: 'Offline mode detected', analysis: 'Check network connection' },
+                    { name: 'WebSocket', test: () => ws?.readyState === WebSocket.OPEN, error: 'WebSocket disconnected', analysis: 'Check /vial/src/server.js or network' },
+                    { name: 'OAuth', test: () => !!oauthToken && typeof jwt_decode !== 'undefined' && jwt_decode(oauthToken).exp * 1000 > Date.now(), error: 'Invalid or expired OAuth token', analysis: 'Check /vial/src/oauth.js or /vial/mcp.json' },
+                    { name: 'Worker', test: () => !!worker, error: 'Web Worker not initialized', analysis: 'Check /vial/static/worker.js or restore from /vial/src/worker.js' },
+                    { name: 'Dexie', test: async () => db && (await db.logs.count()) >= 0, error: 'IndexedDB failure', analysis: 'Check /vial/static/dexie.min.js or browser support' },
                     { name: 'Files', test: async () => {
                         const files = [
                             '/vial/static/redaxios.min.js',
@@ -233,41 +232,54 @@
                             }
                         }
                         return true;
-                    }, error: 'Missing static files' },
+                    }, error: 'Missing static files', analysis: 'Check /vial/static/ or download from CDNs in /vial/cdn-links.md' },
                     { name: 'API', test: async () => {
                         if (!isOnline || !oauthToken || typeof redaxios === 'undefined') return false;
                         const res = await redaxios.get(`${API_BASE_URL}/health`, { headers: { Authorization: `Bearer ${oauthToken}` } });
                         return res.status === 200;
-                    }, error: 'API health check failed' }
+                    }, error: 'API health check failed', analysis: 'Check /vial/src/server.js or network' }
                 ];
-                for (const { name, test, error } of checks) {
+                for (const { name, test, error, analysis } of checks) {
                     try {
                         if (!(await test())) throw new Error(error);
                         logEvent('diagnostics', `${name} check passed`, {}, 'INFO');
                     } catch (err) {
-                        logError(`${name} Failure: ${err.message}`, `Check ${name.toLowerCase()} configuration`, err.stack, 'CRITICAL');
+                        logError(`${name} Failure: ${err.message}`, analysis || `Check ${name.toLowerCase()} configuration`, err.stack || 'No stack', 'CRITICAL');
                     }
                 }
                 if (isOnline && oauthToken && typeof redaxios !== 'undefined') {
                     const res = await redaxios.get(`${API_BASE_URL}/diagnostics`, { headers: { Authorization: `Bearer ${oauthToken}` } });
-                    res.data.issues?.forEach(issue => logError(`Server Issue: ${issue.message}`, issue.analysis, issue.stack, 'HIGH'));
+                    res.data.issues?.forEach(issue => logError(`Server Issue: ${issue.message}`, issue.analysis || 'Check /vial/src/server.js', issue.stack || 'No stack', 'HIGH'));
                     logEvent('diagnostics', 'Diagnostics complete', { issues: res.data.issues?.length || 0 }, 'INFO');
                 } else {
                     logEvent('diagnostics', 'Diagnostics skipped server checks due to offline mode', {}, 'INFO');
                 }
             } catch (err) {
-                logError(`Diagnostics Error: ${err.message}`, 'Check diagnostics endpoint or network', err.stack, 'CRITICAL');
+                logError(`Diagnostics Error: ${err.message}`, 'Check /vial/src/diagnostics.js or network', err.stack || 'No stack', 'CRITICAL');
             }
         }
 
         async function createVial() {
             try {
-                if (!oauthToken) throw new Error('Unauthorized: OAuth required');
-                if (typeof redaxios === 'undefined') throw new Error('redaxios not defined');
+                logEvent('vial', 'Attempting to create vial', {}, 'INFO');
+                if (!oauthToken) {
+                    logError('Create Vial Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                    return;
+                }
+                if (typeof redaxios === 'undefined') {
+                    logError('Create Vial Error: redaxios not defined', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
+                    return;
+                }
                 const activeVials = vials.filter(v => v.status === 'running').length;
-                if (activeVials >= 4) throw new Error('Maximum 4 vials');
+                if (activeVials >= 4) {
+                    logError('Create Vial Error: Maximum 4 vials', 'Destroy vials using VOID button', 'No stack', 'HIGH');
+                    return;
+                }
                 const vialIndex = vials.findIndex(v => v.status === 'stopped');
-                if (vialIndex === -1) throw new Error('No free vials');
+                if (vialIndex === -1) {
+                    logError('Create Vial Error: No free vials', 'Destroy vials using VOID button', 'No stack', 'HIGH');
+                    return;
+                }
                 const vialId = `vial_${Math.floor(100000 + Math.random() * 900000)}`;
                 const fileInput = document.getElementById('file-input');
                 const apiInput = document.getElementById('api-input');
@@ -275,6 +287,7 @@
                 if (fileInput?.files?.length > 0) {
                     code = await fileInput.files[0].text();
                 }
+                code = code.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c] || c); // Sanitize input
                 const vialData = { id: vialId, code: { js: code || 'console.log("Hello, Vial!");' }, training: { model: 'default', epochs: 5 } };
                 const res = await redaxios.post(`${API_BASE_URL}/vial`, vialData, { headers: { Authorization: `Bearer ${oauthToken}` } });
                 const { id, latency, createdAt, codeLength } = res.data;
@@ -283,14 +296,21 @@
                 logEvent('vial', `Created vial ${id}`, { latency, codeLength }, 'INFO');
                 updateVialStatsUI();
             } catch (err) {
-                logError(`Create Vial Error: ${err.message}`, 'Check backend, OAuth, or input', err.stack, 'CRITICAL');
+                logError(`Create Vial Error: ${err.message}`, 'Check /vial/src/vial_manager.js, OAuth, or input', err.stack || 'No stack', 'CRITICAL');
             }
         }
 
         async function toggleMonitor() {
             try {
-                if (!oauthToken) throw new Error('Unauthorized: OAuth required');
-                if (typeof redaxios === 'undefined') throw new Error('redaxios not defined');
+                logEvent('monitor', 'Attempting to toggle monitor', {}, 'INFO');
+                if (!oauthToken) {
+                    logError('Monitor Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                    return;
+                }
+                if (typeof redaxios === 'undefined') {
+                    logError('Monitor Error: redaxios not defined', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
+                    return;
+                }
                 monitorActive = !monitorActive;
                 const monitorBtn = document.getElementById('monitor-btn');
                 const consoleDiv = document.getElementById('console');
@@ -308,24 +328,31 @@
                                 if (db) await db.vials.bulkPut(vials);
                                 updateVialStatsUI();
                             } catch (err) {
-                                logError(`Monitor Update Error: ${err.message}`, 'Check backend or OAuth', err.stack, 'HIGH');
+                                logError(`Monitor Update Error: ${err.message}`, 'Check /vial/src/vial_manager.js or OAuth', err.stack || 'No stack', 'HIGH');
                             }
                         }, 5000);
                     } else {
                         clearInterval(monitorInterval);
                     }
                 } else {
-                    logError('Monitor UI Error', 'Missing monitor button or console div', '', 'CRITICAL');
+                    logError('Monitor UI Error', 'Missing monitor button or console div in HTML', 'No stack', 'CRITICAL');
                 }
             } catch (err) {
-                logError(`Monitor Error: ${err.message}`, 'Check backend or DOM', err.stack, 'HIGH');
+                logError(`Monitor Error: ${err.message}`, 'Check /vial/src/vial_manager.js or DOM', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function trainVials() {
             try {
-                if (!oauthToken) throw new Error('Unauthorized: OAuth required');
-                if (typeof redaxios === 'undefined') throw new Error('redaxios not defined');
+                logEvent('training', 'Attempting to start training', {}, 'INFO');
+                if (!oauthToken) {
+                    logError('Train Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                    return;
+                }
+                if (typeof redaxios === 'undefined') {
+                    logError('Train Error: redaxios not defined', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
+                    return;
+                }
                 trainActive = !trainActive;
                 const trainBtn = document.getElementById('train-btn');
                 const consoleDiv = document.getElementById('console');
@@ -336,7 +363,14 @@
                     logEvent('training', trainActive ? 'Training started' : 'Training stopped', {}, 'INFO');
                     if (trainActive) {
                         const inputData = document.getElementById('api-input')?.value?.trim();
-                        if (!inputData) throw new Error('No input data for training');
+                        if (!inputData) {
+                            logError('Train Error: No input data', 'Enter API URL or upload file', 'No stack', 'HIGH');
+                            trainActive = false;
+                            trainBtn.classList.remove('active-train');
+                            consoleDiv.classList.remove('active-train');
+                            document.body.classList.remove('train-glow');
+                            return;
+                        }
                         for (const vial of vials) {
                             if (vial.status === 'running') {
                                 const res = await redaxios.post(`${API_BASE_URL}/train`, { id: vial.name, input: inputData }, { headers: { Authorization: `Bearer ${oauthToken}` } });
@@ -360,18 +394,24 @@
                         document.body.classList.remove('train-glow');
                     }
                 } else {
-                    logError('Train UI Error', 'Missing train button or console div', '', 'CRITICAL');
+                    logError('Train UI Error', 'Missing train button or console div in HTML', 'No stack', 'CRITICAL');
                 }
             } catch (err) {
-                logError(`Train Error: ${err.message}`, 'Check backend, OAuth, or input', err.stack, 'CRITICAL');
+                logError(`Train Error: ${err.message}`, 'Check /vial/src/training.js, OAuth, or input', err.stack || 'No stack', 'CRITICAL');
             }
         }
 
         async function voidVials() {
             try {
-                if (!oauthToken) throw new Error('Unauthorized: OAuth required');
+                logEvent('void', 'Attempting to destroy all vials', {}, 'INFO');
+                if (!oauthToken) {
+                    logError('VOID Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                    return;
+                }
                 if (isOnline && typeof redaxios !== 'undefined') {
                     await redaxios.post(`${API_BASE_URL}/destroy`, {}, { headers: { Authorization: `Bearer ${oauthToken}` } });
+                } else {
+                    logEvent('void', 'Skipped server destroy due to offline mode', {}, 'INFO');
                 }
                 vials = Array(4).fill().map((_, i) => ({ name: `vial${i+1}`, latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 }));
                 if (db) await db.vials.clear();
@@ -381,17 +421,27 @@
                 debouncedUpdateConsole();
                 logEvent('void', 'All vials destroyed', {}, 'HIGH');
             } catch (err) {
-                logError(`VOID Error: ${err.message}`, 'Check backend or OAuth', err.stack, 'HIGH');
+                logError(`VOID Error: ${err.message}`, 'Check /vial/src/vial_manager.js or OAuth', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function saveVialAsMarkdown() {
             try {
-                if (!oauthToken) throw new Error('Unauthorized: OAuth required');
+                logEvent('export', 'Attempting to export vials as Markdown', {}, 'INFO');
+                if (!oauthToken) {
+                    logError('Export Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                    return;
+                }
                 let vialData = vials;
                 if (isOnline && typeof redaxios !== 'undefined') {
-                    const res = await redaxios.get(`${API_BASE_URL}/vials`, { headers: { Authorization: `Bearer ${oauthToken}` } });
-                    vialData = res.data;
+                    try {
+                        const res = await redaxios.get(`${API_BASE_URL}/vials`, { headers: { Authorization: `Bearer ${oauthToken}` } });
+                        vialData = res.data;
+                    } catch (err) {
+                        logError('Export Fetch Error: Unable to fetch vials from server', 'Using local vial data due to offline mode or server error', err.stack || 'No stack', 'HIGH');
+                    }
+                } else {
+                    logEvent('export', 'Using local vial data due to offline mode', {}, 'INFO');
                 }
                 const content = vialData.map(vial => (typeof Mustache !== 'undefined' ? Mustache.render(
                     '# Vial Agent: {{id}}\n\nStatus: {{status}}\nCreated: {{createdAt}}\nCode:\n```js\n{{code.js}}\n```\nLatency: {{latencyHistory}} ms\n',
@@ -406,70 +456,98 @@
                 URL.revokeObjectURL(url);
                 logEvent('export', 'Exported vials as Markdown', {}, 'INFO');
             } catch (err) {
-                logError(`Export Error: ${err.message}`, 'Check backend or browser', err.stack, 'HIGH');
+                logError(`Export Error: ${err.message}`, 'Check /vial/src/vial_manager.js or browser', err.stack || 'No stack', 'HIGH');
             }
         }
 
         function updateVialStatsUI() {
-            const vialStatsDiv = document.getElementById('vial-stats');
-            if (vialStatsDiv) {
-                vialStatsDiv.innerHTML = vials.map((vial, index) => `
-                    <div class="progress-container">
-                        <span class="progress-label">Vial ${index + 1}:</span>
-                        <div class="progress-bar"><div class="progress-fill" id="vial${index + 1}-bar" style="width: ${vial.latencyHistory.length ? Math.min(100, vial.latencyHistory[vial.latencyHistory.length - 1] / 2) : 0}%"></div></div>
-                        <span id="vial${index + 1}-value">${vial.latencyHistory.length ? vial.latencyHistory[vial.latencyHistory.length - 1].toFixed(2) : 0} ms</span>
-                    </div>
-                `).join('');
-            } else {
-                logError('Vial Stats Div Missing', 'Check HTML for vial-stats element', '', 'CRITICAL');
+            try {
+                const vialStatsDiv = document.getElementById('vial-stats');
+                if (vialStatsDiv) {
+                    vialStatsDiv.innerHTML = vials.map((vial, index) => `
+                        <div class="progress-container">
+                            <span class="progress-label">Vial ${index + 1}:</span>
+                            <div class="progress-bar"><div class="progress-fill" id="vial${index + 1}-bar" style="width: ${vial.latencyHistory.length ? Math.min(100, vial.latencyHistory[vial.latencyHistory.length - 1] / 2) : 0}%"></div></div>
+                            <span id="vial${index + 1}-value">${vial.latencyHistory.length ? vial.latencyHistory[vial.latencyHistory.length - 1].toFixed(2) : 0} ms</span>
+                        </div>
+                    `).join('');
+                } else {
+                    logError('Vial Stats Div Missing', 'Check HTML for vial-stats element', 'No stack', 'CRITICAL');
+                }
+            } catch (err) {
+                logError(`Update Vial Stats Error: ${err.message}`, 'Check DOM or vial data structure', err.stack || 'No stack', 'CRITICAL');
             }
         }
 
         function setupEventListeners() {
-            const buttons = [
-                { id: 'create-vial-btn', handler: createVial, label: 'Create Vial' },
-                { id: 'troubleshoot-btn', handler: systemDiagnostics, label: 'Troubleshoot' },
-                { id: 'monitor-btn', handler: toggleMonitor, label: 'Monitor' },
-                { id: 'train-btn', handler: trainVials, label: 'Train' },
-                { id: 'void-btn', handler: voidVials, label: 'VOID' },
-                { id: 'export-btn', handler: saveVialAsMarkdown, label: 'Export Vials' }
-            ];
-            buttons.forEach(({ id, handler, label }) => {
-                const btn = document.getElementById(id);
-                if (btn) {
-                    const handleClick = (e) => {
-                        e.preventDefault();
-                        logEvent('button', `Clicked ${label}`, { id }, 'INFO');
-                        handler();
-                    };
-                    btn.addEventListener('click', handleClick);
-                    btn.addEventListener('touchstart', (e) => {
-                        e.preventDefault();
-                        logEvent('button', `Touched ${label}`, { id }, 'INFO');
-                        handler();
-                    }, { passive: false });
+            try {
+                const buttons = [
+                    { id: 'create-vial-btn', handler: createVial, label: 'Create Vial' },
+                    { id: 'troubleshoot-btn', handler: systemDiagnostics, label: 'Troubleshoot' },
+                    { id: 'monitor-btn', handler: toggleMonitor, label: 'Monitor' },
+                    { id: 'train-btn', handler: trainVials, label: 'Train' },
+                    { id: 'void-btn', handler: voidVials, label: 'VOID' },
+                    { id: 'export-btn', handler: saveVialAsMarkdown, label: 'Export Vials' }
+                ];
+                buttons.forEach(({ id, handler, label }) => {
+                    const btn = document.getElementById(id);
+                    if (btn) {
+                        const handleClick = (e) => {
+                            e.preventDefault();
+                            logEvent('button', `Clicked ${label}`, { id }, 'INFO');
+                            handler();
+                        };
+                        btn.addEventListener('click', handleClick);
+                        btn.addEventListener('touchstart', (e) => {
+                            e.preventDefault();
+                            logEvent('button', `Touched ${label}`, { id }, 'INFO');
+                            handler();
+                        }, { passive: false });
+                    } else {
+                        logError(`Button Missing: ${id}`, `Check HTML for ${label} button`, 'No stack', 'CRITICAL');
+                    }
+                });
+                const fileInput = document.getElementById('file-input');
+                if (fileInput) {
+                    fileInput.addEventListener('change', async () => {
+                        try {
+                            const file = fileInput.files[0];
+                            if (file) logEvent('file', `Uploaded file: ${file.name}`, { size: file.size }, 'INFO');
+                        } catch (err) {
+                            logError(`File Input Error: ${err.message}`, 'Check file input handling', err.stack || 'No stack', 'HIGH');
+                        }
+                    });
                 } else {
-                    logError(`Button Missing: ${id}`, `Check HTML for ${label} button`, '', 'CRITICAL');
+                    logError('File Input Missing', 'Check HTML for file-input', 'No stack', 'CRITICAL');
                 }
-            });
-            const fileInput = document.getElementById('file-input');
-            if (fileInput) {
-                fileInput.addEventListener('change', async () => {
-                    const file = fileInput.files[0];
-                    if (file) logEvent('file', `Uploaded file: ${file.name}`, { size: file.size }, 'INFO');
-                });
-            } else {
-                logError('File Input Missing', 'Check HTML for file-input', '', 'CRITICAL');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput) {
+                    apiInput.addEventListener('input', () => {
+                        try {
+                            const input = apiInput.value.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c] || c); // Sanitize input
+                            if (input) logEvent('api', `API URL: ${input}`, {}, 'INFO');
+                        } catch (err) {
+                            logError(`API Input Error: ${err.message}`, 'Check input handling', err.stack || 'No stack', 'HIGH');
+                        }
+                    });
+                } else {
+                    logError('API Input Missing', 'Check HTML for api-input', 'No stack', 'CRITICAL');
+                }
+            } catch (err) {
+                logError(`Event Listener Setup Error: ${err.message}`, 'Check DOM or event listener code', err.stack || 'No stack', 'CRITICAL');
             }
-            const apiInput = document.getElementById('api-input');
-            if (apiInput) {
-                apiInput.addEventListener('input', () => {
-                    const input = apiInput.value;
-                    if (input) logEvent('api', `API URL: ${input}`, {}, 'INFO');
-                });
-            } else {
-                logError('API Input Missing', 'Check HTML for api-input', '', 'CRITICAL');
+        }
+
+        // Initialize Dexie
+        if (typeof Dexie !== 'undefined') {
+            try {
+                db = new Dexie('VialMCP');
+                db.version(1).stores({ logs: '++id,timestamp,event_type', vials: 'name' });
+            } catch (err) {
+                logError(`Dexie Init Error: ${err.message}`, 'Check /vial/static/dexie.min.js or IndexedDB support', err.stack || 'No stack', 'CRITICAL');
             }
+        } else {
+            logError('Dexie Not Loaded', 'Check /vial/static/dexie.min.js or download from https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js', 'No stack', 'CRITICAL');
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
@@ -481,45 +559,58 @@
                         if (consoleDiv) {
                             consoleDiv.insertAdjacentHTML('beforeend', `<p class="error">${dep.name} not loaded. Check ${dep.path}</p>`);
                         }
-                        errorLog.push(`[${new Date().toISOString()}] ${dep.name} not loaded\nAnalysis: Check ${dep.path}\nTraceback: No stack`);
+                        logError(`${dep.name} Not Loaded`, `Check ${dep.path} or download from ${dep.cdn}`, 'No stack', 'CRITICAL');
                     }
                 });
 
+                await initWorker();
                 updateVialStatsUI();
                 debouncedUpdateConsole();
                 await authenticateOAuth();
                 setupEventListeners();
                 if (!isOnline && db) {
-                    const cachedVials = await db.vials.toArray();
-                    if (cachedVials.length) {
-                        vials = cachedVials;
-                        updateVialStatsUI();
-                        logEvent('system', 'Loaded cached vials', { count: cachedVials.length }, 'INFO');
+                    try {
+                        const cachedVials = await db.vials.toArray();
+                        if (cachedVials.length) {
+                            vials = cachedVials;
+                            updateVialStatsUI();
+                            logEvent('system', 'Loaded cached vials', { count: cachedVials.length }, 'INFO');
+                        }
+                    } catch (err) {
+                        logError(`Cached Vials Load Error: ${err.message}`, 'Check Dexie or /vial/static/dexie.min.js', err.stack || 'No stack', 'HIGH');
                     }
                 }
                 logEvent('system', 'Vial MCP Controller initialized', {}, 'INFO');
             } catch (err) {
-                logError(`Initialization Error: ${err.message}`, 'Check DOMContentLoaded event', err.stack, 'CRITICAL');
+                logError(`Initialization Error: ${err.message}`, 'Check DOMContentLoaded event or /vial/src/server.js', err.stack || 'No stack', 'CRITICAL');
             }
         });
 
         window.addEventListener('online', () => {
-            isOnline = true;
-            logEvent('network', 'Network online', {}, 'INFO');
-            authenticateOAuth();
+            try {
+                isOnline = true;
+                logEvent('network', 'Network online', {}, 'INFO');
+                authenticateOAuth();
+            } catch (err) {
+                logError(`Network Online Error: ${err.message}`, 'Check network handling', err.stack || 'No stack', 'HIGH');
+            }
         });
 
         window.addEventListener('offline', () => {
-            isOnline = false;
-            logEvent('network', 'Network offline', {}, 'HIGH');
+            try {
+                isOnline = false;
+                logEvent('network', 'Network offline', {}, 'HIGH');
+            } catch (err) {
+                logError(`Network Offline Error: ${err.message}`, 'Check network handling', err.stack || 'No stack', 'HIGH');
+            }
         });
 
         window.addEventListener('error', (e) => {
-            logError(`Global Error: ${e.message}`, 'Check browser console', e.stack, 'CRITICAL');
+            logError(`Global Error: ${e.message}`, 'Check browser console or /vial/static/ files', e.stack || 'No stack', 'CRITICAL');
         });
 
         window.addEventListener('unhandledrejection', (e) => {
-            logError(`Promise Rejection: ${e.reason}`, 'Check async operations', e.reason?.stack, 'CRITICAL');
+            logError(`Promise Rejection: ${e.reason}`, 'Check async operations or /vial/src/ files', e.reason?.stack || 'No stack', 'CRITICAL');
         });
     </script>
 </head>
