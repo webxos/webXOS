@@ -1,45 +1,65 @@
-/**
- * Training logic for Vial MCP Controller
- * Dependencies: /vial/schemas/training.schema.json
- * Manages vial training process
- * Rebuild: Ensure /vial/schemas/training.schema.json exists
- */
-const fs = require('fs');
+const { exec } = require('child_process');
+const util = require('util');
+const fs = require('fs').promises;
 const path = require('path');
-const Ajv = require('ajv');
-const ajv = new Ajv();
-const trainingSchema = JSON.parse(fs.readFileSync(path.join(__dirname, '../schemas/training.schema.json')));
+const sqlite3 = require('sqlite3').verbose();
 
-function validateTraining(trainingData) {
-  try {
-    const validate = ajv.compile(trainingSchema);
-    const valid = validate(trainingData);
-    if (!valid) throw new Error(`Training validation failed: ${JSON.stringify(validate.errors)}`);
-    return true;
-  } catch (err) {
-    console.error(`[ERROR] Training Validation: ${err.message}`);
-    return false;
-  }
+const execPromise = util.promisify(exec);
+const dbPath = '/vial/database.db';
+const errorLogPath = '/vial/errorlog.md';
+let db;
+
+async function logError(message, analysis, stack, urgency) {
+    const timestamp = new Date().toISOString();
+    const errorMessage = `[${timestamp}] ERROR: ${message}\nAnalysis: ${analysis}\nTraceback: ${stack || 'No stack'}\n---\n`;
+    try {
+        await fs.appendFile(errorLogPath, errorMessage);
+    } catch (err) {
+        console.error(`Failed to write to errorlog.md: ${err.message}`);
+    }
 }
 
-function trainVial(id, input) {
-  try {
-    const trainingData = {
-      id,
-      input,
-      model: 'default',
-      epochs: 5,
-      latency: Math.random() * 100,
-      codeLength: input.length
-    };
-    if (!validateTraining(trainingData)) throw new Error('Invalid training data');
-    return trainingData;
-  } catch (err) {
-    console.error(`[ERROR] Train Vial: ${err.message}`);
-    throw err;
-  }
+async function initDb() {
+    try {
+        db = new sqlite3.Database(dbPath, (err) => {
+            if (err) throw new Error(`DB Init Error: ${err.message}`);
+        });
+        await logError('Training DB Initialized', 'SQLite connected in /vial/src/training.js:20', 'No stack', 'INFO');
+    } catch (err) {
+        await logError(`Training DB Error: ${err.message}`, 'Check /vial/src/training.js:20 or /vial/database.db', err.stack || 'No stack', 'CRITICAL');
+        throw err;
+    }
 }
 
-module.exports = { trainVial, validateTraining };
+async function trainVial(id, input, agentId) {
+    try {
+        await initDb();
+        const vial = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM vials WHERE id = ?', [id], (err, row) => {
+                if (err || !row) reject(new Error('Vial not found'));
+                else resolve(row);
+            });
+        });
+        const codePath = path.join('/vial/uploads', `vial${id}.js`);
+        await fs.writeFile(codePath, input);
+        const agentPath = agentId === 'agent_nanoGPT' ? '/vial/src/agents/nanoGPT.py' : null;
+        if (!agentPath) throw new Error('Invalid agent ID');
+        try {
+            await fs.access(agentPath);
+        } catch {
+            throw new Error('NanoGPT script missing');
+        }
+        const { stdout, stderr } = await execPromise(`python3 ${agentPath} --input ${codePath}`);
+        const latencyHistory = JSON.parse(vial.latencyHistory);
+        const latency = 50 + Math.random() * 10;
+        latencyHistory.push(latency);
+        await db.run('UPDATE vials SET latencyHistory = ? WHERE id = ?', [JSON.stringify(latencyHistory), id]);
+        await logError(`Vial Trained: ${id}`, `Training completed in /vial/src/training.js:30 with ${agentPath}`, stdout || stderr || 'No stack', 'INFO');
+        return { latency, codeLength: input.length };
+    } catch (err) {
+        await logError(`Train Vial Error: ${err.message}`, 'Check /vial/src/training.js:30, /vial/src/agents/nanoGPT.py, or input', err.stack || 'No stack', 'HIGH');
+        throw err;
+    }
+}
 
-// Rebuild Instructions: Place in /vial/src/tools/. Install dependency: `npm install ajv`. Ensure /vial/schemas/training.schema.json exists. Run Troubleshoot in vial.html to check for errors.
+module.exports = { trainVial };
