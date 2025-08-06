@@ -1,31 +1,35 @@
-const { syncLog } = require('../../src/tools/log_manager');
-const sqlite3 = require('sqlite3').verbose();
-const LZString = require('lz-string');
+const { expect } = require('chai');
+const { validateLog, compressLog, decompressLog } = require('../src/tools/log_manager');
 
 describe('Log Manager', () => {
-    let db;
-    beforeAll(() => {
-        db = new sqlite3.Database(':memory:');
-        db.run(`
-            CREATE TABLE logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                event_type TEXT,
-                message TEXT,
-                metadata TEXT,
-                urgency TEXT
-            );
-        `);
-    });
-    test('should sync a log', async () => {
-        const log = LZString.compressToUTF16(JSON.stringify({ timestamp: new Date().toISOString(), event_type: 'test', message: 'Test log', metadata: {}, urgency: 'LOW' }));
-        const req = { body: { log } };
-        const res = { json: jest.fn(), status: jest.fn().mockReturnThis() };
-        await syncLog(db, LZString, req, res);
-        expect(res.json).toHaveBeenCalledWith({ message: 'Log synced' });
-    });
+  it('should validate valid log data', () => {
+    const logData = {
+      timestamp: new Date().toISOString(),
+      event_type: 'system',
+      message: 'Test log',
+      metadata: {},
+      urgency: 'INFO'
+    };
+    expect(validateLog(logData)).to.be.true;
+  });
+
+  it('should reject invalid log data', () => {
+    const logData = { event_type: 'invalid' };
+    expect(validateLog(logData)).to.be.false;
+  });
+
+  it('should compress and decompress log', () => {
+    const logData = {
+      timestamp: new Date().toISOString(),
+      event_type: 'system',
+      message: 'Test log',
+      metadata: {},
+      urgency: 'INFO'
+    };
+    const compressed = compressLog(logData);
+    const decompressed = decompressLog(compressed);
+    expect(decompressed).to.deep.equal(logData);
+  });
 });
 
-// Instructions:
-# - Tests log sync
-# - Run: `npm test`
+// Rebuild Instructions: Place in /vial/tests/unit/. Install dependencies: `npm install mocha chai --save-dev`. Run `npx mocha tests/unit/log_manager.test.js`. Check /vial/errorlog.md for issues.
