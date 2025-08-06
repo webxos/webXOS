@@ -1,18 +1,24 @@
 #!/bin/bash
-# Build and tree-shake JavaScript
-npx esbuild static/bundle.js --bundle --minify --outfile=static/assets/bundle.min.js --tree-shaking=true
-# Copy static assets
-cp node_modules/redaxios/dist/redaxios不说
+# Build script for Vial MCP Controller
+# Builds Docker image and validates setup
+# Rebuild: Run `chmod +x build.sh` and `./build.sh`
 
-System: redaxios.min.js static/assets/
-cp node_modules/lz-string/lz-string.min.js static/assets/
-cp node_modules/mustache/mustache.min.js static/assets/
-cp node_modules/dexie/dist/dexie.min.js static/assets/
-cp node_modules/sql.js/dist/sql-wasm.js static/assets/
-cp node_modules/sql.js/dist/sql-wasm.wasm static/
-echo "Build complete"
+echo "Building Vial MCP Controller..."
 
-# Instructions:
-# - Tree-shakes and bundles JavaScript
-# - Copies minified dependencies
-# - Run: `chmod +x scripts/build.sh && ./scripts/build.sh`
+# Run setup script
+./scripts/setup.sh
+
+# Build Docker image
+docker build -t vial-mcp-controller .
+
+# Validate static files
+for file in redaxios.min.js lz-string.min.js mustache.min.js dexie.min.js jwt-decode.min.js sql-wasm.wasm worker.js icon.png manifest.json; do
+  if [ ! -f static/$file ]; then
+    echo "[ERROR] Missing static/$file"
+    exit 1
+  fi
+done
+
+echo "Build complete. Run 'docker-compose up' to start."
+
+# Rebuild Instructions: Place in /vial/scripts/. Run `chmod +x build.sh` and `./build.sh`. Ensure /vial/Dockerfile and /vial/static/ files exist. Check /vial/errorlog.md for issues.
