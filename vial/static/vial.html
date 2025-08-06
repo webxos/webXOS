@@ -158,8 +158,11 @@
         }
 
         function initializeWebSocket() {
+            if (!isOnline || !oauthToken) {
+                logEvent('websocket', 'WebSocket skipped due to offline mode or missing token', {}, 'INFO');
+                return;
+            }
             try {
-                if (!oauthToken) throw new Error('No OAuth token');
                 ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(oauthToken)}`);
                 ws.onopen = () => { logEvent('websocket', 'Connected', { url: WS_URL }, 'INFO'); isOnline = true; };
                 ws.onmessage = (e) => {
@@ -171,16 +174,17 @@
                         logError(`WebSocket Message Error: ${err.message}`, 'Invalid message format', err.stack || 'No stack', 'HIGH');
                     }
                 };
-                ws.onerror = (e) => { logError('WebSocket Error', 'Check server, token, or /vial/src/server.js', e.message, 'CRITICAL'); isOnline = false; };
+                ws.onerror = (e) => { logError('WebSocket Error', 'Check server, token, or /vial/src/server.js', e.message, 'HIGH'); isOnline = false; };
                 ws.onclose = () => { logEvent('websocket', 'Disconnected', {}, 'HIGH'); isOnline = false; setTimeout(initializeWebSocket, 5000); };
             } catch (err) {
-                logError(`WebSocket Init Error: ${err.message}`, 'Check OAuth, network, or /vial/src/server.js', err.stack || 'No stack', 'CRITICAL');
+                logError(`WebSocket Init Error: ${err.message}`, 'Check OAuth, network, or /vial/src/server.js', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function authenticateOAuth() {
-            if (typeof redaxios === 'undefined') {
-                logError('OAuth Error: redaxios not defined', 'Check /vial/static/redaxios.min.js or download from https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js', 'No stack', 'CRITICAL');
+            if (!isOnline || typeof redaxios === 'undefined') {
+                oauthToken = 'anonymous';
+                logEvent('auth', 'Using anonymous token due to offline mode or missing redaxios', {}, 'INFO');
                 return;
             }
             try {
@@ -192,13 +196,14 @@
                     return;
                 }
                 const res = await redaxios.post(`${API_BASE_URL}/auth`, { token: storedToken || 'anonymous' });
-                oauthToken = res.data.token;
+                oauthToken = res.data.token || 'anonymous';
                 localStorage.setItem('mcp_token', oauthToken);
                 initializeWebSocket();
                 logEvent('auth', 'OAuth authenticated', { token: oauthToken.slice(0, 10) + '...' }, 'INFO');
             } catch (err) {
-                logError(`OAuth Error: ${err.message}`, 'Check /vial/src/oauth.js, /vial/mcp.json, or network', err.stack || 'No stack', 'CRITICAL');
-                oauthToken = null;
+                oauthToken = 'anonymous';
+                logError(`OAuth Error: ${err.message}`, 'Using anonymous token. Check /vial/src/oauth.js, /vial/mcp.json, or network', err.stack || 'No stack', 'HIGH');
+                initializeWebSocket();
             }
         }
 
@@ -208,9 +213,9 @@
                 const checks = [
                     { name: 'Network', test: () => navigator.onLine, error: 'Offline mode detected', analysis: 'Check network connection' },
                     { name: 'WebSocket', test: () => ws?.readyState === WebSocket.OPEN, error: 'WebSocket disconnected', analysis: 'Check /vial/src/server.js or network' },
-                    { name: 'OAuth', test: () => !!oauthToken && typeof jwt_decode !== 'undefined' && jwt_decode(oauthToken).exp * 1000 > Date.now(), error: 'Invalid or expired OAuth token', analysis: 'Check /vial/src/oauth.js or /vial/mcp.json' },
+                    { name: 'OAuth', test: () => !!oauthToken && oauthToken !== 'anonymous' && typeof jwt_decode !== 'undefined' && jwt_decode(oauthToken).exp * 1000 > Date.now(), error: 'Invalid or expired OAuth token', analysis: 'Check /vial/src/oauth.js or /vial/mcp.json' },
                     { name: 'Worker', test: () => !!worker, error: 'Web Worker not initialized', analysis: 'Check /vial/static/worker.js or restore from /vial/src/worker.js' },
-                    { name: 'Dexie', test: async () => db && (await db.logs.count()) >= 0, error: 'IndexedDB failure', analysis: 'Check /vial/static/dexie.min.js or browser support' },
+                    { name: 'Dexie', test: async () => typeof Dexie !== 'undefined' && window.indexedDB, error: 'IndexedDB not supported or Dexie not loaded', analysis: 'Check /vial/static/dexie.min.js or browser support' },
                     { name: 'Files', test: async () => {
                         const files = [
                             '/vial/static/redaxios.min.js',
@@ -234,36 +239,39 @@
                         return true;
                     }, error: 'Missing static files', analysis: 'Check /vial/static/ or download from CDNs in /vial/cdn-links.md' },
                     { name: 'API', test: async () => {
-                        if (!isOnline || !oauthToken || typeof redaxios === 'undefined') return false;
+                        if (!isOnline || !oauthToken || oauthToken === 'anonymous' || typeof redaxios === 'undefined') return false;
                         const res = await redaxios.get(`${API_BASE_URL}/health`, { headers: { Authorization: `Bearer ${oauthToken}` } });
                         return res.status === 200;
                     }, error: 'API health check failed', analysis: 'Check /vial/src/server.js or network' }
                 ];
                 for (const { name, test, error, analysis } of checks) {
                     try {
-                        if (!(await test())) throw new Error(error);
-                        logEvent('diagnostics', `${name} check passed`, {}, 'INFO');
+                        if (await test()) {
+                            logEvent('diagnostics', `${name} check passed`, {}, 'INFO');
+                        } else {
+                            throw new Error(error);
+                        }
                     } catch (err) {
-                        logError(`${name} Failure: ${err.message}`, analysis || `Check ${name.toLowerCase()} configuration`, err.stack || 'No stack', 'CRITICAL');
+                        logError(`${name} Failure: ${err.message}`, analysis || `Check ${name.toLowerCase()} configuration`, err.stack || 'No stack', 'HIGH');
                     }
                 }
-                if (isOnline && oauthToken && typeof redaxios !== 'undefined') {
+                if (isOnline && oauthToken && oauthToken !== 'anonymous' && typeof redaxios !== 'undefined') {
                     const res = await redaxios.get(`${API_BASE_URL}/diagnostics`, { headers: { Authorization: `Bearer ${oauthToken}` } });
                     res.data.issues?.forEach(issue => logError(`Server Issue: ${issue.message}`, issue.analysis || 'Check /vial/src/server.js', issue.stack || 'No stack', 'HIGH'));
                     logEvent('diagnostics', 'Diagnostics complete', { issues: res.data.issues?.length || 0 }, 'INFO');
                 } else {
-                    logEvent('diagnostics', 'Diagnostics skipped server checks due to offline mode', {}, 'INFO');
+                    logEvent('diagnostics', 'Diagnostics skipped server checks due to offline mode or anonymous token', {}, 'INFO');
                 }
             } catch (err) {
-                logError(`Diagnostics Error: ${err.message}`, 'Check /vial/src/diagnostics.js or network', err.stack || 'No stack', 'CRITICAL');
+                logError(`Diagnostics Error: ${err.message}`, 'Check /vial/src/diagnostics.js or network', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function createVial() {
             try {
                 logEvent('vial', 'Attempting to create vial', {}, 'INFO');
-                if (!oauthToken) {
-                    logError('Create Vial Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                if (!oauthToken || oauthToken === 'anonymous') {
+                    logError('Create Vial Error: Unauthorized', 'Using anonymous token, functionality limited. Check /vial/src/oauth.js or network', 'No stack', 'HIGH');
                     return;
                 }
                 if (typeof redaxios === 'undefined') {
@@ -292,19 +300,19 @@
                 const res = await redaxios.post(`${API_BASE_URL}/vial`, vialData, { headers: { Authorization: `Bearer ${oauthToken}` } });
                 const { id, latency, createdAt, codeLength } = res.data;
                 vials[vialIndex] = { name: id, latencyHistory: [latency], status: 'running', code, filePath: `/vial/uploads/vial${id}.js`, createdAt, codeLength };
-                if (db) await db.vials.put(vials[vialIndex]);
+                if (db) await db.vials.put(vials[vialIndex]).catch(() => logError('Vial Save Error', 'IndexedDB failed, skipping save', 'No stack', 'HIGH'));
                 logEvent('vial', `Created vial ${id}`, { latency, codeLength }, 'INFO');
                 updateVialStatsUI();
             } catch (err) {
-                logError(`Create Vial Error: ${err.message}`, 'Check /vial/src/vial_manager.js, OAuth, or input', err.stack || 'No stack', 'CRITICAL');
+                logError(`Create Vial Error: ${err.message}`, 'Check /vial/src/vial_manager.js, OAuth, or input', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function toggleMonitor() {
             try {
                 logEvent('monitor', 'Attempting to toggle monitor', {}, 'INFO');
-                if (!oauthToken) {
-                    logError('Monitor Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                if (!oauthToken || oauthToken === 'anonymous') {
+                    logError('Monitor Error: Unauthorized', 'Using anonymous token, functionality limited. Check /vial/src/oauth.js or network', 'No stack', 'HIGH');
                     return;
                 }
                 if (typeof redaxios === 'undefined') {
@@ -325,7 +333,7 @@
                                 vials = res.data.map(vial => ({
                                     name: vial.id, latencyHistory: vial.latencyHistory, status: vial.status, code: vial.code.js, filePath: vial.filePath, createdAt: vial.createdAt, codeLength: vial.codeLength
                                 }));
-                                if (db) await db.vials.bulkPut(vials);
+                                if (db) await db.vials.bulkPut(vials).catch(() => logError('Vial Bulk Save Error', 'IndexedDB failed, skipping save', 'No stack', 'HIGH'));
                                 updateVialStatsUI();
                             } catch (err) {
                                 logError(`Monitor Update Error: ${err.message}`, 'Check /vial/src/vial_manager.js or OAuth', err.stack || 'No stack', 'HIGH');
@@ -345,8 +353,8 @@
         async function trainVials() {
             try {
                 logEvent('training', 'Attempting to start training', {}, 'INFO');
-                if (!oauthToken) {
-                    logError('Train Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
+                if (!oauthToken || oauthToken === 'anonymous') {
+                    logError('Train Error: Unauthorized', 'Using anonymous token, functionality limited. Check /vial/src/oauth.js or network', 'No stack', 'HIGH');
                     return;
                 }
                 if (typeof redaxios === 'undefined') {
@@ -377,7 +385,7 @@
                                 vial.latencyHistory.push(res.data.latency);
                                 vial.code = inputData;
                                 vial.codeLength = res.data.codeLength;
-                                if (db) await db.vials.put(vial);
+                                if (db) await db.vials.put(vial).catch(() => logError('Vial Save Error', 'IndexedDB failed, skipping save', 'No stack', 'HIGH'));
                                 logEvent('training', `Trained vial ${vial.name}`, { latency: res.data.latency }, 'INFO');
                             }
                         }
@@ -397,25 +405,23 @@
                     logError('Train UI Error', 'Missing train button or console div in HTML', 'No stack', 'CRITICAL');
                 }
             } catch (err) {
-                logError(`Train Error: ${err.message}`, 'Check /vial/src/training.js, OAuth, or input', err.stack || 'No stack', 'CRITICAL');
+                logError(`Train Error: ${err.message}`, 'Check /vial/src/training.js, OAuth, or input', err.stack || 'No stack', 'HIGH');
             }
         }
 
         async function voidVials() {
             try {
                 logEvent('void', 'Attempting to destroy all vials', {}, 'INFO');
-                if (!oauthToken) {
-                    logError('VOID Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
-                    return;
-                }
-                if (isOnline && typeof redaxios !== 'undefined') {
+                if (!oauthToken || oauthToken === 'anonymous') {
+                    logEvent('void', 'Skipped server destroy due to anonymous token', {}, 'INFO');
+                } else if (isOnline && typeof redaxios !== 'undefined') {
                     await redaxios.post(`${API_BASE_URL}/destroy`, {}, { headers: { Authorization: `Bearer ${oauthToken}` } });
                 } else {
                     logEvent('void', 'Skipped server destroy due to offline mode', {}, 'INFO');
                 }
                 vials = Array(4).fill().map((_, i) => ({ name: `vial${i+1}`, latencyHistory: [], status: 'stopped', code: '', filePath: '', createdAt: '', codeLength: 0 }));
-                if (db) await db.vials.clear();
-                if (db) await db.vials.bulkPut(vials);
+                if (db) await db.vials.clear().catch(() => logError('Vial Clear Error', 'IndexedDB failed, skipping clear', 'No stack', 'HIGH'));
+                if (db) await db.vials.bulkPut(vials).catch(() => logError('Vial Bulk Save Error', 'IndexedDB failed, skipping save', 'No stack', 'HIGH'));
                 logQueue = ['<p>Vial MCP Controller initialized</p>'];
                 updateVialStatsUI();
                 debouncedUpdateConsole();
@@ -428,20 +434,17 @@
         async function saveVialAsMarkdown() {
             try {
                 logEvent('export', 'Attempting to export vials as Markdown', {}, 'INFO');
-                if (!oauthToken) {
-                    logError('Export Error: Unauthorized', 'OAuth token missing, authenticate first', 'No stack', 'CRITICAL');
-                    return;
+                if (!oauthToken || oauthToken === 'anonymous') {
+                    logEvent('export', 'Using local vial data due to anonymous token', {}, 'INFO');
                 }
                 let vialData = vials;
-                if (isOnline && typeof redaxios !== 'undefined') {
+                if (isOnline && oauthToken && oauthToken !== 'anonymous' && typeof redaxios !== 'undefined') {
                     try {
                         const res = await redaxios.get(`${API_BASE_URL}/vials`, { headers: { Authorization: `Bearer ${oauthToken}` } });
                         vialData = res.data;
                     } catch (err) {
                         logError('Export Fetch Error: Unable to fetch vials from server', 'Using local vial data due to offline mode or server error', err.stack || 'No stack', 'HIGH');
                     }
-                } else {
-                    logEvent('export', 'Using local vial data due to offline mode', {}, 'INFO');
                 }
                 const content = vialData.map(vial => (typeof Mustache !== 'undefined' ? Mustache.render(
                     '# Vial Agent: {{id}}\n\nStatus: {{status}}\nCreated: {{createdAt}}\nCode:\n```js\n{{code.js}}\n```\nLatency: {{latencyHistory}} ms\n',
@@ -539,15 +542,18 @@
         }
 
         // Initialize Dexie
-        if (typeof Dexie !== 'undefined') {
+        if (typeof Dexie !== 'undefined' && window.indexedDB) {
             try {
                 db = new Dexie('VialMCP');
                 db.version(1).stores({ logs: '++id,timestamp,event_type', vials: 'name' });
+                logEvent('system', 'IndexedDB initialized', {}, 'INFO');
             } catch (err) {
-                logError(`Dexie Init Error: ${err.message}`, 'Check /vial/static/dexie.min.js or IndexedDB support', err.stack || 'No stack', 'CRITICAL');
+                logError(`Dexie Init Error: ${err.message}`, 'IndexedDB failed, skipping initialization. Check /vial/static/dexie.min.js or browser support', err.stack || 'No stack', 'HIGH');
+                db = null;
             }
         } else {
-            logError('Dexie Not Loaded', 'Check /vial/static/dexie.min.js or download from https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js', 'No stack', 'CRITICAL');
+            logError('Dexie Not Loaded or IndexedDB Not Supported', 'Check /vial/static/dexie.min.js or browser support', 'No stack', 'HIGH');
+            db = null;
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
@@ -577,7 +583,7 @@
                             logEvent('system', 'Loaded cached vials', { count: cachedVials.length }, 'INFO');
                         }
                     } catch (err) {
-                        logError(`Cached Vials Load Error: ${err.message}`, 'Check Dexie or /vial/static/dexie.min.js', err.stack || 'No stack', 'HIGH');
+                        logError(`Cached Vials Load Error: ${err.message}`, 'IndexedDB failed, skipping load. Check /vial/static/dexie.min.js', err.stack || 'No stack', 'HIGH');
                     }
                 }
                 logEvent('system', 'Vial MCP Controller initialized', {}, 'INFO');
@@ -600,6 +606,8 @@
             try {
                 isOnline = false;
                 logEvent('network', 'Network offline', {}, 'HIGH');
+                oauthToken = 'anonymous';
+                logEvent('auth', 'Switched to anonymous token due to offline mode', {}, 'INFO');
             } catch (err) {
                 logError(`Network Offline Error: ${err.message}`, 'Check network handling', err.stack || 'No stack', 'HIGH');
             }
