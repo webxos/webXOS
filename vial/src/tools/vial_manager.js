@@ -1,78 +1,48 @@
-// src/tools/vial_manager.js
-const fs = require('fs').promises;
+/**
+ * Vial management logic for Vial MCP Controller
+ * Dependencies: json-schema, /vial/schemas/vial.schema.json
+ * Handles vial creation and validation
+ * Rebuild: Ensure /vial/schemas/vial.schema.json exists
+ */
+const fs = require('fs');
 const path = require('path');
-const vialSchema = require('../../schemas/vial.schema.json');
+const Ajv = require('ajv');
+const ajv = new Ajv();
+const vialSchema = JSON.parse(fs.readFileSync(path.join(__dirname, '../schemas/vial.schema.json')));
 
-exports.createVial = async (db, ajv, req, res) => {
-    try {
-        if (!ajv.validate(vialSchema, req.body)) throw new Error(JSON.stringify(ajv.errors));
-        const { id, code, training } = req.body;
-        const vial = {
-            id,
-            code: JSON.stringify(code),
-            training: JSON.stringify(training),
-            status: 'running',
-            latencyHistory: JSON.stringify([Math.random() * 100]),
-            filePath: `/uploads/vial${id}.js`,
-            createdAt: new Date().toISOString(),
-            codeLength: code.js.length
-        };
-        await new Promise((resolve, reject) => {
-            db.run(
-                'INSERT INTO vials (id, code, training, status, latencyHistory, filePath, createdAt, codeLength) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [vial.id, vial.code, vial.training, vial.status, vial.latencyHistory, vial.filePath, vial.createdAt, vial.codeLength],
-                err => err ? reject(err) : resolve()
-            );
-        });
-        await fs.writeFile(path.join(__dirname, '../../uploads', `vial${id}.js`), code.js);
-        res.json(vial);
-    } catch (err) {
-        console.error(`[VIAL_MANAGER] Error: ${err.message}`);
-        res.status(400).json({ error: err.message });
-    }
-};
+function validateVial(vialData) {
+  try {
+    const validate = ajv.compile(vialSchema);
+    const valid = validate(vialData);
+    if (!valid) throw new Error(`Vial validation failed: ${JSON.stringify(validate.errors)}`);
+    return true;
+  } catch (err) {
+    console.error(`[ERROR] Vial Validation: ${err.message}`);
+    return false;
+  }
+}
 
-exports.getVials = async (db, req, res) => {
-    try {
-        const vials = await new Promise((resolve, reject) => {
-            db.all('SELECT * FROM vials', (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows.map(row => ({
-                    id: row.id,
-                    code: JSON.parse(row.code),
-                    training: JSON.parse(row.training),
-                    status: row.status,
-                    latencyHistory: JSON.parse(row.latencyHistory),
-                    filePath: row.filePath,
-                    createdAt: row.createdAt,
-                    codeLength: row.codeLength
-                })));
-            });
-        });
-        res.json(vials);
-    } catch (err) {
-        console.error(`[VIAL_MANAGER] Error: ${err.message}`);
-        res.status(500).json({ error: err.message });
-    }
-};
+function createVial(id, code, training) {
+  try {
+    const vialData = {
+      id,
+      code: { js: code },
+      training,
+      status: 'running',
+      latencyHistory: [Math.random() * 100],
+      filePath: `/vial/uploads/vial${id}.js`,
+      createdAt: new Date().toISOString(),
+      codeLength: code.length
+    };
+    if (!validateVial(vialData)) throw new Error('Invalid vial data');
+    fs.writeFileSync(path.join(__dirname, `../uploads/vial${id}.js`), code);
+    return vialData;
+  } catch (err) {
+    console.error(`[ERROR] Create Vial: ${err.message}`);
+    throw err;
+  }
+}
 
-exports.destroyAllVials = async (db, req, res) => {
-    try {
-        await new Promise((resolve, reject) => {
-            db.run('DELETE FROM vials', err => err ? reject(err) : resolve());
-        });
-        const files = await fs.readdir(path.join(__dirname, '../../uploads'));
-        for (const file of files) {
-            if (file.startsWith('vial')) await fs.unlink(path.join(__dirname, '../../uploads', file));
-        }
-        res.json({ message: 'All vials destroyed' });
-    } catch (err) {
-        console.error(`[VIAL_MANAGER] Error: ${err.message}`);
-        res.status(500).json({ error: err.message });
-    }
-};
+module.exports = { createVial, validateVial };
 
-// Instructions:
-// - Manages vials with SQLite
-// - Stores code in /uploads
-// - Validates with Ajv
+// Rebuild Instructions: Place in /vial/src/tools/. Install dependency: `npm install ajv`. Ensure /vial/schemas/vial.schema.json exists. Run Troubleshoot in vial.html to check for errors.
