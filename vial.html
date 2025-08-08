@@ -60,10 +60,10 @@
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.7/dexie.min.js" defer onload="logEvent('system', 'Dexie loaded from CDN', {}, 'INFO')" onerror="loadDexieFallback()"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js" defer onload="logEvent('system', 'TensorFlow.js loaded from CDN', {}, 'INFO')" onerror="logError('TensorFlow.js Load Error', 'Check CDN or network', 'No stack', 'HIGH')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js" defer onload="logEvent('system', 'TensorFlow.js loaded from CDN', {}, 'INFO')" onerror="loadTensorFlowFallback()"></script>
     <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js" defer onload="logEvent('system', 'Skulpt loaded from CDN', {}, 'INFO')" onerror="logError('Skulpt Load Error', 'Check CDN', 'No stack', 'HIGH')"></script>
     <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js" defer onload="logEvent('system', 'Skulpt Stdlib loaded from CDN', {}, 'INFO')" onerror="logError('Skulpt Stdlib Load Error', 'Check CDN', 'No stack', 'HIGH')"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mcp-use@1.0.0/mcp-use.min.js" defer onload="logEvent('system', 'MCP-use loaded from CDN', {}, 'INFO')" onerror="logError('MCP-use Load Error', 'Check CDN', 'No stack', 'HIGH')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mcp-use@1.0.0/mcp-use.min.js" defer onload="logEvent('system', 'MCP-use loaded from CDN', {}, 'INFO')" onerror="loadMcpUseFallback()"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js" defer onload="logEvent('system', 'SQL.js loaded from CDN', {}, 'INFO')" onerror="logError('sql-wasm Load Error', 'Check CDN', 'No stack', 'CRITICAL')"></script>
 </head>
 <body>
@@ -119,6 +119,7 @@
         const MAX_LOG_QUEUE_SIZE = 50;
         let dexieLoaded = false;
         let tensorflowLoaded = false;
+        let mcpUseLoaded = false;
         const serverUrls = ['/mcp/ping', 'https://webxos.netlify.app', 'https://fallback.webxos.com'];
         let lastConnectionErrorTime = 0;
         const CONNECTION_ERROR_THROTTLE_MS = 300000;
@@ -168,6 +169,24 @@
                 document.head.appendChild(script);
             } catch (err) {
                 logError(`TensorFlow Fallback Error: ${err.message}`, 'Check script injection', err.stack, 'HIGH');
+            }
+        }
+
+        function loadMcpUseFallback() {
+            try {
+                const script = document.createElement('script');
+                script.src = '/static/mcp-use.min.js';
+                script.onload = () => {
+                    mcpUseLoaded = true;
+                    logEvent('system', 'MCP-use loaded from local fallback', {}, 'INFO');
+                };
+                script.onerror = () => {
+                    mcpUseLoaded = false;
+                    logError('MCP-use Fallback Load Error', 'Check /static/mcp-use.min.js. Falling back to offline mode.', 'No stack', 'HIGH');
+                };
+                document.head.appendChild(script);
+            } catch (err) {
+                logError(`MCP-use Fallback Error: ${err.message}`, 'Check script injection', err.stack, 'HIGH');
             }
         }
 
@@ -299,7 +318,7 @@
                     }
                 }
 
-                if (isOnline && serverUrls[0] !== '/mcp/ping') {
+                if (isOnline && serverUrls[0] !== '/mcp/ping' && mcpUseLoaded) {
                     const serverUrl = serverUrls[0];
                     try {
                         const controller = new AbortController();
@@ -425,33 +444,49 @@
             }
         }
 
-        // Inline worker
+        // Inline worker with retry logic
         const workerScript = `
             let db;
+            let sqlJsLoaded = false;
+            const maxRetries = 3;
+            async function loadSqlJs(attempt = 0) {
+                try {
+                    importScripts('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js');
+                    if (typeof SQL === 'undefined') throw new Error('SQL.js not loaded');
+                    sqlJsLoaded = true;
+                    db = await SQL.Database();
+                    db.run('CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, timestamp TEXT, event_type TEXT, message TEXT, metadata TEXT, urgency TEXT)');
+                    db.run('CREATE TABLE IF NOT EXISTS wallet (address TEXT PRIMARY KEY, balance REAL, privateKey TEXT, passwords TEXT, trainingRewards TEXT)');
+                    db.run('CREATE TABLE IF NOT EXISTS browser (key TEXT PRIMARY KEY, token TEXT, timestamp TEXT)');
+                    self.postMessage({ status: 'initialized' });
+                } catch (err) {
+                    if (attempt < maxRetries - 1) {
+                        setTimeout(() => loadSqlJs(attempt + 1), 1000 * Math.pow(2, attempt));
+                    } else {
+                        self.postMessage({ status: 'error', message: 'SQL.js initialization failed: ' + err.message, stack: err.stack || 'No stack' });
+                    }
+                }
+            }
             self.onmessage = async (e) => {
                 try {
                     const { action, data, content } = e.data;
                     if (action === 'init') {
-                        try {
-                            importScripts('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js');
-                            if (typeof SQL === 'undefined') throw new Error('SQL.js not loaded');
-                            db = await SQL.Database();
-                            db.run('CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, timestamp TEXT, event_type TEXT, message TEXT, metadata TEXT, urgency TEXT)');
-                            db.run('CREATE TABLE IF NOT EXISTS wallet (address TEXT PRIMARY KEY, balance REAL, privateKey TEXT, passwords TEXT, trainingRewards TEXT)');
-                            db.run('CREATE TABLE IF NOT EXISTS browser (key TEXT PRIMARY KEY, token TEXT, timestamp TEXT)');
-                            self.postMessage({ status: 'initialized' });
-                        } catch (err) {
-                            self.postMessage({ status: 'error', message: 'SQL.js initialization failed: ' + err.message, stack: err.stack || 'No stack' });
-                        }
+                        await loadSqlJs();
                     } else if (action === 'saveErrorLog') {
                         self.postMessage({ status: 'saved', content });
                     } else if (action === 'saveWallet') {
-                        if (!db) throw new Error('Database not initialized');
+                        if (!sqlJsLoaded || !db) {
+                            self.postMessage({ status: 'error', message: 'Database not initialized', stack: 'No stack' });
+                            return;
+                        }
                         db.run('INSERT OR REPLACE INTO wallet (address, balance, privateKey, passwords, trainingRewards) VALUES (?, ?, ?, ?, ?)',
                             [data.address, data.balance, data.privateKey, JSON.stringify(data.passwords), JSON.stringify(data.trainingRewards)]);
                         self.postMessage({ status: 'walletSaved' });
                     } else if (action === 'saveBrowserKey') {
-                        if (!db) throw new Error('Database not initialized');
+                        if (!sqlJsLoaded || !db) {
+                            self.postMessage({ status: 'error', message: 'Database not initialized', stack: 'No stack' });
+                            return;
+                        }
                         db.run('INSERT OR REPLACE INTO browser (key, token, timestamp) VALUES (?, ?, ?)',
                             [data.key, data.token, data.timestamp]);
                         self.postMessage({ status: 'browserKeySaved' });
@@ -579,7 +614,9 @@
                 if (db && dexieLoaded) {
                     await db.browser.put({ key: 'browser', token, timestamp: Date.now() });
                 }
-                if (worker) worker.postMessage({ action: 'saveBrowserKey', data: { key: 'browser', token, timestamp: Date.now() } });
+                if (worker && !worker.terminated) {
+                    worker.postMessage({ action: 'saveBrowserKey', data: { key: 'browser', token, timestamp: Date.now() } });
+                }
                 logEvent('browser', 'Browser master key generated', {}, 'INFO');
             } catch (err) {
                 logError(`Browser Master Key Error: ${err.message}`, 'Check crypto API', err.stack, 'HIGH');
@@ -588,9 +625,33 @@
 
         // Authentication
         async function authenticate() {
+            if (!mcpUseLoaded) {
+                logError('Authentication Unavailable', 'MCP-use library not loaded. Using mock authentication.', 'No stack', 'HIGH');
+                // Mock authentication for offline mode
+                try {
+                    masterKey = 'mock-token-' + generateUUID();
+                    oauthToken = masterKey;
+                    isAuthenticated = true;
+                    await generateBrowserMasterKey();
+                    if (db && dexieLoaded) {
+                        await db.auth.put({ key: 'master', token: masterKey, timestamp: Date.now() });
+                        await db.vials.clear().then(() => db.vials.bulkPut(vials));
+                    }
+                    document.getElementById('authButton').classList.add('active-monitor');
+                    ['trainButton', 'balanceButton', 'exportButton', 'importButton', 'apiButton', 'browserButton'].forEach(id => {
+                        document.getElementById(id).disabled = false;
+                    });
+                    logEvent('auth', 'Mock authentication successful. 4 vials allocated (offline mode).', {}, 'INFO');
+                    updateVialStatsUI();
+                } catch (err) {
+                    logError(`Mock Authentication Error: ${err.message}`, 'Check mock auth logic', err.stack, 'HIGH');
+                }
+                return;
+            }
             const { success, serverUrl } = await checkServerConnection();
             if (!success) {
                 logError('Cannot authenticate: Server not reachable', 'Check network or server', 'No stack', 'HIGH');
+                showErrorNotification('Server not reachable. Try again later.');
                 return;
             }
             try {
@@ -619,6 +680,7 @@
                 }
             } catch (error) {
                 logError(`Authentication failed: ${error.message}`, 'Check OAuth configuration', error.stack, 'HIGH');
+                showErrorNotification('Authentication failed. Check network or server.');
             }
         }
 
@@ -678,10 +740,21 @@
                 const authRecord = db && dexieLoaded ? await db.auth.get('master') : null;
                 const browserRecord = db && dexieLoaded ? await db.browser.get('browser') : null;
                 const vialsCount = db && dexieLoaded ? await db.vials.count() : 0;
-                logEvent('diagnostics', `Troubleshoot: Server ${success ? 'online' : 'offline'}, Auth ${authRecord ? 'present' : 'missing'}, Browser Key ${browserRecord ? 'present' : 'missing'}, Vials: ${vialsCount}`, {}, 'INFO');
+                const workerStatus = worker && !worker.terminated ? 'active' : 'inactive';
+                const mcpUseStatus = mcpUseLoaded ? 'loaded' : 'unavailable';
+                logEvent('diagnostics', `Troubleshoot: Server ${success ? 'online' : 'offline'}, Auth ${authRecord ? 'present' : 'missing'}, Browser Key ${browserRecord ? 'present' : 'missing'}, Vials: ${vialsCount}, Worker: ${workerStatus}, MCP-use: ${mcpUseStatus}`, {}, 'INFO');
+                if (!mcpUseLoaded) {
+                    logError('Troubleshoot Warning', 'MCP-use unavailable. Diagnostics limited to offline mode.', 'No stack', 'HIGH');
+                    showErrorNotification('MCP-use unavailable. Diagnostics limited.');
+                }
+                if (!worker || worker.terminated) {
+                    logError('Troubleshoot Warning', 'Worker unavailable. Skipping worker-based diagnostics.', 'No stack', 'HIGH');
+                    showErrorNotification('Worker unavailable. Diagnostics limited.');
+                }
                 await systemDiagnostics();
             } catch (err) {
                 logError(`Troubleshoot Error: ${err.message}`, 'Check diagnostics function', err.stack, 'HIGH');
+                showErrorNotification('Troubleshoot failed. Check logs.');
             }
         }
 
@@ -886,6 +959,10 @@
 
         // Train on PyTorch server
         async function trainOnPyTorchServer(vial, inputData, isPython, serverUrl) {
+            if (!mcpUseLoaded) {
+                logError('Training Unavailable', 'MCP-use library not loaded. Skipping server training.', 'No stack', 'HIGH');
+                return { mock: true, data: 'Mock training data' };
+            }
             const maxRetries = 5;
             let attempt = 0;
             while (attempt < maxRetries) {
@@ -925,7 +1002,15 @@
                     note: 'Hypothetical $WEBXOS token; no markets currently accept'
                 });
                 if (db && dexieLoaded) await db.wallets.put(wallet);
-                if (worker) worker.postMessage({ action: 'saveWallet', data: wallet });
+                if (worker && !worker.terminated) {
+                    worker.postMessage({ action: 'saveWallet', data: wallet });
+                } else if (canUseLocalStorage()) {
+                    try {
+                        localStorage.setItem('wallet', JSON.stringify(wallet));
+                    } catch (err) {
+                        logError(`Wallet Save Error: ${err.message}`, 'Check localStorage', err.stack, 'HIGH');
+                    }
+                }
                 logEvent('wallet', `Training reward: ${reward.toFixed(2)} $WEBXOS for ${trainingDuration.toFixed(2)}s (1 SHA/s, hypothetical)`, { balance: wallet.balance }, 'INFO');
                 updateWalletStatsUI();
             } catch (err) {
@@ -938,6 +1023,12 @@
             if (!(await verifyMasterLink()) || !browserMasterKey) return;
             if (!wallet.address) {
                 logError('Balance Error', 'No wallet', 'Create wallet first', 'No stack', 'HIGH');
+                return;
+            }
+            if (!mcpUseLoaded) {
+                logError('Balance Check Unavailable', 'MCP-use library not loaded. Using cached balance.', 'No stack', 'HIGH');
+                logEvent('wallet', `Cached balance: ${wallet.balance.toFixed(2)} $WEBXOS (hypothetical)`, {}, 'INFO');
+                updateWalletStatsUI();
                 return;
             }
             try {
@@ -1022,6 +1113,10 @@ ${vial.code}
         // Configure API (with Stripe placeholder)
         async function configureAPI() {
             if (!(await verifyMasterLink()) || !browserMasterKey) return;
+            if (!mcpUseLoaded) {
+                logError('API Config Unavailable', 'MCP-use library not loaded. Skipping API configuration.', 'No stack', 'HIGH');
+                return;
+            }
             try {
                 const fileInput = document.getElementById('file-input');
                 if (!fileInput?.files?.length) {
@@ -1073,7 +1168,15 @@ ${vial.code}
                     trainingRewards: []
                 };
                 if (db && dexieLoaded) await db.wallets.put(wallet);
-                if (worker) worker.postMessage({ action: 'saveWallet', data: wallet });
+                if (worker && !worker.terminated) {
+                    worker.postMessage({ action: 'saveWallet', data: wallet });
+                } else if (canUseLocalStorage()) {
+                    try {
+                        localStorage.setItem('wallet', JSON.stringify(wallet));
+                    } catch (err) {
+                        logError(`Wallet Save Error: ${err.message}`, 'Check localStorage', err.stack, 'HIGH');
+                    }
+                }
                 logEvent('wallet', `Created wallet ${address.slice(0, 10)}...`, { balance: 0 }, 'INFO');
                 updateWalletStatsUI();
             } catch (err) {
@@ -1108,6 +1211,7 @@ ${vial.code}
                     { name: 'URL', check: () => window.URL?.createObjectURL, urgency: 'CRITICAL' },
                     { name: 'TensorFlow.js', check: () => typeof tf !== 'undefined' && tensorflowLoaded, urgency: 'HIGH' },
                     { name: 'Skulpt', check: () => typeof Sk !== 'undefined', urgency: 'HIGH' },
+                    { name: 'MCP-use', check: () => mcpUseLoaded, urgency: 'HIGH' },
                     { name: 'DOMParser', check: () => window.DOMParser, urgency: 'HIGH' }
                 ];
                 for (const { name, check, urgency } of features) {
@@ -1117,7 +1221,7 @@ ${vial.code}
                             name,
                             isSupported ? 'PASS' : 'FAIL',
                             isSupported ? `${name} supported` : `${name} not supported`,
-                            isSupported ? '' : 'Use modern browser or check CDN',
+                            isSupported ? '' : 'Use modern browser or check CDN/local fallback',
                             'No stack',
                             urgency
                         );
@@ -1143,6 +1247,17 @@ ${vial.code}
                     }
                 } catch (err) {
                     logDiagnostic('IndexedDB', 'FAIL', `IndexedDB check failed: ${err.message}`, 'Check storage permissions', err.stack, 'HIGH');
+                }
+
+                // Worker Status
+                try {
+                    if (worker && !worker.terminated) {
+                        logDiagnostic('Worker', 'PASS', 'Worker active');
+                    } else {
+                        logDiagnostic('Worker', 'FAIL', 'Worker inactive or failed to initialize', 'Check worker script or browser support', 'No stack', 'HIGH');
+                    }
+                } catch (err) {
+                    logDiagnostic('Worker', 'FAIL', `Worker check failed: ${err.message}`, 'Check worker initialization', err.stack, 'HIGH');
                 }
 
                 // Server Connection
@@ -1185,140 +1300,4 @@ ${vial.code}
 Generated: ${new Date().toISOString()}
 
 ## Summary
-- Total Checks: ${results.length}
-- Passed: ${results.filter(r => r.status === 'PASS').length}
-- Failed: ${results.filter(r => r.status === 'FAIL').length}
-- Critical Issues: ${results.filter(r => r.urgency === 'CRITICAL').length}
-
-## Details
-| Check | Status | Message | Analysis | Urgency |
-|-------|--------|---------|----------|---------|
-${results.map(r => `| ${r.name} | ${r.status} | ${r.message} | ${r.analysis} | ${r.urgency} |`).join('\n')}
-
-## Next Steps
-- Address CRITICAL and HIGH urgency issues.
-- Re-run diagnostics after fixes.
-- Save this report for debugging.
-                `;
-                const blob = new Blob([content], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `diagnostics_report_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
-                a.click();
-                URL.revokeObjectURL(url);
-                logEvent('diagnostics', 'Diagnostics report exported', { checks: results.length }, 'INFO');
-            } catch (err) {
-                logError(`Report Export Error: ${err.message}`, 'Check Blob API', err.stack, 'HIGH');
-            }
-        }
-
-        // UI updates
-        function updateVialStatsUI() {
-            try {
-                const vialStatsDiv = document.getElementById('vial-stats');
-                if (!vialStatsDiv) {
-                    logError('Vial Stats Div Missing', 'Check HTML structure', 'No stack', 'CRITICAL');
-                    return;
-                }
-                vialStatsDiv.innerHTML = vials.map((vial, index) => {
-                    const lastLatency = Array.isArray(vial.latencyHistory) && vial.latencyHistory.length > 0 ? vial.latencyHistory[vial.latencyHistory.length - 1] : 0;
-                    const width = lastLatency > 0 ? Math.min(100, lastLatency / 2) : 0;
-                    const trainingStatus = vial.trainingData ? 'Trained' : 'Untrained';
-                    const language = vial.isPython ? 'Python' : 'JavaScript';
-                    return `
-                        <div class="progress-container">
-                            <span class="progress-label">Vial ${index + 1}:</span>
-                            <div class="progress-bar"><div class="progress-fill" id="vial${index + 1}-bar" style="width: ${width}%"></div></div>
-                            <span id="vial${index + 1}-value">${lastLatency.toFixed(2)} ms | ${trainingStatus} | ${language}</span>
-                        </div>
-                    `;
-                }).join('');
-            } catch (err) {
-                logError(`Update Vial Stats Error: ${err.message}`, 'Check UI update', err.stack, 'HIGH');
-            }
-        }
-
-        function updateWalletStatsUI() {
-            try {
-                const walletStatsDiv = document.getElementById('wallet-stats');
-                if (!walletStatsDiv) {
-                    logError('Wallet Stats Div Missing', 'Check HTML structure', 'No stack', 'CRITICAL');
-                    return;
-                }
-                const width = wallet.balance * 10;
-                const trainingRewards = wallet.trainingRewards.reduce((sum, r) => sum + r.reward, 0);
-                walletStatsDiv.innerHTML = `
-                    <div class="progress-container">
-                        <span class="progress-label">Wallet:</span>
-                        <div class="progress-bar"><div class="progress-fill" id="wallet-bar" style="width: ${width}%"></div></div>
-                        <span id="wallet-value">${wallet.address ? wallet.address.slice(0, 10) + '...' : 'No wallet'} | ${wallet.balance.toFixed(2)} $WEBXOS | Rewards: ${trainingRewards.toFixed(2)}</span>
-                    </div>
-                `;
-            } catch (err) {
-                logError(`Update Wallet Stats Error: ${err.message}`, 'Check UI update', err.stack, 'HIGH');
-            }
-        }
-
-        // Event listeners
-        function setupEventListeners() {
-            try {
-                document.getElementById('authButton').addEventListener('click', debounce(authenticate, 300));
-                document.getElementById('voidButton').addEventListener('click', debounce(voidVials, 300));
-                document.getElementById('troubleshootButton').addEventListener('click', debounce(troubleshoot, 300));
-                document.getElementById('trainButton').addEventListener('click', debounce(trainVials, 300));
-                document.getElementById('balanceButton').addEventListener('click', debounce(checkBalance, 300));
-                document.getElementById('exportButton').addEventListener('click', debounce(exportVials, 300));
-                document.getElementById('importButton').addEventListener('click', debounce(importVials, 300));
-                document.getElementById('apiButton').addEventListener('click', debounce(configureAPI, 300));
-                document.getElementById('browserButton').addEventListener('click', debounce(openBrowser, 300));
-                document.getElementById('browser-visit').addEventListener('click', debounce(visitUrl, 300));
-                document.getElementById('browser-train').addEventListener('click', debounce(trainFromBrowser, 300));
-                document.getElementById('browser-close').addEventListener('click', () => document.getElementById('browser-popup').classList.remove('visible'));
-                window.addEventListener('online', () => {
-                    isOnline = true;
-                    logEvent('system', 'Network online', {}, 'INFO');
-                });
-                window.addEventListener('offline', () => {
-                    isOnline = false;
-                    logEvent('system', 'Network offline', {}, 'INFO');
-                    verifyMasterLink();
-                });
-            } catch (err) {
-                logError(`Event Listener Error: ${err.message}`, 'Check event listeners', err.stack, 'CRITICAL');
-            }
-        }
-
-        // Initialization
-        async function init() {
-            try {
-                initWorker();
-                if (typeof Dexie !== 'undefined') {
-                    dexieLoaded = true;
-                    initDexie();
-                } else {
-                    logError('Dexie Not Loaded', 'Check CDN or /static/dexie.min.js', 'No stack', 'HIGH');
-                    loadDexieFallback();
-                }
-                if (typeof tf !== 'undefined') {
-                    tensorflowLoaded = true;
-                    logEvent('system', 'TensorFlow.js loaded', {}, 'INFO');
-                } else {
-                    loadTensorFlowFallback();
-                }
-                updateVialStatsUI();
-                updateWalletStatsUI();
-                setupEventListeners();
-                logEvent('system', 'System initialized', {}, 'INFO');
-                setInterval(verifyMasterLink, 60000);
-                await createWallet(); // Auto-create wallet on init
-            } catch (err) {
-                logError(`Init Error: ${err.message}`, 'Check init function', err.stack, 'CRITICAL');
-            }
-        }
-
-        // Start application
-        window.onload = init;
-    </script>
-</body>
-</html>
+- Total
