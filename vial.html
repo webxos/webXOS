@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP Controller</title>
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABTSURBVFhH7c6xDYAwDAR7QID/f2XCWGRjI0oF8S6J+wzMdtu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdv+Dv8A2cQ8+LEAAAAASUVORK5CYII=">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/dexie@3.2.7/dist/dexie.min.js" as="script" integrity="sha512-+6f0Hr4k7p0f6gq08VGL2rMboU5cml0W+nI3Z9Y+84gY2GZgR3oQhQHLnxH+7g3Z6OOF9I4oQ2T5CwT9QI7rQIQ==" crossorigin="anonymous">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.min.js" as="script" integrity="sha512-SxF2fp/6u6QiqG+0PgoFHLW2hD6W1A3nCYprbBzv9xU7qN9qO8T5tP3B+7u4Q1J2Q0e0K6i+YzYx4xkbzqMbhag==" crossorigin="anonymous">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: monospace, sans-serif; }
+        html, body { height: 100vh; overflow: hidden; background: #000 !important; color: #0f0 !important; display: flex; flex-direction: column; align-items: center; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1) !important; box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.5rem; margin: 0.8rem 0; text-transform: uppercase; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1) !important; border: 1px solid #0f0; padding: 0.5rem; flex: 1; max-height: calc(100vh - 250px); overflow-y: auto; border-radius: 5px; font-size: 0.8rem; white-space: pre-wrap; }
+        #console.active-train { border-color: #ff0 !important; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .error { color: #ff0000 !important; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8) !important; color: #fff !important; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; }
+        #error-notification.visible { display: block; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; }
+        button { background: #0f0 !important; color: #000 !important; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 80px; }
+        button:hover { background: #0c0 !important; }
+        button.active-monitor { background: #ff0000 !important; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0 !important; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666 !important; cursor: not-allowed; }
+        #vial-stats, #wallet-stats { width: 90%; max-width: 900px; margin: 0.5rem 0; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 80px; font-size: 0.75rem; }
+        .progress-bar { flex: 1; height: 8px; background: #333 !important; border: 1px solid #0f0; border-radius: 3px; }
+        .progress-fill { height: 100%; background: #0f0 !important; transition: width 0.5s; }
+        #input-container { width: 90%; max-width: 900px; margin: 0.5rem 0; }
+        #file-input { width: 100%; padding: 0.5rem; background: #000 !important; color: #0f0 !important; border: 1px solid #0f0; border-radius: 3px; font-size: 0.8rem; }
+        #browser-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 600px; height: 80%; background: #000 !important; border: 1px solid #0f0; border-radius: 5px; z-index: 1000; padding: 1rem; }
+        #browser-popup.visible { display: block; }
+        #browser-url { width: 100%; padding: 0.5rem; background: #000 !important; color: #0f0 !important; border: 1px solid #0f0; border-radius: 3px; font-size: 0.8rem; margin-bottom: 0.5rem; }
+        #browser-content { width: 100%; height: calc(100% - 80px); background: rgba(0, 255, 0, 0.1) !important; border: 1px solid #0f0; padding: 0.5rem; overflow-y: auto; font-size: 0.8rem; white-space: pre-wrap; }
+        #browser-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0 !important; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.2rem; }
+            #console { font-size: 0.75rem; max-height: calc(100vh - 270px); }
+            button { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+            #browser-popup { width: 90%; height: 90%; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.7/dist/dexie.min.js" defer integrity="sha512-+6f0Hr4k7p0f6gq08VGL2rMboU5cml0W+nI3Z9Y+84gY2GZgR3oQhQHLnxH+7g3Z6OOF9I4oQ2T5CwT9QI7rQIQ==" onload="logEvent('Dexie loaded')" onerror="loadFallback('dexie')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.min.js" defer integrity="sha512-SxF2fp/6u6QiqG+0PgoFHLW2hD6W1A3nCYprbBzv9xU7qN9qO8T5tP3B+7u4Q1J2Q0e0K6i+YzYx4xkbzqMbhag==" onload="logEvent('SQL.js loaded')" onerror="loadFallback('sql-js')"></script>
+</head>
+<body>
+    <h1>Vial MCP Controller</h1>
+    <div id="console"><p>Loading Vial MCP Controller...</p></div>
+    <div id="error-notification"></div>
+    <div class="button-group">
+        <button id="authButton">Authenticate</button>
+        <button id="voidButton">Void</button>
+        <button id="trainButton" disabled>Train Vials</button>
+        <button id="balanceButton" disabled>Check Balance</button>
+        <button id="exportButton" disabled>Export</button>
+        <button id="importButton" disabled>Import</button>
+        <button id="browserButton" disabled>.md Browser</button>
+    </div>
+    <div id="vial-stats"></div>
+    <div id="wallet-stats"></div>
+    <div id="input-container">
+        <input type="file" id="file-input" accept=".js,.py,.txt">
+    </div>
+    <div id="browser-popup">
+        <input type="text" id="browser-url" placeholder="Enter URL (e.g., https://example.com)">
+        <div id="browser-content"></div>
+        <div id="browser-actions">
+            <button id="browser-visit">Visit</button>
+            <button id="browser-train" disabled>Train</button>
+            <button id="browser-close">Close</button>
+        </div>
+    </div>
+    <footer>WebXOS Vial MCP Controller | 2025</footer>
+    <script>
+        // Global state
+        let isAuthenticated = false;
+        let masterKey = null;
+        let browserMasterKey = null;
+        let vials = Array(4).fill().map((_, i) => ({ id: `vial${i+1}`, status: 'stopped', code: '', isPython: false }));
+        let wallet = { address: null, balance: 0 };
+        let db = null;
+        let worker = null;
+        let logQueue = ['<p>Vial MCP Controller initialized</p>'];
+        const serverUrls = ['/api/mcp', 'https://webxos.netlify.app/api/mcp'];
+        let currentBrowserContent = '';
+        let currentBrowserUrl = '';
+
+        // Sanitize log messages
+        function sanitizeMessage(message) {
+            return String(message).replace(/[${}`]/g, '\\$&').slice(0, 1000);
+        }
+
+        // Initialize on DOM load
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                initDexie();
+                initWorker();
+                attachEventListeners();
+                updateVialStatsUI();
+                updateWalletStatsUI();
+                logEvent('DOM loaded');
+            } catch (err) {
+                logError(`Init Error: ${err.message}`);
+            }
+        });
+
+        // Error logging
+        function logError(message) {
+            const timestamp = new Date().toISOString();
+            const safeMessage = sanitizeMessage(message);
+            logQueue.push(`<p class="error">[${timestamp}] ERROR: ${safeMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            updateConsole();
+            showErrorNotification(safeMessage);
+            if (db) db.errors.add({ timestamp, message: safeMessage }).catch(() => {});
+        }
+
+        // Event logging
+        function logEvent(message) {
+            const timestamp = new Date().toISOString();
+            const safeMessage = sanitizeMessage(message);
+            logQueue.push(`<p>[${timestamp}] ${safeMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            updateConsole();
+            if (db) db.logs.add({ timestamp, message: safeMessage }).catch(() => {});
+        }
+
+        // Update console
+        function updateConsole() {
+            try {
+                const consoleDiv = document.getElementById('console');
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            } catch (err) {
+                console.error('Console update failed:', err);
+            }
+        }
+
+        // Show error notification
+        function showErrorNotification(message) {
+            const notification = document.getElementById('error-notification');
+            notification.textContent = `Error: ${message}`;
+            notification.classList.add('visible');
+            setTimeout(() => notification.classList.remove('visible'), 5000);
+        }
+
+        // Fallback loaders
+        function loadFallback(library) {
+            const script = document.createElement('script');
+            script.src = `./static/${library === 'dexie' ? 'dexie.min.js' : 'sql-wasm.min.js'}`;
+            script.onload = () => logEvent(`${library} fallback loaded`);
+            script.onerror = () => logError(`${library} fallback failed`);
+            document.head.appendChild(script);
+        }
+
+        // Initialize Dexie
+        function initDexie() {
+            if (typeof Dexie === 'undefined') {
+                logError('Dexie not loaded');
+                return;
+            }
+            db = new Dexie('WebXOSVial');
+            db.version(1).stores({
+                logs: '++id,timestamp,message',
+                vials: 'id,status,code,isPython',
+                wallets: 'address,balance',
+                errors: '++id,timestamp,message'
+            });
+            db.open().catch(err => logError(`Dexie open error: ${err.message}`));
+            logEvent('Dexie initialized');
+        }
+
+        // Worker script
+        const workerScript = `
+            let db;
+            self.onmessage = async (e) => {
+                try {
+                    const { action, data } = e.data;
+                    if (action === 'init') {
+                        importScripts('https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.min.js');
+                        db = await SQL.Database();
+                        db.run('CREATE TABLE IF NOT EXISTS wallet (address TEXT PRIMARY KEY, balance REAL)');
+                        self.postMessage({ status: 'initialized' });
+                    } else if (action === 'saveWallet') {
+                        db.run('INSERT OR REPLACE INTO wallet (address, balance) VALUES (?, ?)', [data.address, data.balance]);
+                        self.postMessage({ status: 'walletSaved' });
+                    }
+                } catch (err) {
+                    self.postMessage({ status: 'error', message: err.message });
+                }
+            };
+        `;
+        const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        function initWorker() {
+            if (!window.Worker) {
+                logError('Web Workers not supported');
+                return;
+            }
+            worker = new Worker(workerUrl);
+            worker.onmessage = e => {
+                if (e.data.status === 'initialized') logEvent('Worker initialized');
+                else if (e.data.status === 'walletSaved') logEvent('Wallet saved to worker');
+                else logError(`Worker error: ${e.data.message}`);
+            };
+            worker.onerror = err => logError(`Worker error: ${err.message}`);
+            worker.postMessage({ action: 'init' });
+        }
+
+        // Attach event listeners
+        function attachEventListeners() {
+            document.getElementById('authButton').addEventListener('click', authenticate);
+            document.getElementById('voidButton').addEventListener('click', voidVials);
+            document.getElementById('trainButton').addEventListener('click', trainVials);
+            document.getElementById('balanceButton').addEventListener('click', checkBalance);
+            document.getElementById('exportButton').addEventListener('click', exportVials);
+            document.getElementById('importButton').addEventListener('click', importVials);
+            document.getElementById('browserButton').addEventListener('click', openBrowser);
+            document.getElementById('browser-visit').addEventListener('click', visitUrl);
+            document.getElementById('browser-train').addEventListener('click', trainFromBrowser);
+            document.getElementById('browser-close').addEventListener('click', () => document.getElementById('browser-popup').classList.remove('visible'));
+            logEvent('Event listeners attached');
+        }
+
+        // Authenticate with retry
+        async function authenticate() {
+            try {
+                document.getElementById('authButton').disabled = true;
+                for (const url of serverUrls) {
+                    try {
+                        const response = await fetch(`${url}/auth`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ client: 'vial', deviceId: 'vial-device' })
+                        });
+                        if (!response.ok) throw new Error(`Auth failed: ${response.status}`);
+                        const { token } = await response.json();
+                        masterKey = token;
+                        browserMasterKey = token;
+                        isAuthenticated = true;
+                        document.getElementById('authButton').classList.add('active-monitor');
+                        ['trainButton', 'balanceButton', 'exportButton', 'importButton', 'browserButton'].forEach(id => {
+                            document.getElementById(id).disabled = false;
+                        });
+                        logEvent('Authentication successful');
+                        updateVialStatsUI();
+                        return;
+                    } catch (err) {
+                        logError(`Auth attempt failed for ${url}: ${err.message}`);
+                    }
+                }
+                throw new Error('All authentication attempts failed');
+            } catch (err) {
+                logError(`Auth error: ${err.message}`);
+                showErrorNotification('Authentication failed');
+            } finally {
+                document.getElementById('authButton').disabled = false;
+            }
+        }
+
+        // Void vials
+        async function voidVials() {
+            try {
+                isAuthenticated = false;
+                masterKey = null;
+                browserMasterKey = null;
+                wallet = { address: null, balance: 0 };
+                vials = Array(4).fill().map((_, i) => ({ id: `vial${i+1}`, status: 'stopped', code: '', isPython: false }));
+                if (db) await db.vials.clear();
+                document.getElementById('authButton').classList.remove('active-monitor');
+                ['trainButton', 'balanceButton', 'exportButton', 'importButton', 'browserButton'].forEach(id => {
+                    document.getElementById(id).disabled = true;
+                });
+                document.getElementById('browser-popup').classList.remove('visible');
+                logQueue = ['<p>Vial MCP Controller initialized</p>'];
+                updateConsole();
+                updateVialStatsUI();
+                updateWalletStatsUI();
+                logEvent('All data voided');
+            } catch (err) {
+                logError(`Void error: ${err.message}`);
+            }
+        }
+
+        // Update vial stats UI
+        function updateVialStatsUI() {
+            const vialStats = document.getElementById('vial-stats');
+            vialStats.innerHTML = vials.map(vial => `
+                <div class="progress-container">
+                    <span class="progress-label">${vial.id}</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                    </div>
+                    <span>${vial.status}</span>
+                </div>
+            `).join('');
+        }
+
+        // Update wallet stats UI
+        function updateWalletStatsUI() {
+            const walletStats = document.getElementById('wallet-stats');
+            const balanceWidth = wallet.balance ? (wallet.balance / 100 * 100) : 0;
+            walletStats.innerHTML = `
+                <div class="progress-container">
+                    <span class="progress-label">Wallet</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${wallet.address ? '100%' : '0%'};"></div>
+                    </div>
+                    <span>${wallet.address ? wallet.address.slice(0, 10) + '...' : 'No wallet'}</span>
+                </div>
+                <div class="progress-container">
+                    <span class="progress-label">Balance</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${balanceWidth}%;"></div>
+                    </div>
+                    <span>${(wallet.balance || 0).toFixed(2)} $WEBXOS</span>
+                </div>
+            `;
+        }
+
+        // Train vials
+        async function trainVials() {
+            if (!isAuthenticated || !browserMasterKey) {
+                logError('Training denied: Not authenticated');
+                return;
+            }
+            try {
+                document.getElementById('trainButton').classList.add('active-train');
+                document.getElementById('console').classList.add('active-train');
+                document.body.classList.add('train-glow');
+                const fileInput = document.getElementById('file-input');
+                let inputData = 'console.log("Training data");';
+                let isPython = false;
+                if (fileInput.files?.length) {
+                    const file = fileInput.files[0];
+                    if (!['.js', '.py', '.txt'].includes(file.name.slice(-4))) {
+                        logError('Invalid file type');
+                        return;
+                    }
+                    inputData = await file.text();
+                    isPython = file.name.endsWith('.py');
+                }
+                logEvent('Training started');
+                const startTime = Date.now();
+                for (const vial of vials.filter(v => v.status === 'stopped')) {
+                    vial.status = 'running';
+                    vial.code = inputData;
+                    vial.isPython = isPython;
+                    if (db) await db.vials.put(vial);
+                }
+                const duration = (Date.now() - startTime) / 1000;
+                wallet.balance += duration;
+                if (db) await db.wallets.put(wallet);
+                if (worker) worker.postMessage({ action: 'saveWallet', data: wallet });
+                logEvent(`Training completed. Duration: ${duration.toFixed(2)}s`);
+                updateVialStatsUI();
+                updateWalletStatsUI();
+            } catch (err) {
+                logError(`Train error: ${err.message}`);
+            } finally {
+                document.getElementById('trainButton').classList.remove('active-train');
+                document.getElementById('console').classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+            }
+        }
+
+        // Check balance
+        async function checkBalance() {
+            if (!isAuthenticated || !wallet.address) {
+                logError('Balance check failed: No wallet or not authenticated');
+                return;
+            }
+            try {
+                logEvent(`Balance: ${(wallet.balance || 0).toFixed(2)} $WEBXOS`);
+                updateWalletStatsUI();
+            } catch (err) {
+                logError(`Balance error: ${err.message}`);
+            }
+        }
+
+        // Export vials
+        async function exportVials() {
+            if (!isAuthenticated) return;
+            try {
+                const content = vials.map(vial => {
+                    const language = vial.isPython ? 'python' : 'javascript';
+                    const code = vial.code || 'No code';
+                    return `# Vial: ${vial.id}\n- Status: ${vial.status}\n- Language: ${language}\n- Code:\n\`\`\`${language}\n${code}\n\`\`\`\n---`;
+                }).join('\n');
+                const blob = new Blob([content], { type: 'text/markdown' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `vial_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+                a.click();
+                logEvent('Vials exported');
+            } catch (err) {
+                logError(`Export error: ${err.message}`);
+            }
+        }
+
+        // Import vials
+        async function importVials() {
+            if (!isAuthenticated) return;
+            try {
+                const fileInput = document.getElementById('file-input');
+                if (!fileInput.files?.length) {
+                    logError('No file selected');
+                    return;
+                }
+                const file = fileInput.files[0];
+                if (!file.name.endsWith('.txt')) {
+                    logError('Invalid file type for import');
+                    return;
+                }
+                const text = await file.text();
+                vials = Array(4).fill().map((_, i) => ({
+                    id: `vial${i+1}`,
+                    status: 'stopped',
+                    code: text,
+                    isPython: false
+                }));
+                if (db) await db.vials.bulkPut(vials);
+                logEvent('Vials imported');
+                updateVialStatsUI();
+            } catch (err) {
+                logError(`Import error: ${err.message}`);
+            }
+        }
+
+        // Open browser
+        async function openBrowser() {
+            if (!isAuthenticated || !browserMasterKey) {
+                logError('Browser access denied');
+                return;
+            }
+            try {
+                const popup = document.getElementById('browser-popup');
+                document.getElementById('browser-content').textContent = 'Enter a URL and click Visit.';
+                document.getElementById('browser-url').value = '';
+                document.getElementById('browser-train').disabled = true;
+                popup.classList.add('visible');
+                logEvent('Opened .md Browser');
+            } catch (err) {
+                logError(`Browser error: ${err.message}`);
+            }
+        }
+
+        // Visit URL
+        async function visitUrl() {
+            if (!isAuthenticated || !browserMasterKey) return;
+            const url = document.getElementById('browser-url').value;
+            if (!url.startsWith('http')) {
+                logError('Invalid URL');
+                return;
+            }
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+                const html = await response.text();
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                const textContent = tempDiv.textContent.slice(0, 10000) || 'No content';
+                const markdown = `# Webpage: ${url}\n\n${textContent}`;
+                currentBrowserContent = markdown;
+                currentBrowserUrl = url;
+                document.getElementById('browser-content').textContent = markdown;
+                document.getElementById('browser-train').disabled = false;
+                logEvent(`Loaded ${url} as Markdown`);
+            } catch (err) {
+                logError(`Visit error: ${err.message}`);
+            }
+        }
+
+        // Train from browser
+        async function trainFromBrowser() {
+            if (!isAuthenticated || !currentBrowserContent) {
+                logError('Browser train error: No content or not authenticated');
+                return;
+            }
+            try {
+                document.getElementById('trainButton').classList.add('active-train');
+                document.getElementById('console').classList.add('active-train');
+                document.body.classList.add('train-glow');
+                logEvent('Training from .md Browser');
+                const startTime = Date.now();
+                for (const vial of vials.filter(v => v.status === 'stopped')) {
+                    vial.status = 'running';
+                    vial.code = currentBrowserContent;
+                    vial.isPython = false;
+                    if (db) await db.vials.put(vial);
+                }
+                const duration = (Date.now() - startTime) / 1000;
+                wallet.balance += duration;
+                if (db) await db.wallets.put(wallet);
+                if (worker) worker.postMessage({ action: 'saveWallet', data: wallet });
+                logEvent(`Training completed from .md Browser. Duration: ${duration.toFixed(2)}s`);
+                updateVialStatsUI();
+                updateWalletStatsUI();
+                document.getElementById('browser-popup').classList.remove('visible');
+            } catch (err) {
+                logError(`Browser train error: ${err.message}`);
+            } finally {
+                document.getElementById('trainButton').classList.remove('active-train');
+                document.getElementById('console').classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+            }
+        }
+    </script>
+</body>
+</html>
