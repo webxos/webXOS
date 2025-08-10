@@ -1,14 +1,16 @@
-import uuid
+import torch
+import json
+import time
 
 class VectorContainer:
-    def chunk_md(self, content):
-        try:
-            return content.split('\n\n')
-        except Exception as e:
-            raise ValueError(f"Chunking error: {str(e)}")
+    def chunk_md(self, md_content):
+        return md_content.split('##')
 
     def add_metadata(self, chunk, metadata):
-        return f"<!-- Metadata: {json.dumps(metadata)} -->\n{chunk}"
+        return f"<!-- Metadata: {json.dumps(metadata)} -->\n##{chunk}"
 
     def vectorize(self, chunk):
-        return f"vector_{uuid.uuid4()}"
+        # Simple mock vectorization
+        return torch.rand(128).tolist()
+
+# [xaiartifact: v1.7]
