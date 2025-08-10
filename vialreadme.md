@@ -1,5 +1,5 @@
 Vial MCP Controller
-[xaiartifact: v1.5]
+[xaiartifact: v1.6]
 A remote controller for managing a 4x agentic quantum-simulated network with $WEBXOS wallet integration. The backend uses aiohttp for HTTP requests and sqlite3 for data persistence, replacing Redaxios and Dexie for a leaner client-side experience.
 Repository Structure
 /vial/
@@ -48,6 +48,7 @@ Ensure server.py is running: python server.py or verify Docker container.
 Check server.log for errors (e.g., route registration, database issues).
 Verify port 8080 is open: netstat -tuln | grep 8080 or docker ps.
 Confirm client serverUrl in vial.html is /api/mcp.
+Verify endpoint paths in vial.html API calls match backend routes (e.g., /api/mcp/auth, /api/mcp/health).
 Test server health: curl http://localhost:8080/api/mcp/health.
 Restart Docker: docker stop <container-id> && docker run -p 8080:8080 vial-mcp.
 
