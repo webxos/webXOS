@@ -1,36 +1,40 @@
-import datetime
+import sqlite3
+import uuid
+from webxos_wallet import WebXOSWallet
+from pydantic import BaseModel
+
+class MdSchema(BaseModel):
+    token_tag: str
+    wallet: dict
+    vial_states: dict
 
 class ExportManager:
-    def export_vials(self, vials, wallet, network_id, session_start):
-        content = f"""# WebXOS Vial and Wallet Export
+    def export_to_md(self, network_id, vials):
+        conn = sqlite3.connect('vial.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT address, balance FROM wallets WHERE network_id = ?', (network_id,))
+        wallet_data = cursor.fetchone()
+        conn.close()
 
-## Agentic Network
-- Network ID: {network_id or 'none'}
-- Session Start: {session_start or 'none'}
-- Session Duration: {((datetime.datetime.now() - datetime.datetime.fromisoformat(session_start)).seconds if session_start else 0)} seconds
+        token_tag = f"## WEBXOS Tokenization Tag: {str(uuid.uuid4())}\n"
 
-## Wallet
-- Wallet Key: {wallet.address or 'none'}
-- Session Balance: {wallet.balance:.4f} $WEBXOS
-- Address: {wallet.address or 'offline'}
-
-## Vials
+        wallet_md = f"""## $WEBXOS Wallet
+- Address: {wallet_data[0] if wallet_data else 'N/A'}
+- Balance: {wallet_data[1] if wallet_data else 0.0}
 """
-        for vial in vials:
-            content += f"""# Vial Agent: {vial['id']}
-- Status: {vial['status']}
-- Language: Python
-- Code Length: {vial['codeLength']} bytes
-- $WEBXOS Hash: {vial['webxosHash']}
-- Wallet Balance: {vial['wallet']['balance']:.4f} $WEBXOS
-- Wallet Address: {vial['wallet']['address'] or 'none'}
-- Tasks: {', '.join(vial['tasks']) or 'none'}
 
-```python
-{vial['code']}
-```
----
-"""
-        with open(f'/data/vial_results/vial_wallet_export_{datetime.datetime.now().isoformat().replace(":", "-")}.md', 'w') as f:
-            f.write(content)
-        return content
+        vials_md = "## Vial States\n"
+        for vial_id, data in vials.items():
+            vials_md += f"### {vial_id}\n- Output: {data['output']}\n- Quantum State: {data['quantum_state']}\n"
+
+        md_content = f"{token_tag}{wallet_md}\n{vials_md}"
+        # Validate with schema
+        schema_data = {
+            "token_tag": token_tag.strip(),
+            "wallet": {"address": wallet_data[0] if wallet_data else 'N/A', "balance": wallet_data[1] if wallet_data else 0.0},
+            "vial_states": vials
+        }
+        MdSchema(**schema_data)
+        return md_content
+
+# [xaiartifact: v1.7]
