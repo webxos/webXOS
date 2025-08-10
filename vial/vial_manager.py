@@ -1,67 +1,58 @@
-import json
+import sqlite3
 import uuid
+import torch
+import torch.nn as nn
+from agent1 import Agent1
+from agent2 import Agent2
+from agent3 import Agent3
+from agent4 import Agent4
 
-def initialize_vials():
-    return [
-        {
-            "id": f"vial{i+1}",
-            "status": "stopped",
-            "code": "import torch\nimport torch.nn as nn\n\nclass VialAgent(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent()",
-            "codeLength": 0,
-            "isPython": True,
-            "webxosHash": str(uuid.uuid4()),
-            "wallet": {"address": None, "balance": 0.0},
-            "tasks": []
-        }
-        for i in range(4)
-    ]
+class VialManager:
+    def __init__(self, network_id):
+        self.network_id = network_id
+        self.vials = []
+        self._init_vials()
 
-def export_vial(vial, filename):
-    with open(f"{filename}.md", 'w') as f:
-        f.write(
-            f"# Vial Agent: {vial['id']}\n"
-            f"- Status: {vial['status']}\n"
-            f"- Language: {'Python' if vial['isPython'] else 'JavaScript'}\n"
-            f"- Code Length: {vial['codeLength']} bytes\n"
-            f"- $WEBXOS Hash: {vial['webxosHash']}\n"
-            f"- Wallet Balance: {vial['wallet']['balance']:.4f} $WEBXOS\n"
-            f"- Wallet Address: {vial['wallet']['address'] or 'none'}\n"
-            f"- Tasks: {', '.join(vial['tasks']) or 'none'}\n"
-            f"```{'python' if vial['isPython'] else 'javascript'}\n{vial['code']}\n```"
-        )
+    def _init_vials(self):
+        conn = sqlite3.connect('vial.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT vial_id FROM vials WHERE network_id = ?', (self.network_id,))
+        if not cursor.fetchall():
+            agents = [Agent1(), Agent2(), Agent3(), Agent4()]
+            for i, agent in enumerate(agents, 1):
+                vial_id = f'vial{i}'
+                code = agent.__class__.__name__
+                cursor.execute('INSERT INTO vials (network_id, vial_id, status, code, code_length, is_python, webxos_hash, wallet_address, wallet_balance, tasks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                              (self.network_id, vial_id, 'stopped', code, len(code), True, str(uuid.uuid4()), str(uuid.uuid4()), 0.0, '[]'))
+            conn.commit()
+        cursor.execute('SELECT * FROM vials WHERE network_id = ?', (self.network_id,))
+        rows = cursor.fetchall()
+        for row in rows:
+            self.vials.append({
+                'id': row[1],
+                'status': row[2],
+                'code': row[3],
+                'codeLength': row[4],
+                'isPython': bool(row[5]),
+                'webxosHash': row[6],
+                'wallet': {'address': row[7], 'balance': row[8]},
+                'tasks': eval(row[9])
+            })
+        conn.close()
 
-def import_vials(filename):
-    vials = []
-    with open(filename, 'r') as f:
-        content = f.read()
-        sections = content.split('---\n\n')
-        for section in sections:
-            if section.startswith('# Vial Agent:'):
-                vial = {}
-                lines = section.split('\n')
-                vial['id'] = lines[0].replace('# Vial Agent: ', '').strip()
-                for line in lines[1:]:
-                    if line.startswith('- Status:'):
-                        vial['status'] = line.replace('- Status: ', '').strip()
-                    elif line.startswith('- Language:'):
-                        vial['isPython'] = line.replace('- Language: ', '').strip() == 'Python'
-                    elif line.startswith('- Code Length:'):
-                        vial['codeLength'] = int(line.replace('- Code Length: ', '').replace(' bytes', '').strip())
-                    elif line.startswith('- $WEBXOS Hash:'):
-                        vial['webxosHash'] = line.replace('- $WEBXOS Hash: ', '').strip()
-                    elif line.startswith('- Wallet Balance:'):
-                        vial['wallet'] = {"balance": float(line.replace('- Wallet Balance: ', '').replace(' $WEBXOS', '').strip())}
-                    elif line.startswith('- Wallet Address:'):
-                        vial['wallet']['address'] = line.replace('- Wallet Address: ', '').strip()
-                    elif line.startswith('- Tasks:'):
-                        vial['tasks'] = line.replace('- Tasks: ', '').strip().split(', ') if line.strip() != '- Tasks: none' else []
-                    elif line.startswith('```'):
-                        code_lines = []
-                        in_code = False
-                        for code_line in lines[lines.index(line)+1:]:
-                            if code_line.startswith('```'):
-                                break
-                            code_lines.append(code_line)
-                        vial['code'] = '\n'.join(code_lines)
-                vials.append(vial)
-    return vials
+    def train_vials(self, code, is_python):
+        conn = sqlite3.connect('vial.db')
+        cursor = conn.cursor()
+        for vial in self.vials:
+            vial['status'] = 'running'
+            vial['code'] = code
+            vial['codeLength'] = len(code)
+            vial['isPython'] = is_python
+            vial['tasks'].append(f"task_{str(uuid.uuid4())}")
+            cursor.execute('UPDATE vials SET status = ?, code = ?, code_length = ?, is_python = ?, tasks = ? WHERE network_id = ? AND vial_id = ?',
+                          (vial['status'], vial['code'], vial['codeLength'], vial['isPython'], str(vial['tasks']), self.network_id, vial['id']))
+        conn.commit()
+        conn.close()
+
+    def get_vials(self):
+        return self.vials
