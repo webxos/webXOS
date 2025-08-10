@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 import sqlite3
 import uuid
@@ -25,15 +25,15 @@ class VoidRequest(BaseModel):
     networkId: str
 
 @app.get("/api/mcp/ping")
-def ping():
+async def ping():
     return {"status": "ok"}
 
 @app.get("/api/mcp/health")
-def health():
+async def health():
     return {"status": "ok", "version": "1.7"}
 
 @app.post("/api/mcp/auth")
-def auth(request: AuthRequest):
+async def auth(request: AuthRequest):
     try:
         network_id = request.networkId
         conn = sqlite3.connect('vial.db')
@@ -45,10 +45,11 @@ def auth(request: AuthRequest):
         conn.close()
         return {"token": token, "address": str(uuid.uuid4())}
     except Exception as e:
+        logging.error(f"Auth error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/mcp/void")
-def void_request(request: VoidRequest):
+async def void_request(request: VoidRequest):
     try:
         network_id = request.networkId
         conn = sqlite3.connect('vial.db')
@@ -60,11 +61,14 @@ def void_request(request: VoidRequest):
         conn.close()
         return {"status": "voided"}
     except Exception as e:
+        logging.error(f"Void error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/mcp/train")
 async def train(networkId: str = Form(...), code: str = Form(...), isPython: bool = Form(...)):
     try:
+        if not code:
+            raise HTTPException(status_code=400, detail="No code provided for training")
         manager = VialManager(networkId)
         balance = 0.0004
         manager.train_vials(code, isPython)
@@ -78,14 +82,23 @@ async def train(networkId: str = Form(...), code: str = Form(...), isPython: boo
             "balance": balance
         }
     except Exception as e:
+        logging.error(f"Train error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/mcp/upload")
 async def upload(networkId: str = Form(...), file: UploadFile = File(...)):
     try:
+        allowed_extensions = {'.py', '.js', '.txt', '.md'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"Only {', '.join(allowed_extensions)} files are allowed")
         file_path = f"/uploads/{file.filename}"
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
             f.write(await file.read())
         return {"filePath": file_path}
     except Exception as e:
+        logging.error(f"Upload error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+
+# [xaiartifact: v1.7]
