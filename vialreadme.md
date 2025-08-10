@@ -1,78 +1,38 @@
 Vial MCP Controller
-[xaiartifact: v1.6]
-A remote controller for managing a 4x agentic quantum-simulated network with $WEBXOS wallet integration. The backend uses aiohttp for HTTP requests and sqlite3 for data persistence, replacing Redaxios and Dexie for a leaner client-side experience.
-Repository Structure
-/vial/
-├── server.py                 # Aiohttp server with API endpoints
-├── vial_manager.py           # Manages vial agents and database
-├── requirements.txt          # Dependencies: aiohttp, torch, treeshaker
-├── Dockerfile                # Docker setup for backend
-├── static/
-│   ├── icon.png             # Favicon
-├── errorlog.md              # Error log
-├── README.md                # This file
-├── treeshaker.cfg            # Treeshaker config
-└── vial.html                # Frontend controller
+Updated on August 10, 2025.
+A remote controller for managing a 4x agentic quantum simulated network, integrated with $WEBXOS wallet for decentralized payouts and app development. The system uses PyTorch for exporting trained models and supports offline fallback.
+Features
+
+4x Agentic Network: Four pre-configured vial agents running quantum simulations, enhanced with prototype agents.
+Prototype Agents: agent1.py to agent4.py as baseline templates for modification and coordination with vial1-4.
+$WEBXOS Wallet: Earn and manage $WEBXOS tokens, exportable to Stripe for cashouts.
+PyTorch Integration: Export trained models as .md files with wallet data.
+Offline Fallback: Maintains export functionality without internet via local storage.
+vial.html Controller: Browser-based UI for controlling the /vial/ backend.
 
 Setup
 
-Clone Repository:git clone <repo-url>
-cd vial
+Clone the Repository:git clone https://github.com/your-username/vial-mcp-project.git
+cd vial-mcp-project
 
 
-Install Dependencies:pip install -r requirements.txt
+Install Dependencies:pip install -r vial/requirements.txt
 
 
-Tree-Shake Backend:treeshaker --config treeshaker.cfg
-
-Ensure treeshaker.cfg specifies server.py and vial_manager.py as targets.
-Build and Run Docker:docker build -t vial-mcp .
-docker run -p 8080:8080 vial-mcp
+Run Docker Container:docker build -t vial-mcp -f vial/Dockerfile vial
+docker run -d -p 5000:5000 --rm -v /tmp:/data/vial_results vial-mcp
 
 
-Access Controller:Open http://localhost:8080/vial.html.
+Access Controller:Open vial.html in a browser to control the backend at http://localhost:5000.
 
 Usage
 
-Authenticate: Click "Authenticate" to initialize a network ID and wallet.
-Train Vials: Upload a .py, .js, .txt, or .md file to train 4 vial agents.
-Export: Download a .md file with vial and wallet data.
-Void: Reset all data.
-Troubleshoot: Check server status.
-Offline Mode: Functions without internet, storing data in memory.
+Authenticate: Use the "Authenticate" button in vial.html to connect to the backend.
+Train Vials: Upload .py or .md files to train the 4x agents, enhanced by prototype agents in agent1-4.py.
+Export: Export trained models and $WEBXOS wallet data as .md files.
+Offline Mode: If the internet is lost, exports are saved locally via Dexie.js.
 
-Troubleshooting
-
-HTTP 404 Errors:
-Ensure server.py is running: python server.py or verify Docker container.
-Check server.log for errors (e.g., route registration, database issues).
-Verify port 8080 is open: netstat -tuln | grep 8080 or docker ps.
-Confirm client serverUrl in vial.html is /api/mcp.
-Verify endpoint paths in vial.html API calls match backend routes (e.g., /api/mcp/auth, /api/mcp/health).
-Test server health: curl http://localhost:8080/api/mcp/health.
-Restart Docker: docker stop <container-id> && docker run -p 8080:8080 vial-mcp.
-
-
-Train Error: No file selected:
-Select a file via the "Upload" button before clicking "Train Vials".
-
-
-Server Not Responding:
-Check server.log for startup errors or missing dependencies.
-Ensure /uploads/ directory exists: mkdir -p /uploads.
-Verify vial.db is writable: chmod 666 vial.db.
-
-
-
-Features
-
-Backend-driven with aiohttp and sqlite3 for HTTP and storage.
-Tree-shaked with treeshaker to minimize backend code.
-Supports PyTorch-based agent training.
-$WEBXOS wallet integration for future Stripe cash-outs.
-
-Notes
-
-Ensure /uploads/ exists for file uploads.
-Update errorlog.md with any runtime issues.
-Backend runs on port 8080; adjust Dockerfile if needed.
+Contributing
+Submit issues to errorlog.md and pull requests to enhance functionality.
+License
+MIT License. See LICENSE for details.
