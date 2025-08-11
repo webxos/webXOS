@@ -23,3 +23,8 @@ def test_auth_endpoint():
 def test_train_endpoint_unauthorized():
     response = client.post("/train", data={"networkId": "test-network"})
     assert response.status_code == 401
+
+def test_comms_hub_empty_prompt():
+    response = client.post("/comms_hub", json={"message": "", "network_id": "test-network"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No prompt entered"
