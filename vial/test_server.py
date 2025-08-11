@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from vial.server import app
+from server import app
 
 client = TestClient(app)
 
