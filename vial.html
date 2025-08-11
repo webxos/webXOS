@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP Controller</title>
+    <link rel="icon" href="static/icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        // Prevent multiple initializations
+        let isInitialized = false;
+        let isSchemasInitialized = false;
+        let isAjvLoading = false;
+
+        // Minimal Ajv fallback
+        window.Ajv = window.Ajv || function() {
+            function Ajv() {}
+            Ajv.prototype.compile = function(schema) {
+                return function(data) {
+                    try {
+                        if (typeof data !== 'object') return false;
+                        for (let key in schema.properties) {
+                            if (schema.required?.includes(key) && !(key in data)) return false;
+                            if (data[key] && schema.properties[key].type === 'string' && typeof data[key] !== 'string') return false;
+                            if (data[key] && schema.properties[key].type === 'number' && typeof data[key] !== 'number') return false;
+                        }
+                        return true;
+                    } catch (err) {
+                        return false;
+                    }
+                };
+            }
+            return Ajv;
+        }();
+
+        // Debounce utility
+        function debounce(func, wait) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        // Minimal console update for early logs
+        function updateConsoleEarly(message) {
+            console.log(message);
+        }
+
+        // Error notification helper
+        function showErrorNotification(message) {
+            try {
+                const errorNotification = document.getElementById('error-notification');
+                if (errorNotification) {
+                    errorNotification.textContent = message;
+                    errorNotification.classList.add('visible');
+                    setTimeout(() => errorNotification.classList.remove('visible'), 5000);
+                } else {
+                    console.error(`Notification: ${message}`);
+                }
+            } catch (err) {
+                console.error(`Notification Error: ${err.message}`);
+            }
+        }
+
+        // Enable offline mode
+        function enableOfflineMode() {
+            try {
+                if (isOffline) return;
+                isOffline = true;
+                isAuthenticated = true;
+                masterKey = 'offline';
+                wallet.address = generateUUID();
+                wallet.hash = 'offline'.repeat(8);
+                wallet.balance = 0;
+                vials.forEach(vial => {
+                    vial.wallet.address = generateUUID();
+                    vial.wallet.hash = 'offline'.repeat(8);
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.quantumState = { qubits: [], entanglement: 'offline' };
+                });
+                ['trainButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) btn.disabled = false;
+                });
+                logEvent('system', 'Offline mode enabled with quantum network', { networkId: agenticNetworkId });
+                updateVialStatsUI();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+            } catch (err) {
+                logEvent('error', `Offline Mode Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Offline Mode Error: ${err.message}`);
+            }
+        }
+
+        // Initialize JSON schemas
+        function initializeSchemas() {
+            try {
+                if (isSchemasInitialized) {
+                    logEvent('warning', 'Schema initialization skipped: Already initialized', { stack: new Error().stack });
+                    return;
+                }
+                if (!window.Ajv) throw new Error('Ajv not loaded');
+                const ajv = new window.Ajv();
+                const vialSchema = {
+                    type: "object",
+                    properties: {
+                        id: { type: "string", pattern: "^vial[1-4]$" },
+                        status: { type: "string", enum: ["stopped", "running"] },
+                        code: { type: "string" },
+                        codeLength: { type: "integer", minimum: 0 },
+                        isPython: { type: "boolean" },
+                        webxosHash: { type: "string", pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+                        wallet: {
+                            type: "object",
+                            properties: {
+                                address: { type: ["string", "null"] },
+                                balance: { type: "number", minimum: 0 },
+                                hash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+                            },
+                            required: ["address", "balance", "hash"]
+                        },
+                        tasks: { type: "array", items: { type: "string" } },
+                        quantumState: { type: ["object", "null"], properties: { qubits: { type: "array" }, entanglement: { type: "string" } } }
+                    },
+                    required: ["id", "status", "code", "codeLength", "isPython", "webxosHash", "wallet", "tasks"]
+                };
+                const walletSchema = {
+                    type: "object",
+                    properties: {
+                        address: { type: ["string", "null"] },
+                        balance: { type: "number", minimum: 0 },
+                        hash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+                    },
+                    required: ["address", "balance", "hash"]
+                };
+                window.validateVial = ajv.compile(vialSchema);
+                window.validateWallet = ajv.compile(walletSchema);
+                isSchemasInitialized = true;
+                logEvent('system', 'JSON schemas initialized', { stack: new Error().stack });
+            } catch (err) {
+                logEvent('error', `Schema Initialization Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Schema Error: ${err.message}`);
+                enableOfflineMode();
+            }
+        }
+
+        // Try to load local Ajv with detailed error handling
+        function tryLoadAjv() {
+            try {
+                if (isAjvLoading) {
+                    logEvent('warning', 'Ajv load skipped: Already in progress', { stack: new Error().stack });
+                    return;
+                }
+                isAjvLoading = true;
+                logEvent('system', 'Attempting to load Ajv', { stack: new Error().stack });
+                const script = document.createElement('script');
+                script.src = 'static/ajv.min.js';
+                script.async = true;
+                script.onerror = (error) => {
+                    logEvent('error', 'Ajv local failed', { error: error.message || 'Unknown error', path: 'static/ajv.min.js', stack: new Error().stack });
+                    const cdnScript = document.createElement('script');
+                    cdnScript.src = 'https://cdn.jsdelivr.net/npm/ajv@8.17.1/dist/ajv.min.js';
+                    cdnScript.async = true;
+                    cdnScript.onerror = () => {
+                        logEvent('error', 'Ajv CDN failed, using embedded fallback', { stack: new Error().stack });
+                        isAjvLoading = false;
+                        initializeSchemas();
+                    };
+                    cdnScript.onload = () => {
+                        logEvent('system', 'Ajv loaded from CDN', { stack: new Error().stack });
+                        isAjvLoading = false;
+                        initializeSchemas();
+                    };
+                    document.head.appendChild(cdnScript);
+                };
+                script.onload = () => {
+                    logEvent('system', 'Ajv loaded locally', { stack: new Error().stack });
+                    isAjvLoading = false;
+                    initializeSchemas();
+                };
+                document.head.appendChild(script);
+            } catch (err) {
+                logEvent('error', `Ajv Load Error: ${err.message}`, { stack: err.stack });
+                isAjvLoading = false;
+                initializeSchemas();
+            }
+        }
+
+        // Enhanced logEvent with deduplication
+        let lastLogMessage = null;
+        let lastLogTime = 0;
+        let lastLogId = 0;
+        window.logEvent = function(event_type, message, metadata) {
+            try {
+                const timestamp = new Date().toISOString();
+                const now = Date.now();
+                const logId = ++lastLogId;
+                const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim(); // Normalize by removing timestamp and ID
+                // Deduplicate based on normalized message and 300ms window
+                if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
+                lastLogMessage = baseMessage;
+                lastLogTime = now;
+                const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+                console.error(`${event_type}: ${message}`, { metadata, stack: new Error().stack });
+                window._earlyLogs = window._earlyLogs || [];
+                window._earlyLogs.push({ event_type, message: formattedMessage, metadata });
+                updateConsoleEarly(formattedMessage);
+            } catch (err) {
+                console.error(`Log Event Error: ${err.message}`);
+            }
+        };
+
+        // Global error handler for script errors
+        window.onerror = function(message, source, lineno, colno, error) {
+            logEvent('error', `Script Error: ${message}`, {
+                source,
+                lineno,
+                colno,
+                stack: error?.stack || 'No stack trace available'
+            });
+            showErrorNotification(`Script Error: ${message}`);
+            return true; // Prevent default browser error handling
+        };
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: monospace, sans-serif; }
+        html, body { height: 100vh; overflow: hidden; background: #000 !important; color: #0f0 !important; display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+        body.glow { background: rgba(255, 0, 0, 0.1) !important; box-shadow: 0 0 20px #ff0000; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1) !important; box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.6rem; text-align: center; margin: 0.8rem 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1) !important; border: 1px solid #0f0; padding: 0.6rem; flex: 1; max-height: calc(100vh - 380px); overflow-y: auto; margin: 0.5rem 0; border-radius: 5px; font-size: 0.8rem; position: relative; z-index: 5; }
+        #console.active-monitor { border-color: #ff0000 !important; box-shadow: 0 0 10px #ff0000; }
+        #console.active-train { border-color: #ff0 !important; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .command { font-family: 'Orbitron', monospace; font-weight: 700; text-shadow: 0 0 3px #0f0; }
+        #console .error { color: #ff0000 !important; text-shadow: 0 0 3px #ff0000; }
+        #console .balance { color: #00f !important; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8) !important; color: #fff !important; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
+        #error-notification.visible { display: block; }
+        #api-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000 !important; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0 !important; }
+        #api-popup.visible { display: block; }
+        #api-popup textarea { width: 100%; height: 100px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; resize: none; }
+        #api-popup button { background: #0f0 !important; color: #000 !important; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button:hover { background: #0c0 !important; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
+        button { background: #0f0 !important; color: #000 !important; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
+        button:hover, button:focus { background: #0c0 !important; outline: 2px solid #0f0; }
+        button.active-monitor { background: #ff0000 !important; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0 !important; color: #000 !important; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666 !important; cursor: not-allowed; }
+        #prompt-input { width: 90%; max-width: 900px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.6rem; font-size: 0.9rem; border-radius: 3px; margin: 0.5rem 0; }
+        #vial-stats, #vial-status-bars, #quantum-stats { width: 90%; max-width: 900px; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.2rem; z-index: 10; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 90px; font-size: 0.75rem; color: #0f0 !important; }
+        .progress-bar { flex: 1; height: 8px; background: #333 !important; border: 1px solid #0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #0f0 !important; transition: width 0.5s; }
+        .progress-fill.offline { background: #666 !important; }
+        .status-text { font-size: 0.75rem; color: #0f0 !important; width: 180px; text-align: right; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0 !important; background: rgba(0, 0, 0, 0.8) !important; z-index: 10; }
+        #file-input { display: none; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+            #console { font-size: 0.75rem; padding: 0.5rem; max-height: calc(100vh - 380px); }
+            button { padding: 0.5rem 1rem; font-size: 0.85rem; min-width: 80px; }
+            #prompt-input, #api-popup textarea { font-size: 0.85rem; padding: 0.5rem; }
+            .progress-label { width: 70px; font-size: 0.7rem; }
+            .progress-bar { height: 7px; }
+            .status-text { font-size: 0.7rem; width: 140px; }
+            #error-notification, #api-popup { font-size: 0.7rem; max-width: 250px; }
+        }
+        @media (max-width: 400px) {
+            .button-group { flex-direction: column; align-items: center; }
+            button { width: 100%; max-width: 160px; }
+            #console { max-height: calc(100vh - 320px); }
+            .status-text { width: 120px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Vial MCP Controller</h1>
+    <div id="console"></div>
+    <div id="error-notification"></div>
+    <div id="api-popup">
+        <h2>Inception Gateway</h2>
+        <textarea id="api-input" placeholder="Enter prompt for Inception Gateway..."></textarea>
+        <button id="api-submit">Submit</button>
+        <button id="api-close">Close</button>
+    </div>
+    <div class="button-group">
+        <button id="authButton" class="button">Authenticate</button>
+        <button id="voidButton" class="button">Void</button>
+        <button id="troubleshootButton" class="button">Troubleshoot</button>
+        <button id="trainButton" class="button" disabled>Train Vials</button>
+        <button id="exportButton" class="button" disabled>Export</button>
+        <button id="importButton" class="button" disabled>Import</button>
+        <button id="apiAccessButton" class="button" disabled>Gateway Access</button>
+    </div>
+    <textarea id="prompt-input" placeholder="Enter prompt for Inception Gateway..."></textarea>
+    <div id="vial-stats"></div>
+    <div id="vial-status-bars"></div>
+    <div id="quantum-stats"></div>
+    <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.3</footer>
+    <input type="file" id="file-input" accept=".md">
+    <script>
+        // Global state
+        let logQueue = ['<p>Vial MCP Controller initialized</p>', '<p class="balance">$WEBXOS Balance: 0.0000</p>'];
+        let isAuthenticated = false;
+        let masterKey = null;
+        let walletKey = null;
+        let agenticNetworkId = null;
+        let isOffline = false;
+        let vials = Array(4).fill().map((_, i) => ({
+            id: `vial${i+1}`,
+            status: 'stopped',
+            code: 'import torch\nimport torch.nn as nn\n\nclass VialAgent(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent()',
+            codeLength: 0,
+            isPython: true,
+            webxosHash: generateUUID(),
+            wallet: { address: null, balance: 0, hash: null },
+            tasks: [],
+            quantumState: null
+        }));
+        let wallet = { address: null, balance: 0, hash: null };
+        const serverUrl = 'http://localhost:8000';
+        let sessionStartTime = null;
+
+        // Redefine debouncedUpdateConsole for DOM access
+        let debouncedUpdateConsole = debounce(() => {
+            try {
+                const consoleDiv = document.getElementById('console');
+                if (!consoleDiv) throw new Error('Console element not found');
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            } catch (err) {
+                logEvent('error', `Console Update Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Console Error: ${err.message}`);
+            }
+        }, 100);
+
+        // UUID generator
+        function generateUUID() {
+            try {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                    const r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+            } catch (err) {
+                logEvent('error', `UUID Generation Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`UUID Error: ${err.message}`);
+                return '';
+            }
+        }
+
+        // Process early logs
+        if (window._earlyLogs) {
+            window._earlyLogs.forEach(({ event_type, message, metadata }) => {
+                try {
+                    const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+                    if (baseMessage === lastLogMessage && (Date.now() - lastLogTime) < 300) return;
+                    lastLogMessage = baseMessage;
+                    lastLogTime = Date.now();
+                    logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${message}</p>`);
+                    if (logQueue.length > 50) logQueue.shift();
+                    debouncedUpdateConsole();
+                    localStorage.setItem(`export_${Date.now()}`, JSON.stringify({ timestamp: new Date().toISOString(), event_type, message, metadata }));
+                    if (event_type === 'error') {
+                        showErrorNotification(message.replace(/^\[\S+\] /, ''));
+                    }
+                } catch (err) {
+                    console.error(`Early Log Processing Error: ${err.message}`);
+                }
+            });
+            delete window._earlyLogs;
+        }
+
+        // Update vial stats UI
+        function updateVialStatsUI() {
+            try {
+                const vialStats = document.getElementById('vial-stats');
+                if (!vialStats) throw new Error('Vial Stats element not found');
+                vialStats.innerHTML = vials.map(vial => {
+                    if (window.validateVial && !window.validateVial(vial)) {
+                        logEvent('warning', `Invalid vial data: ${JSON.stringify(window.validateVial.errors)}`, { vialId: vial.id });
+                        return '';
+                    }
+                    return `
+                        <div class="progress-container">
+                            <span class="progress-label">${vial.id}</span>
+                            <div class="progress-bar">
+                                <div class="progress-fill ${vial.status === 'stopped' ? 'offline' : ''}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                            </div>
+                            <span>${vial.status} | ${vial.wallet.balance.toFixed(4)}</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                logEvent('error', `Vial Stats UI Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Vial Stats Error: ${err.message}`);
+            }
+        }
+
+        // Update vial status bars
+        function updateVialStatusBars() {
+            try {
+                const vialStatusBars = document.getElementById('vial-status-bars');
+                if (!vialStatusBars) throw new Error('Vial Status Bars element not found');
+                vialStatusBars.innerHTML = vials.map(vial => {
+                    if (window.validateVial && !window.validateVial(vial)) {
+                        logEvent('warning', `Invalid vial data: ${JSON.stringify(window.validateVial.errors)}`, { vialId: vial.id });
+                        return '';
+                    }
+                    return `
+                        <div class="progress-container">
+                            <span class="progress-label">${vial.id}</span>
+                            <div class="progress-bar">
+                                <div class="progress-fill ${vial.status === 'stopped' ? 'offline' : ''}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                            </div>
+                            <span class="status-text">${vial.status} | ${vial.codeLength} bytes | ${vial.tasks.join(', ') || 'none'}</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                logEvent('error', `Vial Status Bars Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Status Bars Error: ${err.message}`);
+            }
+        }
+
+        // Update quantum stats
+        function updateQuantumStats() {
+            try {
+                const quantumStats = document.getElementById('quantum-stats');
+                if (!quantumStats) throw new Error('Quantum Stats element not found');
+                quantumStats.innerHTML = vials.map(vial => {
+                    if (!vial.quantumState) return '';
+                    return `
+                        <div class="progress-container">
+                            <span class="progress-label">${vial.id} Quantum</span>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${vial.quantumState.qubits?.length ? '100%' : '0%'};"></div>
+                            </div>
+                            <span class="status-text">${vial.quantumState.entanglement || 'None'} | ${vial.quantumState.qubits?.length || 0} qubits</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                logEvent('error', `Quantum Stats Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Quantum Stats Error: ${err.message}`);
+            }
+        }
+
+        // Update balance display
+        function updateBalanceDisplay() {
+            try {
+                if (window.validateWallet && !window.validateWallet(wallet)) {
+                    throw new Error(`Invalid wallet data: ${JSON.stringify(window.validateWallet.errors)}`);
+                }
+                const balanceIndex = logQueue.findIndex(log => log.includes('$WEBXOS Balance'));
+                if (balanceIndex !== -1) {
+                    logQueue[balanceIndex] = `<p class="balance">$WEBXOS Balance: ${wallet.balance.toFixed(4)} | Hash: ${wallet.hash || 'None'}</p>`;
+                } else {
+                    logQueue.push(`<p class="balance">$WEBXOS Balance: ${wallet.balance.toFixed(4)} | Hash: ${wallet.hash || 'None'}</p>`);
+                }
+                if (logQueue.length > 50) logQueue.shift();
+                debouncedUpdateConsole();
+            } catch (err) {
+                logEvent('error', `Balance Display Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Balance Error: ${err.message}`);
+            }
+        }
+
+        // Lockdown system
+        function lockdownSystem() {
+            try {
+                isAuthenticated = false;
+                isOffline = false;
+                masterKey = null;
+                walletKey = null;
+                agenticNetworkId = null;
+                wallet = { address: null, balance: 0, hash: null };
+                sessionStartTime = null;
+                document.querySelectorAll('button:not(#authButton):not(#voidButton):not(#troubleshootButton)').forEach(btn => {
+                    if (btn) btn.disabled = true;
+                });
+                logEvent('error', 'System Lockdown', { reason: 'Critical error detected' });
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+            } catch (err) {
+                logEvent('error', `Lockdown Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Lockdown Error: ${err.message}`);
+            }
+        }
+
+        // API call helper
+        async function apiCall(method, endpoint, data, headers = {}) {
+            try {
+                const isFormData = data instanceof FormData;
+                const response = await Promise.race([
+                    fetch(`${serverUrl}${endpoint}`, {
+                        method,
+                        headers: { 'Content-Type': isFormData ? 'multipart/form-data' : 'application/json', ...headers },
+                        body: isFormData ? data : data ? JSON.stringify(data) : undefined
+                    }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('API call timeout')), 5000))
+                ]);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${endpoint} failed - ${errorText}`);
+                }
+                const result = await response.json();
+                if (!result) throw new Error('Empty response from server');
+                return result;
+            } catch (err) {
+                const errorMessage = `API Error: ${err.message}`;
+                logEvent('error', errorMessage, { endpoint, fullUrl: `${serverUrl}${endpoint}`, stack: err.stack });
+                showErrorNotification(`${errorMessage}. Using offline mode.`);
+                enableOfflineMode();
+                throw err;
+            }
+        }
+
+        // Authenticate with backend validation
+        async function authenticate() {
+            try {
+                const data = await apiCall('POST', '/auth', {
+                    client: 'vial',
+                    deviceId: generateUUID(),
+                    sessionId: generateUUID(),
+                    networkId: generateUUID()
+                });
+                if (!data.token || !data.networkId || !data.wallet) throw new Error('Authentication failed: Invalid response');
+                masterKey = data.token;
+                agenticNetworkId = data.networkId;
+                sessionStartTime = new Date().toISOString();
+                walletKey = generateUUID();
+                wallet = data.wallet;
+                isAuthenticated = true;
+                vials.forEach(vial => {
+                    vial.wallet = { address: generateUUID(), balance: wallet.balance / 4, hash: data.wallet.hash };
+                    vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                });
+                const authButton = document.getElementById('authButton');
+                if (authButton) authButton.classList.add('active-monitor');
+                ['trainButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) btn.disabled = false;
+                });
+                logEvent('auth', 'Authentication successful. Quantum network allocated.', { networkId: agenticNetworkId });
+                updateVialStatsUI();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+            } catch (err) {
+                logEvent('error', `Authentication Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Auth Error: ${err.message}`);
+                enableOfflineMode();
+            }
+        }
+
+        // Void
+        async function voidVials() {
+            try {
+                if (masterKey !== 'offline') {
+                    await apiCall('POST', '/void', {}, { 'Authorization': `Bearer ${masterKey}` });
+                }
+                isAuthenticated = false;
+                isOffline = false;
+                masterKey = null;
+                walletKey = null;
+                agenticNetworkId = null;
+                wallet = { address: null, balance: 0, hash: null };
+                sessionStartTime = null;
+                vials = Array(4).fill().map((_, i) => ({
+                    id: `vial${i+1}`,
+                    status: 'stopped',
+                    code: 'import torch\nimport torch.nn as nn\n\nclass VialAgent(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent()',
+                    codeLength: 0,
+                    isPython: true,
+                    webxosHash: generateUUID(),
+                    wallet: { address: null, balance: 0, hash: null },
+                    tasks: [],
+                    quantumState: null
+                }));
+                const authButton = document.getElementById('authButton');
+                if (authButton) authButton.classList.remove('active-monitor');
+                ['trainButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) btn.disabled = true;
+                });
+                logQueue = ['<p>Vial MCP Controller initialized</p>', '<p class="balance">$WEBXOS Balance: 0.0000</p>'];
+                debouncedUpdateConsole();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+                logEvent('void', 'All data voided', {});
+            } catch (err) {
+                logEvent('error', `Void Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Void Error: ${err.message}`);
+            }
+        }
+
+        // Troubleshoot
+        async function troubleshoot() {
+            try {
+                const data = await apiCall('GET', '/health');
+                logEvent('diagnostics', `Troubleshoot: Server ${data.status === 'ok' ? 'online' : 'offline'}`, {});
+            } catch (err) {
+                logEvent('error', `Troubleshoot Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Troubleshoot Error: ${err.message}`);
+            }
+        }
+
+        // Train Vials
+        async function trainVials() {
+            try {
+                if (!isAuthenticated) throw new Error('Not authenticated');
+                const fileInput = document.getElementById('file-input');
+                if (!fileInput?.files?.length) throw new Error('Please select a .md file before training');
+                const file = fileInput.files[0];
+                if (!file.name.endsWith('.md')) throw new Error('Only .md files allowed');
+                if (file.size > 1024 * 1024) throw new Error('File size exceeds 1MB');
+                const inputData = await file.text();
+                const formData = new FormData();
+                formData.append('networkId', agenticNetworkId || '');
+                formData.append('file', file);
+                const trainButton = document.getElementById('trainButton');
+                const consoleDiv = document.getElementById('console');
+                if (trainButton) trainButton.classList.add('active-train');
+                if (consoleDiv) consoleDiv.classList.add('active-train');
+                document.body.classList.add('train-glow');
+                logEvent('training', 'Training started via Inception Gateway', { networkId: agenticNetworkId });
+                const data = isOffline 
+                    ? { vials: Object.fromEntries(vials.map(vial => [vial.id, vial])), balance: 0.0004, walletHash: 'offline'.repeat(8), quantumData: { qubits: [], entanglement: 'offline' } }
+                    : await apiCall('POST', '/train', formData, { 'Authorization': `Bearer ${masterKey}` });
+                const { vials: updatedVials, balance, walletHash, quantumData } = data;
+                wallet.balance += balance || 0;
+                wallet.hash = walletHash || wallet.hash;
+                vials.forEach(vial => {
+                    const updatedVial = updatedVials[vial.id] || { id: vial.id };
+                    vial.code = inputData;
+                    vial.codeLength = inputData.length;
+                    vial.isPython = true;
+                    vial.status = 'running';
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = walletHash || 'offline'.repeat(8);
+                    vial.tasks = updatedVial.tasks || [`task_${generateUUID()}`];
+                    vial.quantumState = quantumData || { qubits: [], entanglement: 'trained' };
+                    if (window.validateVial && !window.validateVial(vial)) {
+                        throw new Error(`Invalid vial data after training: ${JSON.stringify(window.validateVial.errors)}`);
+                    }
+                    logEvent('training', `Trained vial ${vial.id} with tasks ${vial.tasks.join(', ')}`, { webxosHash: vial.webxosHash, quantumState: vial.quantumState });
+                });
+                if (window.validateWallet && !window.validateWallet(wallet)) {
+                    throw new Error(`Invalid wallet data: ${JSON.stringify(window.validateWallet.errors)}`);
+                }
+                if (trainButton) trainButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                logEvent('training', `Training completed. Earned ${balance.toFixed(4)} $WEBXOS`, { networkId: agenticNetworkId });
+                updateVialStatsUI();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+            } catch (err) {
+                const trainButton = document.getElementById('trainButton');
+                const consoleDiv = document.getElementById('console');
+                if (trainButton) trainButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                logEvent('error', `Train Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Train Error: ${err.message}`);
+            }
+        }
+
+        // Export vials and wallet
+        async function exportVials() {
+            try {
+                if (!isAuthenticated) throw new Error('Not authenticated');
+                const data = isOffline 
+                    ? {
+                        markdown: `# WebXOS Vial and Wallet Export\n\n## Agentic Network\n- Network ID: ${agenticNetworkId || 'none'}\n- Session Start: ${sessionStartTime || 'none'}\n- Session Duration: ${sessionStartTime ? ((new Date() - new Date(sessionStartTime)) / 1000).toFixed(2) : '0.00'} seconds\n\n## Wallet\n- Wallet Key: ${walletKey || 'none'}\n- Session Balance: ${wallet.balance.toFixed(4)} $WEBXOS\n- Address: ${wallet.address || 'offline'}\n- Hash: ${wallet.hash || 'none'}\n\n## Vials\n${vials.map(vial => {
+                            if (window.validateVial && !window.validateVial(vial)) {
+                                throw new Error(`Invalid vial data: ${JSON.stringify(window.validateVial.errors)}`);
+                            }
+                            return `# Vial Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $WEBXOS Hash: ${vial.webxosHash}\n- Wallet Balance: ${vial.wallet.balance.toFixed(4)} $WEBXOS\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${JSON.stringify(vial.quantumState || {})}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`;
+                        }).join('---\n\n')}\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button in Vial MCP Controller to resume training.\n- **Extend**: Modify agent code in external projects, then reimport.\n- **Cash Out**: $WEBXOS balance is tied to the wallet address and hash for secure verification.\n\nGenerated by Vial MCP Controller`
+                    }
+                    : await apiCall('GET', `/export?networkId=${agenticNetworkId}`, null, { 'Authorization': `Bearer ${masterKey}` });
+                const blob = new Blob([data.markdown], { type: 'text/markdown' });
+                localStorage.setItem(`export_${Date.now()}`, data.markdown);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+                logEvent('export', 'Exported vials and wallet as Markdown', { networkId: agenticNetworkId });
+            } catch (err) {
+                logEvent('error', `Export Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Export Error: ${err.message}`);
+            }
+        }
+
+        // Import and validate .md file
+        async function importFile() {
+            try {
+                if (!isAuthenticated) throw new Error('Not authenticated');
+                const fileInput = document.getElementById('file-input');
+                if (!fileInput?.files?.length) throw new Error('No file selected');
+                const file = fileInput.files[0];
+                if (!file.name.endsWith('.md')) throw new Error('Only .md files allowed');
+                if (file.size > 1024 * 1024) throw new Error('File size exceeds 1MB');
+                const text = await file.text();
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('networkId', agenticNetworkId || '');
+                const data = isOffline 
+                    ? await parseImportedMD(file)
+                    : await apiCall('POST', '/upload', formData, { 'Authorization': `Bearer ${masterKey}` });
+                logEvent('import', `File imported and validated`, { networkId: agenticNetworkId });
+                fileInput.value = '';
+            } catch (err) {
+                logEvent('error', `Import Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Import Error: ${err.message}`);
+            }
+        }
+
+        // Parse imported .md file
+        async function parseImportedMD(file) {
+            try {
+                const text = await file.text();
+                if (!text.includes('## Agentic Network')) throw new Error('Invalid .md format: Missing Agentic Network section');
+                const lines = text.split('\n');
+                let currentVial = null;
+                let newVials = [];
+                let newWallet = { address: null, balance: 0, hash: null };
+                let newNetworkId = null;
+                let inCodeBlock = false;
+                let codeBlock = [];
+
+                for (let line of lines) {
+                    try {
+                        if (line.startsWith('## Agentic Network')) continue;
+                        else if (line.match(/^- Network ID: ([\w-]+)/)) {
+                            newNetworkId = line.match(/^- Network ID: ([\w-]+)/)[1];
+                        } else if (line.startsWith('## Wallet')) continue;
+                        else if (line.match(/^- Wallet Key: ([\w-]+)/)) {
+                            walletKey = line.match(/^- Wallet Key: ([\w-]+)/)[1];
+                        } else if (line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/)) {
+                            newWallet.balance = parseFloat(line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                        } else if (line.match(/^- Address: ([\w-]+)/)) {
+                            newWallet.address = line.match(/^- Address: ([\w-]+)/)[1];
+                        } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
+                            newWallet.hash = line.match(/^- Hash: ([0-9a-f]{64})/)[1];
+                        } else if (line.match(/^# Vial Agent: vial\d/)) {
+                            if (currentVial) newVials.push(currentVial);
+                            currentVial = {
+                                id: line.match(/^# Vial Agent: (vial\d)/)[1],
+                                status: 'stopped',
+                                code: '',
+                                codeLength: 0,
+                                isPython: true,
+                                webxosHash: generateUUID(),
+                                wallet: { address: null, balance: 0, hash: null },
+                                tasks: [],
+                                quantumState: null
+                            };
+                        } else if (line.match(/^- Status: (\w+)/)) {
+                            currentVial.status = line.match(/^- Status: (\w+)/)[1];
+                        } else if (line.match(/^- Language: (\w+)/)) {
+                            currentVial.isPython = line.match(/^- Language: (\w+)/)[1] === 'Python';
+                        } else if (line.match(/^- Code Length: (\d+) bytes/)) {
+                            currentVial.codeLength = parseInt(line.match(/^- Code Length: (\d+) bytes/)[1]) || 0;
+                        } else if (line.match(/^- \$WEBXOS Hash: ([\w-]+)/)) {
+                            currentVial.webxosHash = line.match(/^- \$WEBXOS Hash: ([\w-]+)/)[1];
+                        } else if (line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/)) {
+                            currentVial.wallet.balance = parseFloat(line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                        } else if (line.match(/^- Wallet Address: ([\w-]+)/)) {
+                            currentVial.wallet.address = line.match(/^- Wallet Address: ([\w-]+)/)[1];
+                        } else if (line.match(/^- Wallet Hash: ([0-9a-f]{64})/)) {
+                            currentVial.wallet.hash = line.match(/^- Wallet Hash: ([0-9a-f]{64})/)[1];
+                        } else if (line.match(/^- Tasks: ([\w-, ]+)/)) {
+                            currentVial.tasks = line.match(/^- Tasks: ([\w-, ]+)/)[1].split(',').map(t => t.trim()).filter(t => t);
+                        } else if (line.match(/^- Quantum State: ({.+})/)) {
+                            currentVial.quantumState = JSON.parse(line.match(/^- Quantum State: ({.+})/)[1]);
+                        } else if (line.match(/^```(python|javascript)$/)) {
+                            inCodeBlock = true;
+                            codeBlock = [];
+                        } else if (line.match(/^```$/) && inCodeBlock) {
+                            inCodeBlock = false;
+                            currentVial.code = codeBlock.join('\n');
+                        } else if (inCodeBlock) {
+                            codeBlock.push(line);
+                        }
+                    } catch (err) {
+                        logEvent('error', `Parse MD Line Error: ${err.message}`, { line, stack: err.stack });
+                    }
+                }
+                if (currentVial) newVials.push(currentVial);
+                if (newVials.length !== 4) throw new Error('Invalid .md format, expected 4 vials');
+                newVials.forEach(vial => {
+                    if (window.validateVial && !window.validateVial(vial)) {
+                        throw new Error(`Invalid vial data: ${JSON.stringify(window.validateVial.errors)}`);
+                    }
+                });
+                if (window.validateWallet && !window.validateWallet(newWallet)) {
+                    throw new Error(`Invalid wallet data: ${JSON.stringify(window.validateWallet.errors)}`);
+                }
+                const hashResponse = isOffline 
+                    ? { valid: true }
+                    : await apiCall('POST', '/validate_wallet', { hash: newWallet.hash }, { 'Authorization': `Bearer ${masterKey}` });
+                if (!hashResponse.valid) throw new Error('Invalid $WEBXOS wallet hash');
+                vials = newVials;
+                wallet = newWallet;
+                agenticNetworkId = newNetworkId;
+                localStorage.setItem(`export_${Date.now()}`, text);
+                logEvent('import', 'Imported agentic network from .md', { networkId: agenticNetworkId });
+                updateVialStatsUI();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+                return { success: true };
+            } catch (err) {
+                logEvent('error', `Import Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Import Error: ${err.message}`);
+                throw err;
+            }
+        }
+
+        // API Access (Show popup)
+        function showApiPopup() {
+            try {
+                if (!isAuthenticated) throw new Error('Not authenticated');
+                const apiPopup = document.getElementById('api-popup');
+                if (!apiPopup) throw new Error('API popup element not found');
+                apiPopup.classList.add('visible');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput) apiInput.focus();
+            } catch (err) {
+                logEvent('error', `API Popup Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`API Popup Error: ${err.message}`);
+            }
+        }
+
+        // API Access (Submit prompt)
+        async function sendPrompt() {
+            try {
+                if (!isAuthenticated) throw new Error('Not authenticated');
+                const apiInput = document.getElementById('api-input');
+                if (!apiInput) throw new Error('API input element not found');
+                const prompt = apiInput.value.trim();
+                if (!prompt) throw new Error('No prompt entered');
+                const data = isOffline 
+                    ? { response: 'Offline mode: Simulated quantum response' }
+                    : await apiCall('POST', '/gateway', {
+                        message: prompt,
+                        network_id: agenticNetworkId || ''
+                    }, { 'Authorization': `Bearer ${masterKey}` });
+                logEvent('comms', `Gateway Response: ${JSON.stringify(data.response || 'No response')}`, { networkId: agenticNetworkId });
+                apiInput.value = '';
+                const apiPopup = document.getElementById('api-popup');
+                if (apiPopup) apiPopup.classList.remove('visible');
+            } catch (err) {
+                logEvent('error', `Gateway Access Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Gateway Access Error: ${err.message}`);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                if (isInitialized) {
+                    logEvent('warning', 'Initialization skipped: Already initialized', { stack: new Error().stack });
+                    return;
+                }
+                isInitialized = true;
+                logEvent('system', 'Vial MCP Controller initializing', { stack: new Error().stack });
+                tryLoadAjv();
+                updateVialStatusBars();
+                updateQuantumStats();
+                updateBalanceDisplay();
+                const elements = {
+                    authButton: document.getElementById('authButton'),
+                    voidButton: document.getElementById('voidButton'),
+                    troubleshootButton: document.getElementById('troubleshootButton'),
+                    trainButton: document.getElementById('trainButton'),
+                    exportButton: document.getElementById('exportButton'),
+                    importButton: document.getElementById('importButton'),
+                    apiAccessButton: document.getElementById('apiAccessButton'),
+                    fileInput: document.getElementById('file-input'),
+                    apiSubmit: document.getElementById('api-submit'),
+                    apiClose: document.getElementById('api-close')
+                };
+
+                if (!Object.values(elements).every(el => el || el === null)) {
+                    throw new Error('One or more DOM elements not found');
+                }
+
+                logEvent('system', 'Registering event listeners', { stack: new Error().stack });
+
+                elements.authButton?.addEventListener('click', () => {
+                    try { authenticate(); } catch (err) { logEvent('error', `Auth Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Auth Error: ${err.message}`); }
+                });
+                elements.voidButton?.addEventListener('click', () => {
+                    try { voidVials(); } catch (err) { logEvent('error', `Void Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Void Error: ${err.message}`); }
+                });
+                elements.troubleshootButton?.addEventListener('click', () => {
+                    try { troubleshoot(); } catch (err) { logEvent('error', `Troubleshoot Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Troubleshoot Error: ${err.message}`); }
+                });
+                elements.trainButton?.addEventListener('click', () => {
+                    try { trainVials(); } catch (err) { logEvent('error', `Train Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Train Error: ${err.message}`); }
+                });
+                elements.exportButton?.addEventListener('click', () => {
+                    try { exportVials(); } catch (err) { logEvent('error', `Export Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Export Error: ${err.message}`); }
+                });
+                elements.importButton?.addEventListener('click', () => {
+                    try { if (elements.fileInput) elements.fileInput.click(); } catch (err) { logEvent('error', `Import Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Import Error: ${err.message}`); }
+                });
+                elements.apiAccessButton?.addEventListener('click', () => {
+                    try { showApiPopup(); } catch (err) { logEvent('error', `Gateway Access Click Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Gateway Access Error: ${err.message}`); }
+                });
+                elements.apiSubmit?.addEventListener('click', () => {
+                    try { sendPrompt(); } catch (err) { logEvent('error', `Gateway Submit Error: ${err.message}`, { stack: err.stack }); showErrorNotification(`Gateway Submit Error: ${err.message}`); }
+                });
+                elements.apiClose?.addEventListener('click', () => {
+                    try {
+                        const apiPopup = document.getElementById('api-popup');
+                        if (apiPopup) apiPopup.classList.remove('visible');
+                    } catch (err) {
+                        logEvent('error', `Gateway Close Error: ${err.message}`, { stack: err.stack });
+                        showErrorNotification(`Gateway Close Error: ${err.message}`);
+                    }
+                });
+                elements.fileInput?.addEventListener('click', () => {
+                    try {
+                        logEvent('file', 'File input clicked', { networkId: agenticNetworkId });
+                    } catch (err) {
+                        logEvent('error', `File Input Click Error: ${err.message}`, { stack: err.stack });
+                        showErrorNotification(`File Input Click Error: ${err.message}`);
+                    }
+                });
+                elements.fileInput?.addEventListener('change', () => {
+                    try {
+                        logEvent('file', 'File selected', { networkId: agenticNetworkId });
+                        if (elements.fileInput.files[0]?.name.endsWith('.md')) {
+                            importFile();
+                        } else {
+                            throw new Error('Invalid file type');
+                        }
+                    } catch (err) {
+                        logEvent('error', `File Input Error: ${err.message}`, { stack: err.stack });
+                        showErrorNotification(`File Input Error: ${err.message}`);
+                    }
+                });
+
+                logEvent('system', 'Event listeners registered', { stack: new Error().stack });
+                logEvent('system', 'Vial MCP Controller initialized', { stack: new Error().stack });
+            } catch (err) {
+                logEvent('error', `Initialization Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Initialization Error: ${err.message}`);
+            }
+        }, { once: true });
+    </script>
+</body>
+</html>
