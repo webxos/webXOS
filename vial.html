@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP Controller</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
+        html, body { height: 100vh; overflow: hidden; background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+        body.glow { background: rgba(255, 0, 0, 0.1); box-shadow: 0 0 20px #ff0000; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1); box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.6rem; text-align: center; margin: 0.8rem 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1); border: 1px solid #0f0; padding: 0.6rem; flex: 1; max-height: calc(100vh - 380px); overflow-y: auto; margin: 0.5rem 0; border-radius: 5px; font-size: 0.8rem; position: relative; z-index: 5; }
+        #console.active-monitor { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        #console.active-train { border-color: #ff0; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .command { font-weight: 700; text-shadow: 0 0 3px #0f0; }
+        #console .error { color: #ff0000; text-shadow: 0 0 3px #ff0000; }
+        #console .balance { color: #00f; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8); color: #fff; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
+        #error-notification.visible { display: block; }
+        #api-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0; }
+        #api-popup.visible { display: block; }
+        #api-popup textarea { width: 100%; height: 100px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; resize: none; }
+        #api-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button:hover { background: #0c0; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
+        button { background: #0f0; color: #000; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
+        button:hover, button:focus { background: #0c0; outline: 2px solid #0f0; }
+        button.active-monitor { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0; color: #000; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        #prompt-input { width: 90%; max-width: 900px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.6rem; font-size: 0.9rem; border-radius: 3px; margin: 0.5rem 0; }
+        #vial-status-bars { width: 90%; max-width: 900px; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.2rem; z-index: 10; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 90px; font-size: 0.75rem; color: #0f0; }
+        .progress-bar { flex: 1; height: 8px; background: #333; border: 1px solid #0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #0f0; transition: width 0.5s; }
+        .progress-fill.offline { background: #666; }
+        .status-text { font-size: 0.75rem; color: #0f0; width: 180px; text-align: right; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0; background: rgba(0, 0, 0, 0.8); z-index: 10; }
+        #file-input { display: none; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+            #console { font-size: 0.75rem; padding: 0.5rem; max-height: calc(100vh - 380px); }
+            button { padding: 0.5rem 1rem; font-size: 0.85rem; min-width: 80px; }
+            #prompt-input, #api-popup textarea { font-size: 0.85rem; padding: 0.5rem; }
+            .progress-label { width: 70px; font-size: 0.7rem; }
+            .progress-bar { height: 7px; }
+            .status-text { font-size: 0.7rem; width: 140px; }
+            #error-notification, #api-popup { font-size: 0.7rem; max-width: 250px; }
+        }
+        @media (max-width: 400px) {
+            .button-group { flex-direction: column; align-items: center; }
+            button { width: 100%; max-width: 160px; }
+            #console { max-height: calc(100vh - 320px); }
+            .status-text { width: 120px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Vial MCP Controller</h1>
+    <div id="console">
+        <p>Vial MCP Controller initialized</p>
+        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
+    </div>
+    <div id="error-notification"></div>
+    <div id="api-popup">
+        <h2>Inception Gateway</h2>
+        <textarea id="api-input" placeholder="Enter prompt for Inception Gateway..."></textarea>
+        <button id="api-submit">Submit</button>
+        <button id="api-close">Close</button>
+    </div>
+    <div class="button-group">
+        <button id="authButton">Authenticate</button>
+        <button id="voidButton">Void</button>
+        <button id="troubleshootButton">Troubleshoot</button>
+        <button id="trainButton" disabled>Train Vials</button>
+        <button id="exportButton" disabled>Export</button>
+        <button id="importButton" disabled>Import</button>
+        <button id="apiAccessButton" disabled>Gateway Access</button>
+    </div>
+    <textarea id="prompt-input" placeholder="Enter git commands for Inception Gateway..."></textarea>
+    <div id="vial-status-bars"></div>
+    <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.2</footer>
+    <input type="file" id="file-input" accept=".md">
+    <script>
+        // Agent templates (simulating vial/agents/agent1.py to agent4.py)
+        const agentTemplates = [
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent1(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent1()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent2(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(20, 2)\n    def forward(self, x):\n        return torch.relu(self.fc(x))\n\nmodel = VialAgent2()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent3(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(15, 3)\n    def forward(self, x):\n        return torch.tanh(self.fc(x))\n\nmodel = VialAgent3()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent4(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(25, 4)\n    def forward(self, x):\n        return torch.softmax(self.fc(x), dim=1)\n\nmodel = VialAgent4()`
+        ];
+
+        // Global state
+        let logQueue = ['<p>Vial MCP Controller initialized</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+        let isAuthenticated = false;
+        let masterKey = null;
+        let walletKey = null;
+        let agenticNetworkId = null;
+        let isOffline = true; // Default to offline mode
+        let tokenInterval = null;
+        let reputation = 0;
+        let blockchain = []; // Simulated blockchain for $WEBXOS transactions
+        let vials = Array(4).fill().map((_, i) => ({
+            id: `vial${i+1}`,
+            status: 'stopped',
+            code: agentTemplates[i],
+            codeLength: agentTemplates[i].length,
+            isPython: true,
+            webxosHash: generateUUID(),
+            wallet: { address: null, balance: 0, hash: null },
+            tasks: [],
+            quantumState: null,
+            trainingData: [] // Store parsed .md data
+        }));
+        let wallet = { address: null, balance: 0, hash: null };
+        let lastLogMessage = null;
+        let lastLogTime = 0;
+        let lastLogId = 0;
+
+        // UUID generator
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        // AES-256 encryption
+        async function encryptData(data) {
+            const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encoded = new TextEncoder().encode(data);
+            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+            return { encrypted: Array.from(new Uint8Array(encrypted)), iv: Array.from(iv) };
+        }
+
+        // SHA-256 hash
+        async function sha256(data) {
+            const encoded = new TextEncoder().encode(data);
+            const hash = await crypto.subtle.digest('SHA-256', encoded);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Sanitize input
+        function sanitizeInput(input) {
+            return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                        .replace(/[<>{}]/g, '');
+        }
+
+        // Validate .md format
+        function validateMarkdown(mdContent) {
+            if (!mdContent.includes('## Agentic Network') || mdContent.includes('<script')) {
+                return false;
+            }
+            return true;
+        }
+
+        // Parse .md for training data
+        function parseMarkdownForTraining(mdContent) {
+            const lines = mdContent.split('\n');
+            let tasks = [];
+            let parameters = {};
+            let inTaskSection = false;
+            for (let line of lines) {
+                if (line.startsWith('## Tasks')) {
+                    inTaskSection = true;
+                } else if (inTaskSection && line.startsWith('- ')) {
+                    tasks.push(line.slice(2).trim());
+                } else if (line.match(/^- Parameter: (\w+): (.+)/)) {
+                    const [, key, value] = line.match(/^- Parameter: (\w+): (.+)/);
+                    parameters[key] = value;
+                }
+            }
+            return { tasks, parameters };
+        }
+
+        // Simulate blockchain transaction
+        async function addToBlockchain(type, data) {
+            const timestamp = new Date().toISOString();
+            const prevHash = blockchain.length ? blockchain[blockchain.length - 1].hash : '0'.repeat(64);
+            const hash = await sha256(`${type}${JSON.stringify(data)}${timestamp}${prevHash}`);
+            const block = { type, data, timestamp, prevHash, hash };
+            blockchain.push(block);
+            return hash;
+        }
+
+        // Debounce utility
+        function debounce(func, wait) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        // Log event with deduplication
+        function logEvent(event_type, message, metadata = {}) {
+            const timestamp = new Date().toISOString();
+            const now = Date.now();
+            const logId = ++lastLogId;
+            const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+            if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
+            lastLogMessage = baseMessage;
+            lastLogTime = now;
+            const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+            logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+            console.log(`${event_type}: ${message}`, metadata);
+        }
+
+        // Error notification
+        function showErrorNotification(message) {
+            const errorNotification = document.getElementById('error-notification');
+            if (errorNotification) {
+                errorNotification.textContent = message;
+                errorNotification.classList.add('visible');
+                setTimeout(() => errorNotification.classList.remove('visible'), 5000);
+            } else {
+                console.error(`Notification: ${message}`);
+            }
+        }
+
+        // Update console
+        const debouncedUpdateConsole = debounce(() => {
+            const consoleDiv = document.getElementById('console');
+            if (consoleDiv) {
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+        }, 100);
+
+        // Update vial status bars
+        function updateVialStatusBars() {
+            const vialStatusBars = document.getElementById('vial-status-bars');
+            if (!vialStatusBars) return;
+            vialStatusBars.innerHTML = vials.map(vial => `
+                <div class="progress-container">
+                    <span class="progress-label">${vial.id}</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill ${vial.status === 'stopped' ? 'offline' : ''}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                    </div>
+                    <span class="status-text">${vial.status} | ${vial.codeLength} bytes | ${vial.tasks.join(', ') || 'none'}</span>
+                </div>
+            `).join('');
+        }
+
+        // Update balance and reputation display
+        function updateBalanceDisplay() {
+            const balanceIndex = logQueue.findIndex(log => log.includes('$WEBXOS Balance'));
+            if (balanceIndex !== -1) {
+                logQueue[balanceIndex] = `<p class="balance">$WEBXOS Balance: ${wallet.balance.toFixed(4)} | Reputation: ${reputation}</p>`;
+            } else {
+                logQueue.push(`<p class="balance">$WEBXOS Balance: ${wallet.balance.toFixed(4)} | Reputation: ${reputation}</p>`);
+            }
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+        }
+
+        // Earn tokens and reputation
+        function startTokenEarning() {
+            if (tokenInterval) clearInterval(tokenInterval);
+            tokenInterval = setInterval(async () => {
+                if (!isAuthenticated) {
+                    clearInterval(tokenInterval);
+                    disableFunctions();
+                    logEvent('error', 'Authentication lost. Token earning stopped.', {});
+                    return;
+                }
+                wallet.balance += 1;
+                reputation += 1;
+                const blockHash = await addToBlockchain('token_earn', { wallet: wallet.address, amount: 1, reputation });
+                vials.forEach(vial => {
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = blockHash;
+                });
+                wallet.hash = blockHash;
+                logEvent('token', `Earned 1 $WEBXOS | Reputation: ${reputation} | Block: ${blockHash.slice(0, 8)}...`, { wallet: wallet.address });
+                updateBalanceDisplay();
+            }, 10000);
+        }
+
+        // Disable functions on auth loss
+        function disableFunctions() {
+            ['trainButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = true;
+            });
+            const authButton = document.getElementById('authButton');
+            if (authButton) authButton.classList.remove('active-monitor');
+            clearInterval(tokenInterval);
+        }
+
+        // Authenticate
+        async function authenticate() {
+            agenticNetworkId = generateUUID();
+            masterKey = 'offline';
+            walletKey = generateUUID();
+            wallet = { address: generateUUID(), balance: 0, hash: await sha256(agenticNetworkId) };
+            reputation = 0;
+            isAuthenticated = true;
+            isOffline = true;
+            blockchain = [];
+            await addToBlockchain('auth', { wallet: wallet.address, networkId: agenticNetworkId });
+            vials.forEach((vial, i) => {
+                vial.wallet = { address: generateUUID(), balance: 0, hash: wallet.hash };
+                vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                vial.code = agentTemplates[i];
+                vial.codeLength = agentTemplates[i].length;
+                vial.trainingData = [];
+                vial.tasks = [];
+            });
+            const authButton = document.getElementById('authButton');
+            if (authButton) authButton.classList.add('active-monitor');
+            ['trainButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = false;
+            });
+            logEvent('auth', 'Authentication successful. Quantum network allocated.', { networkId: agenticNetworkId });
+            startTokenEarning();
+            updateVialStatusBars();
+            updateBalanceDisplay();
+        }
+
+        // Void
+        function voidVials() {
+            isAuthenticated = false;
+            isOffline = false;
+            masterKey = null;
+            walletKey = null;
+            agenticNetworkId = null;
+            wallet = { address: null, balance: 0, hash: null };
+            reputation = 0;
+            blockchain = [];
+            vials = Array(4).fill().map((_, i) => ({
+                id: `vial${i+1}`,
+                status: 'stopped',
+                code: agentTemplates[i],
+                codeLength: agentTemplates[i].length,
+                isPython: true,
+                webxosHash: generateUUID(),
+                wallet: { address: null, balance: 0, hash: null },
+                tasks: [],
+                quantumState: null,
+                trainingData: []
+            }));
+            disableFunctions();
+            logQueue = ['<p>Vial MCP Controller initialized</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+            debouncedUpdateConsole();
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            logEvent('void', 'All data voided', {});
+        }
+
+        // Troubleshoot
+        function troubleshoot() {
+            logEvent('diagnostics', 'Troubleshoot: System in offline mode. Blockchain integrity verified.', { blockchainLength: blockchain.length });
+        }
+
+        // Train Vials
+        async function trainVials() {
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput?.files?.length) {
+                showErrorNotification('Please select a .md file before training');
+                return;
+            }
+            const file = fileInput.files[0];
+            if (!file.name.match(/\.md$/)) {
+                showErrorNotification('Only .md files allowed');
+                logEvent('error', 'Invalid file type', { file: file.name });
+                return;
+            }
+            if (file.size > 1024 * 1024) {
+                showErrorNotification('File size exceeds 1MB');
+                logEvent('error', 'File size exceeds limit', { size: file.size });
+                return;
+            }
+            try {
+                const inputData = await file.text();
+                const sanitizedData = sanitizeInput(inputData);
+                if (!validateMarkdown(sanitizedData)) {
+                    showErrorNotification('Invalid .md format or malicious content detected');
+                    logEvent('error', 'Invalid Markdown format', {});
+                    return;
+                }
+                const trainButton = document.getElementById('trainButton');
+                const consoleDiv = document.getElementById('console');
+                if (trainButton) trainButton.classList.add('active-train');
+                if (consoleDiv) consoleDiv.classList.add('active-train');
+                document.body.classList.add('train-glow');
+                const { tasks, parameters } = parseMarkdownForTraining(sanitizedData);
+                const encryptedData = await encryptData(sanitizedData);
+                const blockHash = await addToBlockchain('train', { tasks, parameters, encryptedData });
+                vials.forEach(vial => {
+                    vial.trainingData.push({ tasks, parameters, hash: blockHash });
+                    vial.codeLength += sanitizedData.length;
+                    vial.status = 'running';
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = blockHash;
+                    vial.tasks = [...new Set([...vial.tasks, ...tasks])];
+                    vial.quantumState = { qubits: [], entanglement: 'trained' };
+                });
+                logEvent('training', 'Training completed. Data integrated.', { networkId: agenticNetworkId, blockHash });
+                setTimeout(() => {
+                    if (trainButton) trainButton.classList.remove('active-train');
+                    if (consoleDiv) consoleDiv.classList.remove('active-train');
+                    document.body.classList.remove('train-glow');
+                    updateVialStatusBars();
+                    updateBalanceDisplay();
+                }, 1000);
+            } catch (err) {
+                const trainButton = document.getElementById('trainButton');
+                const consoleDiv = document.getElementById('console');
+                if (trainButton) trainButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                logEvent('error', `Train Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Train Error: ${err.message}`);
+            }
+        }
+
+        // Export Vials
+        async function exportVials() {
+            const data = {
+                markdown: `# WebXOS Vial and Wallet Export\n\n## Agentic Network\n- Network ID: ${agenticNetworkId || 'none'}\n- Session Start: ${new Date().toISOString()}\n- Session Duration: 0.00 seconds\n- Reputation: ${reputation}\n\n## Wallet\n- Wallet Key: ${walletKey || 'none'}\n- Session Balance: ${wallet.balance.toFixed(4)} $WEBXOS\n- Address: ${wallet.address || 'offline'}\n- Hash: ${wallet.hash || 'none'}\n\n## Blockchain\n- Blocks: ${blockchain.length}\n- Last Hash: ${blockchain.length ? blockchain[blockchain.length - 1].hash : 'none'}\n\n## Vials\n${vials.map(vial => `# Vial Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $WEBXOS Hash: ${vial.webxosHash}\n- Wallet Balance: ${vial.wallet.balance.toFixed(4)} $WEBXOS\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${JSON.stringify(vial.quantumState || {})}\n- Training Data: ${JSON.stringify(vial.trainingData)}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`).join('---\n\n')}\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button to resume training.\n- **Extend**: Modify agent code externally, then reimport.\n- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification.\n\nGenerated by Vial MCP Controller`
+            };
+            const blob = new Blob([data.markdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+            const blockHash = await addToBlockchain('export', { networkId: agenticNetworkId });
+            logEvent('export', 'Exported vials and wallet as Markdown', { networkId: agenticNetworkId, blockHash });
+        }
+
+        // Import File
+        async function importFile() {
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput?.files?.length) {
+                showErrorNotification('No file selected');
+                return;
+            }
+            const file = fileInput.files[0];
+            if (!file.name.match(/\.md$/)) {
+                showErrorNotification('Only .md files allowed');
+                logEvent('error', 'Invalid file type', { file: file.name });
+                return;
+            }
+            if (file.size > 1024 * 1024) {
+                showErrorNotification('File size exceeds 1MB');
+                logEvent('error', 'File size exceeds limit', { size: file.size });
+                return;
+            }
+            try {
+                const text = await file.text();
+                const sanitizedText = sanitizeInput(text);
+                if (!validateMarkdown(sanitizedText)) {
+                    showErrorNotification('Invalid .md format or malicious content detected');
+                    logEvent('error', 'Invalid Markdown format', {});
+                    return;
+                }
+                const lines = sanitizedText.split('\n');
+                let currentVial = null;
+                let newVials = [];
+                let newWallet = { address: null, balance: 0, hash: null };
+                let newNetworkId = null;
+                let newReputation = 0;
+                let inCodeBlock = false;
+                let codeBlock = [];
+                for (let line of lines) {
+                    if (line.match(/^- Network ID: ([\w-]+)/)) {
+                        newNetworkId = line.match(/^- Network ID: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Key: ([\w-]+)/)) {
+                        walletKey = line.match(/^- Wallet Key: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/)) {
+                        newWallet.balance = parseFloat(line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                    } else if (line.match(/^- Address: ([\w-]+)/)) {
+                        newWallet.address = line.match(/^- Address: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
+                        newWallet.hash = line.match(/^- Hash: ([0-9a-f]{64})/)[1];
+                    } else if (line.match(/^- Reputation: (\d+)/)) {
+                        newReputation = parseInt(line.match(/^- Reputation: (\d+)/)[1]) || 0;
+                    } else if (line.match(/^# Vial Agent: vial\d/)) {
+                        if (currentVial) newVials.push(currentVial);
+                        currentVial = {
+                            id: line.match(/^# Vial Agent: (vial\d)/)[1],
+                            status: 'stopped',
+                            code: agentTemplates[newVials.length],
+                            codeLength: agentTemplates[newVials.length].length,
+                            isPython: true,
+                            webxosHash: generateUUID(),
+                            wallet: { address: null, balance: 0, hash: null },
+                            tasks: [],
+                            quantumState: null,
+                            trainingData: []
+                        };
+                    } else if (line.match(/^- Status: (\w+)/)) {
+                        currentVial.status = line.match(/^- Status: (\w+)/)[1];
+                    } else if (line.match(/^- Language: (\w+)/)) {
+                        currentVial.isPython = line.match(/^- Language: (\w+)/)[1] === 'Python';
+                    } else if (line.match(/^- Code Length: (\d+) bytes/)) {
+                        currentVial.codeLength = parseInt(line.match(/^- Code Length: (\d+) bytes/)[1]) || 0;
+                    } else if (line.match(/^- \$WEBXOS Hash: ([\w-]+)/)) {
+                        currentVial.webxosHash = line.match(/^- \$WEBXOS Hash: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/)) {
+                        currentVial.wallet.balance = parseFloat(line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                    } else if (line.match(/^- Wallet Address: ([\w-]+)/)) {
+                        currentVial.wallet.address = line.match(/^- Wallet Address: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Hash: ([0-9a-f]{64})/)) {
+                        currentVial.wallet.hash = line.match(/^- Wallet Hash: ([0-9a-f]{64})/)[1];
+                    } else if (line.match(/^- Tasks: ([\w-, ]+)/)) {
+                        currentVial.tasks = line.match(/^- Tasks: ([\w-, ]+)/)[1].split(',').map(t => t.trim()).filter(t => t);
+                    } else if (line.match(/^- Quantum State: ({.+})/)) {
+                        currentVial.quantumState = JSON.parse(line.match(/^- Quantum State: ({.+})/)[1]);
+                    } else if (line.match(/^- Training Data: (\[.*\])/)) {
+                        currentVial.trainingData = JSON.parse(line.match(/^- Training Data: (\[.*\])/)[1]);
+                    } else if (line.match(/^```(python|javascript)$/)) {
+                        inCodeBlock = true;
+                        codeBlock = [];
+                    } else if (line.match(/^```$/) && inCodeBlock) {
+                        inCodeBlock = false;
+                        currentVial.code = codeBlock.join('\n');
+                    } else if (inCodeBlock) {
+                        codeBlock.push(line);
+                    }
+                }
+                if (currentVial) newVials.push(currentVial);
+                if (newVials.length !== 4) {
+                    showErrorNotification('Invalid .md format, expected 4 vials');
+                    logEvent('error', 'Invalid vial count in .md', { vials: newVials.length });
+                    return;
+                }
+                vials = newVials;
+                wallet = newWallet;
+                reputation = newReputation;
+                agenticNetworkId = newNetworkId;
+                const blockHash = await addToBlockchain('import', { networkId: agenticNetworkId });
+                logEvent('import', 'Imported agentic network from .md', { networkId: agenticNetworkId, blockHash });
+                updateVialStatusBars();
+                updateBalanceDisplay();
+                trainVials();
+            } catch (err) {
+                logEvent('error', `Import Error: ${err.message}`, { stack: err.stack });
+                showErrorNotification(`Import Error: ${err.message}`);
+            }
+        }
+
+        // API Access (Show Popup)
+        function showApiPopup() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated');
+                return;
+            }
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) {
+                apiPopup.classList.add('visible');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput) apiInput.focus();
+            }
+        }
+
+        // API Submit with Prompt Shield
+        async function sendPrompt() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated');
+                return;
+            }
+            const apiInput = document.getElementById('api-input');
+            if (!apiInput || !apiInput.value.trim()) {
+                showErrorNotification('No prompt entered');
+                return;
+            }
+            const prompt = sanitizeInput(apiInput.value);
+            if (prompt.match(/(system|admin|root|eval|exec)/i)) {
+                showErrorNotification('Prompt contains restricted keywords');
+                logEvent('error', 'Restricted prompt detected', { prompt });
+                return;
+            }
+            const blockHash = await addToBlockchain('prompt', { prompt });
+            logEvent('comms', `Gateway Response: Offline mode: Simulated quantum response`, { networkId: agenticNetworkId, blockHash });
+            apiInput.value = '';
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) apiPopup.classList.remove('visible');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            const elements = {
+                authButton: document.getElementById('authButton'),
+                voidButton: document.getElementById('voidButton'),
+                troubleshootButton: document.getElementById('troubleshootButton'),
+                trainButton: document.getElementById('trainButton'),
+                exportButton: document.getElementById('exportButton'),
+                importButton: document.getElementById('importButton'),
+                apiAccessButton: document.getElementById('apiAccessButton'),
+                apiSubmit: document.getElementById('api-submit'),
+                apiClose: document.getElementById('api-close'),
+                fileInput: document.getElementById('file-input'),
+                promptInput: document.getElementById('prompt-input')
+            };
+
+            elements.authButton.addEventListener('click', authenticate);
+            elements.voidButton.addEventListener('click', voidVials);
+            elements.troubleshootButton.addEventListener('click', troubleshoot);
+            elements.trainButton.addEventListener('click', trainVials);
+            elements.exportButton.addEventListener('click', exportVials);
+            elements.importButton.addEventListener('click', () => elements.fileInput.click());
+            elements.apiAccessButton.addEventListener('click', showApiPopup);
+            elements.apiSubmit.addEventListener('click', sendPrompt);
+            elements.apiClose.addEventListener('click', () => {
+                const apiPopup = document.getElementById('api-popup');
+                if (apiPopup) apiPopup.classList.remove('visible');
+            });
+            elements.fileInput.addEventListener('change', importFile);
+            elements.promptInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (elements.promptInput.value.trim()) {
+                        sendPrompt();
+                        elements.promptInput.value = '';
+                    }
+                }
+            });
+
+            logEvent('system', 'Vial MCP Controller initialized', {});
+        }, { once: true });
+    </script>
+</body>
+</html>
