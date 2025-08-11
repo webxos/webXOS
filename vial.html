@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP Controller</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
+        html, body { height: 100vh; overflow: hidden; background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+        body.glow { background: rgba(255, 0, 0, 0.1); box-shadow: 0 0 20px #ff0000; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1); box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.6rem; text-align: center; margin: 0.8rem 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1); border: 1px solid #0f0; padding: 0.6rem; flex: 1; max-height: calc(100vh - 380px); overflow-y: auto; margin: 0.5rem 0; border-radius: 5px; font-size: 0.8rem; position: relative; z-index: 5; }
+        #console.active-monitor { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        #console.active-train { border-color: #ff0; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .command { font-weight: 700; text-shadow: 0 0 3px #0f0; }
+        #console .error { color: #ff0000; text-shadow: 0 0 3px #ff0000; }
+        #console .balance { color: #00f; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8); color: #fff; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
+        #error-notification.visible { display: block; }
+        #api-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0; }
+        #api-popup.visible { display: block; }
+        #api-popup textarea { width: 100%; height: 100px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; resize: none; }
+        #api-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button:hover { background: #0c0; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
+        button { background: #0f0; color: #000; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
+        button:hover, button:focus { background: #0c0; outline: 2px solid #0f0; }
+        button.active-monitor { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0; color: #000; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        #prompt-input { width: 90%; max-width: 900px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.6rem; font-size: 0.9rem; border-radius: 3px; margin: 0.5rem 0; }
+        #vial-status-bars { width: 90%; max-width: 900px; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.2rem; z-index: 10; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 90px; font-size: 0.75rem; color: #0f0; }
+        .progress-bar { flex: 1; height: 8px; background: #333; border: 1px solid #0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #0f0; transition: width 0.5s; }
+        .progress-fill.offline-grey { background: #666; }
+        .progress-fill.training { background: #ff0; }
+        .progress-fill.offline { background: #f00; }
+        .status-text { font-size: 0.75rem; width: 250px; text-align: right; }
+        .status-text.online { color: #0f0; }
+        .status-text.training { color: #ff0; }
+        .status-text.offline-grey { color: #666; }
+        .status-text.offline { color: #f00; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0; background: rgba(0, 0, 0, 0.8); z-index: 10; }
+        #file-input { display: none; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+            #console { font-size: 0.75rem; padding: 0.5rem; max-height: calc(100vh - 380px); }
+            button { padding: 0.5rem 1rem; font-size: 0.85rem; min-width: 80px; }
+            #prompt-input, #api-popup textarea { font-size: 0.85rem; padding: 0.5rem; }
+            .progress-label { width: 70px; font-size: 0.7rem; }
+            .progress-bar { height: 7px; }
+            .status-text { font-size: 0.7rem; width: 200px; }
+            #error-notification, #api-popup { font-size: 0.7rem; max-width: 250px; }
+        }
+        @media (max-width: 400px) {
+            .button-group { flex-direction: column; align-items: center; }
+            button { width: 100%; max-width: 160px; }
+            #console { max-height: calc(100vh - 320px); }
+            .status-text { width: 150px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Vial MCP Controller</h1>
+    <div id="console">
+        <p>Vial MCP Controller initialized. Use /help for API commands.</p>
+        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
+    </div>
+    <div id="error-notification"></div>
+    <div id="api-popup">
+        <h2>API Access Credentials</h2>
+        <textarea id="api-input" readonly></textarea>
+        <button id="api-generate">Generate New Credentials</button>
+        <button id="api-close">Close</button>
+    </div>
+    <div class="button-group">
+        <button id="authButton">Authenticate</button>
+        <button id="voidButton">Void</button>
+        <button id="troubleshootButton">Troubleshoot</button>
+        <button id="quantumLinkButton" disabled>Quantum Link</button>
+        <button id="exportButton" disabled>Export</button>
+        <button id="importButton" disabled>Import</button>
+        <button id="apiAccessButton" disabled>API Access</button>
+    </div>
+    <textarea id="prompt-input" placeholder="Enter git commands for API (e.g., /prompt vial1 train dataset)..."></textarea>
+    <div id="vial-status-bars"></div>
+    <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.7</footer>
+    <input type="file" id="file-input" accept=".md">
+    <script>
+        // Agent templates (simulating vial/agents/agent1.py to agent4.py)
+        const agentTemplates = [
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent1(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent1()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent2(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(20, 2)\n    def forward(self, x):\n        return torch.relu(self.fc(x))\n\nmodel = VialAgent2()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent3(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(15, 3)\n    def forward(self, x):\n        return torch.tanh(self.fc(x))\n\nmodel = VialAgent3()`,
+            `import torch\nimport torch.nn as nn\n\nclass VialAgent4(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(25, 4)\n    def forward(self, x):\n        return torch.softmax(self.fc(x), dim=1)\n\nmodel = VialAgent4()`
+        ];
+
+        // Global state
+        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+        let isAuthenticated = false;
+        let isOffline = true;
+        let masterKey = null;
+        let walletKey = null;
+        let agenticNetworkId = null;
+        let tokenInterval = null;
+        let reputation = 0;
+        let blockchain = [];
+        let apiCredentials = { key: null, secret: null };
+        let vials = Array(4).fill().map((_, i) => ({
+            id: `vial${i+1}`,
+            status: 'stopped',
+            code: agentTemplates[i],
+            codeLength: agentTemplates[i].length,
+            isPython: true,
+            webxosHash: generateUUID(),
+            wallet: { address: null, balance: 0, hash: null },
+            tasks: [],
+            quantumState: null,
+            trainingData: [],
+            config: {},
+            isTraining: false,
+            latency: 0
+        }));
+        let wallet = { address: null, balance: 0, hash: null };
+        let lastLogMessage = null;
+        let lastLogTime = 0;
+        let lastLogId = 0;
+
+        // UUID generator
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        // AES-256 encryption
+        async function encryptData(data) {
+            const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encoded = new TextEncoder().encode(data);
+            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+            return { encrypted: Array.from(new Uint8Array(encrypted)), iv: Array.from(iv) };
+        }
+
+        // SHA-256 hash
+        async function sha256(data) {
+            const encoded = new TextEncoder().encode(data);
+            const hash = await crypto.subtle.digest('SHA-256', encoded);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Sanitize input
+        function sanitizeInput(input) {
+            return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                        .replace(/[<>{}]/g, '');
+        }
+
+        // Validate .md format
+        function validateMarkdown(mdContent) {
+            if (!mdContent.includes('## Agentic Network') || mdContent.includes('<script')) {
+                return false;
+            }
+            return true;
+        }
+
+        // Parse .md for training data
+        function parseMarkdownForTraining(mdContent) {
+            const lines = mdContent.split('\n');
+            let tasks = [];
+            let parameters = {};
+            let inTaskSection = false;
+            for (let line of lines) {
+                if (line.startsWith('## Tasks')) {
+                    inTaskSection = true;
+                } else if (inTaskSection && line.startsWith('- ')) {
+                    tasks.push(line.slice(2).trim());
+                } else if (line.match(/^- Parameter: (\w+): (.+)/)) {
+                    const [, key, value] = line.match(/^- Parameter: (\w+): (.+)/);
+                    parameters[key] = value;
+                }
+            }
+            return { tasks, parameters };
+        }
+
+        // Simulate blockchain transaction
+        async function addToBlockchain(type, data) {
+            if (isOffline && type !== 'train' && type !== 'import' && type !== 'export') {
+                return null; // Skip blockchain in offline mode for non-training actions
+            }
+            const timestamp = new Date().toISOString();
+            const prevHash = blockchain.length ? blockchain[blockchain.length - 1].hash : '0'.repeat(64);
+            const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}${prevHash}`);
+            const block = { type, data, timestamp, prevHash, hash };
+            blockchain.push(block);
+            return hash;
+        }
+
+        // Git command handler
+        async function handleGitCommand(command) {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            const sanitizedCommand = sanitizeInput(command.trim());
+            const parts = sanitizedCommand.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const blockHash = await addToBlockchain('command', { command: sanitizedCommand });
+
+            if (cmd === '/help') {
+                logEvent('command', `Available commands:
+- /prompt <vial> <text>: Send prompt to vial (e.g., /prompt vial1 train dataset)
+- /task <vial> <task>: Assign task to vial (e.g., /task vial2 optimize_model)
+- /config <vial> <key> <value>: Set vial config (e.g., /config vial3 lr 0.01)
+- /status: Show vial statuses`, { blockHash });
+                return;
+            }
+
+            if (cmd === '/prompt') {
+                if (parts.length < 3) {
+                    showErrorNotification('Invalid command: Usage: /prompt <vial> <text>');
+                    logEvent('error', 'Invalid command: Usage: /prompt <vial> <text>', { command: sanitizedCommand });
+                    return;
+                }
+                const vialId = parts[1];
+                const promptText = parts.slice(2).join(' ');
+                const vial = vials.find(v => v.id === vialId);
+                if (!vial) {
+                    showErrorNotification(`Invalid vial ID: ${vialId} not found`);
+                    logEvent('error', `Invalid vial ID: ${vialId} not found`, { vialId });
+                    return;
+                }
+                if (promptText.match(/(system|admin|root|eval|exec)/i)) {
+                    showErrorNotification('Prompt contains restricted keywords: system, admin, root, eval, exec');
+                    logEvent('error', 'Prompt contains restricted keywords', { prompt: promptText });
+                    return;
+                }
+                vial.trainingData.push({ prompt: promptText, hash: blockHash });
+                vial.status = 'running';
+                if (promptText.toLowerCase().includes('train') && isOffline) {
+                    showErrorNotification('Training via API disabled in offline mode. Use Quantum Link to train locally.');
+                    logEvent('error', 'Training via API disabled in offline mode. Use Quantum Link to train locally.', { prompt: promptText });
+                    return;
+                }
+                if (promptText.toLowerCase().includes('train')) {
+                    await quantumLink(true); // API-triggered training
+                }
+                logEvent('command', `Prompt sent to ${vialId}: ${promptText}`, { blockHash });
+            } else if (cmd === '/task') {
+                if (parts.length < 3) {
+                    showErrorNotification('Invalid command: Usage: /task <vial> <task>');
+                    logEvent('error', 'Invalid command: Usage: /task <vial> <task>', { command: sanitizedCommand });
+                    return;
+                }
+                const vialId = parts[1];
+                const task = parts.slice(2).join(' ');
+                const vial = vials.find(v => v.id === vialId);
+                if (!vial) {
+                    showErrorNotification(`Invalid vial ID: ${vialId} not found`);
+                    logEvent('error', `Invalid vial ID: ${vialId} not found`, { vialId });
+                    return;
+                }
+                vial.tasks = [...new Set([...vial.tasks, task])];
+                vial.status = 'running';
+                if (task.toLowerCase().includes('optimize') && isOffline) {
+                    showErrorNotification('Training via API disabled in offline mode. Use Quantum Link to train locally.');
+                    logEvent('error', 'Training via API disabled in offline mode. Use Quantum Link to train locally.', { task });
+                    return;
+                }
+                if (task.toLowerCase().includes('optimize')) {
+                    await quantumLink(true); // API-triggered training
+                }
+                logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
+            } else if (cmd === '/config') {
+                if (parts.length < 4) {
+                    showErrorNotification('Invalid command: Usage: /config <vial> <key> <value>');
+                    logEvent('error', 'Invalid command: Usage: /config <vial> <key> <value>', { command: sanitizedCommand });
+                    return;
+                }
+                const vialId = parts[1];
+                const key = parts[2];
+                const value = parts.slice(3).join(' ');
+                const vial = vials.find(v => v.id === vialId);
+                if (!vial) {
+                    showErrorNotification(`Invalid vial ID: ${vialId} not found`);
+                    logEvent('error', `Invalid vial ID: ${vialId} not found`, { vialId });
+                    return;
+                }
+                vial.config[key] = value;
+                vial.status = 'running';
+                logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
+            } else if (cmd === '/status') {
+                const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}, Config: ${JSON.stringify(v.config)}`).join('\n');
+                logEvent('command', `Vial Status:\n${status}`, { blockHash });
+            } else {
+                showErrorNotification(`Unknown command: ${cmd}. Use /help for available commands.`);
+                logEvent('error', `Unknown command: ${cmd}. Use /help for available commands.`, { command: sanitizedCommand });
+            }
+            updateVialStatusBars();
+        }
+
+        // Debounce utility
+        function debounce(func, wait) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        // Log event with deduplication
+        function logEvent(event_type, message, metadata = {}) {
+            const timestamp = new Date().toISOString();
+            const now = Date.now();
+            const logId = ++lastLogId;
+            const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+            if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
+            lastLogMessage = baseMessage;
+            lastLogTime = now;
+            const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+            logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+            console.log(`${event_type}: ${message}`, metadata);
+        }
+
+        // Error notification
+        function showErrorNotification(message) {
+            const errorNotification = document.getElementById('error-notification');
+            if (errorNotification) {
+                errorNotification.textContent = message;
+                errorNotification.classList.add('visible');
+                setTimeout(() => errorNotification.classList.remove('visible'), 5000);
+            } else {
+                console.error(`Notification: ${message}`);
+            }
+        }
+
+        // Update console
+        const debouncedUpdateConsole = debounce(() => {
+            const consoleDiv = document.getElementById('console');
+            if (consoleDiv) {
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+        }, 100);
+
+        // Update vial status bars
+        function updateVialStatusBars() {
+            const vialStatusBars = document.getElementById('vial-status-bars');
+            if (!vialStatusBars) return;
+            vials.forEach(vial => {
+                vial.latency = isOffline ? 0 : Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+            });
+            vialStatusBars.innerHTML = vials.map(vial => {
+                const mode = vial.isTraining ? 'Training' : (isOffline ? 'Offline (Wallet Disabled)' : 'Online');
+                const statusClass = vial.isTraining ? 'training' : (isOffline ? 'offline-grey' : 'online');
+                const fillClass = vial.status === 'stopped' ? 'offline-grey' : (vial.isTraining ? 'training' : '');
+                return `
+                    <div class="progress-container">
+                        <span class="progress-label">${vial.id}</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${fillClass}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                        </div>
+                        <span class="status-text ${statusClass}">Latency: ${vial.latency}ms | Size: ${vial.codeLength} bytes | Mode: ${mode}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update balance and reputation display
+        function updateBalanceDisplay() {
+            const balanceIndex = logQueue.findIndex(log => log.includes('$WEBXOS Balance'));
+            const displayBalance = isOffline ? 'N/A (Offline)' : wallet.balance.toFixed(4);
+            const displayReputation = isOffline ? 'N/A (Offline)' : reputation;
+            if (balanceIndex !== -1) {
+                logQueue[balanceIndex] = `<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation}</p>`;
+            } else {
+                logQueue.push(`<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation}</p>`);
+            }
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+        }
+
+        // Earn tokens and reputation
+        async function startTokenEarning() {
+            if (tokenInterval) clearInterval(tokenInterval);
+            if (isOffline) {
+                logEvent('error', '$WEBXOS earning disabled in offline mode. Switch to online mode to earn tokens.', {});
+                return;
+            }
+            tokenInterval = setInterval(async () => {
+                if (!isAuthenticated || isOffline) {
+                    clearInterval(tokenInterval);
+                    disableFunctions();
+                    logEvent('error', 'Authentication lost or offline: $WEBXOS earning stopped.', {});
+                    return;
+                }
+                wallet.balance += 1;
+                reputation += 1;
+                const blockHash = await addToBlockchain('token_earn', { wallet: wallet.address, amount: 1, reputation });
+                vials.forEach(vial => {
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = blockHash;
+                });
+                wallet.hash = blockHash;
+                logEvent('token', `Earned 1 $WEBXOS | Reputation: ${reputation} | Block: ${blockHash.slice(0, 8)}...`, { wallet: wallet.address });
+                updateBalanceDisplay();
+            }, 10000);
+        }
+
+        // Disable functions on auth loss or offline mode
+        function disableFunctions() {
+            const buttons = ['quantumLinkButton', 'exportButton', 'importButton'];
+            if (isOffline) buttons.push('apiAccessButton');
+            buttons.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = true;
+            });
+            const authButton = document.getElementById('authButton');
+            if (authButton) authButton.classList.remove('active-monitor');
+            if (isOffline) {
+                clearInterval(tokenInterval);
+                apiCredentials = { key: null, secret: null };
+                logEvent('system', 'Offline mode: $WEBXOS earning and API access disabled.', {});
+                updateVialStatusBars();
+            }
+        }
+
+        // Authenticate
+        async function authenticate() {
+            const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+            isOffline = !isOnline;
+            agenticNetworkId = generateUUID();
+            masterKey = isOffline ? 'offline' : 'online';
+            walletKey = isOffline ? null : generateUUID();
+            wallet = { address: isOffline ? null : generateUUID(), balance: 0, hash: isOffline ? null : await sha256(agenticNetworkId) };
+            reputation = 0;
+            blockchain = [];
+            apiCredentials = { key: null, secret: null };
+            isAuthenticated = true;
+            await addToBlockchain('auth', { wallet: wallet.address, networkId: agenticNetworkId });
+            vials.forEach((vial, i) => {
+                vial.wallet = { address: isOffline ? null : generateUUID(), balance: 0, hash: wallet.hash };
+                vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                vial.code = agentTemplates[i];
+                vial.codeLength = agentTemplates[i].length;
+                vial.trainingData = [];
+                vial.tasks = [];
+                vial.config = {};
+                vial.isTraining = false;
+                vial.latency = 0;
+            });
+            const authButton = document.getElementById('authButton');
+            if (authButton) authButton.classList.add('active-monitor');
+            ['quantumLinkButton', 'exportButton', 'importButton'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = false;
+            });
+            if (!isOffline) {
+                const apiAccessButton = document.getElementById('apiAccessButton');
+                if (apiAccessButton) apiAccessButton.disabled = false;
+            }
+            logEvent('auth', `Authentication successful (${isOffline ? 'offline' : 'online'} mode). Quantum network allocated. Use /help for API commands.`, { networkId: agenticNetworkId });
+            startTokenEarning();
+            updateVialStatusBars();
+            updateBalanceDisplay();
+        }
+
+        // Void
+        function voidVials() {
+            isAuthenticated = false;
+            isOffline = true;
+            masterKey = null;
+            walletKey = null;
+            agenticNetworkId = null;
+            wallet = { address: null, balance: 0, hash: null };
+            reputation = 0;
+            blockchain = [];
+            apiCredentials = { key: null, secret: null };
+            vials = Array(4).fill().map((_, i) => ({
+                id: `vial${i+1}`,
+                status: 'stopped',
+                code: agentTemplates[i],
+                codeLength: agentTemplates[i].length,
+                isPython: true,
+                webxosHash: generateUUID(),
+                wallet: { address: null, balance: 0, hash: null },
+                tasks: [],
+                quantumState: null,
+                trainingData: [],
+                config: {},
+                isTraining: false,
+                latency: 0
+            }));
+            disableFunctions();
+            logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+            debouncedUpdateConsole();
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            logEvent('void', 'All data voided', {});
+        }
+
+        // Troubleshoot
+        function troubleshoot() {
+            logEvent('diagnostics', `Troubleshoot: System in ${isOffline ? 'offline' : 'online'} mode. Blockchain integrity verified.`, { blockchainLength: blockchain.length });
+        }
+
+        // Quantum Link (formerly Train Vials)
+        async function quantumLink(isApiTriggered = false) {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (!isApiTriggered && isOffline) {
+                logEvent('system', 'Generating offline agents from local data.', {});
+            } else if (!isApiTriggered) {
+                logEvent('system', 'Activating quantum link for agent sync.', {});
+            }
+            const fileInput = document.getElementById('file-input');
+            let inputData = '';
+            if (fileInput?.files?.length) {
+                inputData = await fileInput.files[0].text();
+                inputData = sanitizeInput(inputData);
+            }
+            try {
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.add('active-train');
+                if (consoleDiv) consoleDiv.classList.add('active-train');
+                document.body.classList.add('train-glow');
+                vials.forEach(vial => { vial.isTraining = true; vial.status = 'running'; });
+                updateVialStatusBars();
+                const isFirstTime = !agenticNetworkId || vials.every(v => !v.trainingData.length && !v.tasks.length);
+                if (isFirstTime && !inputData) {
+                    logEvent('system', 'First-time user detected. Initializing new wallet and agents.', {});
+                    agenticNetworkId = generateUUID();
+                    wallet = { address: isOffline ? null : generateUUID(), balance: 0, hash: isOffline ? null : await sha256(agenticNetworkId) };
+                    vials.forEach((vial, i) => {
+                        vial.code = agentTemplates[i];
+                        vial.codeLength = agentTemplates[i].length;
+                        vial.wallet = { address: isOffline ? null : generateUUID(), balance: 0, hash: wallet.hash };
+                        vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                    });
+                }
+                let tasks = [], parameters = {};
+                if (inputData && validateMarkdown(inputData)) {
+                    ({ tasks, parameters } = parseMarkdownForTraining(inputData));
+                }
+                const encryptedData = inputData ? await encryptData(inputData) : null;
+                const blockHash = await addToBlockchain('train', { tasks, parameters, encryptedData });
+                vials.forEach(vial => {
+                    if (tasks.length) vial.tasks = [...new Set([...vial.tasks, ...tasks])];
+                    if (Object.keys(parameters).length) vial.config = { ...vial.config, ...parameters };
+                    if (inputData) vial.trainingData.push({ tasks, parameters, hash: blockHash });
+                    vial.codeLength += inputData ? inputData.length : 0;
+                    vial.status = 'running';
+                    if (!isOffline) {
+                        vial.wallet.balance = wallet.balance / 4;
+                        vial.wallet.hash = blockHash;
+                    }
+                    vial.quantumState = { qubits: [], entanglement: isOffline ? 'local' : 'synced' };
+                });
+                logEvent('training', `Quantum link activated. Agents ${isOffline ? 'generated locally' : 'synced'}.`, { networkId: agenticNetworkId, blockHash });
+                setTimeout(() => {
+                    if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                    if (consoleDiv) consoleDiv.classList.remove('active-train');
+                    document.body.classList.remove('train-glow');
+                    vials.forEach(vial => { vial.isTraining = false; });
+                    updateVialStatusBars();
+                    updateBalanceDisplay();
+                }, 1000);
+            } catch (err) {
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                vials.forEach(vial => { vial.isTraining = false; });
+                updateVialStatusBars();
+                showErrorNotification(`Quantum link failed: ${err.message}`);
+                logEvent('error', `Quantum link failed: ${err.message}`, { stack: err.stack });
+            }
+        }
+
+        // Export Vials
+        async function exportVials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            const data = {
+                markdown: `# WebXOS Vial and Wallet Export\n\n## Agentic Network\n- Network ID: ${agenticNetworkId || 'none'}\n- Session Start: ${new Date().toISOString()}\n- Session Duration: 0.00 seconds\n- Reputation: ${isOffline ? 'N/A (Offline)' : reputation}\n\n## Wallet\n- Wallet Key: ${walletKey || 'none'}\n- Session Balance: ${isOffline ? 'N/A (Offline)' : wallet.balance.toFixed(4)} $WEBXOS\n- Address: ${wallet.address || 'none'}\n- Hash: ${wallet.hash || 'none'}\n\n## API Credentials\n- Key: ${apiCredentials.key || 'none'}\n- Secret: ${apiCredentials.secret || 'none'}\n\n## Blockchain\n- Blocks: ${blockchain.length}\n- Last Hash: ${blockchain.length ? blockchain[blockchain.length - 1].hash : 'none'}\n\n## Vials\n${vials.map(vial => {
+                    let trainingDataStr;
+                    try {
+                        trainingDataStr = JSON.stringify(vial.trainingData, null, 2).replace(/\n/g, '\n    ');
+                    } catch (err) {
+                        trainingDataStr = '[]';
+                        logEvent('error', `Export failed to serialize trainingData for ${vial.id}: ${err.message}`, { stack: err.stack });
+                    }
+                    let quantumStateStr;
+                    try {
+                        quantumStateStr = JSON.stringify(vial.quantumState || {}, null, 2).replace(/\n/g, '\n    ');
+                    } catch (err) {
+                        quantumStateStr = '{}';
+                        logEvent('error', `Export failed to serialize quantumState for ${vial.id}: ${err.message}`, { stack: err.stack });
+                    }
+                    let configStr;
+                    try {
+                        configStr = JSON.stringify(vial.config, null, 2).replace(/\n/g, '\n    ');
+                    } catch (err) {
+                        configStr = '{}';
+                        logEvent('error', `Export failed to serialize config for ${vial.id}: ${err.message}`, { stack: err.stack });
+                    }
+                    return `# Vial Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $WEBXOS Hash: ${vial.webxosHash}\n- Wallet Balance: ${isOffline ? 'N/A (Offline)' : vial.wallet.balance.toFixed(4)} $WEBXOS\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${quantumStateStr}\n- Training Data: ${trainingDataStr}\n- Config: ${configStr}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`;
+                }).join('---\n\n')}\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button to resume training.\n- **Extend**: Modify agent code externally, then reimport.\n- **Share**: Send this .md file to others to continue training with the same wallet.\n- **API**: Use API credentials with LangChain to train vials (online mode only).\n- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification (online mode only).\n\nGenerated by Vial MCP Controller`
+            };
+            const blob = new Blob([data.markdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+            const blockHash = await addToBlockchain('export', { networkId: agenticNetworkId });
+            logEvent('export', 'Exported vials and wallet as Markdown', { networkId: agenticNetworkId, blockHash });
+        }
+
+        // Import File
+        async function importFile() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput?.files?.length) {
+                showErrorNotification('No file selected: Please select a .md file');
+                logEvent('error', 'No file selected: Please select a .md file', {});
+                return;
+            }
+            const file = fileInput.files[0];
+            if (!file.name.match(/\.md$/)) {
+                showErrorNotification('Invalid file type: Only .md files allowed');
+                logEvent('error', 'Invalid file type: Only .md files allowed', { file: file.name });
+                return;
+            }
+            if (file.size > 1024 * 1024) {
+                showErrorNotification('File size exceeds limit: Maximum 1MB allowed');
+                logEvent('error', 'File size exceeds limit: Maximum 1MB allowed', { size: file.size });
+                return;
+            }
+            try {
+                const text = await file.text();
+                const sanitizedText = sanitizeInput(text);
+                if (!validateMarkdown(sanitizedText)) {
+                    showErrorNotification('Invalid .md format: File contains invalid content or script tags');
+                    logEvent('error', 'Invalid .md format: File contains invalid content or script tags', {});
+                    return;
+                }
+                const lines = sanitizedText.split('\n');
+                let currentVial = null;
+                let newVials = [];
+                let newWallet = { address: null, balance: 0, hash: null };
+                let newReputation = 0;
+                let newApiCredentials = { key: null, secret: null };
+                let newNetworkId = agenticNetworkId || generateUUID();
+                let inCodeBlock = false;
+                let codeBlock = [];
+                for (let line of lines) {
+                    if (line.match(/^- Network ID: ([\w-]+)/)) {
+                        newNetworkId = line.match(/^- Network ID: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Key: ([\w-]+)/)) {
+                        walletKey = isOffline ? null : line.match(/^- Wallet Key: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/) && !isOffline) {
+                        newWallet.balance = parseFloat(line.match(/^- Session Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                    } else if (line.match(/^- Address: ([\w-]+)/)) {
+                        newWallet.address = isOffline ? null : line.match(/^- Address: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
+                        newWallet.hash = isOffline ? null : line.match(/^- Hash: ([0-9a-f]{64})/)[1];
+                    } else if (line.match(/^- Reputation: (\d+)/)) {
+                        newReputation = isOffline ? 0 : parseInt(line.match(/^- Reputation: (\d+)/)[1]) || 0;
+                    } else if (line.match(/^- Key: ([\w-]+)/)) {
+                        newApiCredentials.key = isOffline ? null : line.match(/^- Key: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Secret: ([0-9a-f]+)/)) {
+                        newApiCredentials.secret = isOffline ? null : line.match(/^- Secret: ([0-9a-f]+)/)[1];
+                    } else if (line.match(/^# Vial Agent: vial\d/)) {
+                        if (currentVial) newVials.push(currentVial);
+                        currentVial = {
+                            id: line.match(/^# Vial Agent: (vial\d)/)[1],
+                            status: 'stopped',
+                            code: agentTemplates[newVials.length],
+                            codeLength: agentTemplates[newVials.length].length,
+                            isPython: true,
+                            webxosHash: generateUUID(),
+                            wallet: { address: null, balance: 0, hash: null },
+                            tasks: [],
+                            quantumState: null,
+                            trainingData: [],
+                            config: {},
+                            isTraining: false,
+                            latency: 0
+                        };
+                    } else if (line.match(/^- Status: (\w+)/)) {
+                        currentVial.status = line.match(/^- Status: (\w+)/)[1];
+                    } else if (line.match(/^- Language: (\w+)/)) {
+                        currentVial.isPython = line.match(/^- Language: (\w+)/)[1] === 'Python';
+                    } else if (line.match(/^- Code Length: (\d+) bytes/)) {
+                        currentVial.codeLength = parseInt(line.match(/^- Code Length: (\d+) bytes/)[1]) || 0;
+                    } else if (line.match(/^- \$WEBXOS Hash: ([\w-]+)/)) {
+                        currentVial.webxosHash = line.match(/^- \$WEBXOS Hash: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/) && !isOffline) {
+                        currentVial.wallet.balance = parseFloat(line.match(/^- Wallet Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                    } else if (line.match(/^- Wallet Address: ([\w-]+)/)) {
+                        currentVial.wallet.address = isOffline ? null : line.match(/^- Wallet Address: ([\w-]+)/)[1];
+                    } else if (line.match(/^- Wallet Hash: ([0-9a-f]{64})/)) {
+                        currentVial.wallet.hash = isOffline ? null : line.match(/^- Wallet Hash: ([0-9a-f]{64})/)[1];
+                    } else if (line.match(/^- Tasks: ([\w-, ]+)/)) {
+                        currentVial.tasks = line.match(/^- Tasks: ([\w-, ]+)/)[1].split(',').map(t => t.trim()).filter(t => t);
+                    } else if (line.match(/^- Quantum State: (.*)/)) {
+                        try {
+                            const match = line.match(/^- Quantum State: (.*)/)[1];
+                            currentVial.quantumState = match ? JSON.parse(match) : {};
+                        } catch (err) {
+                            showErrorNotification(`Invalid JSON in Quantum State for ${currentVial.id}: ${err.message}`);
+                            logEvent('error', `Invalid JSON in Quantum State for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                            currentVial.quantumState = {};
+                        }
+                    } else if (line.match(/^- Training Data: (.*)/)) {
+                        try {
+                            const match = line.match(/^- Training Data: (.*)/)[1];
+                            currentVial.trainingData = match ? JSON.parse(match) : [];
+                        } catch (err) {
+                            showErrorNotification(`Invalid JSON in Training Data for ${currentVial.id}: ${err.message}`);
+                            logEvent('error', `Invalid JSON in Training Data for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                            currentVial.trainingData = [];
+                        }
+                    } else if (line.match(/^- Config: (.*)/)) {
+                        try {
+                            const match = line.match(/^- Config: (.*)/)[1];
+                            currentVial.config = match ? JSON.parse(match) : {};
+                        } catch (err) {
+                            showErrorNotification(`Invalid JSON in Config for ${currentVial.id}: ${err.message}`);
+                            logEvent('error', `Invalid JSON in Config for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                            currentVial.config = {};
+                        }
+                    } else if (line.match(/^```(python|javascript)$/)) {
+                        inCodeBlock = true;
+                        codeBlock = [];
+                    } else if (line.match(/^```$/) && inCodeBlock) {
+                        inCodeBlock = false;
+                        currentVial.code = codeBlock.join('\n');
+                    } else if (inCodeBlock) {
+                        codeBlock.push(line);
+                    }
+                }
+                if (currentVial) newVials.push(currentVial);
+                if (newVials.length !== 4) {
+                    showErrorNotification('Invalid .md format: Expected 4 vials');
+                    logEvent('error', 'Invalid .md format: Expected 4 vials', { vials: newVials.length });
+                    return;
+                }
+                if (!isOffline) {
+                    wallet.balance += newWallet.balance; // Combine wallet balances
+                    reputation += newReputation;
+                    apiCredentials = newApiCredentials.key ? newApiCredentials : apiCredentials;
+                }
+                newVials.forEach((newVial, i) => {
+                    const existingVial = vials[i] || {};
+                    vials[i] = {
+                        ...newVial,
+                        tasks: [...new Set([...(existingVial.tasks || []), ...newVial.tasks])],
+                        trainingData: [...(existingVial.trainingData || []), ...newVial.trainingData],
+                        config: { ...(existingVial.config || {}), ...newVial.config },
+                        wallet: isOffline ? existingVial.wallet : newVial.wallet,
+                        quantumState: newVial.quantumState || existingVial.quantumState || {},
+                    };
+                });
+                wallet = isOffline ? wallet : newWallet;
+                agenticNetworkId = newNetworkId;
+                const blockHash = await addToBlockchain('import', { networkId: agenticNetworkId });
+                logEvent('import', 'Imported and merged agentic network from .md', { networkId: agenticNetworkId, blockHash });
+                updateVialStatusBars();
+                updateBalanceDisplay();
+                await quantumLink(); // Auto-train after import
+            } catch (err) {
+                showErrorNotification(`Import failed: ${err.message}`);
+                logEvent('error', `Import failed: ${err.message}`, { stack: err.stack });
+            }
+        }
+
+        // Generate API Credentials
+        async function generateApiCredentials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode. Switch to online mode to enable.');
+                logEvent('error', 'API access disabled in offline mode. Switch to online mode to enable.', {});
+                return;
+            }
+            apiCredentials.key = generateUUID();
+            apiCredentials.secret = await sha256(generateUUID());
+            const apiInput = document.getElementById('api-input');
+            if (apiInput) {
+                apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials with LangChain to train vials via /prompt, /task, /config, /status commands.`;
+            }
+            const blockHash = await addToBlockchain('api_credentials', { key: apiCredentials.key });
+            logEvent('api', 'Generated API credentials for LLM integration', { blockHash });
+        }
+
+        // API Access (Show Popup)
+        function showApiPopup() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode. Switch to online mode to enable.');
+                logEvent('error', 'API access disabled in offline mode. Switch to online mode to enable.', {});
+                return;
+            }
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) {
+                apiPopup.classList.add('visible');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput && apiCredentials.key) {
+                    apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials with LangChain to train vials via /prompt, /task, /config, /status commands.`;
+                }
+            }
+        }
+
+        // API Submit with Prompt Shield
+        async function sendPrompt() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode. Switch to online mode to enable.');
+                logEvent('error', 'API access disabled in offline mode. Switch to online mode to enable.', {});
+                return;
+            }
+            const apiInput = document.getElementById('api-input');
+            if (!apiInput || !apiInput.value.trim()) {
+                showErrorNotification('No credentials generated: Click "Generate New Credentials" first');
+                logEvent('error', 'No credentials generated: Click "Generate New Credentials" first', {});
+                return;
+            }
+            logEvent('api', 'API credentials confirmed. Ready for LLM integration.', { networkId: agenticNetworkId });
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) apiPopup.classList.remove('visible');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            const elements = {
+                authButton: document.getElementById('authButton'),
+                voidButton: document.getElementById('voidButton'),
+                troubleshootButton: document.getElementById('troubleshootButton'),
+                quantumLinkButton: document.getElementById('quantumLinkButton'),
+                exportButton: document.getElementById('exportButton'),
+                importButton: document.getElementById('importButton'),
+                apiAccessButton: document.getElementById('apiAccessButton'),
+                apiSubmit: document.getElementById('api-generate'),
+                apiClose: document.getElementById('api-close'),
+                fileInput: document.getElementById('file-input'),
+                promptInput: document.getElementById('prompt-input')
+            };
+
+            elements.authButton.addEventListener('click', authenticate);
+            elements.voidButton.addEventListener('click', voidVials);
+            elements.troubleshootButton.addEventListener('click', troubleshoot);
+            elements.quantumLinkButton.addEventListener('click', quantumLink);
+            elements.exportButton.addEventListener('click', exportVials);
+            elements.importButton.addEventListener('click', () => elements.fileInput.click());
+            elements.apiAccessButton.addEventListener('click', showApiPopup);
+            elements.apiSubmit.addEventListener('click', generateApiCredentials);
+            elements.apiClose.addEventListener('click', () => {
+                const apiPopup = document.getElementById('api-popup');
+                if (apiPopup) apiPopup.classList.remove('visible');
+            });
+            elements.fileInput.addEventListener('change', importFile);
+            elements.promptInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (elements.promptInput.value.trim()) {
+                        handleGitCommand(elements.promptInput.value);
+                        elements.promptInput.value = '';
+                    }
+                }
+            });
+
+            logEvent('system', 'Vial MCP Controller initialized. Use /help for API commands.', {});
+        }, { once: true });
+    </script>
+</body>
+</html>
