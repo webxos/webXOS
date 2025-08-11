@@ -1,184 +1,387 @@
-# Vial MCP Controller
+Vial MCP Controller
+A lightweight, standalone HTML5 Progressive Web App (PWA) for managing and training AI agents in a decentralized, quantum-inspired network. Built with zero external dependencies, it leverages modern JavaScript, Web Crypto API, and a retro terminal aesthetic for seamless operation on edge devices, supporting both online and offline modes.
+Table of Contents
 
-![Vial MCP Logo](static/icon.png)
+Overview
+Features
+Architecture
+Build Structure
+Setup and Deployment
+Usage
+API Commands
+Diagrams
+Contributing
+License
 
-A lightweight, agentic MCP server for managing a 4x quantum-simulated network with $WEBXOS wallet integration. Built with FastAPI and FastMCP, it supports LangChain, Qiskit, Web3.py, and SQLite for a minimal, scalable setup. Deployed at [webxos.netlify.app](https://webxos.netlify.app) and maintained at [github.com/webxos/webxos](https://github.com/webxos/webxos). Follow us on [X @webxos](https://x.com/webxos).
+Overview
+Vial MCP Controller is a single-page HTML application designed for managing AI agent training within a decentralized WebXOS network. It supports secure wallet management, agent training via a "Quantum Link" mechanism, and seamless import/export of training data and wallets via .md files. The app operates in both online and offline modes, with a focus on lightweight, dependency-free code optimized for mobile and desktop browsers (Chrome, Edge).
+Key highlights:
 
-## Table of Contents
-- [Features](#features)
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Rebuild Instructions](#rebuild-instructions)
-- [Usage](#usage)
-- [Testing](#testing)
-- [CI/CD](#cicd)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
-- [Contact](#contact)
+Zero Dependencies: All functionality is contained in a single vial.html file using native JavaScript and Web Crypto API.
+Retro Terminal UI: Neon green text on a black background with a Courier New font, inspired by classic terminal interfaces.
+Quantum Link: Replaces traditional training with a dynamic agent activation system, supporting online syncing and offline agent generation.
+Wallet Management: Combines and shares wallets securely via .md files, with $WEBXOS balance and reputation tracking.
+Offline Support: Full training and import functionality in offline mode, with clear UI feedback (grey status bars).
 
-## Features
-- **4x Agentic Network**: Four PyTorch-based agents with Qiskit quantum simulation.
-- **$WEBXOS Wallet**: Decentralized payouts via Web3.py, persisted in SQLite.
-- **FastAPI + FastMCP**: High-performance APIs exposed as MCP tools/resources.
-- **LangChain Integration**: NanoGPT with reusable prompt templates.
-- **Real-Time Streaming**: Server-Sent Events (SSE) for live updates.
-- **Security**: JWT authentication, HTTPS, and offline fallback with Dexie.js.
-- **Git Terminal**: API-driven git interactions in `vial.html`.
-- **Exports**: Markdown exports with WEBXOS Tokenization Tag.
+Features
 
-## Project Structure
-```
-vial-mcp-project/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                  # GitHub Actions for CI/CD
-├── vial/
-│   ├── server.py                   # FastAPI + FastMCP server
-│   ├── vial_manager.py             # Manages 4x agents and tools
-│   ├── quantum_simulator.py        # Qiskit-based quantum simulation
-│   ├── webxos_wallet.py            # $WEBXOS wallet with Web3.py, SQLite
-│   ├── auth_manager.py             # JWT authentication
-│   ├── export_manager.py           # Markdown exports
-│   ├── langchain_agent.py          # LangChain with NanoGPT
-│   ├── client.py                   # MCP client for testing
-│   ├── tools/
-│   │   └── base_tool.py           # Sample MCP tool
-│   ├── prompts/
-│   │   └── base_prompt.py         # Sample prompt template
-│   ├── agents/
-│   │   ├── agent1.py              # Agent 1 with PyTorch
-│   │   ├── agent2.py              # Agent 2 with PyTorch
-│   │   ├── agent3.py              # Agent 3 with PyTorch
-│   │   └── agent4.py              # Agent 4 with PyTorch
-│   ├── tests/
-│   │   ├── test_server.py         # Server tests
-│   │   ├── test_vial_manager.py   # Vial manager tests
-│   │   ├── test_wallet.py         # Wallet tests
-│   │   ├── test_quantum_simulator.py # Quantum simulator tests
-│   │   ├── test_auth_manager.py   # Auth manager tests
-│   │   ├── test_export_manager.py # Export manager tests
-│   │   └── test_langchain_agent.py # LangChain agent tests
-│   ├── requirements.txt            # Python dependencies
-│   ├── .env                       # Environment variables
-│   ├── openapi.yaml               # API schema
-│   └── Dockerfile                 # Docker configuration
-├── static/
-│   ├── icon.png                   # Favicon (CDN-downloaded)
-│   ├── dexie.min.js               # Dexie.js for offline storage (CDN-downloaded)
-│   └── redaxios.min.js            # Redaxios for HTTP requests (CDN-downloaded)
-├── _docs/
-│   ├── tools.md                   # Tool documentation
-│   └── resources.md               # Resource documentation
-├── README.md                      # Project overview
-├── errorlog.md                    # Error tracking
-├── llms.txt                       # LLM-friendly docs
-├── vial.html                      # Frontend controller
-├── netlify.toml                   # Netlify configuration
-├── docker-compose.yaml            # Docker orchestration
-├── wallet.db                      # SQLite database (auto-generated)
-└── LICENSE                        # MIT License
-```
+Authentication:
 
-## Prerequisites
-- Git
-- Python 3.11
-- Docker and Docker Compose
-- Node.js and Yarn (for Netlify CLI)
-- Netlify CLI (`npm install -g netlify-cli@latest`)
+Toggle between online (API and $WEBXOS earning enabled) and offline (local training only) modes.
+Generates unique agenticNetworkId and wallet for secure transactions.
 
-## Installation
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/webxos/webxos.git
-   cd webxos
-   ```
 
-2. **Download Static Assets**:
-   ```bash
-   curl -o static/dexie.min.js https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js
-   curl -o static/redaxios.min.js https://cdn.jsdelivr.net/npm/redaxios@0.5.1/dist/redaxios.min.js
-   curl -o static/icon.png https://cdn.jsdelivr.net/gh/xai-org/grok-assets/icon.png
-   ```
+Quantum Link:
 
-3. **Install Backend Dependencies**:
-   ```bash
-   pip install -r vial/requirements.txt
-   ```
+Activates AI agents for training, setting status to running with yellow UI feedback (#ff0).
+Online: Syncs agents with a simulated server, updating quantumState.entanglement to synced.
+Offline: Generates local agents from templates or imported data, setting quantumState.entanglement to local.
 
-4. **Set Up Environment**:
-   Create `vial/.env`:
-   ```plaintext
-   MCP_HOST=0.0.0.0
-   MCP_PORT=5000
-   API_TOKEN=secret-token
-   WEB3_PROVIDER=https://ropsten.infura.io/v3/YOUR_PROJECT_ID
-   ```
 
-## Rebuild Instructions
-### Local Development
-1. **Start Backend and Database**:
-   ```bash
-   docker-compose up -d
-   ```
-   Or run directly:
-   ```bash
-   cd vial
-   uvicorn server:app --host 0.0.0.0 --port 5000
-   ```
+Auto-Train on Import:
 
-2. **Frontend**:
-   Open `vial.html` in a browser, pointing to `http://localhost:5000`.
+Automatically triggers Quantum Link after importing a .md file, merging tasks, parameters, and wallet data.
 
-3. **Verify**:
-   ```bash
-   curl http://localhost:5000/health
-   ```
-   Expected: `{"status": "ok"}`
 
-### Netlify Deployment
-1. **Link to Netlify**:
-   ```bash
-   netlify init
-   ```
-   Link to `github.com/webxos/webxos`, set publish directory to `.`, and build command to `echo "No build required"`.
+Wallet Combining and Sharing:
 
-2. **Deploy**:
-   ```bash
-   netlify deploy --prod
-   ```
-   Update `vial.html` to use the deployed backend URL if hosted separately.
+Imports merge wallet balances and agent data (tasks, training data, configs) seamlessly.
+Exports include wallet, blockchain, API credentials, and vial states in a .md file for sharing.
 
-## Usage
-- **Authenticate**: Use "Authenticate" in `vial.html` with network and session IDs.
-- **Train Vials**: Upload `.md`/`.py` files to train agents.
-- **Export**: Download `.md` files with wallet and model data.
-- **Git Terminal**: Run git commands via API.
-- **Stream**: Monitor real-time updates via SSE at `/stream/{network_id}`.
 
-## Testing
-```bash
-cd vial
-pytest tests/ --verbose --junitxml=test-results.xml
-```
+API Training:
 
-## CI/CD
-GitHub Actions (`ci.yml`) automates testing and Docker builds. Check logs at [github.com/webxos/webxos](https://github.com/webxos/webxos).
+Supports /prompt and /task commands (e.g., /prompt vial1 train dataset) to trigger training via LangChain integration (online only).
+Offline API attempts display red error messages.
 
-## Troubleshooting
-- **Static Assets Missing**: Verify `static/` files are downloaded from CDNs.
-- **Train Errors**: Select a file before training.
-- **API Errors**: Ensure non-empty prompts in git terminal.
-- **Netlify Issues**: Check `netlify.toml` and repo linkage.
 
-## Contributing
-Fork, create a feature branch, commit, and submit pull requests to [github.com/webxos/webxos](https://github.com/webxos/webxos).
+UI Feedback:
 
-## License
-MIT License. See `LICENSE`.
+Status bars show:
+Green (#0f0) for online mode with latency.
+Yellow (#ff0) during training.
+Grey (#666) for offline mode.
+Red (#f00) for errors or offline restrictions.
 
-## Contact
-- GitHub: [github.com/webxos/webxos](https://github.com/webxos/webxos)
-- X: [x.com/webxos](https://x.com/webxos)
-- Email: [contact@webxos.netlify.app](mailto:contact@webxos.netlify.app)
+
+Console logs commands, errors, and system events with timestamps and IDs.
+
+
+Security:
+
+Uses Web Crypto API for AES-256 encryption and SHA-256 hashing.
+Sanitizes inputs to prevent XSS and validates .md files for safe imports.
+
+
+
+Architecture
+The Vial MCP Controller is a single-page application with a modular design, leveraging native browser APIs for performance and portability. Key components:
+
+HTML Structure:
+
+Single vial.html file with inline CSS and JavaScript.
+Responsive layout with a console, button group, prompt input, vial status bars, and footer.
+
+
+CSS:
+
+Retro terminal aesthetic: black background, neon green text (#0f0), Courier New font.
+Responsive design with media queries for screens as small as 320px.
+Dynamic status bar colors: green (online), yellow (training), grey (offline), red (errors).
+
+
+JavaScript Modules:
+
+State Management: Global state for vials, wallet, blockchain, and API credentials.
+Quantum Link: Handles agent activation and training, with online/offline logic.
+Import/Export: Merges wallet balances and agent data, exports to .md files.
+Git Command Handler: Processes /prompt, /task, /config, /status commands for API-driven training.
+Blockchain Simulation: Tracks transactions (auth, train, import, export) with SHA-256 hashes.
+Error Handling: Debounced console updates and notification popups for user feedback.
+
+
+Web Crypto API:
+
+AES-256 for encrypting training data.
+SHA-256 for blockchain hashes and wallet verification.
+
+
+
+Build Structure
+The project consists of a single file, ensuring simplicity and portability:
+vial-mcp-controller/
+├── vial.html        # Main application file (HTML, CSS, JavaScript)
+├── README.md        # This file
+└── LICENSE          # MIT License
+
+File Details
+
+vial.html:
+
+Size: ~15KB (unminified).
+Structure:
+<head>: Meta tags for viewport, charset, and PWA compatibility.
+<style>: Inline CSS for retro UI, responsive design, and dynamic status bars.
+<body>: Console (<div id="console">), buttons, prompt input, status bars, footer, and hidden file input.
+<script>: Inline JavaScript with agent templates, state management, and core functionality.
+
+
+Dependencies: None (uses native browser APIs: Web Crypto, File API, localStorage).
+Version: v2.7 (August 2025).
+
+
+README.md:
+
+Comprehensive documentation with setup, usage, and diagrams.
+Deployable to GitHub Pages or Netlify for instant access.
+
+
+
+Setup and Deployment
+Prerequisites
+
+Modern browser (Chrome 120+, Edge 120+).
+Optional: HTTPS server for online mode (e.g., Netlify, GitHub Pages).
+No external dependencies or build tools required.
+
+Local Development
+
+Clone the repository:git clone https://github.com/your-username/vial-mcp-controller.git
+cd vial-mcp-controller
+
+
+Open vial.html in a browser:open vial.html
+
+Or serve locally using a simple HTTP server:python3 -m http.server 8000
+
+Access at http://localhost:8000/vial.html.
+
+Deployment
+
+Netlify:
+
+Drag and drop vial.html into Netlify's deployment interface.
+Set custom headers for correct MIME type:/*.html
+  Content-Type: text/html
+
+
+Deploy as a single-file PWA.
+
+
+GitHub Pages:
+
+Push to a gh-pages branch:git add vial.html
+git commit -m "Deploy Vial MCP Controller"
+git push origin main
+
+
+Enable GitHub Pages in repository settings, pointing to gh-pages or main.
+
+
+Custom Headers:
+
+Ensure Content-Type: text/html for vial.html.
+Optional: Add Content Security Policy (CSP) for enhanced security:<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';">
+
+
+
+
+
+Usage
+
+Open the App:
+
+Load vial.html in a supported browser.
+The UI displays a console, buttons (Authenticate, Void, Troubleshoot, Quantum Link, Export, Import, API Access), prompt input, status bars, and footer.
+
+
+Authenticate:
+
+Click Authenticate to choose online or offline mode.
+Online: Enables API access and $WEBXOS earning.
+Offline: Enables local training, with grey status bars (#666).
+
+
+Quantum Link:
+
+Click Quantum Link to activate agents:
+Online: Syncs agents, sets yellow status bars (#ff0).
+Offline: Generates local agents, keeps grey status bars.
+
+
+First-time users: Initializes new wallet and agents automatically.
+
+
+Import/Export:
+
+Import: Click Import, select a .md file, and auto-train agents with merged wallet and data.
+Export: Click Export to download a .md file with wallet, blockchain, API credentials, and vial data for sharing.
+
+
+API Training:
+
+In online mode, enter commands in the prompt input (e.g., /prompt vial1 train dataset).
+Click API Access to generate/view credentials for LangChain integration.
+
+
+Troubleshoot:
+
+Click Troubleshoot to log system stats and blockchain integrity.
+
+
+Void:
+
+Click Void to reset all data (vials, wallet, blockchain).
+
+
+
+Example Workflow
+
+Authenticate in online mode.
+Run /prompt vial1 train dataset to train vial1.
+Export data to vial_wallet_export_*.md.
+Share the .md file with another user.
+They import it, combining wallets, and click Quantum Link to continue training.
+
+API Commands
+The app supports git-style commands for API-driven training (online mode only):
+
+
+
+Command
+Description
+Example
+
+
+
+/help
+Lists available commands
+/help
+
+
+/prompt <vial> <text>
+Sends a training prompt to a vial
+/prompt vial1 train dataset
+
+
+/task <vial> <task>
+Assigns a task to a vial
+/task vial2 optimize_model
+
+
+/config <vial> <key> <value>
+Sets a vial configuration
+/config vial3 lr 0.01
+
+
+/status
+Shows vial statuses
+/status
+
+
+Note: Commands containing "train" or "optimize" trigger Quantum Link automatically.
+Diagrams
+System Architecture
+graph TD
+    A[Browser] -->|Loads| B[vial.html]
+    B --> C[HTML Structure]
+    B --> D[CSS (Retro UI)]
+    B --> E[JavaScript Modules]
+    C --> F[Console]
+    C --> G[Button Group]
+    C --> H[Prompt Input]
+    C --> I[Status Bars]
+    C --> J[Footer]
+    D --> K[Neon Green Theme]
+    D --> L[Responsive Design]
+    E --> M[State Management]
+    E --> N[Quantum Link]
+    E --> O[Import/Export]
+    E --> P[Git Command Handler]
+    E --> Q[Blockchain Simulation]
+    E --> R[Web Crypto API]
+    M --> S[Vials]
+    M --> T[Wallet]
+    M --> U[Blockchain]
+    M --> V[API Credentials]
+    N -->|Online| W[Agent Sync]
+    N -->|Offline| X[Local Agent Generation]
+    O --> Y[Markdown .md]
+    P -->|API Training| N
+    Q --> R
+    R -->|AES-256| Z[Encryption]
+    R -->|SHA-256| AA[Hashing]
+
+Workflow
+sequenceDiagram
+    actor User
+    participant Browser
+    participant VialMCP
+    participant Blockchain
+    User->>Browser: Open vial.html
+    Browser->>VialMCP: Load HTML, CSS, JS
+    User->>VialMCP: Click Authenticate
+    VialMCP->>Blockchain: Add auth block
+    VialMCP->>User: Choose online/offline
+    User->>VialMCP: Click Quantum Link
+    alt Online Mode
+        VialMCP->>Blockchain: Add train block
+        VialMCP->>VialMCP: Sync agents (yellow UI)
+    else Offline Mode
+        VialMCP->>VialMCP: Generate local agents (grey UI)
+    end
+    User->>VialMCP: Import .md file
+    VialMCP->>Blockchain: Add import block
+    VialMCP->>VialMCP: Merge wallet, train agents
+    User->>VialMCP: Enter /prompt vial1 train dataset
+    alt Online Mode
+        VialMCP->>Blockchain: Add command block
+        VialMCP->>VialMCP: Train vial1 (yellow UI)
+    else Offline Mode
+        VialMCP->>User: Show error (red UI)
+    end
+    User->>VialMCP: Click Export
+    VialMCP->>Blockchain: Add export block
+    VialMCP->>User: Download .md file
+
+UI Layout
+graph TD
+    A[Body] --> B[H1: Vial MCP Controller]
+    A --> C[Console (#console)]
+    A --> D[Error Notification (#error-notification)]
+    A --> E[API Popup (#api-popup)]
+    A --> F[Button Group (.button-group)]
+    A --> G[Prompt Input (#prompt-input)]
+    A --> H[Vial Status Bars (#vial-status-bars)]
+    A --> I[Footer]
+    A --> J[File Input (#file-input, hidden)]
+    F --> K[Authenticate]
+    F --> L[Void]
+    F --> M[Troubleshoot]
+    F --> N[Quantum Link]
+    F --> O[Export]
+    F --> P[Import]
+    F --> Q[API Access]
+    H --> R[Vial 1]
+    H --> S[Vial 2]
+    H --> T[Vial 3]
+    H --> U[Vial 4]
+
+Contributing
+Contributions are welcome! To contribute:
+
+Fork the repository.
+Create a feature branch (git checkout -b feature/your-feature).
+Commit changes (git commit -m "Add your feature").
+Push to the branch (git push origin feature/your-feature).
+Open a pull request with detailed descriptions.
+
+Please ensure:
+
+Code remains dependency-free and lightweight.
+Maintains retro terminal aesthetic (neon green, black background, Courier New).
+Tests pass on Chrome and Edge (120+).
+No external libraries beyond native browser APIs.
+
+License
+MIT License. See LICENSE for details.
