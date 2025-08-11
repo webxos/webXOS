@@ -24,7 +24,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Authentication error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Authentication error: {str(e)}\n")
             raise
 
     def validate_token(self, token: str) -> bool:
@@ -33,7 +33,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Token validation error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Token validation error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Token validation error: {str(e)}\n")
             raise
 
     def validate_session(self, token: str, network_id: str) -> bool:
@@ -42,7 +42,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Session validation error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Session validation error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Session validation error: {str(e)}\n")
             raise
 
     def void_session(self, token: str):
@@ -53,5 +53,5 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Void session error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Void session error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Void session error: {str(e)}\n")
             raise
