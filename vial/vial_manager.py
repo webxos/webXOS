@@ -44,13 +44,13 @@ class VialManager:
                 vial["tasks"] = self.quantum_sim.simulate_training(vial_id, code)["tasks"]
                 vial["wallet"]["balance"] += 0.0001
                 self.wallet.add_balance(vial["wallet"]["address"], 0.0001)
-                self.agent_runners[vial_id](code)  # Run the corresponding agent
+                self.agent_runners[vial_id](code)
             logger.info(f"Trained vials for network: {network_id}")
             return balance_earned
         except Exception as e:
             logger.error(f"Train vials error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Train vials error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Train vials error: {str(e)}\n")
             raise
 
     def reset_vials(self):
@@ -67,7 +67,7 @@ class VialManager:
         except Exception as e:
             logger.error(f"Reset vials error: {str(e)}")
             with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-10T20:23:00Z]** Reset vials error: {str(e)}\n")
+                f.write(f"- **[2025-08-11T00:44:00Z]** Reset vials error: {str(e)}\n")
             raise
 
     def get_vials(self) -> Dict:
