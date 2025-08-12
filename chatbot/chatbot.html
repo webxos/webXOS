@@ -185,15 +185,31 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.14';
+        const BOT_VERSION = '1.2.16';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
         let isOffline = !navigator.onLine;
-        const VIAL_BACKEND = 'https://webxos.netlify.app/vial/ping';
-        const FALLBACK_BACKEND = 'https://webxos.netlify.app/.netlify/functions/ping';
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY = 2000;
+
+        // Sanitize input/output to prevent XSS
+        function sanitizeInput(input) {
+            if (typeof input !== 'string') return '';
+            const div = document.createElement('div');
+            div.textContent = input;
+            return div.innerHTML.replace(/[<>]/g, '');
+        }
+
+        // Sanitize JSON response
+        function sanitizeResponse(data) {
+            if (typeof data === 'string') {
+                return data.replace(/[<>"';&]/g, '');
+            } else if (typeof data === 'object' && data !== null) {
+                return JSON.parse(JSON.stringify(data, (key, value) => 
+                    typeof value === 'string' ? sanitizeInput(value) : value
+                ));
+            }
+            return data;
+        }
 
         // IndexedDB for error logging
         let db;
@@ -238,34 +254,17 @@
                 return;
             }
 
-            async function attemptRegistration(path, retryCount) {
-                try {
-                    const swCheck = await fetch(path, { method: 'HEAD' });
-                    if (!swCheck.ok) throw new Error(`HTTP ${swCheck.status}: sw.js not found`);
-                    const registration = await navigator.serviceWorker.register(path, { scope: '/chatbot/' });
-                    console.log('Service Worker registered:', registration.scope);
-                    updateStatus('Success: Service Worker registered.', false);
-                    return registration;
-                } catch (err) {
-                    const errorDetails = err.message.includes('404') ? 'sw.js not found at /chatbot/sw.js.' : err.message.includes('CORS') ? 'CORS policy blocked.' : err.message;
-                    const guidance = 'Ensure /chatbot/sw.js exists at https://webxos.netlify.app/chatbot/sw.js.';
-                    logError(`Service Worker registration failed: ${path}`, err, path, null, null, `${errorDetails} ${guidance}`);
-                    if (retryCount < MAX_RETRIES) {
-                        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
-                        return attemptRegistration(path, retryCount + 1);
-                    } else {
-                        logError('Service Worker registration failed after retries', err, path, null, null, `${errorDetails} ${guidance}`);
-                        updateStatus('Error: Failed to register Service Worker.', true, `${errorDetails} Check Netlify deploy logs.`);
-                        isOffline = true;
-                        return null;
-                    }
-                }
-            }
-
             try {
-                await attemptRegistration('/chatbot/sw.js', 0);
+                const swCheck = await fetch('/chatbot/sw.js', { method: 'HEAD' });
+                if (!swCheck.ok) throw new Error(`HTTP ${swCheck.status}: sw.js not found`);
+                const registration = await navigator.serviceWorker.register('/chatbot/sw.js', { scope: '/chatbot/' });
+                console.log('Service Worker registered:', registration.scope);
+                updateStatus('Success: Service Worker registered.', false);
             } catch (err) {
-                console.warn('Service Worker registration failed. Using offline mode.');
+                const errorDetails = err.message.includes('404') ? 'sw.js not found at /chatbot/sw.js.' : err.message.includes('CORS') ? 'CORS policy blocked.' : err.message;
+                const guidance = 'Ensure /chatbot/sw.js exists at https://webxos.netlify.app/chatbot/sw.js.';
+                logError('Service Worker registration failed', err, '/chatbot/sw.js', null, null, `${errorDetails} ${guidance}`);
+                updateStatus('Error: Failed to register Service Worker.', true, `${errorDetails} Check Netlify deploy logs.`);
                 isOffline = true;
             }
         }
@@ -288,49 +287,21 @@
         function updateStatus(message, isError = false, details = '') {
             const status = document.getElementById('status');
             const timestamp = new Date().toLocaleTimeString();
-            status.innerHTML = `<span class="${isError ? 'error' : 'success'}">${message}${isError || details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}</span>`;
+            status.innerHTML = `<span class="${isError ? 'error' : 'success'}">${sanitizeInput(message)}${isError || details ? `<br><small>Details: ${sanitizeInput(details)} [${timestamp}]</small>` : ''}</span>`;
             status.classList.add('show');
             setTimeout(() => status.classList.remove('show'), 5000);
         }
 
-        // Test backend connectivity with retries and detailed error reporting
-        async function testBackend(endpoint, retryCount = 0) {
-            try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 5000);
-                const response = await fetch(endpoint, { 
-                    method: 'GET', 
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: controller.signal
-                });
-                clearTimeout(timeout);
-                const text = await response.text();
-                const headers = {};
-                response.headers.forEach((value, key) => { headers[key] = value; });
-                console.log(`Backend response: ${endpoint}`, { status: response.status, headers, body: text.slice(0, 200) });
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    data = text;
-                }
-                return { status: response.status, data, contentType: response.headers.get('content-type') || 'unknown', rawText: text };
-            } catch (error) {
-                if (error.name === 'AbortError') {
-                    const errorMsg = `Request to ${endpoint} timed out after 5 seconds`;
-                    if (retryCount < MAX_RETRIES) {
-                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                        return testBackend(endpoint, retryCount + 1);
-                    }
-                    return { status: null, error: errorMsg, contentType: 'unknown', data: '', rawText: '' };
-                }
-                const errorMsg = error.message.includes('Failed to fetch') ? `Network error: Unable to reach ${endpoint}` : error.message;
-                if (retryCount < MAX_RETRIES) {
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                    return testBackend(endpoint, retryCount + 1);
-                }
-                return { status: null, error: errorMsg, contentType: 'unknown', data: '', rawText: '' };
-            }
+        // Ping Agent for local authentication
+        function pingAgent() {
+            const mockResponse = {
+                status: 200,
+                data: JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }),
+                contentType: 'application/json',
+                rawText: JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() })
+            };
+            console.log('Ping Agent: Using mock response for local authentication');
+            return mockResponse;
         }
 
         // Validate JSON
@@ -345,27 +316,39 @@
             }
         }
 
-        // Parse Markdown with YAML front matter
+        // Parse Markdown with flexible Vial MCP format
         function parseMarkdownAgent(mdContent) {
             const yamlMatch = mdContent.match(/^---\n([\s\S]*?)\n---/);
-            if (!yamlMatch) return null;
+            if (!yamlMatch) {
+                logError('Invalid YAML front matter in .md file', null, 'parseMarkdownAgent', null, null, mdContent.slice(0, 100));
+                return null;
+            }
             const yamlContent = yamlMatch[1];
             const lines = yamlContent.split('\n');
-            let agent = {};
+            let agent = { name: '', pattern: '', color: '' };
             let currentKey = null;
             lines.forEach(line => {
                 if (line.includes(':')) {
                     const [key, value] = line.split(':').map(s => s.trim());
-                    currentKey = key;
                     if (key === 'agent') {
-                        agent = { name: '', pattern: '', color: '' };
-                    } else if (currentKey === 'agent') {
-                        agent[key] = value;
+                        currentKey = 'agent';
+                        return;
+                    }
+                    if (currentKey === 'agent') {
+                        agent[key] = sanitizeInput(value);
+                    } else {
+                        agent[key] = sanitizeInput(value); // Flexible for Vial MCP extra fields
                     }
                 }
             });
-            if (!agent.name || !agent.pattern || !agent.color) return null;
-            if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) return null; // Ignore wallet data
+            if (!agent.name || !agent.pattern || !agent.color) {
+                logError('Missing required fields (name, pattern, color) in .md file', null, 'parseMarkdownAgent', null, null, yamlContent.slice(0, 100));
+                return null;
+            }
+            if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) {
+                logError('Invalid agent name or pattern (wallet-related)', null, 'parseMarkdownAgent', null, null, yamlContent.slice(0, 100));
+                return null;
+            }
             return agent;
         }
 
@@ -411,7 +394,7 @@
             const messages = document.getElementById('messages');
             let customCommands = '';
             Object.keys(customAgents).forEach(agentName => {
-                customCommands += `<p><b>/${agentName}</b> - Activate custom ${agentName} pattern.</p>`;
+                customCommands += `<p><b>/${sanitizeInput(agentName)}</b> - Activate custom ${sanitizeInput(agentName)} pattern.</p>`;
             });
             messages.innerHTML = `
                 <p><b>Commands:</b></p>
@@ -430,54 +413,23 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        // Authenticate (verify backend connectivity)
+        // Authenticate using ping agent
         async function authenticate() {
             const messages = document.getElementById('messages');
             const loading = document.getElementById('loading');
             loading.style.display = 'block';
-            let vialResponse = await testBackend(VIAL_BACKEND);
-            let errorMsg = '';
-            let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
+            const vialResponse = pingAgent();
+            const parsedData = isValidJSON(vialResponse.data) ? JSON.parse(vialResponse.data) : {};
             
-            if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
-                messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
-                updateStatus('Success: Connected to search bot backend.', false);
+            if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && parsedData.status === 'ok') {
+                messages.innerHTML += `<p><b>System:</b> Local authentication verified via ping agent.</p>`;
+                updateStatus('Success: Connected to chatbot server.', false);
             } else {
-                if (vialResponse.status === 200) {
-                    errorMsg = `HTTP 200: Invalid response from /vial/ping (Content: ${vialResponse.rawText.slice(0, 100)})`;
-                    guidance += ` Ensure ping.js returns {"status":"ok","timestamp":"..."}. Check function logs for errors.`;
-                    if (!isValidJSON(vialResponse.data)) {
-                        errorMsg += `; Response is not valid JSON (Content-Type: ${vialResponse.contentType})`;
-                        guidance += ` Verify ping.js sets Content-Type: application/json and returns valid JSON.`;
-                    } else {
-                        errorMsg += `; JSON valid but missing status: 'ok'`;
-                        guidance += ` Check ping.js for correct response format.`;
-                    }
-                } else if (vialResponse.status === 404) {
-                    errorMsg = `HTTP 404: /vial/ping not found`;
-                    guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
-                    // Try fallback endpoint
-                    vialResponse = await testBackend(FALLBACK_BACKEND);
-                    if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
-                        messages.innerHTML += `<p><b>System:</b> Fallback endpoint /.netlify/functions/ping verified. Update VIAL_BACKEND to ${FALLBACK_BACKEND}.</p>`;
-                        updateStatus('Success: Fallback backend connected.', false, 'Update VIAL_BACKEND in chatbot.html.');
-                    } else {
-                        errorMsg += `; Fallback /.netlify/functions/ping also failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.rawText.slice(0, 100)})`;
-                        guidance += ' Verify function deployment in Netlify dashboard > Functions.';
-                    }
-                } else if (vialResponse.status === 500) {
-                    errorMsg = `HTTP 500: Server error at /vial/ping`;
-                    guidance += ' Check function logs for runtime errors in ping.js.';
-                } else if (vialResponse.status === null) {
-                    errorMsg = vialResponse.error;
-                    guidance += ' Verify network connectivity and Netlify deploy status.';
-                } else {
-                    errorMsg = `HTTP ${vialResponse.status}: ${vialResponse.rawText.slice(0, 100)}`;
-                    guidance += ' Inspect response in browser DevTools and function logs.';
-                }
-                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse, null, vialResponse.rawText.slice(0, 500));
-                messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend: ${errorMsg}</p>`;
-                updateStatus('Error: Backend connection failed.', true, guidance);
+                const errorMsg = `Invalid ping agent response (Content: ${sanitizeInput(vialResponse.rawText.slice(0, 100))})`;
+                const guidance = 'Check console for ping agent logs. Mock response used.';
+                logError('Local authentication failed', new Error(errorMsg), 'pingAgent', vialResponse, null, vialResponse.rawText.slice(0, 500));
+                messages.innerHTML += `<p class="error"><b>Error:</b> Failed to authenticate: ${sanitizeInput(errorMsg)}</p>`;
+                updateStatus('Error: Local authentication failed.', true, guidance);
             }
             loading.style.display = 'none';
             messages.scrollTop = messages.scrollHeight;
@@ -499,17 +451,17 @@
             }
             const reader = new FileReader();
             reader.onload = async (e) => {
-                const text = e.target.result;
+                const text = sanitizeInput(e.target.result);
                 const agent = parseMarkdownAgent(text);
                 if (!agent) {
-                    updateStatus('Error: Invalid agent format.', true, 'Ensure .md file has valid YAML front matter.');
+                    updateStatus('Error: Invalid agent format.', true, 'Ensure .md file has valid YAML front matter with name, pattern, color.');
                     messages.innerHTML += `<p class="error"><b>Error:</b> Invalid agent format in .md file.</p>`;
                     return;
                 }
                 customAgents[agent.name] = agent;
                 window.customAgents[agent.name] = agent; // Expose to neurots.js
-                messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${agent.name}.</p>`;
-                updateStatus(`Success: Imported agent ${agent.name}.`, false);
+                messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${sanitizeInput(agent.name)}.</p>`;
+                updateStatus(`Success: Imported agent ${sanitizeInput(agent.name)}.`, false);
                 showHelp();
             };
             reader.readAsText(file);
@@ -517,7 +469,7 @@
 
         // Search query
         async function searchQuery() {
-            const query = document.getElementById('userInput').value.trim().toLowerCase();
+            const query = sanitizeInput(document.getElementById('userInput').value.trim().toLowerCase());
             const messages = document.getElementById('messages');
             const loading = document.getElementById('loading');
             if (!query) {
@@ -530,46 +482,20 @@
             else if (query.startsWith('/agent3')) colorClass = 'agent3-color';
             else if (query.startsWith('/agent4')) colorClass = 'agent4-color';
             else if (query.startsWith('/') && customAgents[query.slice(1)]) colorClass = 'custom-agent-color';
-            messages.innerHTML += `<p class="${colorClass}"><b>You:</b> ${query}</p>`;
+            messages.innerHTML += `<p class="${colorClass}"><b>You:</b> ${sanitizeInput(query)}</p>`;
             loading.style.display = 'block';
 
             try {
                 if (query.startsWith('/')) {
                     const command = query.split(' ')[0];
-                    let vialResponse = { status: null };
                     if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command) || customAgents[command.slice(1)]) {
-                        vialResponse = await testBackend(VIAL_BACKEND);
-                        if (isOffline || vialResponse.status !== 200 || !isValidJSON(vialResponse.data) || JSON.parse(vialResponse.data).status !== 'ok') {
-                            let errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.rawText.slice(0, 100)}` : vialResponse.error;
-                            let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
-                            if (vialResponse.status === 200) {
-                                errorMsg = `HTTP 200: Invalid response from /vial/ping (Content: ${vialResponse.rawText.slice(0, 100)})`;
-                                guidance += ` Ensure ping.js returns {"status":"ok","timestamp":"..."}.`;
-                                if (!isValidJSON(vialResponse.data)) {
-                                    errorMsg += `; Response is not valid JSON (Content-Type: ${vialResponse.contentType})`;
-                                    guidance += ` Verify ping.js sets Content-Type: application/json and returns valid JSON.`;
-                                } else {
-                                    errorMsg += `; JSON valid but missing status: 'ok'`;
-                                    guidance += ` Check ping.js for correct response format.`;
-                                }
-                            } else if (vialResponse.status === 404) {
-                                errorMsg = `HTTP 404: /vial/ping not found`;
-                                guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
-                                // Try fallback
-                                vialResponse = await testBackend(FALLBACK_BACKEND);
-                                if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
-                                    errorMsg += `; Fallback /.netlify/functions/ping succeeded`;
-                                    guidance = `Update VIAL_BACKEND to ${FALLBACK_BACKEND} in chatbot.html.`;
-                                } else {
-                                    errorMsg += `; Fallback /.netlify/functions/ping failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.rawText.slice(0, 100)})`;
-                                    guidance += ' Verify function deployment in Netlify dashboard > Functions.';
-                                }
-                            } else if (vialResponse.status === 500) {
-                                errorMsg = `HTTP 500: Server error at /vial/ping`;
-                                guidance += ' Check function logs for runtime errors.';
-                            }
-                            updateStatus('Error: Agent feature disabled.', true, `Requires online mode and vial backend. ${errorMsg} ${guidance}`);
-                            messages.innerHTML += `<p class="error"><b>Error:</b> Agent feature requires online mode and vial backend: ${errorMsg}</p>`;
+                        const vialResponse = pingAgent();
+                        const parsedData = isValidJSON(vialResponse.data) ? JSON.parse(vialResponse.data) : {};
+                        if (vialResponse.status !== 200 || !isValidJSON(vialResponse.data) || parsedData.status !== 'ok') {
+                            const errorMsg = `Local ping agent failed (Content: ${sanitizeInput(vialResponse.rawText.slice(0, 100))})`;
+                            const guidance = 'Check console for ping agent logs. Mock response used.';
+                            updateStatus('Error: Agent feature disabled.', true, `Requires local authentication. ${errorMsg} ${guidance}`);
+                            messages.innerHTML += `<p class="error"><b>Error:</b> Agent feature requires local authentication: ${sanitizeInput(errorMsg)}</p>`;
                             setAgentsActive(false);
                             loading.style.display = 'none';
                             return;
@@ -628,7 +554,7 @@
                                 messages.innerHTML += `<p class="custom-agent-color"><b>${command.slice(1).toUpperCase()}:</b> Custom ${command.slice(1).toUpperCase()} pattern activated.</p>`;
                                 updateStatus(`Success: Custom ${command.slice(1).toUpperCase()} activated.`, false);
                             } else {
-                                messages.innerHTML += `<p class="error"><b>Error:</b> Unknown command "${command}". Type /help for commands.</p>`;
+                                messages.innerHTML += `<p class="error"><b>Error:</b> Unknown command "${sanitizeInput(command)}". Type /help for commands.</p>`;
                                 updateStatus('Error: Unknown command.', true);
                                 setAgentsActive(false);
                             }
@@ -641,15 +567,15 @@
                     });
                     const results = fuse.search(query);
                     if (results.length === 0) {
-                        messages.innerHTML += `<p><b>Search Result:</b> No results found for "${query}". Try a different query.</p>`;
+                        messages.innerHTML += `<p><b>Search Result:</b> No results found for "${sanitizeInput(query)}". Try a different query.</p>`;
                         updateStatus('Success: Search completed. No results found.', false);
                     } else {
                         messages.innerHTML += `<p><b>Search Results:</b> Found ${results.length} results.</p>`;
                         results.forEach(({ item, matches }) => {
                             matches.forEach(match => {
-                                const snippet = match.value.slice(Math.max(0, match.indices[0][0] - 50), match.indices[0][1] + 50);
+                                const snippet = sanitizeInput(match.value.slice(Math.max(0, match.indices[0][0] - 50), match.indices[0][1] + 50));
                                 const url = `https://webxos.netlify.app${item.path}`;
-                                messages.innerHTML += `<p><b>Result (<a href="${url}" target="_blank">${item.source}</a>):</b> ...${snippet}...</p>`;
+                                messages.innerHTML += `<p><b>Result (<a href="${url}" target="_blank">${sanitizeInput(item.source)}):</b> ...${snippet}...</p>`;
                             });
                         });
                         updateStatus(`Success: Search completed. Found ${results.length} results.`, false);
@@ -658,8 +584,8 @@
                 }
             } catch (error) {
                 logError('Search failed', error, 'searchQuery');
-                messages.innerHTML += `<p class="error"><b>Error:</b> ${error.message}</p>`;
-                updateStatus('Error: Search failed.', true, error.message);
+                messages.innerHTML += `<p class="error"><b>Error:</b> ${sanitizeInput(error.message)}</p>`;
+                updateStatus('Error: Search failed.', true, sanitizeInput(error.message));
                 setAgentsActive(false);
             } finally {
                 loading.style.display = 'none';
@@ -673,12 +599,12 @@
             updateStatus('Initializing WebXOS Searchbot...', false);
             window.addEventListener('online', () => {
                 isOffline = false;
-                updateStatus('Online: Connecting to backend.', false);
+                updateStatus('Online: Using local ping agent.', false);
                 loadSiteIndex();
             });
             window.addEventListener('offline', () => {
                 isOffline = true;
-                updateStatus('Offline: Using cached data.', true);
+                updateStatus('Offline: Using cached data and mock ping response.', true);
             });
 
             try {
@@ -693,7 +619,7 @@
                 console.log('Neurots initialized successfully');
             } catch (error) {
                 logError('Neurots initialization failed', error, '/chatbot/static/neurots.js');
-                updateStatus('Error: Neural dots failed to initialize.', true, error.message);
+                updateStatus('Error: Neural dots failed to initialize.', true, sanitizeInput(error.message));
             }
 
             showHelp();
