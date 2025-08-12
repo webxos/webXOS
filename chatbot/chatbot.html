@@ -185,7 +185,7 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.17';
+        const BOT_VERSION = '1.2.18';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
@@ -316,7 +316,7 @@
             }
         }
 
-        // Parse Markdown with flexible Vial MCP format
+        // Parse Markdown with flexible YAML for multiple agents
         function parseMarkdownAgent(mdContent) {
             const yamlMatch = mdContent.match(/^---\n([\s\S]*?)\n---/);
             if (!yamlMatch) {
@@ -325,7 +325,8 @@
             }
             const yamlContent = yamlMatch[1];
             const lines = yamlContent.split('\n').map(line => line.trim());
-            let agent = { name: '', pattern: '', color: '' };
+            let agents = [];
+            let currentAgent = null;
             let errors = [];
 
             lines.forEach((line, index) => {
@@ -337,29 +338,54 @@
                 }
                 key = sanitizeInput(key.toLowerCase());
                 value = sanitizeInput(value);
-                // Handle flat or nested structure
-                if (key === 'agent') return; // Skip 'agent' header for nested structure
-                if (['name', 'pattern', 'color'].includes(key)) {
-                    agent[key] = value;
+
+                if (key === 'agents') {
+                    currentAgent = null; // Reset for new agents list
+                    return;
+                }
+                if (key === '- name') {
+                    currentAgent = { name: value, pattern: '', color: '' };
+                    agents.push(currentAgent);
+                } else if (currentAgent) {
+                    currentAgent[key] = value; // Assign to current agent
                 } else {
-                    agent[key] = value; // Store extra fields
+                    // Handle flat structure or single agent
+                    if (['name', 'pattern', 'color'].includes(key)) {
+                        if (!currentAgent) {
+                            currentAgent = { name: '', pattern: '', color: '' };
+                            agents.push(currentAgent);
+                        }
+                        currentAgent[key] = value;
+                    } else {
+                        if (!currentAgent) {
+                            currentAgent = { name: '', pattern: '', color: '' };
+                            agents.push(currentAgent);
+                        }
+                        currentAgent[key] = value; // Store extra fields
+                    }
                 }
             });
 
-            // Validate required fields
-            if (!agent.name) errors.push('Missing required field: name');
-            if (!agent.pattern) errors.push('Missing required field: pattern');
-            if (!agent.color) errors.push('Missing required field: color');
-            if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) {
-                errors.push('Invalid agent: name or pattern contains "wallet"');
-            }
+            // Validate all agents
+            const validAgents = [];
+            agents.forEach((agent, idx) => {
+                if (!agent.name) errors.push(`Agent ${idx + 1}: Missing required field: name`);
+                if (!agent.pattern) errors.push(`Agent ${idx + 1}: Missing required field: pattern`);
+                if (!agent.color) errors.push(`Agent ${idx + 1}: Missing required field: color`);
+                if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) {
+                    errors.push(`Agent ${idx + 1}: Invalid agent: name or pattern contains "wallet"`);
+                }
+                if (agent.name && agent.pattern && agent.color) {
+                    validAgents.push(agent);
+                }
+            });
 
             if (errors.length > 0) {
                 logError('Invalid agent format', null, 'parseMarkdownAgent', null, null, `Errors: ${errors.join('; ')}\nYAML: ${yamlContent.slice(0, 200)}`);
-                return null;
+                return validAgents.length > 0 ? validAgents : null;
             }
 
-            return agent;
+            return validAgents.length > 0 ? validAgents : null;
         }
 
         // Load site index
@@ -462,16 +488,18 @@
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const text = sanitizeInput(e.target.result);
-                const agent = parseMarkdownAgent(text);
-                if (!agent) {
+                const agents = parseMarkdownAgent(text);
+                if (!agents) {
                     updateStatus('Error: Invalid agent format.', true, 'Check console for specific YAML errors (name, pattern, color required).');
                     messages.innerHTML += `<p class="error"><b>Error:</b> Invalid agent format in .md file. Check console for details.</p>`;
                     return;
                 }
-                customAgents[agent.name] = agent;
-                window.customAgents[agent.name] = agent; // Expose to neurots.js
-                messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${sanitizeInput(agent.name)}.</p>`;
-                updateStatus(`Success: Imported agent ${sanitizeInput(agent.name)}.`, false);
+                agents.forEach(agent => {
+                    customAgents[agent.name] = agent;
+                    window.customAgents[agent.name] = agent; // Expose to neurots.js
+                    messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${sanitizeInput(agent.name)}.</p>`;
+                });
+                updateStatus(`Success: Imported ${agents.length} agent(s).`, false);
                 showHelp();
             };
             reader.readAsText(file);
@@ -562,6 +590,15 @@
                                 activeAgents = [command.slice(1)];
                                 setAgentsActive(true, activeAgents, false, false);
                                 messages.innerHTML += `<p class="custom-agent-color"><b>${command.slice(1).toUpperCase()}:</b> Custom ${command.slice(1).toUpperCase()} pattern activated.</p>`;
+                                const agent = customAgents[command.slice(1)];
+                                if (agent.responses) {
+                                    try {
+                                        const responses = JSON.parse(agent.responses);
+                                        messages.innerHTML += `<p class="custom-agent-color"><b>${command.slice(1).toUpperCase()}:</b> Pre-trained responses loaded: ${Object.keys(responses).length} patterns.</p>`;
+                                    } catch (e) {
+                                        messages.innerHTML += `<p class="error"><b>Error:</b> Failed to parse responses for ${command.slice(1)}.</p>`;
+                                    }
+                                }
                                 updateStatus(`Success: Custom ${command.slice(1).toUpperCase()} activated.`, false);
                             } else {
                                 messages.innerHTML += `<p class="error"><b>Error:</b> Unknown command "${sanitizeInput(command)}". Type /help for commands.</p>`;
@@ -590,6 +627,20 @@
                         });
                         updateStatus(`Success: Search completed. Found ${results.length} results.`, false);
                     }
+                    // Check for custom agent responses
+                    Object.keys(customAgents).forEach(agentName => {
+                        const agent = customAgents[agentName];
+                        if (agent.responses) {
+                            try {
+                                const responses = JSON.parse(agent.responses);
+                                if (responses[query]) {
+                                    messages.innerHTML += `<p class="custom-agent-color"><b>${agentName.toUpperCase()}:</b> ${sanitizeInput(responses[query])}</p>`;
+                                }
+                            } catch (e) {
+                                logError(`Failed to parse responses for ${agentName}`, e, 'searchQuery');
+                            }
+                        }
+                    });
                     setAgentsActive(false);
                 }
             } catch (error) {
