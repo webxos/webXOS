@@ -7,6 +7,7 @@ from webxos_wallet import WebXOSWallet
 import importlib
 import pkgutil
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ class VialManager:
     def train_vials(self, network_id: str, content: str, filename: str) -> float:
         """Train all vials with provided content and update wallet balance."""
         try:
+            # Validate .md content
+            if not re.search(r'## Vial Data', content) or not re.search(r'wallet', content, re.IGNORECASE):
+                logger.error(f"Invalid .md format for {filename}")
+                raise ValueError("Invalid .md format: Missing Vial Data or wallet section")
             balance_earned = 0.0
             for vial_name, agent in self.vials.items():
                 agent.train(content, filename)
@@ -45,15 +50,55 @@ class VialManager:
             return balance_earned
         except Exception as e:
             logger.error(f"Training error: {str(e)}")
+            with open("errorlog.md", "a") as f:
+                f.write(f"- [{new Date().toISOString()}] Training error: {str(e)}\n")
             raise
 
     def reset_vials(self):
         """Reset all vials and clear network state."""
-        for vial_name, agent in self.vials.items():
-            agent.reset()
-            logger.info(f"Reset {vial_name}")
-        self.network_state.clear()
+        try:
+            for vial_name, agent in self.vials.items():
+                agent.reset()
+                logger.info(f"Reset {vial_name}")
+            self.network_state.clear()
+        except Exception as e:
+            logger.error(f"Reset error: {str(e)}")
+            with open("errorlog.md", "a") as f:
+                f.write(f"- [{new Date().toISOString()}] Reset error: {str(e)}\n")
+            raise
 
     def get_vials(self) -> Dict:
         """Return current state of all vials."""
-        return {name: agent.get_state() for name, agent in self.vials.items()}
+        try:
+            return {name: agent.get_state() for name, agent in self.vials.items()}
+        except Exception as e:
+            logger.error(f"Get vials error: {str(e)}")
+            with open("errorlog.md", "a") as f:
+                f.write(f"- [{new Date().toISOString()}] Get vials error: {str(e)}\n")
+            raise
+
+    def galaxy_search(self, query: str, vials: List[str]) -> List:
+        """Perform agentic web crawl search with specified vials."""
+        try:
+            # Mock implementation (replace with actual web crawl logic)
+            results = [{'item': {'path': '/mock', 'source': 'mock', 'text': {'content': query, 'keywords': [query]}}, 'matches': [{'value': query, 'indices': [[0, len(query)]]}]}]
+            logger.info(f"Galaxy search executed for query: {query}, vials: {vials}")
+            return results
+        except Exception as e:
+            logger.error(f"Galaxy search error: {str(e)}")
+            with open("errorlog.md", "a") as f:
+                f.write(f"- [{new Date().toISOString()}] Galaxy search error: {str(e)}\n")
+            raise
+
+    def dna_reasoning(self, query: str, vials: List[str]) -> List:
+        """Perform quantum reasoning with specified vials."""
+        try:
+            # Mock implementation (replace with actual reasoning logic)
+            results = [f"Reasoned response for {query} using vials {', '.join(vials)}"]
+            logger.info(f"DNA reasoning executed for query: {query}, vials: {vials}")
+            return results
+        except Exception as e:
+            logger.error(f"DNA reasoning error: {str(e)}")
+            with open("errorlog.md", "a") as f:
+                f.write(f"- [{new Date().toISOString()}] DNA reasoning error: {str(e)}\n")
+            raise
