@@ -185,12 +185,13 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.11';
+        const BOT_VERSION = '1.2.13';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
         let isOffline = !navigator.onLine;
         const VIAL_BACKEND = 'https://webxos.netlify.app/vial/ping';
+        const FALLBACK_BACKEND = 'https://webxos.netlify.app/.netlify/functions/ping';
         const MAX_RETRIES = 3;
         const RETRY_DELAY = 2000;
 
@@ -431,17 +432,26 @@
             const messages = document.getElementById('messages');
             const loading = document.getElementById('loading');
             loading.style.display = 'block';
-            const vialResponse = await testBackend(VIAL_BACKEND);
-            loading.style.display = 'none';
+            let vialResponse = await testBackend(VIAL_BACKEND);
+            let errorMsg = '';
+            let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
+            
             if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
                 messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
                 updateStatus('Success: Connected to search bot backend.', false);
             } else {
-                let errorMsg = '';
-                let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
                 if (vialResponse.status === 404) {
                     errorMsg = `HTTP 404: /vial/ping not found`;
-                    guidance += ' Ensure ping.js is in /vial/.netlify/functions/ and _redirects maps /vial/ping to /.netlify/functions/ping.';
+                    guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
+                    // Try fallback endpoint
+                    vialResponse = await testBackend(FALLBACK_BACKEND);
+                    if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
+                        messages.innerHTML += `<p><b>System:</b> Fallback endpoint /.netlify/functions/ping verified. Update VIAL_BACKEND to ${FALLBACK_BACKEND}.</p>`;
+                        updateStatus('Success: Fallback backend connected.', false, 'Update VIAL_BACKEND in chatbot.html.');
+                    } else {
+                        errorMsg += `; Fallback /.netlify/functions/ping also failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.data.slice(0, 100)})`;
+                        guidance += ' Verify function deployment in Netlify dashboard > Functions.';
+                    }
                 } else if (vialResponse.status === 500) {
                     errorMsg = `HTTP 500: Server error at /vial/ping`;
                     guidance += ' Check function logs for runtime errors in ping.js.';
@@ -456,6 +466,7 @@
                 messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend: ${errorMsg}</p>`;
                 updateStatus('Error: Backend connection failed.', true, guidance);
             }
+            loading.style.display = 'none';
             messages.scrollTop = messages.scrollHeight;
         }
 
@@ -520,7 +531,16 @@
                             let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
                             if (vialResponse.status === 404) {
                                 errorMsg = `HTTP 404: /vial/ping not found`;
-                                guidance += ' Ensure ping.js is in /vial/.netlify/functions/ and _redirects is correct.';
+                                guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
+                                // Try fallback
+                                vialResponse = await testBackend(FALLBACK_BACKEND);
+                                if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
+                                    errorMsg += `; Fallback /.netlify/functions/ping succeeded`;
+                                    guidance = `Update VIAL_BACKEND to ${FALLBACK_BACKEND} in chatbot.html.`;
+                                } else {
+                                    errorMsg += `; Fallback /.netlify/functions/ping failed (HTTP ${vialResponse.status || 'unknown'})`;
+                                    guidance += ' Verify function deployment in Netlify dashboard > Functions.';
+                                }
                             } else if (vialResponse.status === 500) {
                                 errorMsg = `HTTP 500: Server error at /vial/ping`;
                                 guidance += ' Check function logs for runtime errors.';
@@ -546,9 +566,9 @@
                             showHelp();
                             break;
                         case '/stats':
-                            const indexedFiles = cachedContent.site_index?.length || 0;
+                            const wyjaśnionePliki = cachedContent.site_index?.length || 0;
                             const totalKeywords = cachedContent.site_index?.reduce((sum, item) => sum + (item.text?.keywords?.length || 0), 0) || 0;
-                            messages.innerHTML += `<p><b>Stats:</b> Indexed ${indexedFiles} files with ${totalKeywords} keywords.</p>`;
+                            messages.innerHTML += `<p><b>Stats:</b> Indexed ${wyjaśnionePliki} files with ${totalKeywords} keywords.</p>`;
                             updateStatus('Success: Indexing stats displayed.', false);
                             setAgentsActive(false);
                             break;
