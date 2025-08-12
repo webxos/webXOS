@@ -185,7 +185,7 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.13';
+        const BOT_VERSION = '1.2.14';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
@@ -275,7 +275,7 @@
             const stack = error && error.stack ? error.stack : 'No stack trace';
             const timestamp = new Date().toISOString();
             const responseDetails = response ? `Status: ${response.status || 'unknown'}, Response: ${JSON.stringify(response.data || response.statusText || 'No response')}` : 'No response';
-            const logEntry = `[${timestamp}] ${message}\nEndpoint: ${endpoint}\nStack: ${stack}\nResponse: ${responseDetails}`;
+            const logEntry = `[${timestamp}] ${message}\nEndpoint: ${endpoint}\nStack: ${stack}\nResponse: ${responseDetails}\nContent Preview: ${contentPreview || 'None'}`;
             console.error(logEntry);
             if (db) {
                 const tx = db.transaction(['errors'], 'readwrite');
@@ -305,13 +305,16 @@
                 });
                 clearTimeout(timeout);
                 const text = await response.text();
+                const headers = {};
+                response.headers.forEach((value, key) => { headers[key] = value; });
+                console.log(`Backend response: ${endpoint}`, { status: response.status, headers, body: text.slice(0, 200) });
                 let data;
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
                     data = text;
                 }
-                return { status: response.status, data, contentType: response.headers.get('content-type') || 'unknown' };
+                return { status: response.status, data, contentType: response.headers.get('content-type') || 'unknown', rawText: text };
             } catch (error) {
                 if (error.name === 'AbortError') {
                     const errorMsg = `Request to ${endpoint} timed out after 5 seconds`;
@@ -319,14 +322,14 @@
                         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                         return testBackend(endpoint, retryCount + 1);
                     }
-                    return { status: null, error: errorMsg, contentType: 'unknown', data: '' };
+                    return { status: null, error: errorMsg, contentType: 'unknown', data: '', rawText: '' };
                 }
                 const errorMsg = error.message.includes('Failed to fetch') ? `Network error: Unable to reach ${endpoint}` : error.message;
                 if (retryCount < MAX_RETRIES) {
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                     return testBackend(endpoint, retryCount + 1);
                 }
-                return { status: null, error: errorMsg, contentType: 'unknown', data: '' };
+                return { status: null, error: errorMsg, contentType: 'unknown', data: '', rawText: '' };
             }
         }
 
@@ -440,7 +443,17 @@
                 messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
                 updateStatus('Success: Connected to search bot backend.', false);
             } else {
-                if (vialResponse.status === 404) {
+                if (vialResponse.status === 200) {
+                    errorMsg = `HTTP 200: Invalid response from /vial/ping (Content: ${vialResponse.rawText.slice(0, 100)})`;
+                    guidance += ` Ensure ping.js returns {"status":"ok","timestamp":"..."}. Check function logs for errors.`;
+                    if (!isValidJSON(vialResponse.data)) {
+                        errorMsg += `; Response is not valid JSON (Content-Type: ${vialResponse.contentType})`;
+                        guidance += ` Verify ping.js sets Content-Type: application/json and returns valid JSON.`;
+                    } else {
+                        errorMsg += `; JSON valid but missing status: 'ok'`;
+                        guidance += ` Check ping.js for correct response format.`;
+                    }
+                } else if (vialResponse.status === 404) {
                     errorMsg = `HTTP 404: /vial/ping not found`;
                     guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
                     // Try fallback endpoint
@@ -449,7 +462,7 @@
                         messages.innerHTML += `<p><b>System:</b> Fallback endpoint /.netlify/functions/ping verified. Update VIAL_BACKEND to ${FALLBACK_BACKEND}.</p>`;
                         updateStatus('Success: Fallback backend connected.', false, 'Update VIAL_BACKEND in chatbot.html.');
                     } else {
-                        errorMsg += `; Fallback /.netlify/functions/ping also failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.data.slice(0, 100)})`;
+                        errorMsg += `; Fallback /.netlify/functions/ping also failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.rawText.slice(0, 100)})`;
                         guidance += ' Verify function deployment in Netlify dashboard > Functions.';
                     }
                 } else if (vialResponse.status === 500) {
@@ -459,10 +472,10 @@
                     errorMsg = vialResponse.error;
                     guidance += ' Verify network connectivity and Netlify deploy status.';
                 } else {
-                    errorMsg = `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}`;
+                    errorMsg = `HTTP ${vialResponse.status}: ${vialResponse.rawText.slice(0, 100)}`;
                     guidance += ' Inspect response in browser DevTools and function logs.';
                 }
-                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse, null, vialResponse.data.slice(0, 500));
+                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse, null, vialResponse.rawText.slice(0, 500));
                 messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend: ${errorMsg}</p>`;
                 updateStatus('Error: Backend connection failed.', true, guidance);
             }
@@ -527,9 +540,19 @@
                     if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command) || customAgents[command.slice(1)]) {
                         vialResponse = await testBackend(VIAL_BACKEND);
                         if (isOffline || vialResponse.status !== 200 || !isValidJSON(vialResponse.data) || JSON.parse(vialResponse.data).status !== 'ok') {
-                            let errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}` : vialResponse.error;
+                            let errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.rawText.slice(0, 100)}` : vialResponse.error;
                             let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
-                            if (vialResponse.status === 404) {
+                            if (vialResponse.status === 200) {
+                                errorMsg = `HTTP 200: Invalid response from /vial/ping (Content: ${vialResponse.rawText.slice(0, 100)})`;
+                                guidance += ` Ensure ping.js returns {"status":"ok","timestamp":"..."}.`;
+                                if (!isValidJSON(vialResponse.data)) {
+                                    errorMsg += `; Response is not valid JSON (Content-Type: ${vialResponse.contentType})`;
+                                    guidance += ` Verify ping.js sets Content-Type: application/json and returns valid JSON.`;
+                                } else {
+                                    errorMsg += `; JSON valid but missing status: 'ok'`;
+                                    guidance += ` Check ping.js for correct response format.`;
+                                }
+                            } else if (vialResponse.status === 404) {
                                 errorMsg = `HTTP 404: /vial/ping not found`;
                                 guidance += ' Ensure ping.js is in /functions/ping.js, netlify.toml sets functions = "functions", and redirect rule is set. Redeploy with `netlify deploy --prod --force`.';
                                 // Try fallback
@@ -538,7 +561,7 @@
                                     errorMsg += `; Fallback /.netlify/functions/ping succeeded`;
                                     guidance = `Update VIAL_BACKEND to ${FALLBACK_BACKEND} in chatbot.html.`;
                                 } else {
-                                    errorMsg += `; Fallback /.netlify/functions/ping failed (HTTP ${vialResponse.status || 'unknown'})`;
+                                    errorMsg += `; Fallback /.netlify/functions/ping failed (HTTP ${vialResponse.status || 'unknown'}: ${vialResponse.rawText.slice(0, 100)})`;
                                     guidance += ' Verify function deployment in Netlify dashboard > Functions.';
                                 }
                             } else if (vialResponse.status === 500) {
@@ -566,9 +589,9 @@
                             showHelp();
                             break;
                         case '/stats':
-                            const wyjaśnionePliki = cachedContent.site_index?.length || 0;
+                            const indexedFiles = cachedContent.site_index?.length || 0;
                             const totalKeywords = cachedContent.site_index?.reduce((sum, item) => sum + (item.text?.keywords?.length || 0), 0) || 0;
-                            messages.innerHTML += `<p><b>Stats:</b> Indexed ${wyjaśnionePliki} files with ${totalKeywords} keywords.</p>`;
+                            messages.innerHTML += `<p><b>Stats:</b> Indexed ${indexedFiles} files with ${totalKeywords} keywords.</p>`;
                             updateStatus('Success: Indexing stats displayed.', false);
                             setAgentsActive(false);
                             break;
