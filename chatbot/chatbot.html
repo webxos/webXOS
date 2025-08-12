@@ -162,7 +162,7 @@
 </head>
 <body>
     <canvas id="neuralCanvas" style="pointer-events: none;"></canvas>
-    <h1 class="title">WebXOS Searchbot</h1>
+    <h1 class="title">WebXOS Searchbot 2025</h1>
     <div class="input-container">
         <div id="status" class="error-message"></div>
         <div id="chatbox">
@@ -185,7 +185,7 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.10';
+        const BOT_VERSION = '1.2.11';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
@@ -292,18 +292,40 @@
             setTimeout(() => status.classList.remove('show'), 5000);
         }
 
-        // Test backend connectivity with retries
+        // Test backend connectivity with retries and detailed error reporting
         async function testBackend(endpoint, retryCount = 0) {
             try {
-                const response = await fetch(endpoint, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-                const data = await response.text();
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5000);
+                const response = await fetch(endpoint, { 
+                    method: 'GET', 
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    data = text;
+                }
                 return { status: response.status, data, contentType: response.headers.get('content-type') || 'unknown' };
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    const errorMsg = `Request to ${endpoint} timed out after 5 seconds`;
+                    if (retryCount < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                        return testBackend(endpoint, retryCount + 1);
+                    }
+                    return { status: null, error: errorMsg, contentType: 'unknown', data: '' };
+                }
+                const errorMsg = error.message.includes('Failed to fetch') ? `Network error: Unable to reach ${endpoint}` : error.message;
                 if (retryCount < MAX_RETRIES) {
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                     return testBackend(endpoint, retryCount + 1);
                 }
-                return { status: null, error: error.message, contentType: 'unknown', data: '' };
+                return { status: null, error: errorMsg, contentType: 'unknown', data: '' };
             }
         }
 
@@ -411,14 +433,28 @@
             loading.style.display = 'block';
             const vialResponse = await testBackend(VIAL_BACKEND);
             loading.style.display = 'none';
-            if (vialResponse.status === 200 && vialResponse.data.includes('ok')) {
+            if (vialResponse.status === 200 && isValidJSON(vialResponse.data) && JSON.parse(vialResponse.data).status === 'ok') {
                 messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
                 updateStatus('Success: Connected to search bot backend.', false);
             } else {
-                const errorMsg = vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}` : vialResponse.error;
-                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse);
-                messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend.</p>`;
-                updateStatus('Error: Backend connection failed.', true, 'Ensure /vial/ping is deployed in /vial/.netlify/functions/ping.js. Check Netlify deploy logs.');
+                let errorMsg = '';
+                let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
+                if (vialResponse.status === 404) {
+                    errorMsg = `HTTP 404: /vial/ping not found`;
+                    guidance += ' Ensure ping.js is in /vial/.netlify/functions/ and _redirects maps /vial/ping to /.netlify/functions/ping.';
+                } else if (vialResponse.status === 500) {
+                    errorMsg = `HTTP 500: Server error at /vial/ping`;
+                    guidance += ' Check function logs for runtime errors in ping.js.';
+                } else if (vialResponse.status === null) {
+                    errorMsg = vialResponse.error;
+                    guidance += ' Verify network connectivity and Netlify deploy status.';
+                } else {
+                    errorMsg = `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}`;
+                    guidance += ' Inspect response in browser DevTools and function logs.';
+                }
+                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse, null, vialResponse.data.slice(0, 500));
+                messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend: ${errorMsg}</p>`;
+                updateStatus('Error: Backend connection failed.', true, guidance);
             }
             messages.scrollTop = messages.scrollHeight;
         }
@@ -479,10 +515,18 @@
                     let vialResponse = { status: null };
                     if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command) || customAgents[command.slice(1)]) {
                         vialResponse = await testBackend(VIAL_BACKEND);
-                        if (isOffline || vialResponse.status !== 200 || !vialResponse.data.includes('ok')) {
-                            const errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}` : vialResponse.error;
-                            updateStatus('Error: Agent feature disabled.', true, `Requires online mode and vial backend. ${errorMsg}`);
-                            messages.innerHTML += `<p class="error"><b>Error:</b> Agent feature requires online mode and vial backend.</p>`;
+                        if (isOffline || vialResponse.status !== 200 || !isValidJSON(vialResponse.data) || JSON.parse(vialResponse.data).status !== 'ok') {
+                            let errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}` : vialResponse.error;
+                            let guidance = 'Check Netlify Functions logs at https://app.netlify.com/sites/webxos/functions/ping.';
+                            if (vialResponse.status === 404) {
+                                errorMsg = `HTTP 404: /vial/ping not found`;
+                                guidance += ' Ensure ping.js is in /vial/.netlify/functions/ and _redirects is correct.';
+                            } else if (vialResponse.status === 500) {
+                                errorMsg = `HTTP 500: Server error at /vial/ping`;
+                                guidance += ' Check function logs for runtime errors.';
+                            }
+                            updateStatus('Error: Agent feature disabled.', true, `Requires online mode and vial backend. ${errorMsg} ${guidance}`);
+                            messages.innerHTML += `<p class="error"><b>Error:</b> Agent feature requires online mode and vial backend: ${errorMsg}</p>`;
                             setAgentsActive(false);
                             loading.style.display = 'none';
                             return;
