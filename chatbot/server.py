@@ -1,120 +1,112 @@
-from flask import Flask, request, jsonify
-import requests
-import logging
-from vial_manager import VialManager
-from webxos_wallet import WebXOSWallet
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import json
+import os
+import time
+import uuid
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO, filename='chatbot.log')
-logger = logging.getLogger(__name__)
+CORS(app, resources={r"/chatbot/*": {"origins": "*"}})
 
-# Initialize VialManager
-wallet = WebXOSWallet()
-vial_manager = VialManager(wallet)
+# Mock data
+vial_states = {
+    "vial1": {"status": "active", "pattern": "helix"},
+    "vial2": {"status": "active", "pattern": "cube"},
+    "vial3": {"status": "active", "pattern": "torus"},
+    "vial4": {"status": "active", "pattern": "star"}
+}
+site_index = [
+    {"path": "/app1", "source": "App1", "text": {"content": "Sample app", "keywords": ["app", "sample"]}},
+    {"path": "/app2", "source": "App2", "text": {"content": "AI tool", "keywords": ["ai", "tool"]}}
+]
+error_log_file = "errorlog.md"
 
-# Proxy to /vial/ backend
-VIAL_BACKEND = 'http://localhost:5000/vial'  # Adjust to actual /vial/ server URL
+@app.route('/chatbot/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "ok", "timestamp": time.time()}), 200
 
 @app.route('/chatbot/authenticate', methods=['POST'])
 def authenticate():
-    try:
-        data = request.get_json()
-        if not data or 'network' not in data or 'session' not in data:
-            logger.error('Invalid authentication request')
-            return jsonify({'error': 'Invalid request'}), 400
-        response = requests.post(f'{VIAL_BACKEND}/authenticate', json=data)
-        if response.status_code != 200:
-            logger.error(f'Authentication failed: {response.text}')
-            return jsonify({'error': 'Authentication failed'}), response.status_code
-        return jsonify(response.json())
-    except Exception as e:
-        logger.error(f'Authentication error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    data = request.get_json()
+    if not data or data.get('network') != 'webxos':
+        return jsonify({"error": "Invalid network ID"}), 400
+    token = str(uuid.uuid4())
+    return jsonify({"token": token}), 200
 
 @app.route('/chatbot/train_vials', methods=['POST'])
 def train_vials():
+    if not request.headers.get('Authorization'):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    if not data or not data.get('content') or not data.get('filename'):
+        return jsonify({"error": "Invalid request"}), 400
+    content = data['content']
+    filename = data['filename']
+    if not filename.endswith('.md') or '## Vial Data' not in content or 'wallet' not in content:
+        return jsonify({"error": "Invalid .md format"}), 400
+    json_block = content.split('```json\n')[1].split('\n```')[0] if '```json\n' in content else None
+    if not json_block:
+        return jsonify({"error": "Missing JSON block"}), 400
     try:
-        if not request.headers.get('Authorization'):
-            logger.error('Missing Authorization header')
-            return jsonify({'error': 'Unauthorized'}), 401
-        data = request.get_json()
-        response = requests.post(f'{VIAL_BACKEND}/train_vials', json=data, headers={'Authorization': request.headers['Authorization']})
-        if response.status_code != 200:
-            logger.error(f'Train vials failed: {response.text}')
-            return jsonify({'error': 'Train vials failed'}), response.status_code
-        return jsonify(response.json())
-    except Exception as e:
-        logger.error(f'Train vials error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+        json.loads(json_block)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Invalid JSON in .md"}), 400
+    return jsonify({"balance_earned": 100}), 200
 
 @app.route('/chatbot/reset_vials', methods=['POST'])
 def reset_vials():
-    try:
-        if not request.headers.get('Authorization'):
-            logger.error('Missing Authorization header')
-            return jsonify({'error': 'Unauthorized'}), 401
-        response = requests.post(f'{VIAL_BACKEND}/reset_vials', headers={'Authorization': request.headers['Authorization']})
-        if response.status_code != 200:
-            logger.error(f'Reset vials failed: {response.text}')
-            return jsonify({'error': 'Reset vials failed'}), response.status_code
-        return jsonify({'status': 'success'})
-    except Exception as e:
-        logger.error(f'Reset vials error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    if not request.headers.get('Authorization'):
+        return jsonify({"error": "Unauthorized"}), 401
+    global vial_states
+    vial_states = {
+        "vial1": {"status": "active", "pattern": "helix"},
+        "vial2": {"status": "active", "pattern": "cube"},
+        "vial3": {"status": "active", "pattern": "torus"},
+        "vial4": {"status": "active", "pattern": "star"}
+    }
+    return jsonify({"status": "vials reset"}), 200
 
 @app.route('/chatbot/get_vials', methods=['GET'])
 def get_vials():
-    try:
-        if not request.headers.get('Authorization'):
-            logger.error('Missing Authorization header')
-            return jsonify({'error': 'Unauthorized'}), 401
-        response = requests.get(f'{VIAL_BACKEND}/get_vials', headers={'Authorization': request.headers['Authorization']})
-        if response.status_code != 200:
-            logger.error(f'Get vials failed: {response.text}')
-            return jsonify({'error': 'Get vials failed'}), response.status_code
-        return jsonify(response.json())
-    except Exception as e:
-        logger.error(f'Get vials error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    if not request.headers.get('Authorization'):
+        return jsonify({"error": "Unauthorized"}), 401
+    return jsonify(vial_states), 200
 
 @app.route('/chatbot/galaxy_search', methods=['POST'])
 def galaxy_search():
-    try:
-        if not request.headers.get('Authorization'):
-            logger.error('Missing Authorization header')
-            return jsonify({'error': 'Unauthorized'}), 401
-        data = request.get_json()
-        # Mock galaxy search (replace with actual web crawl logic)
-        results = [{'item': {'path': '/mock', 'source': 'mock', 'text': {'content': data['query'], 'keywords': [data['query']]}}, 'matches': [{'value': data['query'], 'indices': [[0, len(data['query'])]]}]}]
-        return jsonify(results)
-    except Exception as e:
-        logger.error(f'Galaxy search error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    if not request.headers.get('Authorization'):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    query = data.get('query', '')
+    vials = data.get('vials', [])
+    if not query:
+        return jsonify({"error": "Query required"}), 400
+    results = [
+        {"item": item, "matches": [{"value": item['text']['content'], "indices": [[0, len(query)]]}]}
+        for item in site_index if query.lower() in item['text']['content'].lower()
+    ]
+    return jsonify(results), 200
 
 @app.route('/chatbot/dna_reasoning', methods=['POST'])
 def dna_reasoning():
-    try:
-        if not request.headers.get('Authorization'):
-            logger.error('Missing Authorization header')
-            return jsonify({'error': 'Unauthorized'}), 401
-        data = request.get_json()
-        # Mock DNA reasoning (replace with actual logic)
-        results = ['Reasoned response for ' + data['query']]
-        return jsonify(results)
-    except Exception as e:
-        logger.error(f'DNA reasoning error: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    if not request.headers.get('Authorization'):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    query = data.get('query', '')
+    vials = data.get('vials', [])
+    if not query:
+        return jsonify({"error": "Query required"}), 400
+    results = [f"DNA reasoning result for '{query}' with vials {vials}"]
+    return jsonify(results), 200
 
 @app.route('/chatbot/log_error', methods=['POST'])
 def log_error():
-    try:
-        data = request.get_json()
-        with open('errorlog.md', 'a') as f:
-            f.write(f"- [{data['timestamp']}] {data['message']}\n")
-        return jsonify({'status': 'success'})
-    except Exception as e:
-        logger.error(f'Log error failed: {str(e)}')
-        return jsonify({'error': str(e)}), 500
+    data = request.get_json()
+    if not data or not data.get('timestamp') or not data.get('message'):
+        return jsonify({"error": "Invalid error log"}), 400
+    with open(error_log_file, 'a') as f:
+        f.write(f"[{data['timestamp']}] {data['message']}\n")
+    return jsonify({"status": "error logged"}), 200
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
