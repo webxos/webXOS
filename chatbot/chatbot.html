@@ -120,6 +120,7 @@
         .agent2-color { color: #0ff; }
         .agent3-color { color: #f0f; }
         .agent4-color { color: #f00; }
+        .custom-agent-color { color: #00ff00; }
         .loading-spinner {
             display: none;
             text-align: center;
@@ -172,7 +173,7 @@
                 <button id="clearButton">Clear</button>
                 <button id="authButton">Authenticate</button>
                 <button id="importButton">Import</button>
-                <input type="file" id="fileInput" accept=".json" style="display: none;">
+                <input type="file" id="fileInput" accept=".md" style="display: none;">
             </div>
             <div id="loading" class="loading-spinner"></div>
         </div>
@@ -187,8 +188,8 @@
         const BOT_VERSION = '1.2.10';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
+        let customAgents = {};
         let isOffline = !navigator.onLine;
-        let isAuthenticated = localStorage.getItem('webxos_token') === 'mock_token_2025';
         const VIAL_BACKEND = 'https://webxos.netlify.app/vial/ping';
         const MAX_RETRIES = 2;
 
@@ -312,6 +313,30 @@
             }
         }
 
+        // Parse Markdown with YAML front matter
+        function parseMarkdownAgent(mdContent) {
+            const yamlMatch = mdContent.match(/^---\n([\s\S]*?)\n---/);
+            if (!yamlMatch) return null;
+            const yamlContent = yamlMatch[1];
+            const lines = yamlContent.split('\n');
+            let agent = {};
+            let currentKey = null;
+            lines.forEach(line => {
+                if (line.includes(':')) {
+                    const [key, value] = line.split(':').map(s => s.trim());
+                    currentKey = key;
+                    if (key === 'agent') {
+                        agent = { name: '', pattern: '', color: '' };
+                    } else if (currentKey === 'agent') {
+                        agent[key] = value;
+                    }
+                }
+            });
+            if (!agent.name || !agent.pattern || !agent.color) return null;
+            if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) return null; // Ignore wallet data
+            return agent;
+        }
+
         // Load site index
         async function loadSiteIndex() {
             try {
@@ -352,6 +377,10 @@
         // Show help menu
         function showHelp() {
             const messages = document.getElementById('messages');
+            let customCommands = '';
+            Object.keys(customAgents).forEach(agentName => {
+                customCommands += `<p><b>/${agentName}</b> - Activate custom ${agentName} pattern.</p>`;
+            });
             messages.innerHTML = `
                 <p><b>Commands:</b></p>
                 <p><b>/help</b> - Show this menu.</p>
@@ -362,29 +391,31 @@
                 <p><b>/agent2</b> - Activate Agent 2 cube pattern.</p>
                 <p><b>/agent3</b> - Activate Agent 3 torus pattern.</p>
                 <p><b>/agent4</b> - Activate Agent 4 star pattern.</p>
+                ${customCommands}
                 <p><b>/dna</b> - Display collaborative DNA-like agent network.</p>
                 <p><b>/galaxy</b> - Display galaxy simulation.</p>
                 <p><b>search [term]</b> - Search WebXOS content.</p>`;
             messages.scrollTop = messages.scrollHeight;
         }
 
-        // Authenticate user
-        function authenticate() {
+        // Authenticate (verify backend connectivity)
+        async function authenticate() {
             const messages = document.getElementById('messages');
-            const token = prompt('Enter authentication token:');
-            if (token === 'mock_token_2025') {
-                localStorage.setItem('webxos_token', token);
-                isAuthenticated = true;
-                messages.innerHTML += `<p><b>System:</b> Authentication successful.</p>`;
-                updateStatus('Success: Authenticated.', false);
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            const vialResponse = await testBackend(VIAL_BACKEND);
+            loading.style.display = 'none';
+            if (vialResponse.status === 200) {
+                messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
+                updateStatus('Success: Connected to search bot backend.', false);
             } else {
-                messages.innerHTML += `<p class="error"><b>Error:</b> Invalid token.</p>`;
-                updateStatus('Error: Authentication failed.', true, 'Invalid token.');
+                messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend.</p>`;
+                updateStatus('Error: Backend connection failed.', true, 'Ensure /vial/ping is deployed.');
             }
             messages.scrollTop = messages.scrollHeight;
         }
 
-        // Import JSON file
+        // Import Markdown file
         function importFile() {
             const fileInput = document.getElementById('fileInput');
             fileInput.click();
@@ -392,29 +423,25 @@
 
         function handleFileSelect(event) {
             const file = event.target.files[0];
-            if (!file || !file.name.endsWith('.json')) {
-                updateStatus('Error: Invalid file.', true, 'Please select a JSON file.');
+            const messages = document.getElementById('messages');
+            if (!file || !file.name.endsWith('.md')) {
+                updateStatus('Error: Invalid file.', true, 'Please select a .md file.');
+                messages.innerHTML += `<p class="error"><b>Error:</b> Please select a .md file.</p>`;
                 return;
             }
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const text = e.target.result;
-                if (!isValidJSON(text)) {
-                    updateStatus('Error: Invalid JSON.', true, 'File is not valid JSON.');
+                const agent = parseMarkdownAgent(text);
+                if (!agent) {
+                    updateStatus('Error: Invalid agent format.', true, 'Ensure .md file has valid YAML front matter.');
+                    messages.innerHTML += `<p class="error"><b>Error:</b> Invalid agent format in .md file.</p>`;
                     return;
                 }
-                try {
-                    cachedContent.site_index = JSON.parse(text);
-                    if ('caches' in window) {
-                        const cache = await caches.open(CACHE_NAME);
-                        await cache.put('/site_index.json', new Response(JSON.stringify(cachedContent.site_index)));
-                    }
-                    updateStatus(`Success: Imported ${cachedContent.site_index.length} entries.`, false);
-                    document.getElementById('messages').innerHTML += `<p><b>System:</b> Imported ${cachedContent.site_index.length} entries.</p>`;
-                } catch (error) {
-                    logError('Failed to import JSON', error, 'importFile');
-                    updateStatus('Error: Failed to import JSON.', true, error.message);
-                }
+                customAgents[agent.name] = agent;
+                messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${agent.name}.</p>`;
+                updateStatus(`Success: Imported agent ${agent.name}.`, false);
+                showHelp();
             };
             reader.readAsText(file);
         }
@@ -433,6 +460,7 @@
             else if (query.startsWith('/agent2')) colorClass = 'agent2-color';
             else if (query.startsWith('/agent3')) colorClass = 'agent3-color';
             else if (query.startsWith('/agent4')) colorClass = 'agent4-color';
+            else if (query.startsWith('/') && customAgents[query.slice(1)]) colorClass = 'custom-agent-color';
             messages.innerHTML += `<p class="${colorClass}"><b>You:</b> ${query}</p>`;
             loading.style.display = 'block';
 
@@ -440,13 +468,7 @@
                 if (query.startsWith('/')) {
                     const command = query.split(' ')[0];
                     let vialResponse = { status: null };
-                    if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command)) {
-                        if (!isAuthenticated) {
-                            updateStatus('Error: Authentication required.', true, 'Click Authenticate.');
-                            messages.innerHTML += `<p class="error"><b>Error:</b> Please authenticate first.</p>`;
-                            loading.style.display = 'none';
-                            return;
-                        }
+                    if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command) || customAgents[command.slice(1)]) {
                         vialResponse = await testBackend(VIAL_BACKEND);
                         if (isOffline || vialResponse.status !== 200) {
                             updateStatus('Error: Agent feature disabled.', true, 'Requires online mode and vial backend.');
@@ -491,7 +513,7 @@
                             updateStatus(`Success: ${command.slice(1).toUpperCase()} activated.`, false);
                             break;
                         case '/dna':
-                            activeAgents = ['agent1', 'agent2', 'agent3', 'agent4'];
+                            activeAgents = ['agent1', 'agent2', 'agent3', 'agent4', ...Object.keys(customAgents)];
                             setAgentsActive(true, activeAgents, true, false);
                             messages.innerHTML += `<p><b>System:</b> Collaborative DNA-like agent network activated.</p>`;
                             updateStatus('Success: DNA activated.', false);
@@ -503,9 +525,16 @@
                             updateStatus('Success: Galaxy activated.', false);
                             break;
                         default:
-                            messages.innerHTML += `<p class="error"><b>Error:</b> Unknown command "${command}". Type /help for commands.</p>`;
-                            updateStatus('Error: Unknown command.', true);
-                            setAgentsActive(false);
+                            if (customAgents[command.slice(1)]) {
+                                activeAgents = [command.slice(1)];
+                                setAgentsActive(true, activeAgents, false, false);
+                                messages.innerHTML += `<p class="custom-agent-color"><b>${command.slice(1).toUpperCase()}:</b> Custom ${command.slice(1).toUpperCase()} pattern activated.</p>`;
+                                updateStatus(`Success: Custom ${command.slice(1).toUpperCase()} activated.`, false);
+                            } else {
+                                messages.innerHTML += `<p class="error"><b>Error:</b> Unknown command "${command}". Type /help for commands.</p>`;
+                                updateStatus('Error: Unknown command.', true);
+                                setAgentsActive(false);
+                            }
                     }
                 } else {
                     const fuse = new Fuse(cachedContent.site_index || [], {
