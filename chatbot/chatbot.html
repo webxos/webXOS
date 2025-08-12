@@ -185,7 +185,7 @@
     <script src="/chatbot/static/neurots.js" defer></script>
     <script>
         const CACHE_NAME = 'webxos-searchbot-v25';
-        const BOT_VERSION = '1.2.16';
+        const BOT_VERSION = '1.2.17';
         let cachedContent = { site_index: [] };
         let activeAgents = [];
         let customAgents = {};
@@ -320,35 +320,45 @@
         function parseMarkdownAgent(mdContent) {
             const yamlMatch = mdContent.match(/^---\n([\s\S]*?)\n---/);
             if (!yamlMatch) {
-                logError('Invalid YAML front matter in .md file', null, 'parseMarkdownAgent', null, null, mdContent.slice(0, 100));
+                logError('Invalid YAML: No front matter found', null, 'parseMarkdownAgent', null, null, mdContent.slice(0, 100));
                 return null;
             }
             const yamlContent = yamlMatch[1];
-            const lines = yamlContent.split('\n');
+            const lines = yamlContent.split('\n').map(line => line.trim());
             let agent = { name: '', pattern: '', color: '' };
-            let currentKey = null;
-            lines.forEach(line => {
-                if (line.includes(':')) {
-                    const [key, value] = line.split(':').map(s => s.trim());
-                    if (key === 'agent') {
-                        currentKey = 'agent';
-                        return;
-                    }
-                    if (currentKey === 'agent') {
-                        agent[key] = sanitizeInput(value);
-                    } else {
-                        agent[key] = sanitizeInput(value); // Flexible for Vial MCP extra fields
-                    }
+            let errors = [];
+
+            lines.forEach((line, index) => {
+                if (!line || !line.includes(':')) return;
+                let [key, value] = line.split(':').map(s => s.trim());
+                if (!key || !value) {
+                    errors.push(`Invalid key-value pair at line ${index + 1}: ${line}`);
+                    return;
+                }
+                key = sanitizeInput(key.toLowerCase());
+                value = sanitizeInput(value);
+                // Handle flat or nested structure
+                if (key === 'agent') return; // Skip 'agent' header for nested structure
+                if (['name', 'pattern', 'color'].includes(key)) {
+                    agent[key] = value;
+                } else {
+                    agent[key] = value; // Store extra fields
                 }
             });
-            if (!agent.name || !agent.pattern || !agent.color) {
-                logError('Missing required fields (name, pattern, color) in .md file', null, 'parseMarkdownAgent', null, null, yamlContent.slice(0, 100));
-                return null;
-            }
+
+            // Validate required fields
+            if (!agent.name) errors.push('Missing required field: name');
+            if (!agent.pattern) errors.push('Missing required field: pattern');
+            if (!agent.color) errors.push('Missing required field: color');
             if (agent.name.toLowerCase().startsWith('wallet') || agent.pattern.toLowerCase().includes('wallet')) {
-                logError('Invalid agent name or pattern (wallet-related)', null, 'parseMarkdownAgent', null, null, yamlContent.slice(0, 100));
+                errors.push('Invalid agent: name or pattern contains "wallet"');
+            }
+
+            if (errors.length > 0) {
+                logError('Invalid agent format', null, 'parseMarkdownAgent', null, null, `Errors: ${errors.join('; ')}\nYAML: ${yamlContent.slice(0, 200)}`);
                 return null;
             }
+
             return agent;
         }
 
@@ -454,8 +464,8 @@
                 const text = sanitizeInput(e.target.result);
                 const agent = parseMarkdownAgent(text);
                 if (!agent) {
-                    updateStatus('Error: Invalid agent format.', true, 'Ensure .md file has valid YAML front matter with name, pattern, color.');
-                    messages.innerHTML += `<p class="error"><b>Error:</b> Invalid agent format in .md file.</p>`;
+                    updateStatus('Error: Invalid agent format.', true, 'Check console for specific YAML errors (name, pattern, color required).');
+                    messages.innerHTML += `<p class="error"><b>Error:</b> Invalid agent format in .md file. Check console for details.</p>`;
                     return;
                 }
                 customAgents[agent.name] = agent;
