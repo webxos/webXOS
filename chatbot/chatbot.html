@@ -191,7 +191,8 @@
         let customAgents = {};
         let isOffline = !navigator.onLine;
         const VIAL_BACKEND = 'https://webxos.netlify.app/vial/ping';
-        const MAX_RETRIES = 2;
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY = 2000;
 
         // IndexedDB for error logging
         let db;
@@ -252,8 +253,8 @@
                         await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
                         return attemptRegistration(path, retryCount + 1);
                     } else {
-                        logError('Service Worker registration failed after retries', err, path, null, null, `${errorDetails} ${guidance} Run /troubleshoot.`);
-                        updateStatus('Error: Failed to register Service Worker.', true, `${errorDetails} Run /troubleshoot.`);
+                        logError('Service Worker registration failed after retries', err, path, null, null, `${errorDetails} ${guidance}`);
+                        updateStatus('Error: Failed to register Service Worker.', true, `${errorDetails} Check Netlify deploy logs.`);
                         isOffline = true;
                         return null;
                     }
@@ -288,15 +289,20 @@
             const timestamp = new Date().toLocaleTimeString();
             status.innerHTML = `<span class="${isError ? 'error' : 'success'}">${message}${isError || details ? `<br><small>Details: ${details} [${timestamp}]</small>` : ''}</span>`;
             status.classList.add('show');
-            setTimeout(() => status.classList.remove('show'), 3000);
+            setTimeout(() => status.classList.remove('show'), 5000);
         }
 
-        // Test backend connectivity
-        async function testBackend(endpoint) {
+        // Test backend connectivity with retries
+        async function testBackend(endpoint, retryCount = 0) {
             try {
                 const response = await fetch(endpoint, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-                return { status: response.status, data: await response.text(), contentType: response.headers.get('content-type') || 'unknown' };
+                const data = await response.text();
+                return { status: response.status, data, contentType: response.headers.get('content-type') || 'unknown' };
             } catch (error) {
+                if (retryCount < MAX_RETRIES) {
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                    return testBackend(endpoint, retryCount + 1);
+                }
                 return { status: null, error: error.message, contentType: 'unknown', data: '' };
             }
         }
@@ -405,12 +411,14 @@
             loading.style.display = 'block';
             const vialResponse = await testBackend(VIAL_BACKEND);
             loading.style.display = 'none';
-            if (vialResponse.status === 200) {
+            if (vialResponse.status === 200 && vialResponse.data.includes('ok')) {
                 messages.innerHTML += `<p><b>System:</b> Backend connection verified.</p>`;
                 updateStatus('Success: Connected to search bot backend.', false);
             } else {
+                const errorMsg = vialResponse.status ? `HTTP ${vialResponse.status}: ${vialResponse.data.slice(0, 100)}` : vialResponse.error;
+                logError('Backend connection failed', new Error(errorMsg), VIAL_BACKEND, vialResponse);
                 messages.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to backend.</p>`;
-                updateStatus('Error: Backend connection failed.', true, 'Ensure /vial/ping is deployed.');
+                updateStatus('Error: Backend connection failed.', true, 'Ensure /vial/ping is deployed in /vial/.netlify/functions/ping.js. Check Netlify deploy logs.');
             }
             messages.scrollTop = messages.scrollHeight;
         }
@@ -439,6 +447,7 @@
                     return;
                 }
                 customAgents[agent.name] = agent;
+                window.customAgents[agent.name] = agent; // Expose to neurots.js
                 messages.innerHTML += `<p><b>System:</b> Imported custom agent: ${agent.name}.</p>`;
                 updateStatus(`Success: Imported agent ${agent.name}.`, false);
                 showHelp();
@@ -470,8 +479,9 @@
                     let vialResponse = { status: null };
                     if (['/agent1', '/agent2', '/agent3', '/agent4', '/dna', '/galaxy'].includes(command) || customAgents[command.slice(1)]) {
                         vialResponse = await testBackend(VIAL_BACKEND);
-                        if (isOffline || vialResponse.status !== 200) {
-                            updateStatus('Error: Agent feature disabled.', true, 'Requires online mode and vial backend.');
+                        if (isOffline || vialResponse.status !== 200 || !vialResponse.data.includes('ok')) {
+                            const errorMsg = isOffline ? 'Offline mode' : vialResponse.status ? `HTTP ${vialResponse.status}` : vialResponse.error;
+                            updateStatus('Error: Agent feature disabled.', true, `Requires online mode and vial backend. ${errorMsg}`);
                             messages.innerHTML += `<p class="error"><b>Error:</b> Agent feature requires online mode and vial backend.</p>`;
                             setAgentsActive(false);
                             loading.style.display = 'none';
@@ -509,7 +519,7 @@
                         case '/agent4':
                             activeAgents = [command.slice(1)];
                             setAgentsActive(true, activeAgents, false, false);
-                            messages.innerHTML += `<p class="${command.slice(1)}-color"><b>${command.slice(1).toUpperCase()}:</b> ${command.slice(1).toUpperCase()} pattern activated.</p>`;
+                            messages.innerHTML += `<p class="${command.slice(1)-color}"><b>${command.slice(1).toUpperCase()}:</b> ${command.slice(1).toUpperCase()} pattern activated.</p>`;
                             updateStatus(`Success: ${command.slice(1).toUpperCase()} activated.`, false);
                             break;
                         case '/dna':
