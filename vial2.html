@@ -121,6 +121,29 @@
         const retryLimits = new Map();
         let lastLogId = 0;
 
+        const mockResponses = {
+            '/api/health': { status: 'healthy', mongo: true, version: '2.8', services: ['auth', 'wallet', 'vials'] },
+            '/api/auth/login': { apiKey: `OFFLINE-${generateUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
+            '/api/vials/vial1/prompt': { response: 'Mock prompt processed' },
+            '/api/vials/vial2/prompt': { response: 'Mock prompt processed' },
+            '/api/vials/vial3/prompt': { response: 'Mock prompt processed' },
+            '/api/vials/vial4/prompt': { response: 'Mock prompt processed' },
+            '/api/vials/vial1/task': { status: 'Task assigned' },
+            '/api/vials/vial2/task': { status: 'Task assigned' },
+            '/api/vials/vial3/task': { status: 'Task assigned' },
+            '/api/vials/vial4/task': { status: 'Task assigned' },
+            '/api/vials/vial1/config': { status: 'Config updated' },
+            '/api/vials/vial2/config': { status: 'Config updated' },
+            '/api/vials/vial3/config': { status: 'Config updated' },
+            '/api/vials/vial4/config': { status: 'Config updated' },
+            '/api/vials/void': { status: 'All vials reset' },
+            '/api/wallet/create': { status: 'Wallet created', address: 'mock-wallet' },
+            '/api/wallet/import': { status: 'Wallet imported' },
+            '/api/wallet/transaction': { status: 'Transaction recorded' },
+            '/api/quantum/link': { statuses: ['running', 'running', 'running', 'running'], latencies: [50, 60, 70, 80] },
+            '/api/blockchain/transaction': { status: 'Transaction recorded' }
+        };
+
         async function logErrorToBackend(errorMessage, stack, endpoint, rawResponse = '') {
             if (isOffline) return;
             try {
@@ -141,6 +164,9 @@
                 logEvent('error', `Retry limit reached for ${url}. Aborting.`, { endpoint: url });
                 throw new Error(`Retry limit reached for ${url}`);
             }
+            if (isOffline && mockResponses[url.replace(API_BASE, '')]) {
+                return { ok: true, json: async () => mockResponses[url.replace(API_BASE, '')], text: async () => JSON.stringify(mockResponses[url.replace(API_BASE, '')]) };
+            }
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
@@ -157,7 +183,7 @@
                     if (error.name === 'AbortError') {
                         error.message = `Request timed out after 5s for ${url}`;
                     } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
-                        error.message = `Unable to connect to ${url}. Ensure server is running.`;
+                        error.message = `Unable to connect to ${url}. Ensure server is running on ports 8000-8007.`;
                     }
                     if (i === retries - 1) {
                         retryLimits.set(retryKey, retryCount + 1);
@@ -209,7 +235,7 @@
                     throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                showErrorNotification(`Connection failed: ${error.message}. Verify server is running or check other services (e.g., http://localhost:8001/auth).`);
+                showErrorNotification(`Connection failed: ${error.message}. Run: curl ${testUrl}/health or check services on ports 8000-8007.`);
                 logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/health`, rawResponse: error.message });
             }
         }
@@ -295,6 +321,7 @@
                     vial.status = 'running';
                     logEvent('command', `Prompt sent to ${vialId}: ${promptText}`, { blockHash });
                     if (!isOffline) await sendPromptToBackend(vialId, promptText, blockHash);
+                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/prompt`].response}`, { blockHash });
                 } else if (cmd === '/task') {
                     if (parts.length < 3) throw new Error('Usage: /task <vial> <task>');
                     const vialId = parts[1];
@@ -305,6 +332,7 @@
                     vial.status = 'running';
                     logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
                     if (!isOffline) await sendTaskToBackend(vialId, task, blockHash);
+                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/task`].status}`, { blockHash });
                 } else if (cmd === '/config') {
                     if (parts.length < 4) throw new Error('Usage: /config <vial> <key> <value>');
                     const vialId = parts[1];
@@ -316,6 +344,7 @@
                     vial.status = 'running';
                     logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
                     if (!isOffline) await setConfigToBackend(vialId, key, value, blockHash);
+                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/config`].status}`, { blockHash });
                 } else if (cmd === '/status') {
                     const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}`).join('\n');
                     logEvent('command', `Vial Status:\n${status}`, { blockHash });
@@ -425,7 +454,7 @@
             const errorNotification = document.getElementById('error-notification');
             errorNotification.style.background = isSuccess ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
             errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ?
-                `${message}. Run: curl ${API_BASE}/health or check services (http://localhost:8001-8007).` :
+                `${message}. Run: curl ${API_BASE}/health or check services on ports 8000-8007 (e.g., http://localhost:8001/auth/health).` :
                 message.includes('JSON') ?
                 `${message}. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
                 message;
@@ -502,7 +531,7 @@
                     wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0000, transactions: [] };
                 } else {
                     apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
-                    wallet = { address: null, balance: 0, hash: null, webxos: 0.0000, transactions: [] };
+                    wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0000, transactions: [] };
                 }
                 isAuthenticated = true;
                 const blockHash = await addToBlockchain('auth', { wallet: wallet.address });
@@ -526,9 +555,10 @@
             } catch (error) {
                 isOffline = true;
                 apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
+                wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0000, transactions: [] };
                 isAuthenticated = true;
                 logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth/login`, rawResponse: error.message });
-                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config or try http://localhost:8001/auth.`);
+                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config or try http://localhost:8001/auth/health.`);
                 disableFunctions();
                 showConfigPopup(true);
             }
@@ -553,6 +583,8 @@
                             'Authorization': `Bearer ${apiCredentials.key}`
                         }
                     });
+                } else {
+                    logEvent('command', `Offline mode: ${mockResponses['/api/vials/void'].status}`, {});
                 }
                 vials.forEach(vial => {
                     vial.status = 'stopped';
@@ -597,8 +629,16 @@
 
         async function quantumLink() {
             try {
-                if (isOffline) throw new Error('Quantum Link unavailable offline');
-                logEvent('command', 'Initiating Quantum Link...');
+                if (isOffline) {
+                    const mockData = mockResponses['/api/quantum/link'];
+                    vials.forEach((vial, i) => {
+                        vial.status = mockData.statuses[i] || 'running';
+                        vial.latency = mockData.latencies[i] || 50;
+                    });
+                    logEvent('command', 'Offline mode: Quantum Link established.', {});
+                    updateVialStatusBars();
+                    return;
+                }
                 const response = await fetchWithRetry(`${API_BASE}/quantum/link`, {
                     method: 'POST',
                     headers: {
@@ -702,6 +742,8 @@
                         } catch (e) {
                             throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                         }
+                    } else {
+                        logEvent('command', `Offline mode: ${mockResponses['/api/wallet/import'].status}`, {});
                     }
                     const blockHash = await addToBlockchain('import', { wallet: wallet.address });
                     logEvent('command', `Imported wallet from ${file.name}.`, { blockHash });
@@ -808,7 +850,7 @@
                 const isBackendOnline = await checkBackendStatus();
                 isOffline = !isBackendOnline;
                 if (isOffline) {
-                    logEvent('system', `Backend offline at ${API_BASE}. Running in offline mode.`);
+                    logEvent('system', `Backend offline at ${API_BASE}. Running in offline mode with mock responses.`);
                     showConfigPopup(true);
                     disableFunctions();
                 } else {
