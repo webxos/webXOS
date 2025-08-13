@@ -157,7 +157,7 @@
             }
         }
 
-        async function fetchWithRetry(url, options, retries = 5, delay = 1000) {
+        async function fetchWithRetry(url, options, retries = 3, baseDelay = 1000) {
             const retryKey = url.split('?')[0];
             const retryCount = retryLimits.get(retryKey) || 0;
             if (retryCount >= retries) {
@@ -170,7 +170,7 @@
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000); // Reduced timeout to 5s
+                    const timeoutId = setTimeout(() => controller.abort(), 3000);
                     const response = await fetch(url, { ...options, signal: controller.signal });
                     clearTimeout(timeoutId);
                     if (!response.ok) {
@@ -187,6 +187,7 @@
                         json: async () => {
                             try {
                                 const text = await response.text();
+                                if (!text) throw new Error('Empty response body');
                                 return JSON.parse(text);
                             } catch (e) {
                                 throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
@@ -195,7 +196,7 @@
                     };
                 } catch (error) {
                     if (error.name === 'AbortError') {
-                        error.message = `Request timed out after 5s for ${url}`;
+                        error.message = `Request timed out after 3s for ${url}`;
                     } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
                         error.message = `Unable to connect to ${url}. Ensure server is running on ports 8000-8007.`;
                     }
@@ -204,7 +205,7 @@
                         logEvent('error', `Fetch failed: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
                         return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
                     }
-                    await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                    await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, i)));
                 }
             }
         }
@@ -213,20 +214,24 @@
             try {
                 const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 const data = await response.json();
-                if (data.status !== 'healthy') throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
+                if (!data || typeof data !== 'object') throw new Error('Invalid health response');
+                const status = data.status || 'unknown';
+                const mongo = data.mongo ?? false;
+                const services = Array.isArray(data.services) ? data.services : [];
+                if (status !== 'healthy') throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 logEvent('system', `Backend online at ${API_BASE}`, { endpoint: `${API_BASE}/health` });
-                return true;
+                return { status, mongo, services };
             } catch (error) {
                 logEvent('error', `Backend offline: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
-                return false;
+                return { status: 'unhealthy', mongo: false, services: [] };
             }
         }
 
         async function authenticate() {
             try {
-                const isBackendOnline = await checkBackendStatus();
-                isOffline = !isBackendOnline;
-                if (!isBackendOnline) {
+                const backendStatus = await checkBackendStatus();
+                isOffline = backendStatus.status !== 'healthy';
+                if (isOffline) {
                     logEvent('error', `Backend offline at ${API_BASE}. Running in offline mode.`, { endpoint: `${API_BASE}/health` });
                     showErrorNotification(`Backend offline. Limited functionality available. Use Authenticate to try again.`);
                     apiKey = `OFFLINE-${crypto.randomUUID()}`;
@@ -243,6 +248,7 @@
                             body: JSON.stringify({ userId: userId || `user-${crypto.randomUUID()}` })
                         });
                         const data = await response.json();
+                        if (!data.apiKey || !data.userId) throw new Error('Invalid auth response');
                         apiKey = data.apiKey;
                         userId = data.userId;
                         wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
@@ -287,7 +293,7 @@
         }
 
         async function retryAuthentication() {
-            if (!userId || apiKey.startsWith('OFFLINE-')) return;
+            if (!userId || apiKey.startsWith('OFFLINE-') || !isAuthenticated) return;
             try {
                 const response = await fetchWithRetry(`${API_BASE}/auth/login`, {
                     method: 'POST',
@@ -295,6 +301,7 @@
                     body: JSON.stringify({ userId })
                 });
                 const data = await response.json();
+                if (!data.apiKey || !data.userId) throw new Error('Invalid auth response');
                 apiKey = data.apiKey;
                 localStorage.setItem('apiKey', apiKey);
                 isOffline = false;
@@ -356,8 +363,10 @@
                     try {
                         const response = await fetchWithRetry(`http://localhost:${port}/health`, { method: 'GET' });
                         const data = await response.json();
+                        const status = data.status || 'unknown';
+                        const mongo = data.mongo ?? false;
                         const services = Array.isArray(data.services) ? data.services.join(', ') : 'unknown';
-                        logEvent('command', `Port ${port}: ${data.status} (Mongo: ${data.mongo}, Services: ${services})`);
+                        logEvent('command', `Port ${port}: ${status} (Mongo: ${mongo}, Services: ${services})`);
                     } catch (error) {
                         logEvent('error', `Port ${port} unreachable: ${error.message}`, { error: error.stack, endpoint: `http://localhost:${port}/health`, rawResponse: error.message });
                     }
@@ -390,6 +399,7 @@
                     body: JSON.stringify({ vials: vials.map(v => v.id) })
                 });
                 const data = await response.json();
+                if (!data.statuses || !data.latencies) throw new Error('Invalid quantum link response');
                 vials.forEach((vial, i) => {
                     vial.status = data.statuses[i] || 'running';
                     vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
@@ -518,6 +528,7 @@
                     body: JSON.stringify({ userId })
                 });
                 const data = await response.json();
+                if (!data.apiKey) throw new Error('Invalid API key response');
                 apiKey = data.apiKey;
                 localStorage.setItem('apiKey', apiKey);
                 document.getElementById('api-input').value = `Key: ${apiKey}`;
@@ -829,6 +840,7 @@ Authenticated commands:
                                     body: JSON.stringify({ vials: vials.map(v => v.id) })
                                 });
                                 const data = await response.json();
+                                if (!data.statuses || !data.latencies) throw new Error('Invalid quantum link response');
                                 vials.forEach((vial, i) => {
                                     vial.status = data.statuses[i] || 'running';
                                     vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
@@ -893,8 +905,8 @@ Authenticated commands:
         async function initializeApp() {
             try {
                 logEvent('system', 'Application initialized.');
-                const isBackendOnline = await checkBackendStatus();
-                isOffline = !isBackendOnline;
+                const backendStatus = await checkBackendStatus();
+                isOffline = backendStatus.status !== 'healthy';
                 if (isOffline) {
                     logEvent('system', `Backend offline at ${API_BASE}. Running in offline mode with limited functionality.`);
                     disableFunctions();
@@ -902,16 +914,35 @@ Authenticated commands:
                     logEvent('system', `Backend online at ${API_BASE}. Ready to authenticate.`);
                 }
                 if (apiKey && userId && !apiKey.startsWith('OFFLINE-')) {
-                    logEvent('system', `Authenticated with API key: ${apiKey}`);
-                    isAuthenticated = true;
-                    document.getElementById('authButton').classList.add('active-monitor');
-                    ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
-                        document.getElementById(id).disabled = isOffline;
+                    const response = await fetchWithRetry(`${API_BASE}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId })
                     });
-                    updateBalanceDisplay();
+                    const data = await response.json();
+                    if (data.apiKey && data.userId) {
+                        apiKey = data.apiKey;
+                        userId = data.userId;
+                        wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
+                        localStorage.setItem('apiKey', apiKey);
+                        localStorage.setItem('userId', userId);
+                        isAuthenticated = true;
+                        logEvent('system', `Authenticated with API key: ${apiKey}`);
+                        document.getElementById('authButton').classList.add('active-monitor');
+                        ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                            document.getElementById(id).disabled = false;
+                        });
+                        updateBalanceDisplay();
+                    } else {
+                        isAuthenticated = false;
+                        disableFunctions();
+                    }
+                } else {
+                    isAuthenticated = false;
+                    disableFunctions();
                 }
                 updateVialStatusBars();
-                setInterval(retryAuthentication, 30000); // Reduced retry interval to 30s
+                setInterval(retryAuthentication, 15000);
             } catch (error) {
                 logEvent('error', `Initialization failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 isOffline = true;
