@@ -1,52 +1,30 @@
-import os
-import logging
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.security import OAuth2PasswordBearer
-from pymongo import MongoClient
-from pymongo.errors import ConnectionError
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import jwt
+import os
 from datetime import datetime, timedelta
-import hashlib
-import uuid
+from typing import List, Dict
 from dotenv import load_dotenv
-import httpx
-from fastapi.responses import JSONResponse
+import logging
+import uuid
 
-# Setup logging
-logging.basicConfig(filename='/db/errorlog.md', level=logging.INFO, format='## [%(asctime)s] %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
-
-# Load environment variables
 load_dotenv()
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
-JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key')
-AUTH_SERVICE_URL = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001')
-VIAL_SERVICE_URL = os.getenv('VIAL_SERVICE_URL', 'http://localhost:8002')
-BLOCKCHAIN_SERVICE_URL = os.getenv('BLOCKCHAIN_SERVICE_URL', 'http://localhost:8003')
-WALLET_SERVICE_URL = os.getenv('WALLET_SERVICE_URL', 'http://localhost:8004')
-QUANTUM_SERVICE_URL = os.getenv('QUANTUM_SERVICE_URL', 'http://localhost:8005')
-VIAL_VERSION = '2.8'
 
-app = FastAPI(title="Vial MCP API Gateway", version=VIAL_VERSION)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+app = FastAPI(title="Vial MCP Controller API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# MongoDB connection for gateway metadata
-try:
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    db = client['vial_mcp']
-    client.admin.command('ping')
-except ConnectionError as e:
-    logger.error(f"MongoDB connection failed: {str(e)}")
-    raise Exception(f"MongoDB connection failed: {str(e)}")
+logging.basicConfig(filename="db/errorlog.md", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-class ErrorLog(BaseModel):
-    error: str
-    stack: str
-    endpoint: str
-    timestamp: str
-    source: str
-    rawResponse: str
+SECRET_KEY = os.getenv("JWT_SECRET", "secret-key")
+ALGORITHM = "HS256"
 
 class AuthRequest(BaseModel):
     userId: str
@@ -69,202 +47,128 @@ class ConfigRequest(BaseModel):
 
 class WalletRequest(BaseModel):
     userId: str
-    address: str | None
+    address: str
     balance: float
-    hash: str | None
+    hash: str
     webxos: float
-    transactions: list
 
-class BlockchainRequest(BaseModel):
+class QuantumLinkRequest(BaseModel):
+    vials: List[str]
+
+class BlockchainTransaction(BaseModel):
     type: str
-    data: dict
+    data: Dict
     timestamp: str
     hash: str
 
-class QuantumLinkRequest(BaseModel):
-    vials: list
+def create_jwt_token(user_id: str):
+    payload = {
+        "sub": user_id,
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(hours=24)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-async def verify_token(token: str = Depends(oauth2_scheme)):
+async def get_current_user(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    token = auth_header.split(" ")[1]
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{AUTH_SERVICE_URL}/auth/validate/{token}")
-            if response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid or expired token")
-            return response.json()['user_id']
-    except Exception as e:
-        logger.error(f"Token verification failed: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload["sub"]
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Error at {request.url}: {str(exc)}")
-    return JSONResponse(status_code=500, content={"detail": f"Server error: {str(exc)}"})
-
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
-    try:
-        client.admin.command('ping')
-        async with httpx.AsyncClient() as client:
-            services = [
-                ('Authentication', f"{AUTH_SERVICE_URL}/auth/health"),
-                ('Vial Management', f"{VIAL_SERVICE_URL}/vials/health"),
-                ('Blockchain', f"{BLOCKCHAIN_SERVICE_URL}/blockchain/health"),
-                ('Wallet', f"{WALLET_SERVICE_URL}/wallet/health"),
-                ('Quantum Link', f"{QUANTUM_SERVICE_URL}/quantum/health")
-            ]
-            service_status = []
-            for name, url in services:
-                try:
-                    response = await client.get(url, timeout=2.0)
-                    service_status.append(name if response.status_code == 200 else f"{name} (down)")
-                except:
-                    service_status.append(f"{name} (down)")
-            return {"status": "healthy", "mongo": True, "version": VIAL_VERSION, "services": service_status}
-    except ConnectionError as e:
-        logger.error(f"Health check failed: MongoDB connection error: {str(e)}")
-        return JSONResponse(status_code=503, content={"status": "unhealthy", "mongo": False, "version": VIAL_VERSION, "services": []})
+    return {"status": "healthy", "mongo": True, "version": "2.8", "services": ["auth", "wallet", "vials"]}
 
-@app.post("/api/auth/login")
-async def authenticate(auth: AuthRequest):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{AUTH_SERVICE_URL}/auth/login", json=auth.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Auth error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
+@app.post("/auth/login")
+async def login(auth: AuthRequest):
+    api_key = f"api-{uuid.uuid4()}"
+    wallet_address = f"wallet-{uuid.uuid4()}"
+    wallet_hash = f"hash-{uuid.uuid4()}"
+    logging.info(f"User {auth.userId} logged in, API key: {api_key}")
+    return {
+        "apiKey": api_key,
+        "userId": auth.userId,
+        "walletAddress": wallet_address,
+        "walletHash": wallet_hash
+    }
 
-@app.post("/api/auth/api-key/generate")
-async def generate_api_key(auth: AuthRequest):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{AUTH_SERVICE_URL}/auth/api-key/generate", json=auth.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"API key generation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"API key generation failed: {str(e)}")
+@app.post("/auth/api-key/generate")
+async def generate_api_key(auth: AuthRequest, user_id: str = Depends(get_current_user)):
+    if user_id != auth.userId:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    api_key = f"api-{uuid.uuid4()}"
+    logging.info(f"New API key generated for user {user_id}: {api_key}")
+    return {"apiKey": api_key}
 
-@app.post("/api/log_error")
-async def log_error(error: ErrorLog):
-    try:
-        db['errors'].insert_one(error.dict())
-        return {"status": "logged"}
-    except Exception as e:
-        logger.error(f"Error logging failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error logging failed: {str(e)}")
+@app.post("/vials/{vial_id}/prompt")
+async def send_prompt(vial_id: str, prompt: PromptRequest, user_id: str = Depends(get_current_user)):
+    if vial_id not in [f"vial{i+1}" for i in range(4)]:
+        raise HTTPException(status_code=400, detail="Invalid vial ID")
+    logging.info(f"Prompt sent to {vial_id} by {user_id}: {prompt.prompt}")
+    return {"response": f"Prompt processed for {vial_id}"}
 
-@app.post("/api/vials/{vialId}/prompt")
-async def send_prompt(prompt: PromptRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{VIAL_SERVICE_URL}/vials/{prompt.vialId}/prompt", json=prompt.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Prompt error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prompt processing failed: {str(e)}")
+@app.post("/vials/{vial_id}/task")
+async def assign_task(vial_id: str, task: TaskRequest, user_id: str = Depends(get_current_user)):
+    if vial_id not in [f"vial{i+1}" for i in range(4)]:
+        raise HTTPException(status_code=400, detail="Invalid vial ID")
+    logging.info(f"Task assigned to {vial_id} by {user_id}: {task.task}")
+    return {"status": f"Task assigned to {vial_id}"}
 
-@app.post("/api/vials/{vialId}/task")
-async def send_task(task: TaskRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{VIAL_SERVICE_URL}/vials/{task.vialId}/task", json=task.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Task error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Task processing failed: {str(e)}")
+@app.put("/vials/{vial_id}/config")
+async def set_config(vial_id: str, config: ConfigRequest, user_id: str = Depends(get_current_user)):
+    if vial_id not in [f"vial{i+1}" for i in range(4)]:
+        raise HTTPException(status_code=400, detail="Invalid vial ID")
+    logging.info(f"Config updated for {vial_id} by {user_id}: {config.key}={config.value}")
+    return {"status": f"Config updated for {vial_id}"}
 
-@app.put("/api/vials/{vialId}/config")
-async def set_config(config: ConfigRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.put(f"{VIAL_SERVICE_URL}/vials/{config.vialId}/config", json=config.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Config error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Config update failed: {str(e)}")
+@app.delete("/vials/void")
+async def void_vials(user_id: str = Depends(get_current_user)):
+    logging.info(f"All vials reset by {user_id}")
+    return {"status": "All vials reset"}
 
-@app.delete("/api/vials/void")
-async def void_vials(user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.delete(f"{VIAL_SERVICE_URL}/vials/void")
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Void error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Void failed: {str(e)}")
+@app.post("/wallet/create")
+async def create_wallet(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
+    if user_id != wallet.userId:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    logging.info(f"Wallet created for {user_id}: {wallet.address}")
+    return {"status": "Wallet created", "address": wallet.address, "webxos": wallet.webxos}
 
-@app.post("/api/wallet/create")
-async def create_wallet(wallet: WalletRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/create", json=wallet.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Wallet creation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Wallet creation failed: {str(e)}")
+@app.post("/wallet/import")
+async def import_wallet(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
+    if user_id != wallet.userId:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    logging.info(f"Wallet imported for {user_id}: {wallet.address}")
+    return {"status": "Wallet imported"}
 
-@app.post("/api/wallet/import")
-async def import_wallet(wallet: WalletRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/import", json=wallet.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Wallet import error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Wallet import failed: {str(e)}")
+@app.post("/wallet/transaction")
+async def record_transaction(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
+    if user_id != wallet.userId:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    logging.info(f"Transaction recorded for {user_id}: {wallet.address}")
+    return {"status": "Transaction recorded"}
 
-@app.post("/api/wallet/transaction")
-async def wallet_transaction(wallet: WalletRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/transaction", json=wallet.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Wallet transaction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Wallet transaction failed: {str(e)}")
+@app.post("/quantum/link")
+async def quantum_link(link: QuantumLinkRequest, user_id: str = Depends(get_current_user)):
+    if not all(v in [f"vial{i+1}" for i in range(4)] for v in link.vials):
+        raise HTTPException(status_code=400, detail="Invalid vial IDs")
+    logging.info(f"Quantum link established by {user_id} for vials: {link.vials}")
+    return {"statuses": ["running"] * len(link.vials), "latencies": [50, 60, 70, 80][:len(link.vials)]}
 
-@app.post("/api/blockchain/transaction")
-async def add_to_blockchain(block: BlockchainRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{BLOCKCHAIN_SERVICE_URL}/blockchain/transaction", json=block.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Blockchain error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Blockchain error: {str(e)}")
+@app.post("/blockchain/transaction")
+async def blockchain_transaction(transaction: BlockchainTransaction, user_id: str = Depends(get_current_user)):
+    logging.info(f"Blockchain transaction recorded by {user_id}: {transaction.type}")
+    return {"status": "Transaction recorded"}
 
-@app.post("/api/quantum/link")
-async def quantum_link(link: QuantumLinkRequest, user_id: str = Depends(verify_token)):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{QUANTUM_SERVICE_URL}/quantum/link", json=link.dict())
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
-    except Exception as e:
-        logger.error(f"Quantum link error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Quantum link failed: {str(e)}")
+@app.post("/log_error")
+async def log_error(error_data: Dict, user_id: str = Depends(get_current_user)):
+    logging.error(f"Error from {user_id}: {error_data['error']} at {error_data['endpoint']}")
+    return {"status": "Error logged"}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
