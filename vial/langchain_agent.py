@@ -1,68 +1,61 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import pymongo
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.llms import BaseLLM
+import requests
+import grpc
+import json
+import xml.etree.ElementTree as ET
 import logging
 import datetime
 import os
-from langchain import LLMChain, PromptTemplate
-from transformers import pipeline
+from typing import Dict, Any, List
 
-app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mongo_client = pymongo.MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
-db = mongo_client["mcp_db"]
-
-class LangChainRequest(BaseModel):
-    user_id: str
-    query: str
-    wallet: dict
-
-class LangChainAgent:
+class VialLLM(BaseLLM):
     def __init__(self):
-        self.nlp = pipeline("text-generation", model="distilgpt2")
-        self.prompt_template = PromptTemplate(
-            input_variables=["query"],
-            template="Process this query for WebXOS: {query}"
-        )
-        self.chain = LLMChain(llm=self.nlp, prompt=self.prompt_template)
+        super().__init__()
+        self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        self.api_key = os.getenv("LLM_API_KEY")
+        self.supported_models = ["llama3.3", "mistral", "gemma2", "qwen", "phi"]
 
-    async def process_query(self, user_id: str, query: str, wallet: dict) -> dict:
+    async def call_llm(self, prompt: str, model: str, format: str = "json") -> Dict[str, Any]:
         try:
-            result = self.chain.run(query=query)
+            if model not in self.supported_models:
+                raise ValueError(f"Unsupported model: {model}")
             
-            # Log query
-            db.collection("langchain_logs").insert_one({
-                "user_id": user_id,
-                "query": query,
-                "response": result,
-                "timestamp": datetime.datetime.utcnow().isoformat(),
-                "wallet": wallet
-            })
+            # REST API call
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            payload = {"prompt": prompt, "model": model}
+            response = requests.post("https://api.huggingface.co/v1/inference", json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
             
-            # Update wallet
-            wallet["transactions"].append({
-                "type": "langchain_query",
-                "query": query,
-                "timestamp": datetime.datetime.utcnow().isoformat()
-            })
-            wallet["webxos"] = wallet.get("webxos", 0.0) + float(os.getenv("WALLET_INCREMENT", 0.0001))
-            db.collection("wallet").update_one(
-                {"user_id": user_id},
-                {"$set": {"wallet": wallet}, "$push": {"transactions": wallet["transactions"][-1]}},
-                upsert=True
-            )
+            # Protocol conversion for legacy systems (e.g., gRPC)
+            try:
+                # Example gRPC conversion (placeholder)
+                channel = grpc.insecure_channel("legacy-system:50051")
+                stub = legacy_service_pb2_grpc.LegacyServiceStub(channel)
+                grpc_response = stub.ProcessPrompt(legacy_service_pb2.PromptRequest(prompt=prompt))
+                result["grpc_response"] = grpc_response.result
+            except Exception as e:
+                logger.warning(f"gRPC conversion failed: {str(e)}")
             
-            return {"response": result, "wallet": wallet}
+            # Transform response
+            if format == "xml":
+                root = ET.Element("response")
+                for key, value in result.items():
+                    child = ET.SubElement(root, key)
+                    child.text = str(value)
+                return {"status": "success", "response": ET.tostring(root, encoding="unicode")}
+            return {"status": "success", "response": result}
         except Exception as e:
-            logger.error(f"LangChain query error: {str(e)}")
+            logger.error(f"LLM call error: {str(e)}")
             with open("db/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** LangChain query error: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=str(e))
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** LLM call error: {str(e)}\n")
+            raise Exception(str(e))
 
-langchain_agent = LangChainAgent()
-
-@app.post("/api/langchain_query")
-async def process_langchain_query(request: LangChainRequest):
-    return await langchain_agent.process_query(request.user_id, request.query, request.wallet)
+    def _generate(self, prompts: List[str], stop: List[str] = None) -> Dict[str, Any]:
+        # Synchronous wrapper for LangChain compatibility
+        import asyncio
+        return asyncio.run(self.call_llm(prompts[0], self.supported_models[0]))
