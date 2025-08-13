@@ -1,61 +1,65 @@
-Vial MCP Controller Setup Instructions
+Setup Instructions
+Overview
+This guide provides step-by-step instructions to set up the Vial MCP Controller for local development and deployment.
 Prerequisites
 
-Docker and Docker Compose: For containerized deployment.
-Python 3.8+: For backend scripts and testing.
-Node.js 16+: For authentication server and frontend tests.
-MongoDB: For backend data storage.
-Redis 7.0: For session caching.
-Netlify CLI: For deployment.
+Python 3.9+
+Node.js 16+
+Docker and Docker Compose
+MongoDB and Redis (or use Docker services)
+Git
 
 Installation
 
-Clone the Repository:
-git clone <repository_url>
-cd vial-mcp-project
+Clone the Repository:git clone https://github.com/webxos/webxos.git
+cd webxos
 
 
-Set Up Environment Variables:
-cp .env.example .env
-
-Edit .env to include:
-
-WEB3_PROVIDER: Web3 provider URL (e.g., http://localhost:8545).
-JWT_SECRET: Secret for JWT authentication.
-MONGO_URL: MongoDB connection string (e.g., mongodb://mongo:27017).
-REDIS_URL: Redis connection string (e.g., redis://redis:6379).
+Install Python Dependencies:pip install -r db/requirements.txt
 
 
-Build and Run with Docker:
-docker-compose up --build
+Install Node.js Dependencies:npm install --prefix node
 
 
-Run Locally:
+Configure Environment:
+Copy .env.example to .env and set variables:MONGO_URI=mongodb://localhost:27017
+REDIS_HOST=localhost
+REDIS_PORT=6379
+JWT_SECRET=VIAL_MCP_SECRET_2025
+FASTAPI_HOST=0.0.0.0
+FASTAPI_PORT=8000
+WALLET_INCREMENT=0.0001
 
-Start FastAPI server:uvicorn vial.unified_server:app --host 0.0.0.0 --port 8000
 
 
-Start Node.js server:cd node && npm start
+
+Initialize Database:python db/mcp_db_init.py
 
 
-Access vial.html at http://localhost:8000/vial.html.
+Start Services:docker-compose up -d
 
 
+Run Tests:pytest db/ vial/tests/
+
+
+
+Accessing the Application
+
+Main UI: http://localhost:8000/vial.html
+Chatbot UI: http://localhost:8000/chatbot.html
+Secondary Chatbot UI: http://localhost:8000/chatbot/chatbot2.html
+API: http://localhost:8000/docs (OpenAPI interface)
 
 Deployment
 
-Deploy to Netlify:netlify deploy --prod
+Netlify: Use netlify.toml for deployment to webxos.netlify.app.
+GitHub Actions: Configure ci.yml for CI/CD.
+Docker: Build and run using Dockerfile and docker-compose.yaml.
 
+Troubleshooting
 
-Configure netlify.toml for static assets and serverless functions.
+Check db/errorlog.md for database and backend errors.
+Check errorlog.md for conversation-related errors.
+Ensure MongoDB and Redis are running (docker ps).
 
-Testing
-Run unit and integration tests:
-pytest vial/tests/
-node vial/tests/test_vial_html.js
-
-Notes
-
-Ensure the chatbot folder remains unchanged.
-Wallet exports (vial_wallet_export_*.md) must follow the specified format with four vials.
-Logs are written to vial/errorlog.md for debugging.
+For API details, see /docs/api.markdown.
