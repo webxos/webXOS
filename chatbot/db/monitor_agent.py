@@ -1,64 +1,40 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import pymongo
+import redis
 import logging
 import datetime
-import aiohttp
-import json
+import os
+from typing import Dict, Any
 
-app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mongo_client = pymongo.MongoClient("mongodb://localhost:27017")
-db = mongo_client["mcp_db"]
-
-class MonitorRequest(BaseModel):
-    user_id: str
-    vials: list
-    wallet: dict
+redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)), decode_responses=True)
 
 class MonitorAgent:
-    async def monitor_libraries(self, user_id: str, vials: list, wallet: dict) -> dict:
+    def __init__(self):
+        self.metrics_key = "api_metrics"
+
+    async def log_api_call(self, endpoint: str, user_id: str, status_code: int, latency: float):
         try:
-            with open("db/library_config.json", "r") as f:
-                config = json.load(f)
-            results = []
-            async with aiohttp.ClientSession() as session:
-                for vial_id in vials:
-                    endpoint = config["libraries"].get(vial_id, {}).get("endpoint")
-                    if not endpoint:
-                        logger.warning(f"Invalid vial ID in config: {vial_id}")
-                        continue
-                    async with session.get(f"http://localhost:8000{endpoint}/health") as response:
-                        status = await response.json() if response.status == 200 else {"status": "error", "detail": f"HTTP {response.status}"}
-                        results.append({"vial_id": vial_id, "health": status})
-            db.collection("monitor_logs").insert_one({
+            metric = {
+                "endpoint": endpoint,
                 "user_id": user_id,
-                "vials": vials,
-                "timestamp": datetime.datetime.utcnow().isoformat(),
-                "wallet": wallet
-            })
-            wallet["transactions"].append({
-                "type": "monitor",
-                "vials": vials,
+                "status_code": status_code,
+                "latency": latency,
                 "timestamp": datetime.datetime.utcnow().isoformat()
-            })
-            wallet["webxos"] = wallet.get("webxos", 0.0) + 0.0001
-            db.collection("wallet").update_one(
-                {"user_id": user_id},
-                {"$set": {"wallet": wallet}, "$push": {"transactions": wallet["transactions"][-1]}},
-                upsert=True
-            )
-            return {"results": results, "wallet": wallet}
+            }
+            redis_client.lpush(self.metrics_key, json.dumps(metric))
+            redis_client.ltrim(self.metrics_key, 0, 999)  # Keep last 1000 metrics
         except Exception as e:
-            logger.error(f"Monitor error: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Monitor error: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"API logging error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** API logging error: {str(e)}\n")
 
-monitor = MonitorAgent()
-
-@app.post("/api/monitor")
-async def monitor_libraries(request: MonitorRequest):
-    return await monitor.monitor_libraries(request.user_id, request.vials, request.wallet)
+    async def get_metrics(self) -> List[Dict[str, Any]]:
+        try:
+            metrics = redis_client.lrange(self.metrics_key, 0, -1)
+            return [json.loads(m) for m in metrics]
+        except Exception as e:
+            logger.error(f"Metrics retrieval error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** Metrics retrieval error: {str(e)}\n")
+            return []
