@@ -2,104 +2,185 @@ openapi: 3.0.3
 info:
   title: Vial MCP Controller API
   version: 1.0.0
-  description: API for managing AI agents (vials) and $WEBXOS wallet operations.
+  description: API for Vial MCP Controller with data retrieval, LLM inference, and Git operations
 servers:
-  - url: http://localhost:8000/api
-paths:
-  /auth:
-    post:
-      summary: Authenticate user and generate JWT token
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userId: { type: string }
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { apiKey: { type: string } } } } } }
-        '500': { description: Server error }
-  /vials:
-    get:
-      summary: Retrieve all vials
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { agents: { type: object } } } } } }
-        '401': { description: Unauthorized }
-        '500': { description: Server error }
-  /wallet:
-    post:
-      summary: Update wallet balance
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                transaction: { type: object, properties: { amount: { type: number } } }
-                wallet: { type: object, properties: { target_address: { type: string } } }
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } }
-        '401': { description: Unauthorized }
-        '500': { description: Server error }
-  /wallet/cashout:
-    post:
-      summary: Cash out $WEBXOS
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                transaction: { type: object, properties: { amount: { type: number } } }
-                wallet: { type: object, properties: { target_address: { type: string } } }
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } }
-        '401': { description: Unauthorized }
-        '500': { description: Server error }
-  /import:
-    post:
-      summary: Import wallet and vial export
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file: { type: string, format: binary }
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { agents: { type: object } } } } } }
-        '400': { description: Invalid format }
-        '401': { description: Unauthorized }
-        '500': { description: Server error }
-  /vial/update:
-    post:
-      summary: Update vial data
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                vial_id: { type: string }
-                data: { type: object }
-      responses:
-        '200': { description: Success, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } }
-        '400': { description: Invalid data }
-        '401': { description: Unauthorized }
-        '500': { description: Server error }
+  - url: https://webxos.netlify.app/v1/api
+    description: Production server
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://github.com/login/oauth/authorize
+          tokenUrl: https://github.com/login/oauth/access_token
+          scopes:
+            read:data: Access data retrieval endpoints
+            read:llm: Access LLM inference endpoints
+            write:git: Execute Git commands
+  schemas:
+    RetrieveRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        query:
+          type: string
+        source:
+          type: string
+          enum: [postgres, milvus, weaviate, pgvector, faiss]
+        format:
+          type: string
+          enum: [json, xml]
+        wallet:
+          type: object
+      required: [user_id, query, source]
+    LLMRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        prompt:
+          type: string
+        model:
+          type: string
+          enum: [llama3.3, mistral, gemma2, qwen, phi]
+        format:
+          type: string
+          enum: [json, xml]
+        wallet:
+          type: object
+      required: [user_id, prompt, model]
+    GitRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        command:
+          type: string
+        repo_url:
+          type: string
+        wallet:
+          type: object
+      required: [user_id, command, repo_url]
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+paths:
+  /retrieve:
+    post:
+      summary: Retrieve data from specified source
+      security:
+        - BearerAuth: [read:data]
+        - OAuth2: [read:data]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetrieveRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+            application/xml:
+              schema:
+                type: string
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /llm:
+    post:
+      summary: Call LLM for inference
+      security:
+        - BearerAuth: [read:llm]
+        - OAuth2: [read:llm]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LLMRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  response:
+                    type: object
+            application/xml:
+              schema:
+                type: string
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /git:
+    post:
+      summary: Execute Git command
+      security:
+        - BearerAuth: [write:git]
+        - OAuth2: [write:git]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  output:
+                    type: string
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
