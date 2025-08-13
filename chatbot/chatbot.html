@@ -150,10 +150,10 @@
             white-space: pre-wrap;
             user-select: text;
         }
-        .vial1-color { color: #00cc00; text-shadow: 0 0 5px #00cc00; }
-        .vial2-color { color: #00ff99; text-shadow: 0 0 5px #00ff99; }
-        .vial3-color { color: #ff33cc; text-shadow: 0 0 5px #ff33cc; }
-        .vial4-color { color: #33ccff; text-shadow: 0 0 5px #33ccff; }
+        .agent1-color { color: #00cc00; text-shadow: 0 0 5px #00cc00; }
+        .agent2-color { color: #00ff99; text-shadow: 0 0 5px #00ff99; }
+        .agent3-color { color: #ff33cc; text-shadow: 0 0 5px #ff33cc; }
+        .agent4-color { color: #33ccff; text-shadow: 0 0 5px #33ccff; }
         footer {
             position: fixed;
             bottom: 0;
@@ -192,7 +192,7 @@
         <div id="chatbox">
             <div id="messages"></div>
             <div class="input-group">
-                <input type="text" id="userInput" placeholder="Type your query or command (e.g., 'Chatbot, respond to hello')">
+                <input type="text" id="userInput" placeholder="Search WebXOS or /agent1-4...">
                 <button id="searchButton" onclick="sendMessage()">Search</button>
                 <button id="clearButton" onclick="clearMessages()">Clear</button>
                 <button id="authButton" onclick="authenticate()">OAuth</button>
@@ -201,15 +201,16 @@
         </div>
     </div>
     <footer>
-        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.9</span>
+        <span class="copyright">Copyright webXOS 2025</span>
     </footer>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.21.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mongodb@6.8.0/dist/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
     <script>
         // Neural dots functionality
-        (function() {
-            window.initNeurots = () => {
+        (function initNeuralDots() {
+            window.initNeurots = function() {
                 const canvas = document.getElementById('neuralCanvas');
                 if (!canvas) {
                     console.error('Canvas element not found');
@@ -220,250 +221,364 @@
                     console.error('Failed to get 2D context for canvas');
                     return;
                 }
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
+                let dotCount = 30;
+                const MAX_DISTANCE = 80;
+                const MAX_COLLAB_DISTANCE = 120;
                 let dots = [];
-                const numDots = 50;
-                let explosionTime = 0;
-                let activePattern = null;
-                let scale = 0.1;
-                let rotation = 0;
+                let activeAgents = [];
+                let isDnaMode = false;
+                let isGalaxyMode = false;
+                let animationPhase = 'explode';
+                let animationProgress = 0;
+                let isInitialLoad = true;
+                let growthFactor = 0.5;
+                const center = { x: canvas.width / 2, y: canvas.height / 2 };
 
-                const initDots = () => {
+                function setCanvasSize() {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                    console.log('Canvas resized:', canvas.width, canvas.height);
+                }
+
+                function getAgentColor(agent) {
+                    const colors = {
+                        'agent1': '#00cc00',
+                        'agent2': '#00ff99',
+                        'agent3': '#ff33cc',
+                        'agent4': '#33ccff'
+                    };
+                    return colors[agent] || '#00ff00';
+                }
+
+                function getRandomPosition() {
+                    const isMobile = window.innerWidth <= 768;
+                    const textContainer = {
+                        x: isMobile ? 0 : (canvas.width - 800) / 2,
+                        y: isMobile ? canvas.height * 0.2 : canvas.height * 0.1,
+                        width: isMobile ? canvas.width : 800,
+                        height: isMobile ? canvas.height * 0.7 : canvas.height * 0.8
+                    };
+                    let x, y;
+                    do {
+                        x = Math.random() * canvas.width;
+                        y = Math.random() * canvas.height;
+                    } while (
+                        x >= textContainer.x && x <= textContainer.x + textContainer.width &&
+                        y >= textContainer.y && y <= textContainer.y + textContainer.height
+                    );
+                    return { x, y };
+                }
+
+                function createDot(agent, index, pattern, dotCenter) {
+                    const base = {
+                        radius: 2,
+                        color: getAgentColor(agent),
+                        angle: Math.random() * Math.PI * 2,
+                        radiusSpeed: 0,
+                        opacity: 1,
+                        targetX: 0,
+                        targetY: 0,
+                        index: index,
+                        agent: agent,
+                        x: dotCenter.x,
+                        y: dotCenter.y,
+                        vx: (Math.random() - 0.5) * 10,
+                        vy: (Math.random() - 0.5) * 10
+                    };
+                    let dot;
+                    switch (pattern) {
+                        case 'helix':
+                            const helixAngle = index * 0.2;
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + 20 * Math.cos(helixAngle),
+                                targetY: dotCenter.y + 20 * Math.sin(helixAngle),
+                                angle: helixAngle,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        case 'cube':
+                            const cubeSize = 20;
+                            const cubeIndex = index % 8;
+                            const cubeVertices = [
+                                [-cubeSize, -cubeSize, -cubeSize], [cubeSize, -cubeSize, -cubeSize],
+                                [cubeSize, cubeSize, -cubeSize], [-cubeSize, cubeSize, -cubeSize],
+                                [-cubeSize, -cubeSize, cubeSize], [cubeSize, -cubeSize, cubeSize],
+                                [cubeSize, cubeSize, cubeSize], [-cubeSize, cubeSize, cubeSize]
+                            ];
+                            const vertex = cubeVertices[cubeIndex];
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + vertex[0],
+                                targetY: dotCenter.y + vertex[1],
+                                targetZ: vertex[2],
+                                angle: 0,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        case 'torus':
+                            const torusRadius = 20;
+                            const tubeRadius = 5;
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + (torusRadius + tubeRadius * Math.cos(index * 0.2)) * Math.cos(index * 0.2),
+                                targetY: dotCenter.y + (torusRadius + tubeRadius * Math.cos(index * 0.2)) * Math.sin(index * 0.2),
+                                angle: index * 0.2,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        case 'star':
+                            const starRadius = index % 2 === 0 ? 80 : 40;
+                            const starAngle = index * 2 * Math.PI / 10;
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + starRadius * Math.cos(starAngle),
+                                targetY: dotCenter.y + starRadius * Math.sin(starAngle),
+                                angle: starAngle,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        case 'dna':
+                            const dnaRadius = 20 * growthFactor;
+                            const strandOffset = (index % 4) * 5;
+                            const phaseShift = (agent === 'agent1' ? 0 : agent === 'agent2' ? Math.PI / 2 : agent === 'agent3' ? Math.PI : 3 * Math.PI / 2);
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + dnaRadius * Math.cos(index * 0.2 + phaseShift) + strandOffset,
+                                targetY: dotCenter.y + dnaRadius * Math.sin(index * 0.2 + phaseShift),
+                                angle: index * 0.2,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        case 'galaxy':
+                            dot = {
+                                ...base,
+                                type: index % 5 === 0 ? 'star' : 'planet',
+                                targetX: dotCenter.x + 20 * index * Math.cos(index * 0.2),
+                                targetY: dotCenter.y + 20 * index * Math.sin(index * 0.2),
+                                angle: index * 0.2,
+                                radiusSpeed: 0.005
+                            };
+                            break;
+                        default:
+                            dot = {
+                                ...base,
+                                targetX: dotCenter.x + (Math.random() - 0.5) * canvas.width,
+                                targetY: dotCenter.y + (Math.random() - 0.5) * canvas.height,
+                                vx: (Math.random() - 0.5) * 8,
+                                vy: (Math.random() - 0.5) * 8
+                            };
+                    }
+                    console.log(`Created dot for ${pattern} (agent: ${agent}):`, dot);
+                    return dot;
+                }
+
+                function initDots() {
                     dots = [];
-                    for (let i = 0; i < numDots; i++) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const speed = Math.random() * 5 + 2;
-                        dots.push({
-                            x: canvas.width / 2,
-                            y: canvas.height / 2,
-                            vx: Math.cos(angle) * speed,
-                            vy: Math.sin(angle) * speed,
-                            radius: Math.random() * 2 + 1,
-                            alpha: 1
-                        });
-                    }
-                };
-
-                const drawDots = () => {
-                    if (explosionTime < 60) {
-                        dots.forEach(dot => {
-                            dot.x += dot.vx;
-                            dot.y += dot.vy;
-                            dot.alpha = 1 - explosionTime / 60;
-                            ctx.globalAlpha = dot.alpha;
-                            ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-                            ctx.beginPath();
-                            ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-                            ctx.fill();
-                        });
-                        explosionTime++;
+                    const dotCenter = isDnaMode || isGalaxyMode ? getRandomPosition() : { x: canvas.width / 2, y: canvas.height / 2 };
+                    if (isGalaxyMode) {
+                        dotCount = 30;
+                        for (let i = 0; i < dotCount; i++) {
+                            dots.push(createDot('agent4', i, 'galaxy', dotCenter));
+                        }
+                    } else if (isDnaMode) {
+                        dotCount = 30;
+                        const agents = ['agent1', 'agent2', 'agent3', 'agent4'];
+                        for (let i = 0; i < dotCount; i++) {
+                            dots.push(createDot(agents[i % 4], i, 'dna', dotCenter));
+                        }
+                    } else if (activeAgents.length === 1) {
+                        dotCount = 30;
+                        const pattern = activeAgents[0] === 'agent1' ? 'helix' : activeAgents[0] === 'agent2' ? 'cube' : activeAgents[0] === 'agent3' ? 'torus' : 'star';
+                        for (let i = 0; i < dotCount; i++) {
+                            dots.push(createDot(activeAgents[0], i, pattern, dotCenter));
+                        }
                     } else {
-                        dots.forEach(dot => {
-                            dot.x += dot.vx;
-                            dot.y += dot.vy;
-                            if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-                            if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
-                            ctx.globalAlpha = 0.5;
-                            ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-                            ctx.beginPath();
-                            ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-                            ctx.fill();
-                        });
-                        dots.forEach((dot, i) => {
-                            dots.slice(i + 1).forEach(otherDot => {
-                                const dx = dot.x - otherDot.x;
-                                const dy = dot.y - otherDot.y;
-                                const distance = Math.sqrt(dx * dx + dy * dy);
-                                if (distance < 100) {
-                                    ctx.globalAlpha = 1 - distance / 100;
-                                    ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
-                                    ctx.beginPath();
-                                    ctx.moveTo(dot.x, dot.y);
-                                    ctx.lineTo(otherDot.x, otherDot.y);
-                                    ctx.stroke();
-                                }
-                            });
-                        });
-                    }
-                };
-
-                const drawHelix = () => {
-                    ctx.strokeStyle = '#00cc00';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    rotation += 0.05;
-                    ctx.beginPath();
-                    for (let t = -Math.PI; t <= Math.PI; t += 0.1) {
-                        const x1 = centerX + Math.cos(t + rotation) * scale * 50;
-                        const y1 = centerY + t * 50;
-                        const x2 = centerX + Math.cos(t + rotation + Math.PI) * scale * 50;
-                        const y2 = centerY + t * 50;
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                    }
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                };
-
-                const drawCube = () => {
-                    ctx.strokeStyle = '#00ff99';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    const size = scale * 100;
-                    rotation += 0.05;
-                    ctx.beginPath();
-                    const vertices = [
-                        [-size, -size, -size], [size, -size, -size], [size, size, -size], [-size, size, -size],
-                        [-size, -size, size], [size, -size, size], [size, size, size], [-size, size, size]
-                    ];
-                    const edges = [
-                        [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
-                        [0, 4], [1, 5], [2, 6], [3, 7]
-                    ];
-                    const cos = Math.cos(rotation);
-                    const sin = Math.sin(rotation);
-                    vertices.forEach(v => {
-                        const x = v[0] * cos - v[2] * sin;
-                        const z = v[0] * sin + v[2] * cos;
-                        v[0] = x;
-                        v[2] = z;
-                    });
-                    edges.forEach(([i, j]) => {
-                        ctx.moveTo(centerX + vertices[i][0], centerY + vertices[i][1]);
-                        ctx.lineTo(centerX + vertices[j][0], centerY + vertices[j][1]);
-                    });
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                };
-
-                const drawTorus = () => {
-                    ctx.strokeStyle = '#ff33cc';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    rotation += 0.05;
-                    ctx.beginPath();
-                    for (let theta = 0; theta < Math.PI * 2; theta += 0.1) {
-                        for (let phi = 0; phi < Math.PI * 2; phi += 0.1) {
-                            const x = (100 * scale + 30 * Math.cos(phi)) * Math.cos(theta);
-                            const y = (100 * scale + 30 * Math.cos(phi)) * Math.sin(theta);
-                            const z = 30 * Math.sin(phi);
-                            const x2 = x * Math.cos(rotation) - z * Math.sin(rotation);
-                            const y2 = y;
-                            ctx.lineTo(centerX + x2, centerY + y2);
+                        dotCount = 30;
+                        for (let i = 0; i < dotCount; i++) {
+                            dots.push(createDot('agent1', i, 'random', dotCenter));
                         }
                     }
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                };
+                    console.log(`Initialized ${dots.length} dots for pattern: ${isGalaxyMode ? 'galaxy' : isDnaMode ? 'dna' : activeAgents[0] || 'random'}, growthFactor: ${growthFactor}, dotCount: ${dotCount}`);
+                    animationPhase = isInitialLoad ? 'explode' : 'reform';
+                    animationProgress = 0;
+                    growthFactor = 0.5;
+                    isInitialLoad = false;
+                }
 
-                const drawStar = () => {
-                    ctx.strokeStyle = '#33ccff';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    ctx.beginPath();
-                    for (let i = 0; i < 5; i++) {
-                        const outerX = centerX + Math.cos(i * 4 * Math.PI / 5 + rotation) * scale * 100;
-                        const outerY = centerY + Math.sin(i * 4 * Math.PI / 5 + rotation) * scale * 100;
-                        const innerX = centerX + Math.cos((i + 0.5) * 4 * Math.PI / 5 + rotation) * scale * 50;
-                        const innerY = centerY + Math.sin((i + 0.5) * 4 * Math.PI / 5 + rotation) * scale * 50;
-                        ctx.lineTo(outerX, outerY);
-                        ctx.lineTo(innerX, innerY);
+                function updateDots() {
+                    dots.forEach(dot => {
+                        if (!dot) return;
+                        if (animationPhase === 'explode') {
+                            dot.x += dot.vx;
+                            dot.y += dot.vy;
+                            if (dot.x < 0 || dot.x > canvas.width) {
+                                dot.vx *= -0.8;
+                                dot.x = Math.max(0, Math.min(canvas.width, dot.x));
+                            }
+                            if (dot.y < 0 || dot.y > canvas.height) {
+                                dot.vy *= -0.8;
+                                dot.y = Math.max(0, Math.min(canvas.height, dot.y));
+                            }
+                            dot.opacity = Math.max(0, dot.opacity - 0.01);
+                        } else if (isGalaxyMode) {
+                            if (dot.type === 'star') {
+                                dot.opacity = 0.5 + Math.sin(Date.now() * 0.005 + dot.index) * 0.5;
+                            } else {
+                                dot.opacity = 0.8;
+                            }
+                            dot.angle += dot.radiusSpeed;
+                            dot.targetX = center.x + 20 * dot.index * Math.cos(dot.angle);
+                            dot.targetY = center.y + 20 * dot.index * Math.sin(dot.angle);
+                            dot.x += (dot.targetX - dot.x) * 0.05;
+                            dot.y += (dot.targetY - dot.y) * 0.05;
+                        } else if (isDnaMode) {
+                            const dnaRadius = 20 * growthFactor;
+                            const strandOffset = (dot.index % 4) * 5;
+                            const phaseShift = (dot.agent === 'agent1' ? 0 : dot.agent === 'agent2' ? Math.PI / 2 : dot.agent === 'agent3' ? Math.PI : 3 * Math.PI / 2);
+                            dot.targetX = center.x + dnaRadius * Math.cos(dot.angle + phaseShift) + strandOffset;
+                            dot.targetY = center.y + dnaRadius * Math.sin(dot.angle + phaseShift);
+                            dot.angle += dot.radiusSpeed;
+                            dot.x += (dot.targetX - dot.x) * 0.05;
+                            dot.y += (dot.targetY - dot.y) * 0.05;
+                        } else {
+                            dot.x += dot.vx;
+                            dot.y += dot.vy;
+                            if (dot.x < 0 || dot.x > canvas.width) {
+                                dot.vx *= -0.8;
+                                dot.x = Math.max(0, Math.min(canvas.width, dot.x));
+                            }
+                            if (dot.y < 0 || dot.y > canvas.height) {
+                                dot.vy *= -0.8;
+                                dot.y = Math.max(0, Math.min(canvas.height, dot.y));
+                            }
+                            if (activeAgents.length === 1) {
+                                const pattern = activeAgents[0] === 'agent1' ? 'helix' : activeAgents[0] === 'agent2' ? 'cube' : activeAgents[0] === 'agent3' ? 'torus' : 'star';
+                                if (pattern === 'cube') {
+                                    const t = Date.now() * 0.005;
+                                    const cos = Math.cos(t);
+                                    const sin = Math.sin(t);
+                                    const x = dot.targetX * cos - dot.targetZ * sin;
+                                    const z = dot.targetX * sin + dot.targetZ * cos;
+                                    dot.targetX = center.x + x;
+                                    dot.targetY = center.y + dot.targetY;
+                                } else if (pattern === 'helix' || pattern === 'torus' || pattern === 'star') {
+                                    dot.angle += dot.radiusSpeed;
+                                    const radius = pattern === 'helix' || pattern === 'torus' ? 20 : (dot.index % 2 === 0 ? 80 : 40);
+                                    dot.targetX = center.x + radius * Math.cos(dot.angle);
+                                    dot.targetY = center.y + radius * Math.sin(dot.angle);
+                                }
+                                dot.x += (dot.targetX - dot.x) * 0.05;
+                                dot.y += (dot.targetY - dot.y) * 0.05;
+                            }
+                        }
+                    });
+
+                    if (animationPhase === 'explode') {
+                        animationProgress += 0.02;
+                        if (animationProgress >= 1) {
+                            animationPhase = 'reform';
+                            animationProgress = 0;
+                            dots.forEach(dot => {
+                                dot.opacity = 0;
+                                dot.vx = 0;
+                                dot.vy = 0;
+                            });
+                        }
+                    } else if (animationPhase === 'reform') {
+                        animationProgress += 0.01;
+                        dots.forEach(dot => {
+                            dot.opacity = animationProgress;
+                            dot.x += (dot.targetX - dot.x) * 0.1;
+                            dot.y += (dot.targetY - dot.y) * 0.1;
+                        });
+                        if (animationProgress >= 1) {
+                            animationPhase = 'reform';
+                            growthFactor = Math.min(growthFactor + 0.01, 1);
+                        }
                     }
-                    ctx.closePath();
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                    rotation += 0.05;
-                };
+                }
 
-                const drawDNA = () => {
-                    ctx.strokeStyle = '#00ff00';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    rotation += 0.05;
-                    ctx.beginPath();
-                    for (let t = -Math.PI; t <= Math.PI; t += 0.1) {
-                        const x1 = centerX + Math.cos(t + rotation) * scale * 50;
-                        const y1 = centerY + t * 50;
-                        const x2 = centerX + Math.cos(t + rotation + Math.PI) * scale * 50;
-                        const y2 = centerY + t * 50;
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                    }
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                };
-
-                const drawGalaxy = () => {
-                    ctx.strokeStyle = '#33ccff';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    const centerX = canvas.width / 2;
-                    const centerY = canvas.height / 2;
-                    ctx.beginPath();
-                    for (let t = 0; t < Math.PI * 6; t += 0.1) {
-                        const r = scale * 30 * Math.exp(t / 6);
-                        const x = centerX + r * Math.cos(t + rotation);
-                        const y = centerY + r * Math.sin(t + rotation);
-                        ctx.lineTo(x, y);
-                    }
-                    ctx.stroke();
-                    scale = Math.min(scale + 0.01, 1);
-                    rotation += 0.05;
-                };
-
-                const animate = () => {
+                function drawDots() {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    const maxDistance = isDnaMode || isGalaxyMode ? MAX_COLLAB_DISTANCE : MAX_DISTANCE;
+                    dots.forEach(dot => {
+                        ctx.beginPath();
+                        ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+                        ctx.fillStyle = dot.color;
+                        ctx.globalAlpha = dot.opacity;
+                        ctx.fill();
+                    });
+                    ctx.globalAlpha = 0.2;
+                    for (let i = 0; i < dots.length; i++) {
+                        for (let j = i + 1; j < dots.length; j++) {
+                            const dx = dots[i].x - dots[j].x;
+                            const dy = dots[i].y - dots[j].y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance < maxDistance) {
+                                ctx.beginPath();
+                                ctx.moveTo(dots[i].x, dots[i].y);
+                                ctx.lineTo(dots[j].x, dots[j].y);
+                                ctx.strokeStyle = dots[i].color;
+                                ctx.lineWidth = 1;
+                                ctx.stroke();
+                            }
+                        }
+                    }
+                    ctx.globalAlpha = 1;
+                }
+
+                function animate() {
+                    updateDots();
                     drawDots();
-                    if (activePattern) {
-                        activePattern();
-                    }
                     requestAnimationFrame(animate);
+                }
+
+                const originalConsoleClear = console.clear;
+                console.clear = function() {
+                    originalConsoleClear.apply(console);
+                    animationPhase = 'explode';
+                    animationProgress = 0;
+                    dots.forEach(dot => {
+                        dot.vx = (Math.random() - 0.5) * 10;
+                        dot.vy = (Math.random() - 0.5) * 10;
+                        dot.opacity = 1;
+                    });
                 };
 
-                window.setAgentsActive = (active, agents = [], dna = false, galaxy = false) => {
-                    scale = 0.1;
-                    rotation = 0;
-                    if (!active) {
-                        activePattern = null;
-                        return;
-                    }
-                    if (galaxy) {
-                        activePattern = drawGalaxy;
-                    } else if (dna) {
-                        activePattern = drawDNA;
-                    } else if (agents.length === 1) {
-                        const agent = agents[0];
-                        if (agent === 'vial1') activePattern = drawHelix;
-                        else if (agent === 'vial2') activePattern = drawCube;
-                        else if (agent === 'vial3') activePattern = drawTorus;
-                        else if (agent === 'vial4') activePattern = drawStar;
+                window.setAgentsActive = function(active, agents = [], dnaMode = false, galaxyMode = false) {
+                    if (active && (agents.length !== activeAgents.length || agents.some((a, i) => a !== activeAgents[i]) || dnaMode !== isDnaMode || galaxyMode !== isGalaxyMode)) {
+                        activeAgents = agents;
+                        isDnaMode = dnaMode;
+                        isGalaxyMode = galaxyMode;
+                        console.log(`setAgentsActive: agents=${agents.join(',')}, dnaMode=${dnaMode}, galaxyMode=${galaxyMode}`);
+                        initDots();
+                    } else if (!active && (activeAgents.length > 0 || isDnaMode || isGalaxyMode)) {
+                        activeAgents = [];
+                        isDnaMode = false;
+                        isGalaxyMode = false;
+                        console.log('Resetting to default pattern');
+                        initDots();
                     }
                 };
 
+                setCanvasSize();
                 initDots();
                 animate();
+                window.addEventListener('resize', setCanvasSize);
+                console.log('Neurots initialized');
             };
         })();
 
-        const version = "3.9";
+        const version = "3.13";
+        const CACHE_NAME = 'webxos-searchbot-v3.13';
         let agents = {};
         let activeAgent = null;
         let authCredentials = null;
         let balance = 0.0000;
         let reputation = 0;
         let wallet = { balance: 0.0000, transactions: [], webxos: 0.0000 };
-        let siteIndex = {};
+        let siteIndex = [];
         let mongoClient = null;
         const API_BASE = 'http://localhost:8000/api';
         let importInstructionsShown = false;
@@ -493,11 +608,10 @@
         };
 
         async function initMongoDB() {
-            if (typeof MongoClient === 'undefined') {
-                displayError('MongoDB driver not loaded. Using simulation mode.');
-                return;
-            }
             try {
+                if (typeof MongoClient === 'undefined') {
+                    throw new Error('MongoDB driver not loaded');
+                }
                 mongoClient = new MongoClient('mongodb://localhost:27017', { useNewUrlParser: true, useUnifiedTopology: true });
                 await mongoClient.connect();
                 displayMessage('Connected to MCP database.', 'System');
@@ -509,23 +623,52 @@
 
         async function loadSiteIndex() {
             try {
-                const response = await fetch('/chatbot/site_index.json');
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const text = await response.text();
-                if (!text) throw new Error('Empty response');
-                siteIndex = JSON.parse(text);
-                displayMessage('Site index loaded.', 'System');
+                const cache = await caches.open(CACHE_NAME);
+                let indexErrors = [];
+                try {
+                    const response = await fetch('/chatbot/site_index.json', { cache: 'no-cache' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}: Ensure site_index.json is in /chatbot/`);
+                    const text = await response.text();
+                    if (!text) throw new Error('Empty response');
+                    siteIndex = JSON.parse(text);
+                    if (!Array.isArray(siteIndex) || siteIndex.length === 0) {
+                        throw new Error('site_index.json is empty or invalid.');
+                    }
+                    await cache.put('/chatbot/site_index.json', new Response(JSON.stringify(siteIndex)));
+                    siteIndex.forEach(item => {
+                        if (!item.path || !item.source || !item.text || !item.text.content || !item.text.keywords || !Array.isArray(item.text.keywords)) {
+                            indexErrors.push(`Invalid content for ${item.path}`);
+                        }
+                    });
+                    if (indexErrors.length > 0) {
+                        displayError(`Index issues: ${indexErrors.join('; ')}`);
+                    } else {
+                        displayMessage(`Success: Indexed ${siteIndex.length} files.`, 'System');
+                    }
+                } catch (error) {
+                    const cachedIndex = await cache.match('/chatbot/site_index.json');
+                    if (cachedIndex) {
+                        siteIndex = await cachedIndex.json();
+                        displayMessage('Using cached site_index.json.', 'System');
+                    } else {
+                        siteIndex = [
+                            { path: '/home', source: 'Home', text: { content: 'Welcome to SearchBot.', keywords: ['home', 'welcome'] } },
+                            { path: '/about', source: 'About', text: { content: 'SearchBot is a lightweight AI system.', keywords: ['about', 'searchbot'] } }
+                        ];
+                        displayError(`Failed to load site_index.json: ${error.message}. Using fallback index.`);
+                    }
+                }
                 if (typeof window.setAgentsActive === 'function') {
                     window.setAgentsActive(false);
                 } else {
                     displayError('setAgentsActive not defined. Visualizations disabled.');
                 }
             } catch (error) {
-                displayError(`Failed to load site index: ${error.message}. Basic search disabled.`);
-                siteIndex = {
-                    "Home": { "url": "/home", "content": "Welcome to SearchBot." },
-                    "About": { "url": "/about", "content": "SearchBot is a lightweight AI system." }
-                };
+                displayError(`Failed to initialize site index: ${error.message}. Basic search disabled.`);
+                siteIndex = [
+                    { path: '/home', source: 'Home', text: { content: 'Welcome to SearchBot.', keywords: ['home', 'welcome'] } },
+                    { path: '/about', source: 'About', text: { content: 'SearchBot is a lightweight AI system.', keywords: ['about', 'searchbot'] } }
+                ];
                 displayMessage('Using fallback site index.', 'System');
             }
         }
@@ -543,6 +686,11 @@
                 if (!response.ok) throw new Error(`HTTP ${response.status}: Backend offline, ensure server is running at ${API_BASE}.`);
                 const data = await response.json();
                 agents = data.agents;
+                Object.keys(agents).forEach(id => {
+                    if (!agents[id].process && agents[id].script) {
+                        agents[id].process = (query) => `Processing '${query}' with ${agents[id].role} (full functionality requires Pyodide and backend).`;
+                    }
+                });
                 mdImported = true;
                 displayMessage('Vials loaded successfully from MCP database.', 'System');
                 if (mongoClient) {
@@ -579,9 +727,9 @@
             const messagesDiv = document.getElementById('messages');
             const messageElement = document.createElement('p');
             messageElement.textContent = `${sender}: ${message}`;
-            if (sender.startsWith('Vial')) {
-                const vialId = sender.match(/Vial (\d)/)?.[1];
-                if (vialId) messageElement.classList.add(`vial${vialId}-color`);
+            if (sender.startsWith('Vial') || sender.startsWith('Agent')) {
+                const vialId = sender.match(/(\d)/)?.[1];
+                if (vialId) messageElement.classList.add(`agent${vialId}-color`);
             }
             messagesDiv.appendChild(messageElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -597,6 +745,7 @@
             errorElement.textContent = `ERROR: ${errorMessage}`;
             messagesDiv.appendChild(errorElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            console.error(`Error: ${errorMessage}`);
             if (authCredentials?.verified && mongoClient) logErrorToMongo(errorMessage);
         }
 
@@ -630,7 +779,7 @@
             if (!query) return;
 
             try {
-                displayMessage(query, 'User');
+                displayMessage(query, 'You');
                 await logQueryToMongo(query);
                 importInstructionsShown = false;
                 if (query.startsWith('/')) {
@@ -675,20 +824,30 @@
 
         async function basicSearch(query) {
             try {
-                if (Object.keys(siteIndex).length === 0) {
+                if (siteIndex.length === 0) {
                     displayMessage('Site index unavailable. Basic search disabled.', 'SearchBot');
                     return;
                 }
-                const results = Object.keys(siteIndex).filter(key => 
-                    key.toLowerCase().includes(query.toLowerCase()) || 
-                    siteIndex[key].content.toLowerCase().includes(query.toLowerCase())
-                );
-                if (results.length > 0) {
-                    results.forEach(key => {
-                        displayMessage(`Found: ${key} - ${siteIndex[key].url}`, 'SearchBot');
-                    });
+                if (typeof Fuse === 'undefined') {
+                    throw new Error('Fuse.js not loaded. Ensure CDN is accessible.');
+                }
+                const fuse = new Fuse(siteIndex, {
+                    keys: ['text.content', 'text.keywords'],
+                    threshold: 0.4,
+                    includeMatches: true
+                });
+                const results = fuse.search(query);
+                if (results.length === 0) {
+                    displayMessage(`No results found for "${query}". Try a different query.`, 'SearchBot');
                 } else {
-                    displayMessage(`No results found for '${query}' in site index.`, 'SearchBot');
+                    results.forEach(({ item, matches }) => {
+                        matches.forEach(match => {
+                            const snippet = match.value.slice(Math.max(0, match.indices[0][0] - 50), match.indices[0][1] + 50);
+                            const url = `https://webxos.netlify.app${item.path}`;
+                            displayMessage(`Result (<a href="${url}" target="_blank">${item.source}</a>): ...${snippet}...`, 'SearchBot');
+                        });
+                    });
+                    displayMessage(`Found ${results.length} results.`, 'SearchBot');
                 }
                 wallet.transactions.push({
                     type: 'basic_search',
@@ -726,23 +885,23 @@
             }
             activeAgent = vialId;
             if (!authCredentials) {
-                displayMessage(`Simulation mode: Switched to Vial ${vialId} (${agents[vialId].role}). Authenticate with OAuth for full features.`, 'System');
+                displayMessage(`Simulation mode: Switched to Agent ${vialId} (${agents[vialId].role}). Authenticate with OAuth for full features.`, 'System');
             }
             if (typeof window.setAgentsActive === 'function') {
-                window.setAgentsActive(true, [`vial${vialId}`]);
+                window.setAgentsActive(true, [`agent${vialId}`]);
             }
             await processAgentQuery(vialId, vialQuery);
         }
 
         async function handleCommand(query) {
             try {
-                if (query.startsWith('/vial')) {
-                    const vialId = query.match(/\/vial(\d)/)?.[1];
+                if (query.startsWith('/vial') || query.startsWith('/agent')) {
+                    const vialId = query.match(/\/(vial|agent)(\d)/)?.[2];
                     if (vialId && agents[vialId]) {
                         activeAgent = vialId;
-                        displayMessage(`Switched to Vial ${vialId} (${agents[vialId].role})${authCredentials?.verified && mdImported ? '' : ' (limited capability, import nano_gpt_bots.md for full functionality). Authenticate with OAuth for full features.'}`);
+                        displayMessage(`Switched to Agent ${vialId} (${agents[vialId].role})${authCredentials?.verified && mdImported ? '' : ' (limited capability, import nano_gpt_bots.md for full functionality). Authenticate with OAuth for full features.'}`);
                         if (typeof window.setAgentsActive === 'function') {
-                            window.setAgentsActive(true, [`vial${vialId}`]);
+                            window.setAgentsActive(true, [`agent${vialId}`]);
                         }
                         wallet.transactions.push({
                             type: 'vial_switch',
@@ -752,12 +911,12 @@
                         wallet.webxos += 0.0001;
                         if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'vial_switch', vialId });
                     } else {
-                        displayMessage('Invalid vial ID. Use /vial1, /vial2, /vial3, or /vial4.');
+                        displayMessage('Invalid agent ID. Use /agent1, /agent2, /agent3, /agent4, /vial1, /vial2, /vial3, or /vial4.');
                     }
                 } else if (query === '/dna') {
                     displayMessage(`Engaging Quantum Network${authCredentials?.verified && mdImported ? '' : ' (limited capability, import nano_gpt_bots.md for full functionality). Authenticate with OAuth for full features.'}...`, 'System');
                     if (typeof window.setAgentsActive === 'function') {
-                        window.setAgentsActive(true, [], true, false);
+                        window.setAgentsActive(true, ['agent1', 'agent2', 'agent3', 'agent4'], true, false);
                     }
                     await processNetworkQuery('Quantum Network engaged. How can the Vial Network assist you?');
                 } else if (query === '/galaxy') {
@@ -768,8 +927,27 @@
                     await processGalaxyQuery();
                 } else if (query === '/troubleshoot') {
                     troubleshoot();
+                } else if (query === '/help') {
+                    showHelp();
+                    if (typeof window.setAgentsActive === 'function') {
+                        window.setAgentsActive(false);
+                    }
+                } else if (query === '/clear') {
+                    clearMessages();
+                } else if (query === '/stats') {
+                    const indexedFiles = siteIndex.length;
+                    const totalKeywords = siteIndex.reduce((sum, item) => sum + (item.text?.keywords?.length || 0), 0);
+                    displayMessage(`Stats: Indexed ${indexedFiles} files with ${totalKeywords} keywords.`, 'System');
+                    if (typeof window.setAgentsActive === 'function') {
+                        window.setAgentsActive(false);
+                    }
+                } else if (query === '/version') {
+                    displayMessage(`Version: WebXOS Searchbot v${version}`, 'System');
+                    if (typeof window.setAgentsActive === 'function') {
+                        window.setAgentsActive(false);
+                    }
                 } else {
-                    displayMessage('Unknown command. Try /vial1, /vial2, /vial3, /vial4, /dna, /galaxy, or /troubleshoot.');
+                    displayMessage('Unknown command. Try /help, /clear, /stats, /version, /agent1-4, /vial1-4, /dna, /galaxy, or /troubleshoot.');
                 }
             } catch (error) {
                 displayError(`Error handling command: ${error.message}`);
@@ -788,14 +966,17 @@
                         },
                         body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
                     }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : query);
-                    response = await pyodide.runPythonAsync(`
+                    await window.pyodide.runPythonAsync(agents[vialId].script);
+                    response = await window.pyodide.runPythonAsync(`
                         response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
                         response
                     `);
-                } else {
+                } else if (agents[vialId].process) {
                     response = agents[vialId].process(query);
+                } else {
+                    response = `Agent ${vialId} (${agents[vialId].role}): Unable to process '${query}' (missing process function or backend connection).`;
                 }
-                displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
+                displayMessage(response, `Agent ${vialId} (${agents[vialId].role})`);
                 wallet.transactions.push({
                     type: authCredentials?.verified && mdImported ? 'query' : 'query_fallback',
                     vialId,
@@ -805,10 +986,10 @@
                 wallet.webxos += 0.0001;
                 if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'query', vialId, query });
                 if (typeof window.setAgentsActive === 'function') {
-                    window.setAgentsActive(true, [`vial${vialId}`]);
+                    window.setAgentsActive(true, [`agent${vialId}`]);
                 }
             } catch (error) {
-                displayError(`Error processing query with Vial ${vialId}: ${error.message}`);
+                displayError(`Error processing query with Agent ${vialId}: ${error.message}`);
             }
         }
 
@@ -825,17 +1006,21 @@
                             },
                             body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
                         }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : query).then(enhancedQuery =>
-                            pyodide.runPythonAsync(`
-                                response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
-                                response
-                            `)
+                            window.pyodide.runPythonAsync(agents[vialId].script).then(() =>
+                                window.pyodide.runPythonAsync(`
+                                    response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
+                                    response
+                                `)
+                            )
                         );
+                    } else if (agents[vialId].process) {
+                        return Promise.resolve(agents[vialId].process(query));
                     }
-                    return Promise.resolve(agents[vialId].process(query));
+                    return Promise.resolve(`Agent ${vialId} (${agents[vialId].role}): Unable to process '${query}' (missing process function or backend connection).`);
                 }));
                 responses.forEach((response, i) => {
                     const vialId = Object.keys(agents)[i];
-                    displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
+                    displayMessage(response, `Agent ${vialId} (${agents[vialId].role})`);
                 });
                 wallet.transactions.push({
                     type: 'quantum_network',
@@ -846,7 +1031,7 @@
                 if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'quantum_network', query });
                 displayMessage('Quantum Network response complete.', 'System');
                 if (typeof window.setAgentsActive === 'function') {
-                    window.setAgentsActive(true, [], true, false);
+                    window.setAgentsActive(true, ['agent1', 'agent2', 'agent3', 'agent4'], true, false);
                 }
             } catch (error) {
                 displayError(`Error in quantum network query: ${error.message}`);
@@ -866,17 +1051,21 @@
                             },
                             body: JSON.stringify({ query: 'Galaxy multi-agent search request', apiKey: authCredentials.apiKey })
                         }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : 'Galaxy multi-agent search request').then(enhancedQuery =>
-                            pyodide.runPythonAsync(`
-                                response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
-                                response
-                            `)
+                            window.pyodide.runPythonAsync(agents[vialId].script).then(() =>
+                                window.pyodide.runPythonAsync(`
+                                    response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
+                                    response
+                                `)
+                            )
                         );
+                    } else if (agents[vialId].process) {
+                        return Promise.resolve(agents[vialId].process('Galaxy multi-agent search request'));
                     }
-                    return Promise.resolve(agents[vialId].process('Galaxy multi-agent search request'));
+                    return Promise.resolve(`Agent ${vialId} (${agents[vialId].role}): Unable to process galaxy search (missing process function or backend connection).`);
                 }));
                 responses.forEach((response, i) => {
                     const vialId = Object.keys(agents)[i];
-                    displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
+                    displayMessage(response, `Agent ${vialId} (${agents[vialId].role})`);
                 });
                 wallet.transactions.push({
                     type: 'galaxy_search',
@@ -1002,10 +1191,15 @@
                                 if (scriptStart !== -1) {
                                     script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
                                     if (script && window.pyodide) {
-                                        await pyodide.runPythonAsync(script);
+                                        await window.pyodide.runPythonAsync(script);
                                     }
                                 }
-                                agents[id] = { role, description, script };
+                                agents[id] = {
+                                    role,
+                                    description,
+                                    script,
+                                    process: (query) => `Processing '${query}' with ${role} (simulation mode).`
+                                };
                             }
                             displayMessage(`Imported ${Object.keys(agents).length} vials from ${file.name} locally (simulation mode).`, 'System');
                             mdImported = true;
@@ -1025,6 +1219,11 @@
                             if (!response.ok) throw new Error(`HTTP ${response.status}: Backend offline, ensure server is running at ${API_BASE}.`);
                             const data = await response.json();
                             agents = data.agents;
+                            Object.keys(agents).forEach(id => {
+                                if (!agents[id].process && agents[id].script) {
+                                    agents[id].process = (query) => `Processing '${query}' with ${agents[id].role} (full functionality requires Pyodide and backend).`;
+                                }
+                            });
                             mdImported = true;
                             displayMessage(`Imported ${Object.keys(data.agents).length} vials from ${file.name}.`, 'System');
                             if (mongoClient) {
@@ -1053,6 +1252,23 @@
             }
         }
 
+        function clearMessages() {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            wallet = { balance: 0.0000, transactions: [], webxos: 0.0000 };
+            activeAgent = null;
+            authCredentials = null;
+            mdImported = false;
+            importInstructionsShown = false;
+            agents = { ...defaultAgents };
+            if (typeof window.setAgentsActive === 'function') {
+                window.setAgentsActive(false);
+            }
+            console.clear();
+            displayMessage('Session and wallet cleared.', 'System');
+            showHelp();
+        }
+
         function troubleshoot() {
             try {
                 displayMessage('Running diagnostics...');
@@ -1063,19 +1279,39 @@
                 displayMessage(`Authentication status: ${authCredentials ? `Authenticated${authCredentials.verified ? '' : ' (local, simulation mode)'}` : 'Not authenticated, click OAuth to enable full features.'}`);
                 displayMessage(`$SearchBot Balance: ${balance.toFixed(4)} | Reputation: ${reputation} | WebXOS: ${wallet.webxos.toFixed(4)}`);
                 displayMessage(`Wallet transactions: ${wallet.transactions.length}`);
-                displayMessage(`Site index entries: ${Object.keys(siteIndex).length}`);
+                displayMessage(`Site index entries: ${siteIndex.length}`);
                 displayMessage(`MD imported: ${mdImported ? 'Yes' : 'No, limited capability until nano_gpt_bots.md is imported.'}`);
                 displayMessage(`Neural dots status: ${typeof window.initNeurots === 'function' && document.getElementById('neuralCanvas') ? 'Initialized' : 'Failed to initialize, check canvas element.'}`);
+                displayMessage(`Fuse.js status: ${typeof Fuse === 'undefined' ? 'Not loaded, basic search disabled' : 'Loaded'}`);
             } catch (error) {
                 displayError(`Troubleshooting error: ${error.message}`);
             }
         }
 
-        document.getElementById('userInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
+        function showHelp() {
+            displayMessage('SearchBot Commands:');
+            displayMessage('/help - Show this menu.');
+            displayMessage('/clear - Clear chatbox and reset neural dots.');
+            displayMessage('/stats - Show indexing stats.');
+            displayMessage('/version - Show bot version.');
+            displayMessage('/agent1 or /vial1 - Switch to Chatbot Vial (helix pattern)');
+            displayMessage('/agent2 or /vial2 - Switch to Data Analyst Vial (cube pattern)');
+            displayMessage('/agent3 or /vial3 - Switch to Code Generator Vial (torus pattern)');
+            displayMessage('/agent4 or /vial4 - Switch to Galaxy Web Crawler Vial (star pattern)');
+            displayMessage('/dna - Engage Quantum Network mode (DNA pattern)');
+            displayMessage('/galaxy - Initiate Galaxy multi-agent search (galaxy pattern)');
+            displayMessage('/troubleshoot - Run system diagnostics');
+            displayMessage('Buttons:');
+            displayMessage('Search - Process query with active vial or site index');
+            displayMessage('Clear - Clear session and wallet');
+            displayMessage('OAuth - Authenticate with API credentials');
+            displayMessage('Import - Import .md file for vials (requires authentication)');
+            displayMessage('Type a query without a slash for basic site search or vial interaction (e.g., "Chatbot, respond to hello").');
+            displayMessage('Note: Vials have limited capability until nano_gpt_bots.md is imported.');
+        }
 
-        window.onload = async () => {
+        // Initialize application
+        async function initializeApp() {
             try {
                 agents = { ...defaultAgents };
                 if (typeof window.initNeurots === 'function') {
@@ -1096,25 +1332,13 @@
             } catch (error) {
                 displayError(`Initialization error: ${error.message}`);
             }
-        };
-
-        function showHelp() {
-            displayMessage('SearchBot Commands:');
-            displayMessage('/vial1 - Switch to Chatbot Vial (helix pattern)');
-            displayMessage('/vial2 - Switch to Data Analyst Vial (cube pattern)');
-            displayMessage('/vial3 - Switch to Code Generator Vial (torus pattern)');
-            displayMessage('/vial4 - Switch to Galaxy Web Crawler Vial (star pattern)');
-            displayMessage('/dna - Engage Quantum Network mode (DNA pattern)');
-            displayMessage('/galaxy - Initiate Galaxy multi-agent search (galaxy pattern)');
-            displayMessage('/troubleshoot - Run system diagnostics');
-            displayMessage('Buttons:');
-            displayMessage('Search - Process query with active vial or site index');
-            displayMessage('Clear - Clear session and wallet');
-            displayMessage('OAuth - Authenticate with API credentials');
-            displayMessage('Import - Import .md file for vials (requires authentication)');
-            displayMessage('Type a query without a slash for basic site search or vial interaction (e.g., "Chatbot, respond to hello").');
-            displayMessage('Note: Vials have limited capability until nano_gpt_bots.md is imported.');
         }
+
+        document.getElementById('userInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        window.addEventListener('load', initializeApp);
     </script>
 </body>
 </html>
