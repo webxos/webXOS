@@ -72,21 +72,37 @@ def create_jwt_token(user_id: str):
 async def get_current_user(request: Request):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
+        logging.error(f"Invalid or missing token in request to {request.url}")
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     token = auth_header.split(" ")[1]
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload["sub"]
-    except jwt.PyJWTError:
+    except jwt.PyJWTError as e:
+        logging.error(f"Invalid token in request to {request.url}: {str(e)}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
 @app.get("/health")
 async def health_check():
     try:
-        return JSONResponse(content={"status": "healthy", "mongo": True, "version": "2.8", "services": ["auth", "wallet", "vials"]})
+        # Simulate MongoDB check (replace with actual check if needed)
+        mongo_status = True
+        services = ['auth', 'wallet', 'vials']
+        logging.info("Health check successful")
+        return JSONResponse(content={
+            "status": "healthy",
+            "mongo": mongo_status,
+            "version": "2.8",
+            "services": services
+        })
     except Exception as e:
         logging.error(f"Health check failed: {str(e)}")
-        return JSONResponse(content={"status": "unhealthy", "mongo": False, "version": "2.8", "services": []}, status_code=500)
+        return JSONResponse(content={
+            "status": "unhealthy",
+            "mongo": False,
+            "version": "2.8",
+            "services": []
+        }, status_code=500)
 
 @app.post("/auth/login")
 async def login(auth: AuthRequest):
@@ -109,6 +125,7 @@ async def login(auth: AuthRequest):
 async def generate_api_key(auth: AuthRequest, user_id: str = Depends(get_current_user)):
     try:
         if user_id != auth.userId:
+            logging.error(f"Unauthorized API key generation attempt by {user_id} for {auth.userId}")
             raise HTTPException(status_code=403, detail="Unauthorized")
         api_key = f"api-{uuid.uuid4()}"
         logging.info(f"New API key generated for user {user_id}: {api_key}")
@@ -121,6 +138,7 @@ async def generate_api_key(auth: AuthRequest, user_id: str = Depends(get_current
 async def send_prompt(vial_id: str, prompt: PromptRequest, user_id: str = Depends(get_current_user)):
     try:
         if vial_id not in [f"vial{i+1}" for i in range(4)]:
+            logging.error(f"Invalid vial ID {vial_id} in prompt request by {user_id}")
             raise HTTPException(status_code=400, detail="Invalid vial ID")
         logging.info(f"Prompt sent to {vial_id} by {user_id}: {prompt.prompt}")
         return JSONResponse(content={"response": f"Prompt processed for {vial_id}"})
@@ -132,6 +150,7 @@ async def send_prompt(vial_id: str, prompt: PromptRequest, user_id: str = Depend
 async def assign_task(vial_id: str, task: TaskRequest, user_id: str = Depends(get_current_user)):
     try:
         if vial_id not in [f"vial{i+1}" for i in range(4)]:
+            logging.error(f"Invalid vial ID {vial_id} in task request by {user_id}")
             raise HTTPException(status_code=400, detail="Invalid vial ID")
         logging.info(f"Task assigned to {vial_id} by {user_id}: {task.task}")
         return JSONResponse(content={"status": f"Task assigned to {vial_id}"})
@@ -143,6 +162,7 @@ async def assign_task(vial_id: str, task: TaskRequest, user_id: str = Depends(ge
 async def set_config(vial_id: str, config: ConfigRequest, user_id: str = Depends(get_current_user)):
     try:
         if vial_id not in [f"vial{i+1}" for i in range(4)]:
+            logging.error(f"Invalid vial ID {vial_id} in config request by {user_id}")
             raise HTTPException(status_code=400, detail="Invalid vial ID")
         logging.info(f"Config updated for {vial_id} by {user_id}: {config.key}={config.value}")
         return JSONResponse(content={"status": f"Config updated for {vial_id}"})
@@ -163,6 +183,7 @@ async def void_vials(user_id: str = Depends(get_current_user)):
 async def create_wallet(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
     try:
         if user_id != wallet.userId:
+            logging.error(f"Unauthorized wallet creation attempt by {user_id} for {wallet.userId}")
             raise HTTPException(status_code=403, detail="Unauthorized")
         logging.info(f"Wallet created for {user_id}: {wallet.address}")
         return JSONResponse(content={"status": "Wallet created", "address": wallet.address, "webxos": wallet.webxos})
@@ -174,6 +195,7 @@ async def create_wallet(wallet: WalletRequest, user_id: str = Depends(get_curren
 async def import_wallet(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
     try:
         if user_id != wallet.userId:
+            logging.error(f"Unauthorized wallet import attempt by {user_id} for {wallet.userId}")
             raise HTTPException(status_code=403, detail="Unauthorized")
         logging.info(f"Wallet imported for {user_id}: {wallet.address}")
         return JSONResponse(content={"status": "Wallet imported"})
@@ -185,6 +207,7 @@ async def import_wallet(wallet: WalletRequest, user_id: str = Depends(get_curren
 async def record_transaction(wallet: WalletRequest, user_id: str = Depends(get_current_user)):
     try:
         if user_id != wallet.userId:
+            logging.error(f"Unauthorized transaction attempt by {user_id} for {wallet.userId}")
             raise HTTPException(status_code=403, detail="Unauthorized")
         logging.info(f"Transaction recorded for {user_id}: {wallet.address}")
         return JSONResponse(content={"status": "Transaction recorded"})
@@ -196,21 +219,13 @@ async def record_transaction(wallet: WalletRequest, user_id: str = Depends(get_c
 async def quantum_link(link: QuantumLinkRequest, user_id: str = Depends(get_current_user)):
     try:
         if not all(v in [f"vial{i+1}" for i in range(4)] for v in link.vials):
+            logging.error(f"Invalid vial IDs in quantum link request by {user_id}: {link.vials}")
             raise HTTPException(status_code=400, detail="Invalid vial IDs")
         logging.info(f"Quantum link established by {user_id} for vials: {link.vials}")
         return JSONResponse(content={"statuses": ["running"] * len(link.vials), "latencies": [50, 60, 70, 80][:len(link.vials)]})
     except Exception as e:
         logging.error(f"Quantum link failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Quantum link failed")
-
-@app.post("/blockchain/transaction")
-async def blockchain_transaction(transaction: BlockchainTransaction, user_id: str = Depends(get_current_user)):
-    try:
-        logging.info(f"Blockchain transaction recorded by {user_id}: {transaction.type}")
-        return JSONResponse(content={"status": "Transaction recorded"})
-    except Exception as e:
-        logging.error(f"Blockchain transaction failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Blockchain transaction failed")
 
 @app.post("/log_error")
 async def log_error(error_data: Dict, user_id: str = Depends(get_current_user)):
@@ -223,4 +238,5 @@ async def log_error(error_data: Dict, user_id: str = Depends(get_current_user)):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
+    logging.error(f"HTTP error {exc.status_code} at {request.url}: {exc.detail}")
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
