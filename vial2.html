@@ -173,12 +173,26 @@
                     const timeoutId = setTimeout(() => controller.abort(), 10000);
                     const response = await fetch(url, { ...options, signal: controller.signal });
                     clearTimeout(timeoutId);
-                    if (response.ok) {
-                        retryLimits.set(retryKey, 0);
-                        return response;
+                    if (!response.ok) {
+                        let errorText = 'Unknown error';
+                        try {
+                            errorText = await response.text();
+                        } catch {
+                            errorText = 'Failed to read response body';
+                        }
+                        throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 100)}...`);
                     }
-                    const rawText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 100)}...`);
+                    return {
+                        ok: response.ok,
+                        json: async () => {
+                            try {
+                                const text = await response.text();
+                                return JSON.parse(text);
+                            } catch (e) {
+                                throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                            }
+                        }
+                    };
                 } catch (error) {
                     if (error.name === 'AbortError') {
                         error.message = `Request timed out after 10s for ${url}`;
@@ -198,13 +212,7 @@
         async function checkBackendStatus() {
             try {
                 const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 if (data.status !== 'healthy') throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 logEvent('system', `Backend online at ${API_BASE}`, { endpoint: `${API_BASE}/health` });
                 return true;
@@ -231,13 +239,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ userId: userId || `user-${crypto.randomUUID()}` })
                     });
-                    const text = await response.text();
-                    let data;
-                    try {
-                        data = JSON.parse(text);
-                    } catch (e) {
-                        throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                    }
+                    const data = await response.json();
                     apiKey = data.apiKey;
                     userId = data.userId || userId || `user-${crypto.randomUUID()}`;
                     wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
@@ -288,13 +290,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 apiKey = data.apiKey;
                 localStorage.setItem('apiKey', apiKey);
                 isOffline = false;
@@ -355,13 +351,7 @@
                 for (let port = 8000; port <= 8007; port++) {
                     try {
                         const response = await fetchWithRetry(`http://localhost:${port}/health`, { method: 'GET' });
-                        const text = await response.text();
-                        let data;
-                        try {
-                            data = JSON.parse(text);
-                        } catch (e) {
-                            throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                        }
+                        const data = await response.json();
                         logEvent('command', `Port ${port}: ${data.status} (Mongo: ${data.mongo}, Services: ${data.services.join(', ')})`);
                     } catch (error) {
                         logEvent('error', `Port ${port} unreachable: ${error.message}`, { error: error.stack, endpoint: `http://localhost:${port}/health`, rawResponse: error.message });
@@ -394,13 +384,7 @@
                     },
                     body: JSON.stringify({ vials: vials.map(v => v.id) })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 vials.forEach((vial, i) => {
                     vial.status = data.statuses[i] || 'running';
                     vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
@@ -528,13 +512,7 @@
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                     body: JSON.stringify({ userId })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 apiKey = data.apiKey;
                 localStorage.setItem('apiKey', apiKey);
                 document.getElementById('api-input').value = `Key: ${apiKey}`;
@@ -782,13 +760,7 @@ Authenticated commands:
                     },
                     body: JSON.stringify({ vialId, prompt, blockHash })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
             } catch (error) {
                 logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/prompt`, vialId, prompt, rawResponse: error.message });
@@ -805,13 +777,7 @@ Authenticated commands:
                     },
                     body: JSON.stringify({ vialId, task, blockHash })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 logEvent('command', `Task assigned to ${vialId}: ${data.status}`, { blockHash });
             } catch (error) {
                 logEvent('error', `Task error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/task`, vialId, task, rawResponse: error.message });
@@ -828,13 +794,7 @@ Authenticated commands:
                     },
                     body: JSON.stringify({ vialId, key, value, blockHash })
                 });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
+                const data = await response.json();
                 logEvent('command', `Config updated for ${vialId}: ${key}=${value}`, { blockHash });
             } catch (error) {
                 logEvent('error', `Config error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/config`, vialId, key, value, rawResponse: error.message });
@@ -863,13 +823,7 @@ Authenticated commands:
                                     },
                                     body: JSON.stringify({ vials: vials.map(v => v.id) })
                                 });
-                                const text = await response.text();
-                                let data;
-                                try {
-                                    data = JSON.parse(text);
-                                } catch (e) {
-                                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                                }
+                                const data = await response.json();
                                 vials.forEach((vial, i) => {
                                     vial.status = data.statuses[i] || 'running';
                                     vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
