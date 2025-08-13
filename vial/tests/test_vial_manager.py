@@ -1,19 +1,30 @@
 import pytest
-from vial_manager import VialManager
-from webxos_wallet import WebXOSWallet
+from vial.vial_manager import VialManager
+from pymongo import MongoClient
 
-def test_vial_manager_train():
-    wallet = WebXOSWallet()
-    manager = VialManager(wallet)
-    balance = manager.train_vials("test_network", "sample content", "test.txt")
-    assert balance > 0
-    assert len(manager.get_vials()) == 4
-    assert manager.network_state["test_network"]["last_trained"] == "test.txt"
+@pytest.fixture
+def vial_manager():
+    client = MongoClient('mongodb://mongo:27017')
+    db = client['mcp_db']
+    db.vials.drop()
+    return VialManager()
 
-def test_vial_manager_reset():
-    wallet = WebXOSWallet()
-    manager = VialManager(wallet)
-    manager.train_vials("test_network", "sample content", "test.txt")
-    manager.reset_vials()
-    assert manager.get_vials() == {k: {} for k in ["vial1", "vial2", "vial3", "vial4"]}
-    assert not manager.network_state
+def test_validate_vials(vial_manager):
+    valid_vials = {
+        "vial1": {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"},
+        "vial2": {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"},
+        "vial3": {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"},
+        "vial4": {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"}
+    }
+    assert vial_manager.validate_vials(valid_vials)
+    invalid_vials = {
+        "vial1": {"status": "running", "script": "code", "wallet_hash": "invalid"},
+        "vial2": {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"}
+    }
+    assert not vial_manager.validate_vials(invalid_vials)
+
+def test_update_vial(vial_manager):
+    vial_data = {"status": "running", "script": "code", "wallet_hash": "bfcabdd444109c56f26d65b300e407ee6e26dc122648649206b8ea433caf3e95"}
+    assert vial_manager.update_vial("vial1", vial_data)
+    result = vial_manager.db.vials.find_one({"id": "vial1"})
+    assert result["status"] == "running"
