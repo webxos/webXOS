@@ -27,6 +27,4 @@ done
 echo "$host:$port is available"
 
 if [ ! -z "$cmd" ]; then
-    echo "Executing command: $cmd"
-    exec $cmd
-fi
+    echo "Executing
