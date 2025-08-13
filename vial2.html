@@ -117,7 +117,8 @@
             tasks: [],
             latency: 0
         }));
-        const errorCooldowns = new Map(); // Track error message cooldowns
+        const errorCooldowns = new Map();
+        const retryLimits = new Map();
         let lastLogId = 0;
 
         async function logErrorToBackend(errorMessage, stack, endpoint, rawResponse = '') {
@@ -134,22 +135,32 @@
         }
 
         async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+            const retryKey = url.split('?')[0];
+            const retryCount = retryLimits.get(retryKey) || 0;
+            if (retryCount >= retries) {
+                logEvent('error', `Retry limit reached for ${url}. Aborting.`, { endpoint: url });
+                throw new Error(`Retry limit reached for ${url}`);
+            }
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 5000);
                     const response = await fetch(url, { ...options, signal: controller.signal });
                     clearTimeout(timeoutId);
-                    if (response.ok) return response;
+                    if (response.ok) {
+                        retryLimits.set(retryKey, 0);
+                        return response;
+                    }
                     const rawText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 100)}...`);
                 } catch (error) {
                     if (error.name === 'AbortError') {
                         error.message = `Request timed out after 5s for ${url}`;
-                    } else if (error.message.includes('NetworkError')) {
+                    } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
                         error.message = `Unable to connect to ${url}. Ensure server is running.`;
                     }
                     if (i === retries - 1) {
+                        retryLimits.set(retryKey, retryCount + 1);
                         logEvent('error', `Fetch failed: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
                         throw error;
                     }
@@ -198,7 +209,7 @@
                     throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                showErrorNotification(`Connection failed: ${error.message}. Verify server is running.`);
+                showErrorNotification(`Connection failed: ${error.message}. Verify server is running or check other services (e.g., http://localhost:8001/auth).`);
                 logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/health`, rawResponse: error.message });
             }
         }
@@ -239,7 +250,7 @@
                 const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}`);
                 const block = { type, data, timestamp, hash };
                 if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/blockchain`, {
+                    await fetchWithRetry(`${API_BASE}/blockchain/transaction`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -250,7 +261,7 @@
                 }
                 return hash;
             } catch (error) {
-                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/blockchain`, rawResponse: error.message });
+                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/blockchain/transaction`, rawResponse: error.message });
                 return null;
             }
         }
@@ -293,6 +304,7 @@
                     vial.tasks = [...new Set([...vial.tasks, task])];
                     vial.status = 'running';
                     logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
+                    if (!isOffline) await sendTaskToBackend(vialId, task, blockHash);
                 } else if (cmd === '/config') {
                     if (parts.length < 4) throw new Error('Usage: /config <vial> <key> <value>');
                     const vialId = parts[1];
@@ -303,6 +315,7 @@
                     vial.config = { ...vial.config, [key]: value };
                     vial.status = 'running';
                     logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
+                    if (!isOffline) await setConfigToBackend(vialId, key, value, blockHash);
                 } else if (cmd === '/status') {
                     const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}`).join('\n');
                     logEvent('command', `Vial Status:\n${status}`, { blockHash });
@@ -318,7 +331,7 @@
 
         async function sendPromptToBackend(vialId, prompt, blockHash) {
             try {
-                const response = await fetchWithRetry(`${API_BASE}/prompt`, {
+                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/prompt`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -335,7 +348,53 @@
                 }
                 logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
             } catch (error) {
-                logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/prompt`, vialId, prompt, rawResponse: error.message });
+                logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/prompt`, vialId, prompt, rawResponse: error.message });
+            }
+        }
+
+        async function sendTaskToBackend(vialId, task, blockHash) {
+            try {
+                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/task`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiCredentials.key}`
+                    },
+                    body: JSON.stringify({ vialId, task, blockHash })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                logEvent('command', `Task assigned to ${vialId}: ${data.status}`, { blockHash });
+            } catch (error) {
+                logEvent('error', `Task error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/task`, vialId, task, rawResponse: error.message });
+            }
+        }
+
+        async function setConfigToBackend(vialId, key, value, blockHash) {
+            try {
+                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/config`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiCredentials.key}`
+                    },
+                    body: JSON.stringify({ vialId, key, value, blockHash })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                logEvent('command', `Config updated for ${vialId}: ${key}=${value}`, { blockHash });
+            } catch (error) {
+                logEvent('error', `Config error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/config`, vialId, key, value, rawResponse: error.message });
             }
         }
 
@@ -351,7 +410,7 @@
             const now = Date.now();
             const logId = ++lastLogId;
             const key = `${event_type}:${message.split(' ').slice(0, 5).join(' ')}`;
-            if (errorCooldowns.has(key) && (now - errorCooldowns.get(key)) < 30000) return; // 30s cooldown
+            if (errorCooldowns.has(key) && (now - errorCooldowns.get(key)) < 30000) return;
             errorCooldowns.set(key, now);
             const timestamp = new Date().toISOString();
             const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
@@ -365,9 +424,9 @@
         function showErrorNotification(message, isSuccess = false) {
             const errorNotification = document.getElementById('error-notification');
             errorNotification.style.background = isSuccess ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-            errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ? 
-                `${message}. Run: curl ${API_BASE}/health or click "Test Connection" in Config.` :
-                message.includes('JSON') ? 
+            errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ?
+                `${message}. Run: curl ${API_BASE}/health or check services (http://localhost:8001-8007).` :
+                message.includes('JSON') ?
                 `${message}. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
                 message;
             errorNotification.classList.add('visible');
@@ -427,7 +486,7 @@
                     isOffline = !isOnline;
                 }
                 if (!isOffline) {
-                    const response = await fetchWithRetry(`${API_BASE}/auth`, {
+                    const response = await fetchWithRetry(`${API_BASE}/auth/login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ userId: `user-${generateUUID()}` })
@@ -455,7 +514,7 @@
                 updateBalanceDisplay();
                 updateVialStatusBars();
                 if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/wallet`, {
+                    await fetchWithRetry(`${API_BASE}/wallet/create`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -468,8 +527,8 @@
                 isOffline = true;
                 apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
                 isAuthenticated = true;
-                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth`, rawResponse: error.message });
-                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config.`);
+                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth/login`, rawResponse: error.message });
+                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config or try http://localhost:8001/auth.`);
                 disableFunctions();
                 showConfigPopup(true);
             }
@@ -485,15 +544,28 @@
         }
 
         async function voidVials() {
-            vials.forEach(vial => {
-                vial.status = 'stopped';
-                vial.tasks = [];
-                vial.config = {};
-                vial.code = '';
-                vial.codeLength = 0;
-            });
-            logEvent('command', 'All vials reset.', {});
-            updateVialStatusBars();
+            try {
+                if (!isOffline) {
+                    await fetchWithRetry(`${API_BASE}/vials/void`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiCredentials.key}`
+                        }
+                    });
+                }
+                vials.forEach(vial => {
+                    vial.status = 'stopped';
+                    vial.tasks = [];
+                    vial.config = {};
+                    vial.code = '';
+                    vial.codeLength = 0;
+                });
+                logEvent('command', 'All vials reset.', {});
+                updateVialStatusBars();
+            } catch (error) {
+                logEvent('error', `Void failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/void`, rawResponse: error.message });
+            }
         }
 
         async function troubleshoot() {
@@ -516,7 +588,7 @@
                 } catch (e) {
                     throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
-                logEvent('command', `Backend Health: ${data.status} (Mongo: ${data.mongo})`, {});
+                logEvent('command', `Backend Health: ${data.status} (Mongo: ${data.mongo}, Services: ${data.services.join(', ')})`, {});
             } catch (error) {
                 logEvent('error', `Diagnostics failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 showConfigPopup(true);
@@ -527,7 +599,7 @@
             try {
                 if (isOffline) throw new Error('Quantum Link unavailable offline');
                 logEvent('command', 'Initiating Quantum Link...');
-                const response = await fetchWithRetry(`${API_BASE}/quantum_link`, {
+                const response = await fetchWithRetry(`${API_BASE}/quantum/link`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -549,7 +621,7 @@
                 logEvent('command', 'Quantum Link established.', {});
                 updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Quantum Link failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum_link`, rawResponse: error.message });
+                logEvent('error', `Quantum Link failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum/link`, rawResponse: error.message });
             }
         }
 
@@ -570,7 +642,7 @@
                 wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
                 wallet.webxos += 0.0001;
                 if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/wallet`, {
+                    await fetchWithRetry(`${API_BASE}/wallet/transaction`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -581,7 +653,7 @@
                 }
                 updateBalanceDisplay();
             } catch (error) {
-                logEvent('error', `Export failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet`, rawResponse: error.message });
+                logEvent('error', `Export failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet/transaction`, rawResponse: error.message });
             }
         }
 
@@ -616,7 +688,7 @@
                     if (!newWallet.address || !newWallet.hash) throw new Error('Missing wallet address or hash');
                     wallet = newWallet;
                     if (!isOffline) {
-                        const response = await fetchWithRetry(`${API_BASE}/import_wallet`, {
+                        const response = await fetchWithRetry(`${API_BASE}/wallet/import`, {
                             method: 'POST',
                             headers: {
                                 'Authorization': `Bearer ${apiCredentials.key}`,
@@ -636,7 +708,7 @@
                     wallet.transactions.push({ type: 'import', file: file.name, timestamp: new Date().toISOString() });
                     wallet.webxos += 0.0001;
                     if (!isOffline) {
-                        await fetchWithRetry(`${API_BASE}/wallet`, {
+                        await fetchWithRetry(`${API_BASE}/wallet/transaction`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -650,7 +722,7 @@
                 };
                 input.click();
             } catch (error) {
-                logEvent('error', `Import failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/import_wallet`, rawResponse: error.message });
+                logEvent('error', `Import failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet/import`, rawResponse: error.message });
                 showErrorNotification(`Import failed: ${error.message}`);
             }
         }
@@ -669,7 +741,7 @@
         async function generateNewApiCredentials() {
             try {
                 if (isOffline) throw new Error('Cannot generate credentials offline');
-                const response = await fetchWithRetry(`${API_BASE}/auth`, {
+                const response = await fetchWithRetry(`${API_BASE}/auth/api-key/generate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: `user-${generateUUID()}` })
@@ -686,7 +758,7 @@
                 const blockHash = await addToBlockchain('api_generate', { key: apiCredentials.key });
                 logEvent('command', 'New API credentials generated.', { blockHash });
             } catch (error) {
-                logEvent('error', `Credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth`, rawResponse: error.message });
+                logEvent('error', `Credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth/api-key/generate`, rawResponse: error.message });
                 showErrorNotification(`Credentials generation failed: ${error.message}`);
             }
         }
