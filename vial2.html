@@ -117,11 +117,11 @@
             tasks: [],
             latency: 0
         }));
-        let lastLogMessage = null;
-        let lastLogTime = 0;
+        const errorCooldowns = new Map(); // Track error message cooldowns
         let lastLogId = 0;
 
         async function logErrorToBackend(errorMessage, stack, endpoint, rawResponse = '') {
+            if (isOffline) return;
             try {
                 await fetchWithRetry(`${API_BASE}/log_error`, {
                     method: 'POST',
@@ -142,16 +142,18 @@
                     clearTimeout(timeoutId);
                     if (response.ok) return response;
                     const rawText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${response.statusText} for ${url}. Raw response: ${rawText.slice(0, 100)}...`);
+                    throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 100)}...`);
                 } catch (error) {
                     if (error.name === 'AbortError') {
                         error.message = `Request timed out after 5s for ${url}`;
+                    } else if (error.message.includes('NetworkError')) {
+                        error.message = `Unable to connect to ${url}. Ensure server is running.`;
                     }
                     if (i === retries - 1) {
-                        logEvent('error', `Fetch failed after ${retries} retries: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
+                        logEvent('error', `Fetch failed: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
                         throw error;
                     }
-                    await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i))); // Exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
                 }
             }
         }
@@ -164,13 +166,13 @@
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 if (data.status !== 'healthy') throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
-                logEvent('system', `Backend online at ${API_BASE}. Version: ${data.version}, Mongo: ${data.mongo}`, { endpoint: `${API_BASE}/health` });
+                logEvent('system', `Backend online at ${API_BASE}`, { endpoint: `${API_BASE}/health` });
                 return true;
             } catch (error) {
-                logEvent('error', `Backend health check failed: ${error.message}. Verify server at ${API_BASE}/health`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
+                logEvent('error', `Backend offline: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 return false;
             }
         }
@@ -180,23 +182,23 @@
             let testUrl = configInput.value.trim();
             try {
                 testUrl = testUrl.endsWith('/api') ? testUrl : `${testUrl.replace(/\/$/, '')}/api`;
-                new URL(testUrl); // Validate URL format
+                new URL(testUrl);
                 const response = await fetchWithRetry(`${testUrl}/health`, { method: 'GET' });
                 const text = await response.text();
                 let data;
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 if (data.status === 'healthy') {
                     showErrorNotification(`Connection successful to ${testUrl}! Save to continue.`, true);
-                    logEvent('system', `Connection test successful: ${testUrl}/health`, { endpoint: `${testUrl}/health` });
+                    logEvent('system', `Connection test successful to ${testUrl}`, { endpoint: `${testUrl}/health` });
                 } else {
                     throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                showErrorNotification(`Connection test failed: ${error.message}. Try another URL.`);
+                showErrorNotification(`Connection failed: ${error.message}. Verify server is running.`);
                 logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/health`, rawResponse: error.message });
             }
         }
@@ -214,7 +216,7 @@
                 const hash = await crypto.subtle.digest('SHA-256', encoded);
                 return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
             } catch (error) {
-                logEvent('error', `SHA-256 hashing failed: ${error.message}`, { error: error.stack });
+                logEvent('error', `Hashing failed: ${error.message}`, { error: error.stack });
                 return null;
             }
         }
@@ -255,8 +257,8 @@
 
         async function handleGitCommand(command) {
             if (!isAuthenticated) {
-                showErrorNotification('Not authenticated: Please authenticate first');
-                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                showErrorNotification('Please authenticate first');
+                logEvent('error', 'Not authenticated', {});
                 return;
             }
             const sanitizedCommand = sanitizeInput(command.trim());
@@ -272,40 +274,40 @@
 - /config <vial> <key> <value>: Set vial config
 - /status: Show vial statuses`, { blockHash });
                 } else if (cmd === '/prompt') {
-                    if (parts.length < 3) throw new Error('Invalid command: Usage: /prompt <vial> <text>');
+                    if (parts.length < 3) throw new Error('Usage: /prompt <vial> <text>');
                     const vialId = parts[1];
                     const promptText = parts.slice(2).join(' ');
                     const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial ID: ${vialId} not found`);
-                    if (promptText.match(/(system|admin|root|eval|exec)/i)) throw new Error('Prompt contains restricted keywords');
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
+                    if (promptText.match(/(system|admin|root|eval|exec)/i)) throw new Error('Restricted keywords in prompt');
                     vial.tasks.push({ prompt: promptText, hash: blockHash });
                     vial.status = 'running';
                     logEvent('command', `Prompt sent to ${vialId}: ${promptText}`, { blockHash });
                     if (!isOffline) await sendPromptToBackend(vialId, promptText, blockHash);
                 } else if (cmd === '/task') {
-                    if (parts.length < 3) throw new Error('Invalid command: Usage: /task <vial> <task>');
+                    if (parts.length < 3) throw new Error('Usage: /task <vial> <task>');
                     const vialId = parts[1];
                     const task = parts.slice(2).join(' ');
                     const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial ID: ${vialId} not found`);
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
                     vial.tasks = [...new Set([...vial.tasks, task])];
                     vial.status = 'running';
                     logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
                 } else if (cmd === '/config') {
-                    if (parts.length < 4) throw new Error('Invalid command: Usage: /config <vial> <key> <value>');
+                    if (parts.length < 4) throw new Error('Usage: /config <vial> <key> <value>');
                     const vialId = parts[1];
                     const key = parts[2];
                     const value = parts.slice(3).join(' ');
                     const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial ID: ${vialId} not found`);
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
                     vial.config = { ...vial.config, [key]: value };
                     vial.status = 'running';
                     logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
                 } else if (cmd === '/status') {
-                    const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}, Config: ${JSON.stringify(v.config)}`).join('\n');
+                    const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}`).join('\n');
                     logEvent('command', `Vial Status:\n${status}`, { blockHash });
                 } else {
-                    throw new Error(`Unknown command: ${cmd}. Use /help for commands.`);
+                    throw new Error(`Unknown command: ${cmd}. Use /help`);
                 }
                 updateVialStatusBars();
             } catch (error) {
@@ -314,7 +316,7 @@
             }
         }
 
-        async function sendPromiseToBackend(vialId, prompt, blockHash) {
+        async function sendPromptToBackend(vialId, prompt, blockHash) {
             try {
                 const response = await fetchWithRetry(`${API_BASE}/prompt`, {
                     method: 'POST',
@@ -329,11 +331,11 @@
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
             } catch (error) {
-                logEvent('error', `Backend prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/prompt`, vialId, prompt, rawResponse: error.message });
+                logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/prompt`, vialId, prompt, rawResponse: error.message });
             }
         }
 
@@ -346,13 +348,12 @@
         }
 
         function logEvent(event_type, message, metadata = {}) {
-            const timestamp = new Date().toISOString();
             const now = Date.now();
             const logId = ++lastLogId;
-            const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
-            if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
-            lastLogMessage = baseMessage;
-            lastLogTime = now;
+            const key = `${event_type}:${message.split(' ').slice(0, 5).join(' ')}`;
+            if (errorCooldowns.has(key) && (now - errorCooldowns.get(key)) < 30000) return; // 30s cooldown
+            errorCooldowns.set(key, now);
+            const timestamp = new Date().toISOString();
             const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
             logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
             if (logQueue.length > 50) logQueue.shift();
@@ -364,10 +365,10 @@
         function showErrorNotification(message, isSuccess = false) {
             const errorNotification = document.getElementById('error-notification');
             errorNotification.style.background = isSuccess ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-            errorNotification.textContent = message.includes('NetworkError') ? 
-                `${message}. Ensure unified_server.py is running at ${API_BASE}. Run: curl ${API_BASE}/health or click "Test Connection" in Config.` :
-                message.includes('JSON.parse') ? 
-                `${message}. The backend may be returning an HTML error page. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
+            errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ? 
+                `${message}. Run: curl ${API_BASE}/health or click "Test Connection" in Config.` :
+                message.includes('JSON') ? 
+                `${message}. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
                 message;
             errorNotification.classList.add('visible');
             setTimeout(() => errorNotification.classList.remove('visible'), 10000);
@@ -419,7 +420,7 @@
                 const isBackendOnline = await checkBackendStatus();
                 if (!isBackendOnline) {
                     showConfigPopup(true);
-                    logEvent('error', `Backend is offline at ${API_BASE}. Switching to offline mode. Ensure unified_server.py is running.`, { endpoint: `${API_BASE}/health` });
+                    logEvent('error', `Backend offline at ${API_BASE}. Please configure and test connection.`, { endpoint: `${API_BASE}/health` });
                     isOffline = true;
                 } else {
                     const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
@@ -436,7 +437,7 @@
                     try {
                         data = JSON.parse(text);
                     } catch (e) {
-                        throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                        throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                     }
                     apiCredentials = { key: data.apiKey, secret: await sha256(generateUUID()) };
                     wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0000, transactions: [] };
@@ -466,8 +467,9 @@
             } catch (error) {
                 isOffline = true;
                 apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
+                isAuthenticated = true;
                 logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth`, rawResponse: error.message });
-                showErrorNotification(`Authentication failed: ${error.message}. Check ${API_BASE}/auth in a browser or run: curl ${API_BASE}/auth`);
+                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config.`);
                 disableFunctions();
                 showConfigPopup(true);
             }
@@ -490,7 +492,7 @@
                 vial.code = '';
                 vial.codeLength = 0;
             });
-            logEvent('command', 'All vials voided and reset.', {});
+            logEvent('command', 'All vials reset.', {});
             updateVialStatusBars();
         }
 
@@ -512,19 +514,19 @@
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 logEvent('command', `Backend Health: ${data.status} (Mongo: ${data.mongo})`, {});
             } catch (error) {
-                logEvent('error', `Troubleshooting error: ${error.message}. Verify server at ${API_BASE}/health`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
+                logEvent('error', `Diagnostics failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 showConfigPopup(true);
             }
         }
 
         async function quantumLink() {
             try {
-                if (isOffline) throw new Error('Quantum Link unavailable in offline mode');
-                logEvent('command', 'Initiating Quantum Link...', {});
+                if (isOffline) throw new Error('Quantum Link unavailable offline');
+                logEvent('command', 'Initiating Quantum Link...');
                 const response = await fetchWithRetry(`${API_BASE}/quantum_link`, {
                     method: 'POST',
                     headers: {
@@ -538,7 +540,7 @@
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 vials.forEach((vial, i) => {
                     vial.status = data.statuses[i] || 'running';
@@ -547,7 +549,7 @@
                 logEvent('command', 'Quantum Link established.', {});
                 updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Quantum Link error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum_link`, rawResponse: error.message });
+                logEvent('error', `Quantum Link failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum_link`, rawResponse: error.message });
             }
         }
 
@@ -564,7 +566,7 @@
                 a.click();
                 URL.revokeObjectURL(url);
                 const blockHash = await addToBlockchain('export', { wallet: wallet.address });
-                logEvent('command', 'Wallet exported as Markdown.', { blockHash });
+                logEvent('command', 'Wallet exported.', { blockHash });
                 wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
                 wallet.webxos += 0.0001;
                 if (!isOffline) {
@@ -585,12 +587,12 @@
 
         async function importWallet() {
             try {
-                if (!isAuthenticated) throw new Error('Authenticate first to import wallet');
+                if (!isAuthenticated) throw new Error('Authenticate first');
                 const input = document.getElementById('file-input');
                 input.onchange = async function(event) {
                     const file = event.target.files[0];
                     if (!file) return;
-                    if (!file.name.endsWith('.md')) throw new Error('Invalid file format: Upload a .md file');
+                    if (!file.name.endsWith('.md')) throw new Error('Invalid file: Use .md');
                     const text = await file.text();
                     if (!validateMarkdown(text)) throw new Error('Invalid Markdown format');
                     const lines = text.split('\n');
@@ -607,11 +609,11 @@
                                 const transactionData = line.match(/^- Transactions: (.*)/)[1];
                                 newWallet.transactions = transactionData ? JSON.parse(transactionData) : [];
                             } catch (err) {
-                                throw new Error(`Invalid transactions in .md: ${err.message}`);
+                                throw new Error(`Invalid transactions: ${err.message}`);
                             }
                         }
                     }
-                    if (!newWallet.address || !newWallet.hash) throw new Error('Invalid .md format: Missing wallet address or hash');
+                    if (!newWallet.address || !newWallet.hash) throw new Error('Missing wallet address or hash');
                     wallet = newWallet;
                     if (!isOffline) {
                         const response = await fetchWithRetry(`${API_BASE}/import_wallet`, {
@@ -626,7 +628,7 @@
                         try {
                             JSON.parse(text);
                         } catch (e) {
-                            throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                            throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                         }
                     }
                     const blockHash = await addToBlockchain('import', { wallet: wallet.address });
@@ -648,8 +650,8 @@
                 };
                 input.click();
             } catch (error) {
-                logEvent('error', `Import error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/import_wallet`, rawResponse: error.message });
-                showErrorNotification(`Import error: ${error.message}`);
+                logEvent('error', `Import failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/import_wallet`, rawResponse: error.message });
+                showErrorNotification(`Import failed: ${error.message}`);
             }
         }
 
@@ -666,7 +668,7 @@
 
         async function generateNewApiCredentials() {
             try {
-                if (isOffline) throw new Error('Cannot generate API credentials in offline mode');
+                if (isOffline) throw new Error('Cannot generate credentials offline');
                 const response = await fetchWithRetry(`${API_BASE}/auth`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -677,15 +679,15 @@
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 apiCredentials = { key: data.apiKey, secret: await sha256(generateUUID()) };
                 document.getElementById('api-input').value = `Key: ${apiCredentials.key}\nSecret: ${apiCredentials.secret}`;
                 const blockHash = await addToBlockchain('api_generate', { key: apiCredentials.key });
                 logEvent('command', 'New API credentials generated.', { blockHash });
             } catch (error) {
-                logEvent('error', `API credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth`, rawResponse: error.message });
-                showErrorNotification(`Error generating API credentials: ${error.message}. Check ${API_BASE}/auth`);
+                logEvent('error', `Credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth`, rawResponse: error.message });
+                showErrorNotification(`Credentials generation failed: ${error.message}`);
             }
         }
 
@@ -695,7 +697,7 @@
             configInput.value = API_BASE;
             configPopup.classList.add('visible');
             if (forceOnError) {
-                showErrorNotification(`Backend unreachable at ${API_BASE}. Please configure the correct backend URL (e.g., http://localhost:8000/api) and test the connection.`);
+                showErrorNotification(`Backend unreachable at ${API_BASE}. Configure and test connection.`);
             }
         }
 
@@ -708,22 +710,20 @@
             }
             try {
                 newApiBase = newApiBase.endsWith('/api') ? newApiBase : `${newApiBase.replace(/\/$/, '')}/api`;
-                new URL(newApiBase); // Validate URL format
+                new URL(newApiBase);
             } catch (e) {
-                showErrorNotification(`Invalid URL format: ${e.message}. Use http://localhost:8000/api or similar.`);
+                showErrorNotification(`Invalid URL: ${e.message}. Use http://localhost:8000/api or similar.`);
                 return;
             }
             API_BASE = newApiBase;
             localStorage.setItem('apiBase', API_BASE);
-            logEvent('command', `Backend URL updated to ${API_BASE}`, {});
+            logEvent('command', `Backend URL set to ${API_BASE}`, {});
             document.getElementById('config-popup').classList.remove('visible');
             isOffline = !(await checkBackendStatus());
             if (isOffline) {
                 showConfigPopup(true);
-            } else {
-                if (isAuthenticated && !isOffline) {
-                    await authenticate();
-                }
+            } else if (isAuthenticated) {
+                await authenticate();
             }
             updateBalanceDisplay();
             updateVialStatusBars();
@@ -732,20 +732,20 @@
 
         async function initializeApp() {
             try {
-                logEvent('system', 'Application initialized.', {});
+                logEvent('system', 'Application initialized.');
                 const isBackendOnline = await checkBackendStatus();
                 isOffline = !isBackendOnline;
                 if (isOffline) {
-                    logEvent('system', `Backend offline at ${API_BASE}. Running in offline mode. Ensure unified_server.py is running.`, { endpoint: `${API_BASE}/health` });
+                    logEvent('system', `Backend offline at ${API_BASE}. Running in offline mode.`);
                     showConfigPopup(true);
                     disableFunctions();
                 } else {
-                    logEvent('system', `Backend online at ${API_BASE}. Ready for authentication.`, {});
+                    logEvent('system', `Backend online at ${API_BASE}. Ready to authenticate.`);
                 }
                 updateBalanceDisplay();
                 updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Initialization error: ${error.message}. Verify server at ${API_BASE}/health`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
+                logEvent('error', `Initialization failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 isOffline = true;
                 showConfigPopup(true);
                 disableFunctions();
