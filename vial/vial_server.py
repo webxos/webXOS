@@ -1,45 +1,69 @@
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from vial.auth_manager import AuthManager
-from vial.vial_manager import VialManager
-from vial.webxos_wallet import WebXOSWallet
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import pymongo
 import logging
+import datetime
+import os
+from typing import Dict, Any
 
 app = FastAPI()
-security = HTTPBearer()
-auth_manager = AuthManager()
-vial_manager = VialManager()
-wallet = WebXOSWallet()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    try:
-        payload = auth_manager.verify_token(credentials.credentials)
-        return payload
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+mongo_client = pymongo.MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+db = mongo_client["mcp_db"]
 
-@app.post("/api/vial/update", dependencies=[Depends(verify_token)])
-async def update_vial(vial_id: str, data: dict, user: dict = Depends(verify_token)):
-    try:
-        if not vial_manager.validate_vials({vial_id: data}):
-            raise HTTPException(status_code=400, detail="Invalid vial data")
-        success = vial_manager.update_vial(vial_id, data)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to update vial")
-        logger.info(f"Vial {vial_id} updated for user: {user['userId']}")
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Vial update error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+class VialRequest(BaseModel):
+    user_id: str
+    vial_id: str
+    command: str
+    wallet: Dict[str, Any]
 
-@app.get("/api/vial/wallet", dependencies=[Depends(verify_token)])
-async def get_vial_wallet(vial_id: str, user: dict = Depends(verify_token)):
-    try:
-        balance = wallet.get_balance(vial_id)
-        return {"vial_id": vial_id, "balance": balance}
-    except Exception as e:
-        logger.error(f"Wallet retrieval error for vial {vial_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+class VialServer:
+    def __init__(self):
+        self.vials = ["nomic", "cognitallmware", "llmware", "jina_ai"]
+
+    async def process_vial_command(self, user_id: str, vial_id: str, command: str, wallet: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if vial_id not in self.vials:
+                raise ValueError(f"Invalid vial_id: {vial_id}")
+            
+            # Simulate command processing
+            result = f"Processed {command} for {vial_id}"
+            
+            # Update wallet
+            wallet["transactions"].append({
+                "type": "vial_command",
+                "vial_id": vial_id,
+                "command": command,
+                "timestamp": datetime.datetime.utcnow().isoformat()
+            })
+            wallet["webxos"] = wallet.get("webxos", 0.0) + float(os.getenv("WALLET_INCREMENT", 0.0001))
+            db.collection("wallet").update_one(
+                {"user_id": user_id},
+                {"$set": {"wallet": wallet}, "$push": {"transactions": wallet["transactions"][-1]}},
+                upsert=True
+            )
+            
+            # Log command
+            db.collection("vial_logs").insert_one({
+                "user_id": user_id,
+                "vial_id": vial_id,
+                "command": command,
+                "result": result,
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "wallet": wallet
+            })
+            
+            return {"status": result, "vial_id": vial_id, "wallet": wallet}
+        except Exception as e:
+            logger.error(f"Vial command error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** Vial command error: {str(e)}\n")
+            raise HTTPException(status_code=500, detail=str(e))
+
+vial_server = VialServer()
+
+@app.post("/api/manage_vial")
+async def manage_vial(request: VialRequest):
+    return await vial_server.process_vial_command(request.user_id, request.vial_id, request.command, request.wallet)
