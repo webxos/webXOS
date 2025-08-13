@@ -12,19 +12,26 @@ const API_BASE = 'http://localhost:8000/api';
 const BACKEND_NODES = [
     'http://localhost:8000/api',
     'http://localhost:8001/api',
-    'http://localhost:8002/api'
+    'http://localhost:8002/api',
+    'http://localhost:8003/api',
+    'http://localhost:8004/api',
+    'http://localhost:8005/api'
 ];
 
 async function tryNodes(endpoint, options) {
     for (const node of BACKEND_NODES) {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
             const response = await fetch(`${node}${endpoint}`, {
                 ...options,
                 headers: {
                     ...options.headers,
                     'Content-Type': 'application/json'
-                }
+                },
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             if (response.ok) {
                 console.log(`Connected to ${node}${endpoint}`);
                 return response;
@@ -42,6 +49,7 @@ async function tryNodes(endpoint, options) {
             });
         }
     }
+    console.log(`All nodes failed for ${endpoint}, returning mock response`);
     return new Response(JSON.stringify(getMockResponse(endpoint)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -90,13 +98,4 @@ function getMockResponse(pathname) {
         '/api/vials/vial1/config': { status: 'Config updated for vial1' },
         '/api/vials/vial2/config': { status: 'Config updated for vial2' },
         '/api/vials/vial3/config': { status: 'Config updated for vial3' },
-        '/api/vials/vial4/config': { status: 'Config updated for vial4' },
-        '/api/vials/void': { status: 'All vials reset' },
-        '/api/wallet/create': { status: 'Wallet created', address: 'mock-wallet', webxos: 0.0 },
-        '/api/wallet/import': { status: 'Wallet imported' },
-        '/api/wallet/transaction': { status: 'Transaction recorded' },
-        '/api/quantum/link': { statuses: ['running', 'running', 'running', 'running'], latencies: [50, 60, 70, 80] },
-        '/api/blockchain/transaction': { status: 'Transaction recorded' }
-    };
-    return mockResponses[pathname] || { error: 'No mock response available' };
-}
+        '/api/vials/vial4/config': { status: 'Config updated
