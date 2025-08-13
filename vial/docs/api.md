@@ -1,73 +1,272 @@
-API Documentation
+Vial MCP API Documentation
 Overview
-The Vial MCP Controller API provides endpoints for managing vials, processing queries, and handling wallet transactions. All endpoints are secured with JWT authentication (vial/auth_manager.py) and integrate with the wallet system (vial/webxos_wallet.py).
+The Vial MCP API provides endpoints for managing AI vials, wallets, authentication, and blockchain transactions. The API runs on http://localhost:8000/api by default.
 Endpoints
+Health Check
+
+GET /api/health
+Description: Checks the health of the backend and its services.
+Response:{
+  "status": "healthy",
+  "mongo": true,
+  "version": "2.8",
+  "services": ["auth", "wallet", "vials"]
+}
+
+
+Errors:
+503: Service unavailable, with error details.
+
+
+
+
+
 Authentication
 
-POST /api/authenticate
-Description: Authenticates a user and returns a JWT token.
-Request Body: { "user_id": string, "password": string }
-Response: { "token": string }
-Logs: Stored in auth_logs collection (MongoDB).
+POST /api/auth/login
+
+Description: Authenticates a user and returns an API key.
+Request:{"userId": "user-123"}
+
+
+Response:{
+  "apiKey": "JWT-uuid",
+  "walletAddress": "hash",
+  "walletHash": "hash"
+}
+
+
+Errors:
+400: Missing userId.
+500: Server error.
 
 
 
-Database Queries
 
-POST /api/query
-Description: Processes database queries, updating wallet.
-Request Body: { "user_id": string, "query": string, "wallet": { "webxos": float, "transactions": array } }
-Response: { "status": string, "wallet": object }
-Logs: Stored in query_logs collection.
+POST /api/auth/api-key/generate
+
+Description: Generates a new API key for a user.
+Request:{"userId": "user-123"}
 
 
-
-Chatbot Queries
-
-POST /chatbot/api/query
-Description: Processes chatbot queries using nano-GPT (chatbot/server.py).
-Request Body: { "user_id": string, "query": string, "wallet": object }
-Response: { "response": string, "wallet": object }
-Logs: Stored in chatbot_logs collection.
+Response:{
+  "apiKey": "JWT-uuid",
+  "walletAddress": "hash",
+  "walletHash": "hash"
+}
 
 
-
-Vial Management
-
-POST /api/manage_vial
-Description: Manages vial commands for Nomic, CogniTALLMware, LLMware, Jina AI.
-Request Body: { "user_id": string, "vial_id": string, "command": string, "wallet": object }
-Response: { "status": string, "vial_id": string, "wallet": object }
-Logs: Stored in vial_logs collection.
+Errors:
+400: Missing userId.
+500: Server error.
 
 
 
-Wallet Updates
-
-POST /api/update_wallet
-Description: Updates user wallet with transactions.
-Request Body: { "user_id": string, "transaction": object }
-Response: { "webxos": float, "transactions": array }
-Logs: Stored in wallet collection and SQLite (vial/database.sqlite).
 
 
+Vial Operations
 
-LangChain Queries
+POST /api/vials/{vial_id}/prompt
 
-POST /api/langchain_query
-Description: Processes queries using LangChain (vial/langchain_agent.py).
-Request Body: { "user_id": string, "query": string, "wallet": object }
-Response: { "response": string, "wallet": object }
-Logs: Stored in langchain_logs collection.
+Description: Sends a prompt to a specific vial.
+Request:{
+  "vialId": "vial1",
+  "prompt": "Train model",
+  "blockHash": "hash"
+}
+
+
+Response:{"response": "Prompt processed for vial1"}
+
+
+Errors:
+400: Invalid vial ID.
+500: Server error.
 
 
 
-Error Handling
-Errors are logged to db/errorlog.md with timestamps to prevent redundancy.
-Deployment
 
-Deployed via netlify.toml on webxos.netlify.app.
-CI/CD configured in ci.yml for GitHub Actions.
-Docker setup in Dockerfile and docker-compose.yaml.
+POST /api/vials/{vial_id}/task
 
-For setup instructions, see /docs/setup.markdown.
+Description: Assigns a task to a specific vial.
+Request:{
+  "vialId": "vial1",
+  "task": "Process data",
+  "blockHash": "hash"
+}
+
+
+Response:{"status": "Task assigned to vial1"}
+
+
+Errors:
+400: Invalid vial ID.
+500: Server error.
+
+
+
+
+PUT /api/vials/{vial_id}/config
+
+Description: Updates configuration for a specific vial.
+Request:{
+  "vialId": "vial1",
+  "key": "model",
+  "value": "gpt-3",
+  "blockHash": "hash"
+}
+
+
+Response:{"status": "Config updated for vial1"}
+
+
+Errors:
+400: Invalid vial ID.
+500: Server error.
+
+
+
+
+DELETE /api/vials/void
+
+Description: Resets all vials to stopped state.
+Response:{"status": "All vials reset"}
+
+
+Errors:
+500: Server error.
+
+
+
+
+
+Wallet Operations
+
+POST /api/wallet/create
+
+Description: Creates a new wallet for a user.
+Request:{
+  "userId": "user-123",
+  "address": "wallet-123",
+  "balance": 0,
+  "hash": "hash",
+  "webxos": 0.0
+}
+
+
+Response:{
+  "status": "Wallet created",
+  "address": "wallet-123"
+}
+
+
+Errors:
+500: Server error.
+
+
+
+
+POST /api/wallet/import
+
+Description: Imports a wallet for a user.
+Request:{
+  "userId": "user-123",
+  "address": "wallet-123",
+  "hash": "hash",
+  "webxos": 0.0
+}
+
+
+Response:{"status": "Wallet imported"}
+
+
+Errors:
+500: Server error.
+
+
+
+
+POST /api/wallet/transaction
+
+Description: Records a wallet transaction.
+Request:{
+  "userId": "user-123",
+  "type": "transaction"
+}
+
+
+Response:{"status": "Transaction recorded"}
+
+
+Errors:
+400: No wallet found.
+500: Server error.
+
+
+
+
+
+Quantum Link
+
+POST /api/quantum/link
+Description: Establishes a quantum link for vials.
+Request:{"vials": ["vial1", "vial2"]}
+
+
+Response:{
+  "statuses": ["running", "running"],
+  "latencies": [50, 60]
+}
+
+
+Errors:
+500: Server error.
+
+
+
+
+
+Blockchain
+
+POST /api/blockchain/transaction
+Description: Records a blockchain transaction.
+Request:{
+  "type": "command",
+  "data": {},
+  "timestamp": "2025-08-13T17:00:00Z",
+  "hash": "hash"
+}
+
+
+Response:{"status": "Transaction recorded"}
+
+
+Errors:
+500: Server error.
+
+
+
+
+
+Error Logging
+
+POST /api/log_error
+Description: Logs an error from the frontend.
+Request:{
+  "error": "Error message",
+  "endpoint": "/api/health",
+  "timestamp": "2025-08-13T17:00:00Z",
+  "source": "frontend",
+  "rawResponse": "Response text"
+}
+
+
+Response:{"status": "logged"}
+
+
+Errors:
+500: Server error.
+
+
+
+
