@@ -1,18 +1,13 @@
 #!/bin/bash
 
-timeout=15
-waitfor=27017
-host=mongo
-port=$waitfor
+host="$1"
+shift
+cmd="$@"
 
-while ! nc -z $host $port; do
+until nc -z -v -w30 $host; do
+  echo "Waiting for $host to be available..."
   sleep 1
-  timeout=$((timeout - 1))
-  if [ $timeout -eq 0 ]; then
-    echo "Timeout waiting for $host:$port"
-    exit 1
-  fi
 done
 
-echo "$host:$port is available"
-exec "$@"
+echo "$host is available, executing command..."
+exec $cmd
