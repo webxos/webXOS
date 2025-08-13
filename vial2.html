@@ -23,7 +23,7 @@
         #api-popup.visible, #config-popup.visible { display: block; }
         #api-popup textarea, #config-popup input { width: 100%; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; }
         #api-popup textarea { height: 100px; resize: none; }
-        #api-popup button, #config-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button, #config-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin: 0.5rem 0.25rem 0 0; }
         #api-popup button:hover, #config-popup button:hover { background: #0c0; }
         .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
         button { background: #0f0; color: #000; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
@@ -81,6 +81,7 @@
     <div id="config-popup">
         <h2>Configure Backend URL</h2>
         <input id="config-input" placeholder="Enter backend URL (e.g., http://localhost:8000/api)">
+        <button id="config-test">Test Connection</button>
         <button id="config-save">Save</button>
         <button id="config-close">Close</button>
     </div>
@@ -99,7 +100,7 @@
     <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.8</footer>
     <input type="file" id="file-input" accept=".md">
     <script>
-        let API_BASE = localStorage.getItem('apiBase') || (window.location.hostname.includes('netlify.app') ? '/api' : 'http://localhost:8000/api');
+        let API_BASE = localStorage.getItem('apiBase') || 'http://localhost:8000/api';
         const version = '2.8';
         let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>'];
         let isAuthenticated = false;
@@ -135,11 +136,17 @@
         async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
             for (let i = 0; i < retries; i++) {
                 try {
-                    const response = await fetch(url, options);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    const response = await fetch(url, { ...options, signal: controller.signal });
+                    clearTimeout(timeoutId);
                     if (response.ok) return response;
                     const rawText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${response.statusText} for ${url}. Raw response: ${rawText.slice(0, 100)}...`);
                 } catch (error) {
+                    if (error.name === 'AbortError') {
+                        error.message = `Request timed out after 5s for ${url}`;
+                    }
                     if (i === retries - 1) {
                         logEvent('error', `Fetch failed after ${retries} retries: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
                         throw error;
@@ -165,6 +172,32 @@
             } catch (error) {
                 logEvent('error', `Backend health check failed: ${error.message}. Verify server at ${API_BASE}/health`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 return false;
+            }
+        }
+
+        async function testConnection() {
+            const configInput = document.getElementById('config-input');
+            let testUrl = configInput.value.trim();
+            try {
+                testUrl = testUrl.endsWith('/api') ? testUrl : `${testUrl.replace(/\/$/, '')}/api`;
+                new URL(testUrl); // Validate URL format
+                const response = await fetchWithRetry(`${testUrl}/health`, { method: 'GET' });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`JSON.parse error: ${e.message}. Raw response: ${text.slice(0, 100)}...`);
+                }
+                if (data.status === 'healthy') {
+                    showErrorNotification(`Connection successful to ${testUrl}! Save to continue.`, true);
+                    logEvent('system', `Connection test successful: ${testUrl}/health`, { endpoint: `${testUrl}/health` });
+                } else {
+                    throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                showErrorNotification(`Connection test failed: ${error.message}. Try another URL.`);
+                logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/health`, rawResponse: error.message });
             }
         }
 
@@ -281,7 +314,7 @@
             }
         }
 
-        async function sendPromptToBackend(vialId, prompt, blockHash) {
+        async function sendPromiseToBackend(vialId, prompt, blockHash) {
             try {
                 const response = await fetchWithRetry(`${API_BASE}/prompt`, {
                     method: 'POST',
@@ -328,17 +361,16 @@
             console.log(`${event_type}: ${message}`, metadata);
         }
 
-        function showErrorNotification(message) {
+        function showErrorNotification(message, isSuccess = false) {
             const errorNotification = document.getElementById('error-notification');
-            const is404 = message.includes('HTTP 404');
-            const isJsonError = message.includes('JSON.parse');
-            errorNotification.textContent = is404 ? 
-                `${message}. Ensure unified_server.py is running at ${API_BASE}. Run: curl ${API_BASE}/health` :
-                isJsonError ? 
+            errorNotification.style.background = isSuccess ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+            errorNotification.textContent = message.includes('NetworkError') ? 
+                `${message}. Ensure unified_server.py is running at ${API_BASE}. Run: curl ${API_BASE}/health or click "Test Connection" in Config.` :
+                message.includes('JSON.parse') ? 
                 `${message}. The backend may be returning an HTML error page. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
                 message;
             errorNotification.classList.add('visible');
-            setTimeout(() => errorNotification.classList.remove('visible'), 7000);
+            setTimeout(() => errorNotification.classList.remove('visible'), 10000);
         }
 
         const debouncedUpdateConsole = debounce(() => {
@@ -386,7 +418,7 @@
             try {
                 const isBackendOnline = await checkBackendStatus();
                 if (!isBackendOnline) {
-                    showConfigPopup(true); // Force config popup if backend is offline
+                    showConfigPopup(true);
                     logEvent('error', `Backend is offline at ${API_BASE}. Switching to offline mode. Ensure unified_server.py is running.`, { endpoint: `${API_BASE}/health` });
                     isOffline = true;
                 } else {
@@ -473,6 +505,7 @@
                 logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
                 logEvent('command', `Reputation: ${isOffline ? 'N/A' : reputation}`);
                 logEvent('command', `Wallet Transactions: ${wallet.transactions.length}`);
+                logEvent('command', `Testing connectivity to ${API_BASE}/health...`);
                 const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 const text = await response.text();
                 let data;
@@ -662,7 +695,7 @@
             configInput.value = API_BASE;
             configPopup.classList.add('visible');
             if (forceOnError) {
-                showErrorNotification(`Backend unreachable at ${API_BASE}. Please configure the correct backend URL (e.g., http://localhost:8000/api).`);
+                showErrorNotification(`Backend unreachable at ${API_BASE}. Please configure the correct backend URL (e.g., http://localhost:8000/api) and test the connection.`);
             }
         }
 
@@ -673,7 +706,6 @@
                 showErrorNotification('Backend URL cannot be empty');
                 return;
             }
-            // Ensure URL ends with /api and is a valid URL
             try {
                 newApiBase = newApiBase.endsWith('/api') ? newApiBase : `${newApiBase.replace(/\/$/, '')}/api`;
                 new URL(newApiBase); // Validate URL format
@@ -685,13 +717,11 @@
             localStorage.setItem('apiBase', API_BASE);
             logEvent('command', `Backend URL updated to ${API_BASE}`, {});
             document.getElementById('config-popup').classList.remove('visible');
-            // Re-check backend status
             isOffline = !(await checkBackendStatus());
             if (isOffline) {
                 showConfigPopup(true);
             } else {
                 if (isAuthenticated && !isOffline) {
-                    // Re-authenticate if previously authenticated
                     await authenticate();
                 }
             }
@@ -737,13 +767,14 @@
         document.getElementById('importButton').addEventListener('click', importWallet);
         document.getElementById('apiAccessButton').addEventListener('click', showApiCredentials);
         document.getElementById('configButton').addEventListener('click', () => showConfigPopup(false));
-        document.getElementById('api-generate').addEventListener('click', generateNewApiCredentials);
-        document.getElementById('api-close').addEventListener('click', () => {
-            document.getElementById('api-popup').classList.remove('visible');
-        });
+        document.getElementById('config-test').addEventListener('click', testConnection);
         document.getElementById('config-save').addEventListener('click', saveConfig);
         document.getElementById('config-close').addEventListener('click', () => {
             document.getElementById('config-popup').classList.remove('visible');
+        });
+        document.getElementById('api-generate').addEventListener('click', generateNewApiCredentials);
+        document.getElementById('api-close').addEventListener('click', () => {
+            document.getElementById('api-popup').classList.remove('visible');
         });
         window.addEventListener('load', initializeApp);
     </script>
