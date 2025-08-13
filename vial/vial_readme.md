@@ -1,77 +1,66 @@
-Vial MCP Controller
+Vial MCP Controller Setup
 Overview
-The Vial MCP Controller is a master control panel for managing data retrieval, LLM inference, and Git operations. It runs on a single-page frontend (vial.js, chatbot.js) hosted at webxos.netlify.app, with a Dockerized backend (/vial/) deployed via Vercel and Netlify. The system supports PostgreSQL, Milvus, Weaviate, pgvector, and FAISS for data retrieval, and LLaMA 3.3, Mistral, Gemma 2, Qwen, and Phi for LLMs. It integrates with github.com/webxos/webxos for Git operations.
-Setup Instructions
+The Vial MCP Controller manages AI vials with a web interface and backend API. This guide covers setup and troubleshooting.
+Prerequisites
 
-Clone Repository:git clone https://github.com/webxos/webxos.git
-cd webxos
+Python 3.8+
+pip
+Web browser
+Optional: MongoDB for future database integration
+
+Setup
+
+Clone Repository:
+git clone <repository-url>
+cd vial-mcp-project
 
 
 Install Dependencies:
-Python: pip install -r db/requirements.txt
-Node.js: cd node && npm install
+pip install -r requirements.txt
 
 
-Set Environment Variables:Create a .env file:MONGO_URI=mongodb://localhost:27017
-POSTGRES_URI=postgresql://user:password@localhost:5432/mcp_db
-MILVUS_URI=localhost:19530
-WEAVIATE_URI=http://localhost:8080
-REDIS_HOST=localhost
-REDIS_PORT=6379
-JWT_SECRET=your_jwt_secret
-LLM_API_KEY=your_huggingface_api_key
-OAUTH_CLIENT_ID=your_github_client_id
-OAUTH_CLIENT_SECRET=your_github_client_secret
-NOMIC_API_KEY=your_nomic_api_key
+Configure Environment:Create .env:
+echo "JWT_SECRET=your-secret-key" > .env
+echo "API_HOST=0.0.0.0" >> .env
+echo "API_PORT=8000" >> .env
+echo "VIAL_VERSION=2.8" >> .env
 
 
-Run Services:docker-compose up -d
+Run Backend:
+python mock_backend.py
 
 
-Deploy to Vercel:npm install -g vercel
-vercel --prod
+Serve Frontend:
+python -m http.server 8080
+
+Access http://localhost:8080/vial.html.
+
+Run Tests:
+python -m unittest vial/tests/test_mock_backend.py
 
 
-Access Frontend:
-Vial: https://webxos.netlify.app/vial
-Chatbot: https://webxos.netlify.app/chatbot
-Streamlit Dashboard: http://localhost:8501
-
-
-
-Git Commands
-Use the following commands in vial.js or chatbot.js to manage the repository:
-
-git clone: Clone the repository for training data.
-git commit: Commit changes to training configurations.
-git push: Push changes to the remote repository.
-git pull: Pull latest updates from the repository.
-git branch: Create or list branches for training variants.
-git merge: Merge branches to consolidate training changes.
-git checkout: Switch to a specific branch.
-git diff: View changes between commits or branches.
-
-API Endpoints
-
-POST /v1/api/retrieve: Retrieve data from PostgreSQL, Milvus, Weaviate, pgvector, or FAISS.curl -X POST https://webxos.netlify.app/v1/api/retrieve \
-     -H "Authorization: Bearer <your_token>" \
-     -d '{"user_id": "user123", "query": "test", "source": "postgres", "format": "json", "wallet": {}}'
-
-
-POST /v1/api/llm: Call LLMs (LLaMA 3.3, Mistral, Gemma 2, Qwen, Phi).curl -X POST https://webxos.netlify.app/v1/api/llm \
-     -H "Authorization: Bearer <your_token>" \
-     -d '{"user_id": "user123", "prompt": "Hello", "model": "llama3.3", "format": "json", "wallet": {}}'
-
-
-POST /v1/api/git: Execute Git commands.curl -X POST https://webxos.netlify.app/v1/api/git \
-     -H "Authorization: Bearer <your_token>" \
-     -d '{"user_id": "user123", "command": "git clone", "repo_url": "https://github.com/webxos/webxos.git", "wallet": {}}'
+Monitor Services (optional):
+pip install psutil
+python db/monitor_agent.py
 
 
 
 Troubleshooting
 
-Check db/errorlog.md for logged errors.
-Ensure SSL/TLS certificates are valid in nginx.conf.
-Verify environment variables in .env.
-Run tests: pytest vial/tests/ db/.
+NetworkError: Unable to connect to http://localhost:8000/api/health:
+Verify backend: curl http://localhost:8000/api/health.
+Check port conflicts: netstat -tuln | grep 8000 (Linux) or netstat -an | findstr 8000 (Windows).
+Ensure mock_backend.py is running.
+
+
+style.css 404:
+Verify static/style.css exists and is accessible at http://localhost:8080/static/style.css.
+
+
+Logs Missing:
+Ensure db/errorlog.md is writable: chmod 666 db/errorlog.md.
+
+
+
+API Documentation
+See docs/api.markdown for endpoint details.
