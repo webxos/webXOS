@@ -1,22 +1,24 @@
 import pytest
-from auth_manager import AuthManager
+from vial.auth_manager import AuthManager
+import jwt
+import os
 
-def test_authenticate():
-    auth = AuthManager()
-    token, address = auth.authenticate("test_network", "test_session")
-    assert isinstance(token, str)
-    assert address.startswith("0x")
-    assert len(address) == 42
-    assert auth.validate_token(token)
+@pytest.fixture
+def auth_manager():
+    os.environ["JWT_SECRET"] = "testsecret"
+    return AuthManager()
 
-def test_validate_session():
-    auth = AuthManager()
-    token, _ = auth.authenticate("test_network", "test_session")
-    assert auth.validate_session(token, "test_network")
-    assert not auth.validate_session(token, "wrong_network")
+def test_generate_token(auth_manager):
+    token = auth_manager.generate_token("test_user")
+    assert token
+    payload = jwt.decode(token, "testsecret", algorithms=["HS256"])
+    assert payload["userId"] == "test_user"
 
-def test_void_session():
-    auth = AuthManager()
-    token, _ = auth.authenticate("test_network", "test_session")
-    auth.void_session(token)
-    assert not auth.validate_token(token)
+def test_verify_token(auth_manager):
+    token = auth_manager.generate_token("test_user")
+    payload = auth_manager.verify_token(token)
+    assert payload["userId"] == "test_user"
+
+def test_verify_invalid_token(auth_manager):
+    with pytest.raises(Exception):
+        auth_manager.verify_token("invalid_token")
