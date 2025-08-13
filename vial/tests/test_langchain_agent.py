@@ -1,26 +1,40 @@
 import pytest
 from vial.langchain_agent import LangChainAgent
-from vial.webxos_wallet import WebXOSWallet
+from unittest.mock import patch
 
 @pytest.fixture
 def langchain_agent():
     return LangChainAgent()
 
-@pytest.fixture
-def wallet():
-    wallet = WebXOSWallet()
-    wallet.conn.execute("DELETE FROM balances")
-    wallet.conn.commit()
-    return wallet
+def test_call_llm_success(langchain_agent):
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {"response": "mocked response"}
+        mock_post.return_value.status_code = 200
+        result = langchain_agent.call_llm("test prompt", "user123", "llama3.3")
+        assert result["status"] == "success"
+        assert result["response"] == "mocked response"
 
-def test_enhance_query(langchain_agent):
-    query = "test query"
-    enhanced = langchain_agent.enhance_query(query)
-    assert enhanced == "test query (enhanced)"  # Placeholder LLM behavior
+def test_call_llm_invalid_model(langchain_agent):
+    with pytest.raises(ValueError) as exc:
+        langchain_agent.call_llm("test prompt", "user123", "invalid_model")
+    assert "Invalid model" in str(exc.value)
 
-def test_train_vial(langchain_agent, wallet):
-    wallet.update_balance("vial1", 1.0)
-    assert langchain_agent.train_vial("vial1", "test query", 1.0)
-    assert wallet.get_balance("vial1") == 0.9999
-    with pytest.raises(ValueError):
-        langchain_agent.train_vial("vial1", "test query", 0.0)
+def test_call_llm_api_error(langchain_agent):
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"error": "Invalid API key"}
+        with pytest.raises(Exception) as exc:
+            langchain_agent.call_llm("test prompt", "user123", "llama3.3")
+        assert "Invalid API key" in str(exc.value)
+
+def test_call_llm_logging(langchain_agent, tmp_path):
+    error_log = tmp_path / "errorlog.md"
+    with open(error_log, "a") as f:
+        f.write("")
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {"response": "mocked response"}
+        mock_post.return_value.status_code = 200
+        langchain_agent.call_llm("test prompt", "user123", "llama3.3")
+        with open(error_log) as f:
+            log_content = f.read()
+        assert "LLM call by user123" in log_content
