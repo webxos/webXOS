@@ -1,35 +1,47 @@
-import torch
-import torch.nn as nn
-from vial.webxos_wallet import WebXOSWallet
-from vial.quantum_simulator import QuantumSimulator
 import logging
+import datetime
+import os
+from fastapi import HTTPException
+from typing import Dict, Any, List
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class VialAgent4(nn.Module):
+class JinaAIAgent:
     def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(25, 4)
-        self.wallet = WebXOSWallet()
-        self.quantum_sim = QuantumSimulator()
+        self.api_key = os.getenv("JINAAI_API_KEY")
+        if not self.api_key:
+            raise ValueError("JINAAI_API_KEY not set")
 
-    def forward(self, x):
-        return torch.softmax(self.fc(x), dim=1)
-
-    def process_task(self, task: dict, user_id: str) -> dict:
+    async def search(self, query: str, user_id: str, limit: int = 5) -> Dict[str, Any]:
         try:
-            quantum_result = self.quantum_sim.simulate_task("vial4", task)
-            if not quantum_result["success"]:
-                raise ValueError("Quantum simulation failed")
-            balance = self.wallet.get_balance("vial4")
-            if balance < 0.0001:
-                raise ValueError("Insufficient $WEBXOS balance")
-            self.wallet.update_balance("vial4", balance - 0.0001)
-            logger.info(f"Vial4 processed task for user {user_id}")
-            return {"status": "success", "result": quantum_result["state"]}
+            # Generate embeddings using Jina AI API (mocked)
+            response = requests.post(
+                "https://api.jina.ai/v1/embeddings",
+                json={"input": query, "model": "jina-embeddings-v2"},
+                headers={"Authorization": f"Bearer {self.api_key}"}
+            )
+            response.raise_for_status()
+            embeddings = response.json().get("embeddings")
+            if not embeddings:
+                raise ValueError("Failed to generate embeddings")
+
+            # Simulate vector search (replace with actual Milvus/Weaviate integration)
+            results = {
+                "matches": [
+                    {"id": f"doc_{i}", "score": 0.9 - i * 0.1, "data": f"Sample data {i}"}
+                    for i in range(limit)
+                ]
+            }
+
+            # Log search metrics
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** Jina AI search by {user_id}: {query}\n")
+
+            return {"status": "success", "data": results}
         except Exception as e:
-            logger.error(f"Vial4 task processing error: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Vial4 task error: {str(e)}\n")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"Jina AI search error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** Jina AI search error: {str(e)}\n")
+            raise HTTPException(status_code=500, detail=str(e))
