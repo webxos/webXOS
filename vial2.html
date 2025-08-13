@@ -112,13 +112,13 @@
         let lastLogTime = 0;
         let lastLogId = 0;
 
-        async function logErrorToBackend(errorMessage, stack) {
+        async function logErrorToBackend(errorMessage, stack, endpoint) {
             try {
-                const errorLog = `[${new Date().toISOString()}] ${errorMessage}\nStack: ${stack}\n`;
+                const errorLog = `[${new Date().toISOString()}] ${errorMessage}\nStack: ${stack}\nEndpoint: ${endpoint}\n`;
                 await fetchWithRetry(`${API_BASE}/log_error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ error: errorMessage, stack, timestamp: new Date().toISOString(), source: 'frontend' })
+                    body: JSON.stringify({ error: errorMessage, stack, endpoint, timestamp: new Date().toISOString(), source: 'frontend' })
                 });
             } catch (e) {
                 console.error('Failed to log error to backend:', e.message);
@@ -133,7 +133,7 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 } catch (error) {
                     if (i === retries - 1) {
-                        logEvent('error', `Fetch failed after ${retries} retries: ${error.message}`, { error: error.stack });
+                        logEvent('error', `Fetch failed after ${retries} retries: ${error.message} for ${url}`, { error: error.stack, endpoint: url });
                         throw error;
                     }
                     await new Promise(resolve => setTimeout(resolve, delay));
@@ -146,7 +146,7 @@
                 const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 return response.ok;
             } catch (error) {
-                logEvent('error', `Backend health check failed: ${error.message}`, { error: error.stack });
+                logEvent('error', `Backend health check failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health` });
                 return false;
             }
         }
@@ -198,7 +198,7 @@
                 }
                 return hash;
             } catch (error) {
-                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack });
+                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/blockchain` });
                 return null;
             }
         }
@@ -278,7 +278,7 @@
                 const data = await response.json();
                 logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
             } catch (error) {
-                logEvent('error', `Backend prompt error: ${error.message}`, { error: error.stack, vialId, prompt });
+                logEvent('error', `Backend prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/prompt`, vialId, prompt });
             }
         }
 
@@ -302,13 +302,13 @@
             logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
             if (logQueue.length > 50) logQueue.shift();
             debouncedUpdateConsole();
-            if (event_type === 'error') logErrorToBackend(message, metadata.error || 'No stack trace');
+            if (event_type === 'error') logErrorToBackend(message, metadata.error || 'No stack trace', metadata.endpoint || 'unknown');
             console.log(`${event_type}: ${message}`, metadata);
         }
 
         function showErrorNotification(message) {
             const errorNotification = document.getElementById('error-notification');
-            errorNotification.textContent = message;
+            errorNotification.textContent = message.includes('HTTP 404') ? `${message}. Ensure unified_server.py is running on ${API_BASE}.` : message;
             errorNotification.classList.add('visible');
             setTimeout(() => errorNotification.classList.remove('visible'), 5000);
         }
@@ -357,7 +357,7 @@
             try {
                 const isBackendOnline = await checkBackendStatus();
                 if (!isBackendOnline) {
-                    logEvent('error', 'Backend is offline. Switching to offline mode.', {});
+                    logEvent('error', `Backend is offline. Switching to offline mode. Ensure unified_server.py is running on ${API_BASE}.`, { endpoint: `${API_BASE}/health` });
                     isOffline = true;
                 } else {
                     const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
@@ -399,8 +399,8 @@
             } catch (error) {
                 isOffline = true;
                 apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
-                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack });
-                showErrorNotification(`Authentication failed: ${error.message}. Ensure unified_server.py is running.`);
+                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth` });
+                showErrorNotification(`Authentication failed: ${error.message}`);
                 disableFunctions();
             }
         }
@@ -436,10 +436,11 @@
                 logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
                 logEvent('command', `Reputation: ${isOffline ? 'N/A' : reputation}`);
                 logEvent('command', `Wallet Transactions: ${wallet.transactions.length}`);
+                logEvent('command', `API Base URL: ${API_BASE}`);
                 const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 logEvent('command', `Backend Health: ${response.ok ? 'Online' : 'Offline'}`, {});
             } catch (error) {
-                logEvent('error', `Troubleshooting error: ${error.message}`, { error: error.stack });
+                logEvent('error', `Troubleshooting error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health` });
             }
         }
 
@@ -464,7 +465,7 @@
                 logEvent('command', 'Quantum Link established.', {});
                 updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Quantum Link error: ${error.message}`, { error: error.stack });
+                logEvent('error', `Quantum Link error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum_link` });
             }
         }
 
@@ -496,7 +497,7 @@
                 }
                 updateBalanceDisplay();
             } catch (error) {
-                logEvent('error', `Export failed: ${error.message}`, { error: error.stack });
+                logEvent('error', `Export failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet` });
             }
         }
 
@@ -560,7 +561,7 @@
                 };
                 input.click();
             } catch (error) {
-                logEvent('error', `Import error: ${error.message}`, { error: error.stack });
+                logEvent('error', `Import error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/import_wallet` });
                 showErrorNotification(`Import error: ${error.message}`);
             }
         }
@@ -591,7 +592,7 @@
                 const blockHash = await addToBlockchain('api_generate', { key: apiCredentials.key });
                 logEvent('command', 'New API credentials generated.', { blockHash });
             } catch (error) {
-                logEvent('error', `API credentials generation failed: ${error.message}`, { error: error.stack });
+                logEvent('error', `API credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth` });
                 showErrorNotification(`Error generating API credentials: ${error.message}`);
             }
         }
@@ -601,11 +602,16 @@
                 logEvent('system', 'Application initialized.', {});
                 const isBackendOnline = await checkBackendStatus();
                 isOffline = !isBackendOnline;
-                if (isOffline) logEvent('system', 'Backend offline: Running in offline mode.', {});
+                if (isOffline) {
+                    logEvent('system', `Backend offline: Running in offline mode. Ensure unified_server.py is running on ${API_BASE}.`, { endpoint: `${API_BASE}/health` });
+                    disableFunctions();
+                } else {
+                    logEvent('system', 'Backend online: Ready for authentication.', {});
+                }
                 updateBalanceDisplay();
                 updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Initialization error: ${error.message}`, { error: error.stack });
+                logEvent('error', `Initialization error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health` });
                 isOffline = true;
                 disableFunctions();
             }
