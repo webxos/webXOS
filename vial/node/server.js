@@ -1,27 +1,49 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
-const dotenv = require('dotenv');
-const path = require('path');
-
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
 const app = express();
+const port = process.env.PORT || 3001;
+
 app.use(express.json());
 
-const SECRET = process.env.JWT_SECRET || 'supersecretkey';
-
-app.post('/auth/verify', (req, res) => {
+// OAuth micro-gateway
+app.post('/api/oauth/token', async (req, res) => {
   try {
-    const { token } = req.body;
-    const payload = jwt.verify(token, SECRET);
-    res.json({ status: 'success', payload });
-  } catch (e) {
-    console.error(`Auth verification error: ${e.message}`);
-    const error = `- **[${new Date().toISOString()}]** Auth verification error: ${e.message}\n`;
-    require('fs').appendFileSync(path.resolve(__dirname, '../../vial/errorlog.md'), error);
-    res.status(401).json({ error: e.message });
+    const { code } = req.body;
+    const response = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: process.env.OAUTH_CLIENT_ID,
+        client_secret: process.env.OAUTH_CLIENT_SECRET,
+        code
+      },
+      { headers: { Accept: 'application/json' } }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error(`OAuth error: ${error.message}`);
+    res.status(500).json({ error: 'OAuth token retrieval failed' });
   }
 });
 
-app.listen(3000, () => {
-  console.log('Node.js auth server running on port 3000');
+// Git operations
+app.post('/api/git', async (req, res) => {
+  const { user_id, command, repo_url, token } = req.body;
+  const allowed_commands = ['git clone', 'git commit', 'git push', 'git pull', 'git branch', 'git merge'];
+  if (!allowed_commands.some(cmd => command.startsWith(cmd))) {
+    return res.status(400).json({ error: 'Invalid Git command' });
+  }
+  
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(command, { cwd: '/tmp/repo' });
+    res.json({ status: 'success', output: result.toString() });
+  } catch (error) {
+    console.error(`Git command error: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Node.js micro-gateway running on port ${port}`);
 });
