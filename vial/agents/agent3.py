@@ -1,47 +1,34 @@
-import logging
-import datetime
-import os
-from fastapi import HTTPException
-from typing import Dict, Any, List
-import requests
+import axios from 'axios';
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+const llmwareAgent = {
+  async search(query, userId, apiKey) {
+    try {
+      const response = await axios.post(
+        '/v1/api/llmware_search',
+        { user_id: userId, query, limit: 5 },
+        { headers: { Authorization: `Bearer ${apiKey}` } }
+      );
+      return response.data;
+    } catch (error) {
+      const errorMessage = error.response?.data?.detail || error.message;
+      console.error(`LLMware search error: ${errorMessage}`);
+      throw new Error(`LLMware search failed: ${errorMessage}`);
+    }
+  },
 
-class LLMwareAgent:
-    def __init__(self):
-        self.api_key = os.getenv("LLMWARE_API_KEY")
-        if not self.api_key:
-            raise ValueError("LLMWARE_API_KEY not set")
+  async displayResults(results, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.error('Results container not found');
+      return;
+    }
+    container.innerHTML = '';
+    results.data.matches.forEach(match => {
+      const div = document.createElement('div');
+      div.textContent = `${match.id}: ${match.data} (Score: ${match.score})`;
+      container.appendChild(div);
+    });
+  }
+};
 
-    async def search(self, query: str, user_id: str, limit: int = 5) -> Dict[str, Any]:
-        try:
-            # Generate embeddings using LLMware API (mocked)
-            response = requests.post(
-                "https://api.llmware.ai/embed",
-                json={"text": query, "model": "llmware-embed-v1"},
-                headers={"Authorization": f"Bearer {self.api_key}"}
-            )
-            response.raise_for_status()
-            embeddings = response.json().get("embeddings")
-            if not embeddings:
-                raise ValueError("Failed to generate embeddings")
-
-            # Simulate vector search (replace with actual Milvus/Weaviate integration)
-            results = {
-                "matches": [
-                    {"id": f"doc_{i}", "score": 0.9 - i * 0.1, "data": f"Sample data {i}"}
-                    for i in range(limit)
-                ]
-            }
-
-            # Log search metrics
-            with open("db/errorlog.md", "a") as f:
-                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** LLMware search by {user_id}: {query}\n")
-
-            return {"status": "success", "data": results}
-        except Exception as e:
-            logger.error(f"LLMware search error: {str(e)}")
-            with open("db/errorlog.md", "a") as f:
-                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** LLMware search error: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=str(e))
+export default llmwareAgent;
