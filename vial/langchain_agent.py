@@ -1,25 +1,41 @@
-from langchain.agents import AgentExecutor, Tool
-from langchain.llms.base import LLM
-from typing import Any, List, Optional
-import importlib
-import pkgutil
+import logging
+from langchain import LLMChain
+from langchain.prompts import PromptTemplate
+from vial.webxos_wallet import WebXOSWallet
 
-class NanoGPTLLM(LLM):
-    def _call(self, prompt: str, **kwargs) -> str:
-        return f"Simulated NanoGPT response to: {prompt}"
-    
-    @property
-    def _llm_type(self) -> str:
-        return "nanogpt"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def create_langchain_agent() -> AgentExecutor:
-    """Create a LangChain agent with NanoGPT and dynamic prompts."""
-    llm = NanoGPTLLM()
-    tools = []
-    for _, name, _ in pkgutil.iter_modules(['prompts']):
-        module = importlib.import_module(f'prompts.{name}')
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if hasattr(attr, '_is_mcp_prompt'):
-                tools.append(Tool(name=attr_name, func=lambda x: attr(x), description=f"Prompt: {attr_name}"))
-    return AgentExecutor.from_agent_and_tools(agent=llm, tools=tools, verbose=True)
+class LangChainAgent:
+    def __init__(self):
+        self.wallet = WebXOSWallet()
+        self.prompt_template = PromptTemplate(
+            input_variables=["query"],
+            template="Enhance this query for better AI processing: {query}"
+        )
+        self.llm_chain = LLMChain(prompt=self.prompt_template, llm=None)  # Placeholder for actual LLM
+
+    def enhance_query(self, query: str) -> str:
+        try:
+            enhanced = self.llm_chain.run(query=query) if self.llm_chain.llm else query + " (enhanced)"
+            logger.info(f"Enhanced query: {query} -> {enhanced}")
+            return enhanced
+        except Exception as e:
+            logger.error(f"Query enhancement error: {str(e)}")
+            with open("vial/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Query enhancement error: {str(e)}\n")
+            return query
+
+    def train_vial(self, vial_id: str, query: str, wallet_balance: float) -> bool:
+        try:
+            if wallet_balance < 0.0001:
+                raise ValueError("Insufficient $WEBXOS for training")
+            enhanced_query = self.enhance_query(query)
+            self.wallet.update_balance(vial_id, wallet_balance - 0.0001)
+            logger.info(f"Trained vial {vial_id} with query: {enhanced_query}")
+            return True
+        except Exception as e:
+            logger.error(f"Vial training error for {vial_id}: {str(e)}")
+            with open("vial/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Vial training error: {str(e)}\n")
+            return False
