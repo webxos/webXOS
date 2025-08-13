@@ -69,7 +69,7 @@
     <h1>Vial MCP Controller</h1>
     <div id="console">
         <p>Vial MCP Controller initialized. Use /help for commands. Authenticate to enable all features.</p>
-        <p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>
+        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
     </div>
     <div id="error-notification"></div>
     <div id="api-popup">
@@ -100,7 +100,7 @@
 
         const API_BASE = 'http://localhost:8000/api';
         const version = '2.8';
-        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for commands. Authenticate to enable all features.</p>', '<p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>'];
+        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for commands. Authenticate to enable all features.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
         let isAuthenticated = false;
         let isOffline = true;
         let apiKey = localStorage.getItem('apiKey') || null;
@@ -122,8 +122,8 @@
 
         const mockResponses = {
             '/api/health': { status: 'healthy', mongo: true, version: '2.8', services: ['auth', 'wallet', 'vials'] },
-            '/api/auth/login': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
-            '/api/auth/api-key/generate': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
+            '/api/auth/login': { apiKey: `api-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash', userId: userId || `user-${crypto.randomUUID()}` },
+            '/api/auth/api-key/generate': { apiKey: `api-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
             '/api/vials/vial1/prompt': { response: 'Prompt processed for vial1' },
             '/api/vials/vial2/prompt': { response: 'Prompt processed for vial2' },
             '/api/vials/vial3/prompt': { response: 'Prompt processed for vial3' },
@@ -164,13 +164,13 @@
                 logEvent('error', `Retry limit reached for ${url}. Using mock response.`, { endpoint: url });
                 return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
             }
-            if (isOffline && !url.includes('/auth/login')) {
+            if (isOffline && !url.includes('/auth/login') && !url.includes('/health')) {
                 return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
             }
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // Reduced timeout to 5s
                     const response = await fetch(url, { ...options, signal: controller.signal });
                     clearTimeout(timeoutId);
                     if (!response.ok) {
@@ -195,7 +195,7 @@
                     };
                 } catch (error) {
                     if (error.name === 'AbortError') {
-                        error.message = `Request timed out after 10s for ${url}`;
+                        error.message = `Request timed out after 5s for ${url}`;
                     } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
                         error.message = `Unable to connect to ${url}. Ensure server is running on ports 8000-8007.`;
                     }
@@ -225,28 +225,32 @@
         async function authenticate() {
             try {
                 const isBackendOnline = await checkBackendStatus();
+                isOffline = !isBackendOnline;
                 if (!isBackendOnline) {
-                    isOffline = true;
                     logEvent('error', `Backend offline at ${API_BASE}. Running in offline mode.`, { endpoint: `${API_BASE}/health` });
                     showErrorNotification(`Backend offline. Limited functionality available. Use Authenticate to try again.`);
-                } else {
-                    const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
-                    isOffline = !isOnline;
-                }
-                if (!isOffline) {
-                    const response = await fetchWithRetry(`${API_BASE}/auth/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: userId || `user-${crypto.randomUUID()}` })
-                    });
-                    const data = await response.json();
-                    apiKey = data.apiKey;
-                    userId = data.userId || userId || `user-${crypto.randomUUID()}`;
-                    wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
-                } else {
                     apiKey = `OFFLINE-${crypto.randomUUID()}`;
                     userId = userId || `user-${crypto.randomUUID()}`;
                     wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0, transactions: [] };
+                } else {
+                    const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+                    isOffline = !isOnline;
+                    let response;
+                    if (isOnline) {
+                        response = await fetchWithRetry(`${API_BASE}/auth/login`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: userId || `user-${crypto.randomUUID()}` })
+                        });
+                        const data = await response.json();
+                        apiKey = data.apiKey;
+                        userId = data.userId;
+                        wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
+                    } else {
+                        apiKey = `OFFLINE-${crypto.randomUUID()}`;
+                        userId = userId || `user-${crypto.randomUUID()}`;
+                        wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0, transactions: [] };
+                    }
                 }
                 localStorage.setItem('apiKey', apiKey);
                 localStorage.setItem('userId', userId);
@@ -352,7 +356,8 @@
                     try {
                         const response = await fetchWithRetry(`http://localhost:${port}/health`, { method: 'GET' });
                         const data = await response.json();
-                        logEvent('command', `Port ${port}: ${data.status} (Mongo: ${data.mongo}, Services: ${data.services.join(', ')})`);
+                        const services = Array.isArray(data.services) ? data.services.join(', ') : 'unknown';
+                        logEvent('command', `Port ${port}: ${data.status} (Mongo: ${data.mongo}, Services: ${services})`);
                     } catch (error) {
                         logEvent('error', `Port ${port} unreachable: ${error.message}`, { error: error.stack, endpoint: `http://localhost:${port}/health`, rawResponse: error.message });
                     }
@@ -896,7 +901,7 @@ Authenticated commands:
                 } else {
                     logEvent('system', `Backend online at ${API_BASE}. Ready to authenticate.`);
                 }
-                if (apiKey && userId) {
+                if (apiKey && userId && !apiKey.startsWith('OFFLINE-')) {
                     logEvent('system', `Authenticated with API key: ${apiKey}`);
                     isAuthenticated = true;
                     document.getElementById('authButton').classList.add('active-monitor');
@@ -906,7 +911,7 @@ Authenticated commands:
                     updateBalanceDisplay();
                 }
                 updateVialStatusBars();
-                setInterval(retryAuthentication, 60000);
+                setInterval(retryAuthentication, 30000); // Reduced retry interval to 30s
             } catch (error) {
                 logEvent('error', `Initialization failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
                 isOffline = true;
