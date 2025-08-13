@@ -1,36 +1,49 @@
-import hashlib
-import datetime
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import jwt
+import logging
+import datetime
 import os
-from fastapi import HTTPException
+
+app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class AuthRequest(BaseModel):
+    user_id: str
+    password: str
 
 class AuthManager:
     def __init__(self):
-        self.secret = os.getenv("JWT_SECRET", "supersecretkey")
+        self.secret_key = os.getenv("JWT_SECRET", "VIAL_MCP_SECRET_2025")
 
-    def generate_token(self, user_id: str) -> str:
+    async def authenticate(self, user_id: str, password: str) -> dict:
         try:
-            payload = {
-                "userId": user_id,
-                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24),
-                "iat": datetime.datetime.utcnow()
-            }
-            token = jwt.encode(payload, self.secret, algorithm="HS256")
-            return token
+            # Mock authentication (replace with actual user DB check in production)
+            if not user_id or not password:
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+            
+            token = jwt.encode({
+                "user_id": user_id,
+                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            }, self.secret_key, algorithm="HS256")
+            
+            db = pymongo.MongoClient("mongodb://localhost:27017")["mcp_db"]
+            db.collection("auth_logs").insert_one({
+                "user_id": user_id,
+                "action": "login",
+                "timestamp": datetime.datetime.utcnow().isoformat()
+            })
+            
+            return {"token": token}
         except Exception as e:
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Token generation error: {str(e)}\n")
+            logger.error(f"Authentication error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Authentication error: {str(e)}\n")
             raise HTTPException(status_code=500, detail=str(e))
 
-    def verify_token(self, token: str) -> dict:
-        try:
-            payload = jwt.decode(token, self.secret, algorithms=["HS256"])
-            return payload
-        except jwt.ExpiredSignatureError:
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Expired token error\n")
-            raise HTTPException(status_code=401, detail="Token expired")
-        except jwt.InvalidTokenError:
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Invalid token error\n")
-            raise HTTPException(status_code=401, detail="Invalid token")
+auth_manager = AuthManager()
+
+@app.post("/api/authenticate")
+async def authenticate_user(request: AuthRequest):
+    return await auth_manager.authenticate(request.user_id, request.password)
