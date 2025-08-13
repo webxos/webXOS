@@ -1,28 +1,74 @@
-from typing import Dict
-from vial_manager import VialManager
-from webxos_wallet import WebXOSWallet
-import logging
-
-logger = logging.getLogger(__name__)
+import datetime
+import hashlib
+import uuid
+from vial.webxos_wallet import WebXOSWallet
 
 class ExportManager:
-    def __init__(self, vial_manager: VialManager, wallet: WebXOSWallet):
-        self.vial_manager = vial_manager
-        self.wallet = wallet
+    def __init__(self):
+        self.wallet = WebXOSWallet()
 
-    def export_to_markdown(self, token: str, network_id: str) -> str:
-        """Export vial states and wallet data to markdown."""
+    def generate_export(self, user_id: str, vials: dict) -> str:
         try:
-            vials = self.vial_manager.get_vials()
-            wallet_data = self.wallet.export_wallet(network_id)
-            markdown = f"# Vial MCP Export\n\n## Token: {token}\n## Network ID: {network_id}\n\n## Vial States\n"
-            for vial_name, state in vials.items():
-                markdown += f"### {vial_name}\n{state}\n"
-            markdown += "\n## Wallet Data\n" + wallet_data
-            logger.info(f"Exported vials for network: {network_id}")
-            return markdown
+            network_id = str(uuid.uuid4())
+            wallet_balance = self.wallet.get_balance(user_id)
+            wallet_address = str(uuid.uuid4())
+            wallet_hash = hashlib.sha256(f"{user_id}{datetime.datetime.utcnow().isoformat()}".encode()).hexdigest()
+            export_content = f"""# WebXOS Vial and Wallet Export
+
+## Agentic Network
+- Network ID: {network_id}
+- Session Start: {datetime.datetime.utcnow().isoformat()}
+- Session Duration: 0.00 seconds
+- Reputation: {int(wallet_balance * 1000)}
+
+## Wallet
+- Wallet Key: {str(uuid.uuid4())}
+- Session Balance: {wallet_balance:.4f} $WEBXOS
+- Address: {wallet_address}
+- Hash: {wallet_hash}
+
+## API Credentials
+- Key: none
+- Secret: none
+
+## Blockchain
+- Blocks: 11914
+- Last Hash: {wallet_hash}
+
+## Vials
+"""
+            for vial_id, vial_data in vials.items():
+                export_content += f"""# Vial Agent: {vial_id}
+- Status: {vial_data.get('status', 'running')}
+- Language: Python
+- Code Length: {len(vial_data.get('script', ''))} bytes
+- $WEBXOS Hash: {hashlib.sha256(vial_id.encode()).hexdigest()}
+- Wallet Balance: {(wallet_balance / 4):.4f} $WEBXOS
+- Wallet Address: {str(uuid.uuid4())}
+- Wallet Hash: {wallet_hash}
+- Tasks: none
+- Quantum State: {{
+      "qubits": [],
+      "entanglement": "synced"
+    }}
+- Training Data: [
+      {{
+        "tasks": [],
+        "parameters": {{}},
+        "hash": "{hashlib.sha256(str(datetime.datetime.utcnow()).encode()).hexdigest()}"
+      }}
+    ]
+- Config: {{}}
+
+```python
+{vial_data.get('script', '')}
+```
+"""
+            return export_content
         except Exception as e:
-            logger.error(f"Export error: {str(e)}")
-            with open("errorlog.md", "a") as f:
-                f.write(f"- **[2025-08-11T05:46:00Z]** Export error: {str(e)}\n")
+            with open("vial/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Export generation error: {str(e)}\n")
             raise
+
+    def validate_export(self, export_data: str) -> bool:
+        return self.wallet.validate_export(export_data)
