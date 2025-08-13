@@ -1,11 +1,34 @@
-async function agent1Search(query, siteIndex) {
-    if (!siteIndex || !Array.isArray(siteIndex)) return [];
-    const fuseOptions = {
-        includeScore: true,
-        includeMatches: true,
-        threshold: 0.3, // Agent1: More precise search
-        keys: ['text.keywords']
-    };
-    const fuse = new Fuse(siteIndex, fuseOptions);
-    return fuse.search(query);
-}
+import axios from 'axios';
+
+const nomicAgent = {
+  async search(query, userId, apiKey) {
+    try {
+      const response = await axios.post(
+        '/v1/api/nomic_search',
+        { user_id: userId, query, limit: 5 },
+        { headers: { Authorization: `Bearer ${apiKey}` } }
+      );
+      return response.data;
+    } catch (error) {
+      const errorMessage = error.response?.data?.detail || error.message;
+      console.error(`Nomic search error: ${errorMessage}`);
+      throw new Error(`Nomic search failed: ${errorMessage}`);
+    }
+  },
+
+  async displayResults(results, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.error('Results container not found');
+      return;
+    }
+    container.innerHTML = '';
+    results.data.matches.forEach(match => {
+      const div = document.createElement('div');
+      div.textContent = `${match.id}: ${match.data} (Score: ${match.score})`;
+      container.appendChild(div);
+    });
+  }
+};
+
+export default nomicAgent;
