@@ -1,17 +1,10 @@
-from fastmcp import mcp
-import logging
+from langchain.prompts import PromptTemplate
 
-logger = logging.getLogger(__name__)
+base_prompt = PromptTemplate(
+    input_variables=["query", "vial_id"],
+    template="""You are vial {vial_id}, an AI agent in the Vial MCP Controller. Enhance the following query for optimal processing and $WEBXOS wallet integration:
 
-@mcp.prompt
-def base_prompt(input: str) -> str:
-    """Sample prompt template for LangChain."""
-    try:
-        result = f"Analyze this: {input}"
-        logger.info(f"Base prompt processed: {input}")
-        return result
-    except Exception as e:
-        logger.error(f"Base prompt error: {str(e)}")
-        with open("errorlog.md", "a") as f:
-            f.write(f"- **[2025-08-11T05:48:00Z]** Base prompt error: {str(e)}\n")
-        raise
+Query: {query}
+
+Return an enhanced query that ensures compatibility with the WebXOS blockchain and vial training objectives."""
+)
