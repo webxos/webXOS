@@ -18,37 +18,38 @@ const BACKEND_NODES = [
 async function tryNodes(endpoint, options) {
     for (const node of BACKEND_NODES) {
         try {
-            const response = await fetch(`${node}${endpoint}`, options);
+            const response = await fetch(`${node}${endpoint}`, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'Content-Type': 'application/json'
+                }
+            });
             if (response.ok) {
                 console.log(`Connected to ${node}${endpoint}`);
                 return response;
             }
+            throw new Error(`HTTP ${response.status}: ${await response.text().catch(() => 'No response body')}`);
         } catch (error) {
-            console.log(`Node ${node} failed: ${error.message}`);
+            console.log(`Node ${node}${endpoint} failed: ${error.message}`);
         }
     }
-    throw new Error('All backend nodes unreachable');
+    return new Response(JSON.stringify({ error: 'All backend nodes unreachable', offline: true }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+    });
 }
 
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
-    if (url.pathname.startsWith('/api/auth/')) {
+    if (url.pathname.startsWith('/api/')) {
         event.respondWith(
             tryNodes(url.pathname, {
                 method: event.request.method,
-                headers: event.request.headers,
-                body: event.request.body
+                headers: new Headers(event.request.headers),
+                body: event.request.method !== 'GET' ? event.request.body : undefined
             }).catch(error => {
                 console.error('Service Worker fetch failed:', error.message);
-                return new Response(JSON.stringify({ error: error.message, offline: true }), {
-                    status: 503,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            })
-        );
-    } else if (url.pathname.startsWith('/api/')) {
-        event.respondWith(
-            fetch(event.request).catch(() => {
                 const mockResponse = getMockResponse(url.pathname);
                 return new Response(JSON.stringify(mockResponse), {
                     status: 200,
@@ -62,6 +63,8 @@ self.addEventListener('fetch', event => {
 function getMockResponse(pathname) {
     const mockResponses = {
         '/api/health': { status: 'healthy', mongo: true, version: '2.8', services: ['auth', 'wallet', 'vials'] },
+        '/api/auth/login': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
+        '/api/auth/api-key/generate': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
         '/api/vials/vial1/prompt': { response: 'Prompt processed for vial1' },
         '/api/vials/vial2/prompt': { response: 'Prompt processed for vial2' },
         '/api/vials/vial3/prompt': { response: 'Prompt processed for vial3' },
