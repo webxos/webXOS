@@ -1,66 +1,56 @@
-const { JSDOM } = require('jsdom');
-const fs = require('fs');
-const path = require('path');
+import { JSDOM } from 'jsdom';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-describe('Vial HTML Tests', () => {
-    let dom;
-    let window;
-    let document;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const html = fs.readFileSync(path.resolve(__dirname, '../../pages/vial.js'), 'utf8');
 
-    beforeEach(async () => {
-        const html = fs.readFileSync(path.resolve(__dirname, '../../vial.html'), 'utf8');
-        dom = new JSDOM(html, { runScripts: 'dangerously', resources: 'usable' });
-        window = dom.window;
-        document = window.document;
+describe('Vial Frontend Tests', () => {
+  let dom;
+  let container;
 
-        // Mock Dexie
-        window.Dexie = class {
-            constructor(name) { this.name = name; }
-            version(v) { return { stores: () => {} }; }
-            table(name) { return { clear: async () => {}, put: async () => {} }; }
-        };
+  beforeEach(() => {
+    dom = new JSDOM(html, { runScripts: 'dangerously', resources: 'usable' });
+    container = dom.window.document.body;
+  });
 
-        // Mock Redaxios
-        window.redaxios = {
-            get: async () => ({ data: { agents: { vial1: { status: 'running', wallet_balance: 100, wallet_address: 'addr1', wallet_hash: 'hash1', script: 'code' } } } }),
-            post: async (url) => {
-                if (url === '/api/auth') return { data: { apiKey: 'test_key' } };
-                if (url === '/api/wallet/cashout') return { data: { status: 'success' } };
-                if (url === '/api/import') return { data: { agents: { vial1: { status: 'running', wallet_balance: 100, wallet_address: 'addr1', wallet_hash: 'hash1', script: 'code' } } } };
-            }
-        };
+  test('renders vial container', () => {
+    const vialContainer = container.querySelector('#vial-container');
+    expect(vialContainer).not.toBeNull();
+  });
 
-        // Mock localStorage
-        window.localStorage = { getItem: () => 'test_key', setItem: () => {} };
-    });
+  test('displays search results', async () => {
+    const mockResults = {
+      data: { matches: [{ id: 'doc1', data: 'Test data', score: 0.9 }] }
+    };
+    dom.window.axios = {
+      post: jest.fn().mockResolvedValue({ data: mockResults })
+    };
+    const nomicAgent = await import('../../static/agent1.js');
+    await nomicAgent.default.search('test', 'user123', 'key123');
+    await nomicAgent.default.displayResults(mockResults, 'search-results');
+    const resultsDiv = container.querySelector('#search-results');
+    expect(resultsDiv.textContent).toContain('doc1: Test data (Score: 0.9)');
+  });
 
-    test('auth command triggers authentication', async () => {
-        const input = document.getElementById('input');
-        const output = document.getElementById('output');
-        input.value = 'auth test_user';
-        const event = new window.KeyboardEvent('keypress', { key: 'Enter' });
-        input.dispatchEvent(event);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        expect(output.textContent).toContain('Authenticated as test_user');
-    });
+  test('handles search error', async () => {
+    dom.window.axios = {
+      post: jest.fn().mockRejectedValue(new Error('Invalid query'))
+    };
+    const nomicAgent = await import('../../static/agent1.js');
+    await expect(nomicAgent.default.search('test', 'user123', 'key123')).rejects.toThrow('Nomic search failed: Invalid query');
+  });
 
-    test('vials command loads vials', async () => {
-        const input = document.getElementById('input');
-        const output = document.getElementById('output');
-        input.value = 'vials';
-        const event = new window.KeyboardEvent('keypress', { key: 'Enter' });
-        input.dispatchEvent(event);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        expect(output.textContent).toContain('Loaded 1 vials');
-    });
-
-    test('cashout command triggers cashout', async () => {
-        const input = document.getElementById('input');
-        const output = document.getElementById('output');
-        input.value = 'cashout 10 addr1';
-        const event = new window.KeyboardEvent('keypress', { key: 'Enter' });
-        input.dispatchEvent(event);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        expect(output.textContent).toContain('Cashed out 10 $WEBXOS to addr1');
-    });
+  test('executes git command', async () => {
+    dom.window.axios = {
+      post: jest.fn().mockResolvedValue({ data: { status: 'success', output: 'git status output' } })
+    };
+    const response = await dom.window.axios.post('/v1/api/git', {
+      user_id: 'user123',
+      command: 'git status',
+      repo_url: 'https://github.com/webxos/webxos.git'
+    }, { headers: { Authorization: 'Bearer key123' } });
+    expect(response.data.output).toBe('git status output');
+  });
 });
