@@ -1,112 +1,186 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
-import json
-import os
-import time
-import uuid
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pymongo import MongoClient
+from pydantic import BaseModel
+import logging
+import re
+import hashlib
+import datetime
+import aiofiles
 
-app = Flask(__name__)
-CORS(app, resources={r"/chatbot/*": {"origins": "*"}})
+app = FastAPI()
 
-# Mock data
-vial_states = {
-    "vial1": {"status": "active", "pattern": "helix"},
-    "vial2": {"status": "active", "pattern": "cube"},
-    "vial3": {"status": "active", "pattern": "torus"},
-    "vial4": {"status": "active", "pattern": "star"}
-}
-site_index = [
-    {"path": "/app1", "source": "App1", "text": {"content": "Sample app", "keywords": ["app", "sample"]}},
-    {"path": "/app2", "source": "App2", "text": {"content": "AI tool", "keywords": ["ai", "tool"]}}
-]
-error_log_file = "errorlog.md"
+# MongoDB setup
+mongo_client = MongoClient('mongodb://mongo:27017')
+db = mongo_client['mcp_db']
 
-@app.route('/chatbot/ping', methods=['GET'])
-def ping():
-    return jsonify({"status": "ok", "timestamp": time.time()}), 200
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-@app.route('/chatbot/authenticate', methods=['POST'])
-def authenticate():
-    data = request.get_json()
-    if not data or data.get('network') != 'webxos':
-        return jsonify({"error": "Invalid network ID"}), 400
-    token = str(uuid.uuid4())
-    return jsonify({"token": token}), 200
+# Security
+security = HTTPBearer()
 
-@app.route('/chatbot/train_vials', methods=['POST'])
-def train_vials():
-    if not request.headers.get('Authorization'):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.get_json()
-    if not data or not data.get('content') or not data.get('filename'):
-        return jsonify({"error": "Invalid request"}), 400
-    content = data['content']
-    filename = data['filename']
-    if not filename.endswith('.md') or '## Vial Data' not in content or 'wallet' not in content:
-        return jsonify({"error": "Invalid .md format"}), 400
-    json_block = content.split('```json\n')[1].split('\n```')[0] if '```json\n' in content else None
-    if not json_block:
-        return jsonify({"error": "Missing JSON block"}), 400
+# Pydantic models
+class AuthRequest(BaseModel):
+    userId: str
+
+class QueryRequest(BaseModel):
+    query: str
+    timestamp: str
+
+class WalletRequest(BaseModel):
+    transaction: dict
+    wallet: dict
+
+class EnhanceQueryRequest(BaseModel):
+    query: str
+    apiKey: str
+
+# Authentication dependency
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    api_key = credentials.credentials
+    user = db.users.find_one({"apiKey": api_key})
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired API key")
+    return user
+
+@app.get("/api/health")
+async def health():
     try:
-        json.loads(json_block)
-    except json.JSONDecodeError:
-        return jsonify({"error": "Invalid JSON in .md"}), 400
-    return jsonify({"balance_earned": 100}), 200
+        db.command("ping")
+        return {"status": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)}")
 
-@app.route('/chatbot/reset_vials', methods=['POST'])
-def reset_vials():
-    if not request.headers.get('Authorization'):
-        return jsonify({"error": "Unauthorized"}), 401
-    global vial_states
-    vial_states = {
-        "vial1": {"status": "active", "pattern": "helix"},
-        "vial2": {"status": "active", "pattern": "cube"},
-        "vial3": {"status": "active", "pattern": "torus"},
-        "vial4": {"status": "active", "pattern": "star"}
-    }
-    return jsonify({"status": "vials reset"}), 200
+@app.post("/api/auth")
+async def auth(auth_request: AuthRequest):
+    try:
+        api_key = hashlib.sha256(f"{auth_request.userId}{datetime.datetime.utcnow().isoformat()}".encode()).hexdigest()
+        user = {
+            "userId": auth_request.userId,
+            "apiKey": api_key,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+        db.users.update_one({"userId": auth_request.userId}, {"$set": user}, upsert=True)
+        logger.info(f"Authenticated user: {auth_request.userId}")
+        return {"apiKey": api_key}
+    except Exception as e:
+        logger.error(f"Auth error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/chatbot/get_vials', methods=['GET'])
-def get_vials():
-    if not request.headers.get('Authorization'):
-        return jsonify({"error": "Unauthorized"}), 401
-    return jsonify(vial_states), 200
+@app.get("/api/vials", dependencies=[Depends(verify_token)])
+async def get_vials():
+    try:
+        vials = list(db.vials.find({}, {"_id": 0}))
+        agents = {vial["id"]: {k: v for k, v in vial.items() if k != "id"} for vial in vials}
+        return {"agents": agents}
+    except Exception as e:
+        logger.error(f"Failed to load vials: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/chatbot/galaxy_search', methods=['POST'])
-def galaxy_search():
-    if not request.headers.get('Authorization'):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.get_json()
-    query = data.get('query', '')
-    vials = data.get('vials', [])
-    if not query:
-        return jsonify({"error": "Query required"}), 400
-    results = [
-        {"item": item, "matches": [{"value": item['text']['content'], "indices": [[0, len(query)]]}]}
-        for item in site_index if query.lower() in item['text']['content'].lower()
-    ]
-    return jsonify(results), 200
+@app.post("/api/log_query", dependencies=[Depends(verify_token)])
+async def log_query(query_request: QueryRequest):
+    try:
+        db.queries.insert_one({
+            "query": query_request.query,
+            "timestamp": query_request.timestamp,
+            "userId": verify_token(Depends(security)).userId
+        })
+        logger.info(f"Logged query: {query_request.query}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to log query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/chatbot/dna_reasoning', methods=['POST'])
-def dna_reasoning():
-    if not request.headers.get('Authorization'):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.get_json()
-    query = data.get('query', '')
-    vials = data.get('vials', [])
-    if not query:
-        return jsonify({"error": "Query required"}), 400
-    results = [f"DNA reasoning result for '{query}' with vials {vials}"]
-    return jsonify(results), 200
+@app.post("/api/wallet", dependencies=[Depends(verify_token)])
+async def update_wallet(wallet_request: WalletRequest):
+    try:
+        db.wallet.update_one(
+            {"userId": verify_token(Depends(security)).userId},
+            {"$push": {"transactions": wallet_request.transaction}, "$inc": {"webxos": 0.0001}},
+            upsert=True
+        )
+        logger.info(f"Updated wallet for user: {verify_token(Depends(security)).userId}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to update wallet: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/chatbot/log_error', methods=['POST'])
-def log_error():
-    data = request.get_json()
-    if not data or not data.get('timestamp') or not data.get('message'):
-        return jsonify({"error": "Invalid error log"}), 400
-    with open(error_log_file, 'a') as f:
-        f.write(f"[{data['timestamp']}] {data['message']}\n")
-    return jsonify({"status": "error logged"}), 200
+@app.post("/api/enhance_query", dependencies=[Depends(verify_token)])
+async def enhance_query(request: EnhanceQueryRequest):
+    try:
+        # Call NLP model for query enhancement
+        from nlp_model import enhance_query
+        enhanced_query = enhance_query(request.query)
+        db.queries.insert_one({
+            "query": request.query,
+            "enhanced_query": enhanced_query,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": request.apiKey
+        })
+        logger.info(f"Enhanced query: {request.query} -> {enhanced_query}")
+        return {"enhanced_query": enhanced_query}
+    except Exception as e:
+        logger.error(f"Failed to enhance query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+@app.post("/api/import", dependencies=[Depends(verify_token)])
+async def import_vials(file: UploadFile = File(...)):
+    try:
+        async with aiofiles.open(f"/tmp/{file.filename}", 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        with open(f"/tmp/{file.filename}", 'r') as f:
+            text = f.read()
+        agent_sections = text.split('## Agent ')[1:]
+        if len(agent_sections) != 4:
+            raise HTTPException(status_code=400, detail=f"Expected 4 vials, found {len(agent_sections)}")
+        agents = {}
+        for section in agent_sections:
+            lines = section.split('\n')
+            id = lines[0].strip()
+            role = lines[1].split('Role: ')[1] if 'Role: ' in lines[1] else ''
+            description = lines[2].split('Description: ')[1] if 'Description: ' in lines[2] else ''
+            script_start = next(i for i, line in enumerate(lines) if line.startswith('```python'))
+            script_end = next(i for i, line in enumerate(lines[script_start:]) if line.startswith('```') and i > 0) + script_start
+            script = '\n'.join(lines[script_start + 1:script_end])
+            agents[id] = {"role": role, "description": description, "script": script}
+        db.vials.delete_many({})
+        db.vials.insert_many([{"id": id, **agent} for id, agent in agents.items()])
+        logger.info(f"Imported {len(agents)} vials from {file.filename}")
+        return {"agents": agents}
+    except Exception as e:
+        logger.error(f"Failed to import vials: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/modules", dependencies=[Depends(verify_token)])
+async def add_module(file: UploadFile = File(...)):
+    try:
+        async with aiofiles.open(f"/tmp/{file.filename}", 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        with open(f"/tmp/{file.filename}", 'r') as f:
+            text = f.read()
+        module_data = {"name": file.filename, "content": text, "timestamp": datetime.datetime.utcnow().isoformat()}
+        db.modules.insert_one(module_data)
+        logger.info(f"Added module: {file.filename}")
+        return {"status": "success", "module": module_data}
+    except Exception as e:
+        logger.error(f"Failed to add module: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        db.command("ping")
+        logger.info("Connected to MongoDB")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {str(e)}")
+        raise Exception(f"Failed to connect to MongoDB: {str(e)}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    mongo_client.close()
+    logger.info("Disconnected from MongoDB")
