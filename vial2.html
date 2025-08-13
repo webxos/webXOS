@@ -19,6 +19,7 @@
         #console .balance { color: #00f; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
         #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8); color: #fff; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
         #error-notification.visible { display: block; }
+        #error-notification.success { background: rgba(0, 255, 0, 0.8); }
         #api-popup, #config-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0; }
         #api-popup.visible, #config-popup.visible { display: block; }
         #api-popup textarea, #config-popup input { width: 100%; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; }
@@ -95,7 +96,7 @@
         <button id="apiAccessButton" disabled>API Access</button>
         <button id="configButton">Config</button>
     </div>
-    <textarea id="prompt-input" placeholder="Enter git commands for API (e.g., /prompt vial1 train dataset)..."></textarea>
+    <textarea id="prompt-input" placeholder="Enter commands (e.g., /prompt vial1 train dataset, /auth user123, /status)"></textarea>
     <div id="vial-status-bars"></div>
     <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.8</footer>
     <input type="file" id="file-input" accept=".md">
@@ -105,15 +106,16 @@
         let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>'];
         let isAuthenticated = false;
         let isOffline = true;
-        let wallet = { address: null, balance: 0, hash: null, webxos: 0.0000, transactions: [] };
+        let apiKey = localStorage.getItem('apiKey') || null;
+        let userId = localStorage.getItem('userId') || null;
+        let wallet = { address: null, balance: 0, hash: null, webxos: 0.0, transactions: [] };
         let reputation = 0;
-        let apiCredentials = { key: null, secret: null };
         let vials = Array(4).fill().map((_, i) => ({
             id: `vial${i + 1}`,
             status: 'stopped',
             code: '',
             codeLength: 0,
-            wallet: { address: null, balance: 0, hash: null, webxos: 0.0000, transactions: [] },
+            wallet: { address: null, balance: 0, hash: null, webxos: 0.0, transactions: [] },
             tasks: [],
             latency: 0
         }));
@@ -123,21 +125,22 @@
 
         const mockResponses = {
             '/api/health': { status: 'healthy', mongo: true, version: '2.8', services: ['auth', 'wallet', 'vials'] },
-            '/api/auth/login': { apiKey: `OFFLINE-${generateUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
-            '/api/vials/vial1/prompt': { response: 'Mock prompt processed' },
-            '/api/vials/vial2/prompt': { response: 'Mock prompt processed' },
-            '/api/vials/vial3/prompt': { response: 'Mock prompt processed' },
-            '/api/vials/vial4/prompt': { response: 'Mock prompt processed' },
-            '/api/vials/vial1/task': { status: 'Task assigned' },
-            '/api/vials/vial2/task': { status: 'Task assigned' },
-            '/api/vials/vial3/task': { status: 'Task assigned' },
-            '/api/vials/vial4/task': { status: 'Task assigned' },
-            '/api/vials/vial1/config': { status: 'Config updated' },
-            '/api/vials/vial2/config': { status: 'Config updated' },
-            '/api/vials/vial3/config': { status: 'Config updated' },
-            '/api/vials/vial4/config': { status: 'Config updated' },
+            '/api/auth/login': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
+            '/api/auth/api-key/generate': { apiKey: `OFFLINE-${crypto.randomUUID()}`, walletAddress: 'mock-wallet', walletHash: 'mock-hash' },
+            '/api/vials/vial1/prompt': { response: 'Prompt processed for vial1' },
+            '/api/vials/vial2/prompt': { response: 'Prompt processed for vial2' },
+            '/api/vials/vial3/prompt': { response: 'Prompt processed for vial3' },
+            '/api/vials/vial4/prompt': { response: 'Prompt processed for vial4' },
+            '/api/vials/vial1/task': { status: 'Task assigned to vial1' },
+            '/api/vials/vial2/task': { status: 'Task assigned to vial2' },
+            '/api/vials/vial3/task': { status: 'Task assigned to vial3' },
+            '/api/vials/vial4/task': { status: 'Task assigned to vial4' },
+            '/api/vials/vial1/config': { status: 'Config updated for vial1' },
+            '/api/vials/vial2/config': { status: 'Config updated for vial2' },
+            '/api/vials/vial3/config': { status: 'Config updated for vial3' },
+            '/api/vials/vial4/config': { status: 'Config updated for vial4' },
             '/api/vials/void': { status: 'All vials reset' },
-            '/api/wallet/create': { status: 'Wallet created', address: 'mock-wallet' },
+            '/api/wallet/create': { status: 'Wallet created', address: 'mock-wallet', webxos: 0.0 },
             '/api/wallet/import': { status: 'Wallet imported' },
             '/api/wallet/transaction': { status: 'Transaction recorded' },
             '/api/quantum/link': { statuses: ['running', 'running', 'running', 'running'], latencies: [50, 60, 70, 80] },
@@ -145,32 +148,32 @@
         };
 
         async function logErrorToBackend(errorMessage, stack, endpoint, rawResponse = '') {
-            if (isOffline) return;
             try {
-                await fetchWithRetry(`${API_BASE}/log_error`, {
+                await fetchWithRetry(`${API_BASE}/api/log_error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ error: errorMessage, stack, endpoint, timestamp: new Date().toISOString(), source: 'frontend', rawResponse })
                 });
             } catch (e) {
                 console.error('Failed to log error to backend:', e.message);
+                localStorage.setItem(`error_${lastLogId + 1}`, JSON.stringify({ error: errorMessage, stack, endpoint, timestamp: new Date().toISOString() }));
             }
         }
 
-        async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+        async function fetchWithRetry(url, options, retries = 5, delay = 1000) {
             const retryKey = url.split('?')[0];
             const retryCount = retryLimits.get(retryKey) || 0;
             if (retryCount >= retries) {
-                logEvent('error', `Retry limit reached for ${url}. Aborting.`, { endpoint: url });
-                throw new Error(`Retry limit reached for ${url}`);
+                logEvent('error', `Retry limit reached for ${url}. Using mock response.`, { endpoint: url });
+                return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
             }
-            if (isOffline && mockResponses[url.replace(API_BASE, '')]) {
-                return { ok: true, json: async () => mockResponses[url.replace(API_BASE, '')], text: async () => JSON.stringify(mockResponses[url.replace(API_BASE, '')]) };
+            if (isOffline) {
+                return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
             }
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
                     const response = await fetch(url, { ...options, signal: controller.signal });
                     clearTimeout(timeoutId);
                     if (response.ok) {
@@ -181,14 +184,14 @@
                     throw new Error(`HTTP ${response.status}: ${rawText.slice(0, 100)}...`);
                 } catch (error) {
                     if (error.name === 'AbortError') {
-                        error.message = `Request timed out after 5s for ${url}`;
+                        error.message = `Request timed out after 10s for ${url}`;
                     } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
                         error.message = `Unable to connect to ${url}. Ensure server is running on ports 8000-8007.`;
                     }
                     if (i === retries - 1) {
                         retryLimits.set(retryKey, retryCount + 1);
                         logEvent('error', `Fetch failed: ${error.message}`, { error: error.stack, endpoint: url, rawResponse: error.message });
-                        throw error;
+                        return { ok: true, json: async () => mockResponses[new URL(url).pathname] || { error: 'No mock response available' } };
                     }
                     await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
                 }
@@ -197,7 +200,7 @@
 
         async function checkBackendStatus() {
             try {
-                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
+                const response = await fetchWithRetry(`${API_BASE}/api/health`, { method: 'GET' });
                 const text = await response.text();
                 let data;
                 try {
@@ -206,10 +209,10 @@
                     throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
                 if (data.status !== 'healthy') throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
-                logEvent('system', `Backend online at ${API_BASE}`, { endpoint: `${API_BASE}/health` });
+                logEvent('system', `Backend online at ${API_BASE}`, { endpoint: `${API_BASE}/api/health` });
                 return true;
             } catch (error) {
-                logEvent('error', `Backend offline: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
+                logEvent('error', `Backend offline: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/health`, rawResponse: error.message });
                 return false;
             }
         }
@@ -220,7 +223,7 @@
             try {
                 testUrl = testUrl.endsWith('/api') ? testUrl : `${testUrl.replace(/\/$/, '')}/api`;
                 new URL(testUrl);
-                const response = await fetchWithRetry(`${testUrl}/health`, { method: 'GET' });
+                const response = await fetchWithRetry(`${testUrl}/api/health`, { method: 'GET' });
                 const text = await response.text();
                 let data;
                 try {
@@ -230,21 +233,369 @@
                 }
                 if (data.status === 'healthy') {
                     showErrorNotification(`Connection successful to ${testUrl}! Save to continue.`, true);
-                    logEvent('system', `Connection test successful to ${testUrl}`, { endpoint: `${testUrl}/health` });
+                    logEvent('system', `Connection test successful to ${testUrl}`, { endpoint: `${testUrl}/api/health` });
                 } else {
                     throw new Error(`Backend unhealthy: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                showErrorNotification(`Connection failed: ${error.message}. Run: curl ${testUrl}/health or check services on ports 8000-8007.`);
-                logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/health`, rawResponse: error.message });
+                showErrorNotification(`Connection failed: ${error.message}. Run: curl ${testUrl}/api/health or check services on ports 8000-8007.`);
+                logEvent('error', `Connection test failed: ${error.message}`, { error: error.stack, endpoint: `${testUrl}/api/health`, rawResponse: error.message });
             }
         }
 
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                const r = Math.random() * 16 | 0;
-                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        async function authenticate() {
+            try {
+                const isBackendOnline = await checkBackendStatus();
+                if (!isBackendOnline) {
+                    isOffline = true;
+                    showConfigPopup(true);
+                    logEvent('error', `Backend offline at ${API_BASE}. Please configure and test connection.`, { endpoint: `${API_BASE}/api/health` });
+                } else {
+                    const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+                    isOffline = !isOnline;
+                }
+                if (!isOffline) {
+                    const response = await fetchWithRetry(`${API_BASE}/api/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: userId || `user-${crypto.randomUUID()}` })
+                    });
+                    const text = await response.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                    }
+                    apiKey = data.apiKey;
+                    userId = data.userId || userId || `user-${crypto.randomUUID()}`;
+                    wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0, transactions: [] };
+                } else {
+                    apiKey = `OFFLINE-${crypto.randomUUID()}`;
+                    userId = userId || `user-${crypto.randomUUID()}`;
+                    wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0, transactions: [] };
+                }
+                localStorage.setItem('apiKey', apiKey);
+                localStorage.setItem('userId', userId);
+                isAuthenticated = true;
+                logEvent('system', `Authenticated ${isOffline ? 'offline' : 'online'} with API key: ${apiKey}`);
+                ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    document.getElementById(id).disabled = isOffline;
+                });
+                document.getElementById('authButton').classList.add('active-monitor');
+                updateBalanceDisplay();
+                updateVialStatusBars();
+                if (!isOffline) {
+                    await fetchWithRetry(`${API_BASE}/api/wallet/create`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ userId, ...wallet })
+                    });
+                }
+            } catch (error) {
+                isOffline = true;
+                apiKey = `OFFLINE-${crypto.randomUUID()}`;
+                userId = userId || `user-${crypto.randomUUID()}`;
+                localStorage.setItem('apiKey', apiKey);
+                localStorage.setItem('userId', userId);
+                wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0, transactions: [] };
+                isAuthenticated = true;
+                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/auth/login`, rawResponse: error.message });
+                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config or try http://localhost:8001/api/health.`);
+                disableFunctions();
+                showConfigPopup(true);
+            }
+        }
+
+        async function retryAuthentication() {
+            if (!userId || apiKey.startsWith('OFFLINE-')) return;
+            try {
+                const response = await fetchWithRetry(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                apiKey = data.apiKey;
+                localStorage.setItem('apiKey', apiKey);
+                isOffline = false;
+                logEvent('system', `Re-authenticated with API key: ${apiKey}`);
+                updateBalanceDisplay();
+                updateVialStatusBars();
+                ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    document.getElementById(id).disabled = false;
+                });
+            } catch (error) {
+                logEvent('error', `Periodic authentication retry failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/auth/login`, rawResponse: error.message });
+            }
+        }
+
+        function disableFunctions() {
+            ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                document.getElementById(id).disabled = true;
             });
+            document.getElementById('authButton').classList.remove('active-monitor');
+            updateBalanceDisplay();
+            updateVialStatusBars();
+        }
+
+        async function voidVials() {
+            try {
+                if (!isOffline) {
+                    await fetchWithRetry(`${API_BASE}/api/vials/void`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }
+                    });
+                }
+                vials.forEach(vial => {
+                    vial.status = 'stopped';
+                    vial.tasks = [];
+                    vial.config = {};
+                    vial.code = '';
+                    vial.codeLength = 0;
+                });
+                logEvent('command', mockResponses['/api/vials/void'].status);
+                updateVialStatusBars();
+            } catch (error) {
+                logEvent('error', `Void failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/vials/void`, rawResponse: error.message });
+            }
+        }
+
+        async function troubleshoot() {
+            try {
+                logEvent('command', 'Running diagnostics...');
+                logEvent('command', `Version: ${version}`);
+                logEvent('command', `Vials: ${vials.length}`);
+                logEvent('command', `Authenticated: ${isAuthenticated ? 'Yes' : 'No'} (${isOffline ? 'Offline' : 'Online'})`);
+                logEvent('command', `API Key: ${apiKey || 'None'}`);
+                logEvent('command', `API Base URL: ${API_BASE}`);
+                logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
+                logEvent('command', `Reputation: ${isOffline ? 'N/A' : reputation}`);
+                logEvent('command', `Wallet Transactions: ${wallet.transactions.length}`);
+                logEvent('command', 'Testing connectivity to ports 8000-8007...');
+                for (let port = 8000; port <= 8007; port++) {
+                    try {
+                        const response = await fetchWithRetry(`http://localhost:${port}/api/health`, { method: 'GET' });
+                        const text = await response.text();
+                        let data;
+                        try {
+                            data = JSON.parse(text);
+                        } catch (e) {
+                            throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                        }
+                        logEvent('command', `Port ${port}: ${data.status} (Mongo: ${data.mongo}, Services: ${data.services.join(', ')})`);
+                    } catch (error) {
+                        logEvent('error', `Port ${port} unreachable: ${error.message}`, { error: error.stack, endpoint: `http://localhost:${port}/api/health`, rawResponse: error.message });
+                    }
+                }
+            } catch (error) {
+                logEvent('error', `Diagnostics failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/health`, rawResponse: error.message });
+                showConfigPopup(true);
+            }
+        }
+
+        async function quantumLink() {
+            try {
+                if (!isAuthenticated) throw new Error('Authenticate first');
+                if (isOffline) {
+                    const mockData = mockResponses['/api/quantum/link'];
+                    vials.forEach((vial, i) => {
+                        vial.status = mockData.statuses[i] || 'running';
+                        vial.latency = mockData.latencies[i] || 50;
+                    });
+                    logEvent('command', 'Offline mode: Quantum Link established.');
+                    updateVialStatusBars();
+                    return;
+                }
+                const response = await fetchWithRetry(`${API_BASE}/api/quantum/link`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({ vials: vials.map(v => v.id) })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                vials.forEach((vial, i) => {
+                    vial.status = data.statuses[i] || 'running';
+                    vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+                });
+                logEvent('command', 'Quantum Link established.');
+                updateVialStatusBars();
+            } catch (error) {
+                logEvent('error', `Quantum Link failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/quantum/link`, rawResponse: error.message });
+            }
+        }
+
+        async function exportWallet() {
+            try {
+                if (!isAuthenticated) throw new Error('Authenticate first');
+                const data = {
+                    markdown: `# WebXOS Vial Wallet Export\n\n## Wallet\n- Address: ${wallet.address || 'none'}\n- Balance: ${wallet.webxos.toFixed(4)} $WEBXOS\n- Hash: ${wallet.hash || 'none'}\n- Transactions: ${JSON.stringify(wallet.transactions, null, 2).replace(/\n/g, '\n  ')}\n`
+                };
+                const blob = new Blob([data.markdown], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+                const blockHash = await addToBlockchain('export', { wallet: wallet.address });
+                logEvent('command', 'Wallet exported.', { blockHash });
+                wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
+                wallet.webxos += 0.0001;
+                if (!isOffline) {
+                    await fetchWithRetry(`${API_BASE}/api/wallet/transaction`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ userId, ...wallet })
+                    });
+                }
+                updateBalanceDisplay();
+            } catch (error) {
+                logEvent('error', `Export failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/wallet/transaction`, rawResponse: error.message });
+            }
+        }
+
+        async function importWallet() {
+            try {
+                if (!isAuthenticated) throw new Error('Authenticate first');
+                const input = document.getElementById('file-input');
+                input.onchange = async function(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    if (!file.name.endsWith('.md')) throw new Error('Invalid file: Use .md');
+                    const text = await file.text();
+                    if (!validateMarkdown(text)) throw new Error('Invalid Markdown format');
+                    const lines = text.split('\n');
+                    let newWallet = { address: null, balance: 0, hash: null, webxos: 0.0, transactions: [] };
+                    for (let line of lines) {
+                        if (line.match(/^- Address: ([\w-]+)/)) {
+                            newWallet.address = line.match(/^- Address: ([\w-]+)/)[1];
+                        } else if (line.match(/^- Balance: ([\d.]+) \$WEBXOS/)) {
+                            newWallet.webxos = parseFloat(line.match(/^- Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
+                        } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
+                            newWallet.hash = line.match(/^- Hash: ([0-9a-f]{64})/)[1];
+                        } else if (line.match(/^- Transactions: (.*)/)) {
+                            try {
+                                const transactionData = line.match(/^- Transactions: (.*)/)[1];
+                                newWallet.transactions = transactionData ? JSON.parse(transactionData) : [];
+                            } catch (err) {
+                                throw new Error(`Invalid transactions: ${err.message}`);
+                            }
+                        }
+                    }
+                    if (!newWallet.address || !newWallet.hash) throw new Error('Missing wallet address or hash');
+                    wallet = newWallet;
+                    if (!isOffline) {
+                        await fetchWithRetry(`${API_BASE}/api/wallet/import`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({ userId, ...wallet })
+                        });
+                    }
+                    const blockHash = await addToBlockchain('import', { wallet: wallet.address });
+                    logEvent('command', `Imported wallet from ${file.name}.`, { blockHash });
+                    wallet.transactions.push({ type: 'import', file: file.name, timestamp: new Date().toISOString() });
+                    wallet.webxos += 0.0001;
+                    if (!isOffline) {
+                        await fetchWithRetry(`${API_BASE}/api/wallet/transaction`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({ userId, ...wallet })
+                        });
+                    }
+                    updateBalanceDisplay();
+                    input.value = '';
+                };
+                input.click();
+            } catch (error) {
+                logEvent('error', `Import failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/wallet/import`, rawResponse: error.message });
+                showErrorNotification(`Import failed: ${error.message}`);
+            }
+        }
+
+        async function showApiCredentials() {
+            try {
+                const apiInput = document.getElementById('api-input');
+                apiInput.value = isOffline ? 'Offline Mode: No API key available' : `Key: ${apiKey}`;
+                document.getElementById('api-popup').classList.add('visible');
+            } catch (error) {
+                logEvent('error', `API credentials error: ${error.message}`, { error: error.stack });
+            }
+        }
+
+        async function generateNewApiCredentials() {
+            try {
+                if (isOffline) throw new Error('Cannot generate credentials offline');
+                const response = await fetchWithRetry(`${API_BASE}/api/auth/api-key/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                apiKey = data.apiKey;
+                localStorage.setItem('apiKey', apiKey);
+                document.getElementById('api-input').value = `Key: ${apiKey}`;
+                const blockHash = await addToBlockchain('api_generate', { key: apiKey });
+                logEvent('command', 'New API credentials generated.', { blockHash });
+            } catch (error) {
+                logEvent('error', `Credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/auth/api-key/generate`, rawResponse: error.message });
+                showErrorNotification(`Credentials generation failed: ${error.message}`);
+            }
+        }
+
+        async function addToBlockchain(type, data) {
+            if (isOffline && type !== 'import' && type !== 'export') return null;
+            try {
+                const timestamp = new Date().toISOString();
+                const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}`);
+                const block = { type, data, timestamp, hash };
+                if (!isOffline) {
+                    await fetchWithRetry(`${API_BASE}/api/blockchain/transaction`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify(block)
+                    });
+                }
+                return hash;
+            } catch (error) {
+                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/blockchain/transaction`, rawResponse: error.message });
+                return null;
+            }
         }
 
         async function sha256(data) {
@@ -269,162 +620,59 @@
             return isValid;
         }
 
-        async function addToBlockchain(type, data) {
-            if (isOffline && type !== 'import' && type !== 'export') return null;
-            try {
-                const timestamp = new Date().toISOString();
-                const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}`);
-                const block = { type, data, timestamp, hash };
-                if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/blockchain/transaction`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiCredentials.key}`
-                        },
-                        body: JSON.stringify(block)
-                    });
-                }
-                return hash;
-            } catch (error) {
-                logEvent('error', `Blockchain error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/blockchain/transaction`, rawResponse: error.message });
-                return null;
+        function showConfigPopup(forceOnError = false) {
+            const configPopup = document.getElementById('config-popup');
+            const configInput = document.getElementById('config-input');
+            configInput.value = API_BASE;
+            configPopup.classList.add('visible');
+            if (forceOnError) {
+                showErrorNotification(`Backend unreachable at ${API_BASE}. Configure and test connection.`);
             }
         }
 
-        async function handleGitCommand(command) {
-            if (!isAuthenticated) {
-                showErrorNotification('Please authenticate first');
-                logEvent('error', 'Not authenticated', {});
+        async function saveConfig() {
+            const configInput = document.getElementById('config-input');
+            let newApiBase = configInput.value.trim();
+            if (!newApiBase) {
+                showErrorNotification('Backend URL cannot be empty');
                 return;
             }
-            const sanitizedCommand = sanitizeInput(command.trim());
-            const parts = sanitizedCommand.split(' ');
-            const cmd = parts[0].toLowerCase();
-            const blockHash = await addToBlockchain('command', { command: sanitizedCommand });
-
             try {
-                if (cmd === '/help') {
-                    logEvent('command', `Available commands:
-- /prompt <vial> <text>: Send prompt to vial
-- /task <vial> <task>: Assign task to vial
-- /config <vial> <key> <value>: Set vial config
-- /status: Show vial statuses`, { blockHash });
-                } else if (cmd === '/prompt') {
-                    if (parts.length < 3) throw new Error('Usage: /prompt <vial> <text>');
-                    const vialId = parts[1];
-                    const promptText = parts.slice(2).join(' ');
-                    const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
-                    if (promptText.match(/(system|admin|root|eval|exec)/i)) throw new Error('Restricted keywords in prompt');
-                    vial.tasks.push({ prompt: promptText, hash: blockHash });
-                    vial.status = 'running';
-                    logEvent('command', `Prompt sent to ${vialId}: ${promptText}`, { blockHash });
-                    if (!isOffline) await sendPromptToBackend(vialId, promptText, blockHash);
-                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/prompt`].response}`, { blockHash });
-                } else if (cmd === '/task') {
-                    if (parts.length < 3) throw new Error('Usage: /task <vial> <task>');
-                    const vialId = parts[1];
-                    const task = parts.slice(2).join(' ');
-                    const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
-                    vial.tasks = [...new Set([...vial.tasks, task])];
-                    vial.status = 'running';
-                    logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
-                    if (!isOffline) await sendTaskToBackend(vialId, task, blockHash);
-                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/task`].status}`, { blockHash });
-                } else if (cmd === '/config') {
-                    if (parts.length < 4) throw new Error('Usage: /config <vial> <key> <value>');
-                    const vialId = parts[1];
-                    const key = parts[2];
-                    const value = parts.slice(3).join(' ');
-                    const vial = vials.find(v => v.id === vialId);
-                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
-                    vial.config = { ...vial.config, [key]: value };
-                    vial.status = 'running';
-                    logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
-                    if (!isOffline) await setConfigToBackend(vialId, key, value, blockHash);
-                    else logEvent('command', `Offline mode: Mock response for ${vialId}: ${mockResponses[`/api/vials/${vialId}/config`].status}`, { blockHash });
-                } else if (cmd === '/status') {
-                    const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}`).join('\n');
-                    logEvent('command', `Vial Status:\n${status}`, { blockHash });
-                } else {
-                    throw new Error(`Unknown command: ${cmd}. Use /help`);
+                newApiBase = newApiBase.endsWith('/api') ? newApiBase : `${newApiBase.replace(/\/$/, '')}/api`;
+                new URL(newApiBase);
+                if (!newApiBase.match(/^http:\/\/[a-zA-Z0-9.-]+:[0-9]+\/api$/)) {
+                    throw new Error('Invalid URL format. Use http://hostname:port/api');
                 }
-                updateVialStatusBars();
-            } catch (error) {
-                showErrorNotification(error.message);
-                logEvent('error', error.message, { error: error.stack, command: sanitizedCommand });
+            } catch (e) {
+                showErrorNotification(`Invalid URL: ${e.message}. Use http://localhost:8000/api or similar.`);
+                return;
             }
+            API_BASE = newApiBase;
+            localStorage.setItem('apiBase', API_BASE);
+            logEvent('command', `Backend URL set to ${API_BASE}`);
+            document.getElementById('config-popup').classList.remove('visible');
+            isOffline = !(await checkBackendStatus());
+            if (isOffline) {
+                showConfigPopup(true);
+            } else if (isAuthenticated) {
+                await authenticate();
+            }
+            updateBalanceDisplay();
+            updateVialStatusBars();
+            if (isOffline) disableFunctions();
         }
 
-        async function sendPromptToBackend(vialId, prompt, blockHash) {
-            try {
-                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/prompt`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiCredentials.key}`
-                    },
-                    body: JSON.stringify({ vialId, prompt, blockHash })
-                });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
-                logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
-            } catch (error) {
-                logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/prompt`, vialId, prompt, rawResponse: error.message });
-            }
-        }
-
-        async function sendTaskToBackend(vialId, task, blockHash) {
-            try {
-                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/task`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiCredentials.key}`
-                    },
-                    body: JSON.stringify({ vialId, task, blockHash })
-                });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
-                logEvent('command', `Task assigned to ${vialId}: ${data.status}`, { blockHash });
-            } catch (error) {
-                logEvent('error', `Task error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/task`, vialId, task, rawResponse: error.message });
-            }
-        }
-
-        async function setConfigToBackend(vialId, key, value, blockHash) {
-            try {
-                const response = await fetchWithRetry(`${API_BASE}/vials/${vialId}/config`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiCredentials.key}`
-                    },
-                    body: JSON.stringify({ vialId, key, value, blockHash })
-                });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
-                logEvent('command', `Config updated for ${vialId}: ${key}=${value}`, { blockHash });
-            } catch (error) {
-                logEvent('error', `Config error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/${vialId}/config`, vialId, key, value, rawResponse: error.message });
-            }
+        function showErrorNotification(message, isSuccess = false) {
+            const errorNotification = document.getElementById('error-notification');
+            errorNotification.classList.remove('success');
+            if (isSuccess) errorNotification.classList.add('success');
+            errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ?
+                `${message} Run: curl ${API_BASE}/api/health or check services on ports 8000-8007.` :
+                message.includes('JSON') ?
+                `${message} Check ${API_BASE}/api/health in a browser or run: curl ${API_BASE}/api/health` :
+                message;
+            errorNotification.classList.add('visible');
+            setTimeout(() => errorNotification.classList.remove('visible'), 10000);
         }
 
         function debounce(func, wait) {
@@ -434,6 +682,12 @@
                 timeout = setTimeout(() => func(...args), wait);
             };
         }
+
+        const debouncedUpdateConsole = debounce(() => {
+            const consoleDiv = document.getElementById('console');
+            consoleDiv.innerHTML = logQueue.join('');
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }, 100);
 
         function logEvent(event_type, message, metadata = {}) {
             const now = Date.now();
@@ -450,24 +704,6 @@
             console.log(`${event_type}: ${message}`, metadata);
         }
 
-        function showErrorNotification(message, isSuccess = false) {
-            const errorNotification = document.getElementById('error-notification');
-            errorNotification.style.background = isSuccess ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-            errorNotification.textContent = message.includes('NetworkError') || message.includes('Unable to connect') ?
-                `${message}. Run: curl ${API_BASE}/health or check services on ports 8000-8007 (e.g., http://localhost:8001/auth/health).` :
-                message.includes('JSON') ?
-                `${message}. Check ${API_BASE}/health in a browser or run: curl ${API_BASE}/health` :
-                message;
-            errorNotification.classList.add('visible');
-            setTimeout(() => errorNotification.classList.remove('visible'), 10000);
-        }
-
-        const debouncedUpdateConsole = debounce(() => {
-            const consoleDiv = document.getElementById('console');
-            consoleDiv.innerHTML = logQueue.join('');
-            consoleDiv.scrollTop = consoleDiv.scrollHeight;
-        }, 100);
-
         function updateVialStatusBars() {
             const vialStatusBars = document.getElementById('vial-status-bars');
             vials.forEach(vial => {
@@ -475,8 +711,8 @@
             });
             vialStatusBars.innerHTML = vials.map(vial => {
                 const mode = isOffline ? 'Offline' : 'Online';
-                const statusClass = isOffline ? 'offline-grey' : 'online';
-                const fillClass = vial.status === 'stopped' ? 'offline-grey' : '';
+                const statusClass = vial.status === 'stopped' ? 'offline-grey' : isOffline ? 'offline-grey' : 'online';
+                const fillClass = vial.status === 'running' ? '' : 'offline-grey';
                 return `
                     <div class="progress-container">
                         <span class="progress-label">${vial.id}</span>
@@ -503,290 +739,115 @@
             debouncedUpdateConsole();
         }
 
-        async function authenticate() {
-            try {
-                const isBackendOnline = await checkBackendStatus();
-                if (!isBackendOnline) {
-                    showConfigPopup(true);
-                    logEvent('error', `Backend offline at ${API_BASE}. Please configure and test connection.`, { endpoint: `${API_BASE}/health` });
-                    isOffline = true;
-                } else {
-                    const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
-                    isOffline = !isOnline;
-                }
-                if (!isOffline) {
-                    const response = await fetchWithRetry(`${API_BASE}/auth/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: `user-${generateUUID()}` })
-                    });
-                    const text = await response.text();
-                    let data;
-                    try {
-                        data = JSON.parse(text);
-                    } catch (e) {
-                        throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                    }
-                    apiCredentials = { key: data.apiKey, secret: await sha256(generateUUID()) };
-                    wallet = { address: data.walletAddress, balance: 0, hash: data.walletHash, webxos: 0.0000, transactions: [] };
-                } else {
-                    apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
-                    wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0000, transactions: [] };
-                }
-                isAuthenticated = true;
-                const blockHash = await addToBlockchain('auth', { wallet: wallet.address });
-                logEvent('system', `Authenticated ${isOffline ? 'offline' : 'online'} with API key: ${apiCredentials.key}`, { blockHash });
-                ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
-                    document.getElementById(id).disabled = isOffline;
-                });
-                document.getElementById('authButton').classList.add('active-monitor');
-                updateBalanceDisplay();
-                updateVialStatusBars();
-                if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/wallet/create`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiCredentials.key}`
-                        },
-                        body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
-                    });
-                }
-            } catch (error) {
-                isOffline = true;
-                apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
-                wallet = { address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0000, transactions: [] };
-                isAuthenticated = true;
-                logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth/login`, rawResponse: error.message });
-                showErrorNotification(`Authentication failed: ${error.message}. Check connection in Config or try http://localhost:8001/auth/health.`);
-                disableFunctions();
-                showConfigPopup(true);
+        async function handleGitCommand(command) {
+            if (!isAuthenticated) {
+                showErrorNotification('Please authenticate first');
+                logEvent('error', 'Not authenticated');
+                return;
             }
-        }
+            const sanitizedCommand = sanitizeInput(command.trim());
+            const parts = sanitizedCommand.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const blockHash = await addToBlockchain('command', { command: sanitizedCommand });
 
-        function disableFunctions() {
-            ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
-                document.getElementById(id).disabled = true;
-            });
-            document.getElementById('authButton').classList.remove('active-monitor');
-            updateBalanceDisplay();
-            updateVialStatusBars();
-        }
-
-        async function voidVials() {
             try {
-                if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/vials/void`, {
-                        method: 'DELETE',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiCredentials.key}`
-                        }
-                    });
-                } else {
-                    logEvent('command', `Offline mode: ${mockResponses['/api/vials/void'].status}`, {});
-                }
-                vials.forEach(vial => {
-                    vial.status = 'stopped';
-                    vial.tasks = [];
-                    vial.config = {};
-                    vial.code = '';
-                    vial.codeLength = 0;
-                });
-                logEvent('command', 'All vials reset.', {});
-                updateVialStatusBars();
-            } catch (error) {
-                logEvent('error', `Void failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/vials/void`, rawResponse: error.message });
-            }
-        }
-
-        async function troubleshoot() {
-            try {
-                logEvent('command', 'Running diagnostics...');
-                logEvent('command', `Version: ${version}`);
-                logEvent('command', `Vials: ${vials.length}`);
-                logEvent('command', `Authenticated: ${isAuthenticated ? 'Yes' : 'No'} (${isOffline ? 'Offline' : 'Online'})`);
-                logEvent('command', `API Key: ${apiCredentials.key || 'None'}`);
-                logEvent('command', `API Base URL: ${API_BASE}`);
-                logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
-                logEvent('command', `Reputation: ${isOffline ? 'N/A' : reputation}`);
-                logEvent('command', `Wallet Transactions: ${wallet.transactions.length}`);
-                logEvent('command', `Testing connectivity to ${API_BASE}/health...`);
-                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
-                logEvent('command', `Backend Health: ${data.status} (Mongo: ${data.mongo}, Services: ${data.services.join(', ')})`, {});
-            } catch (error) {
-                logEvent('error', `Diagnostics failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
-                showConfigPopup(true);
-            }
-        }
-
-        async function quantumLink() {
-            try {
-                if (isOffline) {
-                    const mockData = mockResponses['/api/quantum/link'];
-                    vials.forEach((vial, i) => {
-                        vial.status = mockData.statuses[i] || 'running';
-                        vial.latency = mockData.latencies[i] || 50;
-                    });
-                    logEvent('command', 'Offline mode: Quantum Link established.', {});
-                    updateVialStatusBars();
-                    return;
-                }
-                const response = await fetchWithRetry(`${API_BASE}/quantum/link`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiCredentials.key}`
-                    },
-                    body: JSON.stringify({ vials: vials.map(v => v.id) })
-                });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                }
-                vials.forEach((vial, i) => {
-                    vial.status = data.statuses[i] || 'running';
-                    vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
-                });
-                logEvent('command', 'Quantum Link established.', {});
-                updateVialStatusBars();
-            } catch (error) {
-                logEvent('error', `Quantum Link failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/quantum/link`, rawResponse: error.message });
-            }
-        }
-
-        async function exportWallet() {
-            try {
-                const data = {
-                    markdown: `# WebXOS Vial Wallet Export\n\n## Wallet\n- Address: ${wallet.address || 'none'}\n- Balance: ${wallet.webxos.toFixed(4)} $WEBXOS\n- Hash: ${wallet.hash || 'none'}\n- Transactions: ${JSON.stringify(wallet.transactions, null, 2).replace(/\n/g, '\n  ')}\n`
-                };
-                const blob = new Blob([data.markdown], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
-                a.click();
-                URL.revokeObjectURL(url);
-                const blockHash = await addToBlockchain('export', { wallet: wallet.address });
-                logEvent('command', 'Wallet exported.', { blockHash });
-                wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
-                wallet.webxos += 0.0001;
-                if (!isOffline) {
-                    await fetchWithRetry(`${API_BASE}/wallet/transaction`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiCredentials.key}`
-                        },
-                        body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
-                    });
-                }
-                updateBalanceDisplay();
-            } catch (error) {
-                logEvent('error', `Export failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet/transaction`, rawResponse: error.message });
-            }
-        }
-
-        async function importWallet() {
-            try {
-                if (!isAuthenticated) throw new Error('Authenticate first');
-                const input = document.getElementById('file-input');
-                input.onchange = async function(event) {
-                    const file = event.target.files[0];
-                    if (!file) return;
-                    if (!file.name.endsWith('.md')) throw new Error('Invalid file: Use .md');
-                    const text = await file.text();
-                    if (!validateMarkdown(text)) throw new Error('Invalid Markdown format');
-                    const lines = text.split('\n');
-                    let newWallet = { address: null, balance: 0, hash: null, webxos: 0.0000, transactions: [] };
-                    for (let line of lines) {
-                        if (line.match(/^- Address: ([\w-]+)/)) {
-                            newWallet.address = line.match(/^- Address: ([\w-]+)/)[1];
-                        } else if (line.match(/^- Balance: ([\d.]+) \$WEBXOS/)) {
-                            newWallet.webxos = parseFloat(line.match(/^- Balance: ([\d.]+) \$WEBXOS/)[1]) || 0;
-                        } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
-                            newWallet.hash = line.match(/^- Hash: ([0-9a-f]{64})/)[1];
-                        } else if (line.match(/^- Transactions: (.*)/)) {
-                            try {
-                                const transactionData = line.match(/^- Transactions: (.*)/)[1];
-                                newWallet.transactions = transactionData ? JSON.parse(transactionData) : [];
-                            } catch (err) {
-                                throw new Error(`Invalid transactions: ${err.message}`);
-                            }
-                        }
-                    }
-                    if (!newWallet.address || !newWallet.hash) throw new Error('Missing wallet address or hash');
-                    wallet = newWallet;
-                    if (!isOffline) {
-                        const response = await fetchWithRetry(`${API_BASE}/wallet/import`, {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${apiCredentials.key}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
-                        });
-                        const text = await response.text();
-                        try {
-                            JSON.parse(text);
-                        } catch (e) {
-                            throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
-                        }
-                    } else {
-                        logEvent('command', `Offline mode: ${mockResponses['/api/wallet/import'].status}`, {});
-                    }
-                    const blockHash = await addToBlockchain('import', { wallet: wallet.address });
-                    logEvent('command', `Imported wallet from ${file.name}.`, { blockHash });
-                    wallet.transactions.push({ type: 'import', file: file.name, timestamp: new Date().toISOString() });
-                    wallet.webxos += 0.0001;
-                    if (!isOffline) {
-                        await fetchWithRetry(`${API_BASE}/wallet/transaction`, {
+                if (cmd === '/help') {
+                    logEvent('command', `Available commands:
+- /prompt <vial> <text>: Send prompt to vial
+- /task <vial> <task>: Assign task to vial
+- /config <vial> <key> <value>: Set vial config
+- /status: Show vial statuses
+- /auth <userId>: Authenticate with user ID
+- /wallet create: Create a wallet
+- /wallet import: Import a wallet
+- /monitor: Toggle vial monitoring
+- /train: Toggle vial training
+- /reset: Reset all vials`, { blockHash });
+                } else if (cmd === '/prompt') {
+                    if (parts.length < 3) throw new Error('Usage: /prompt <vial> <text>');
+                    const vialId = parts[1];
+                    const promptText = parts.slice(2).join(' ');
+                    const vial = vials.find(v => v.id === vialId);
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
+                    if (promptText.match(/(system|admin|root|eval|exec)/i)) throw new Error('Restricted keywords in prompt');
+                    vial.tasks.push({ prompt: promptText, hash: blockHash });
+                    vial.status = 'running';
+                    logEvent('command', `Prompt sent to ${vialId}: ${promptText}`, { blockHash });
+                    if (!isOffline) await sendPromptToBackend(vialId, promptText, blockHash);
+                    else logEvent('command', `Offline mode: ${mockResponses[`/api/vials/${vialId}/prompt`].response}`, { blockHash });
+                } else if (cmd === '/task') {
+                    if (parts.length < 3) throw new Error('Usage: /task <vial> <task>');
+                    const vialId = parts[1];
+                    const task = parts.slice(2).join(' ');
+                    const vial = vials.find(v => v.id === vialId);
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
+                    vial.tasks = [...new Set([...vial.tasks, task])];
+                    vial.status = 'running';
+                    logEvent('command', `Task assigned to ${vialId}: ${task}`, { blockHash });
+                    if (!isOffline) await sendTaskToBackend(vialId, task, blockHash);
+                    else logEvent('command', `Offline mode: ${mockResponses[`/api/vials/${vialId}/task`].status}`, { blockHash });
+                } else if (cmd === '/config') {
+                    if (parts.length < 4) throw new Error('Usage: /config <vial> <key> <value>');
+                    const vialId = parts[1];
+                    const key = parts[2];
+                    const value = parts.slice(3).join(' ');
+                    const vial = vials.find(v => v.id === vialId);
+                    if (!vial) throw new Error(`Invalid vial: ${vialId}`);
+                    vial.config = { ...vial.config, [key]: value };
+                    vial.status = 'running';
+                    logEvent('command', `Config set for ${vialId}: ${key}=${value}`, { blockHash });
+                    if (!isOffline) await setConfigToBackend(vialId, key, value, blockHash);
+                    else logEvent('command', `Offline mode: ${mockResponses[`/api/vials/${vialId}/config`].status}`, { blockHash });
+                } else if (cmd === '/status') {
+                    const status = vials.map(v => `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}`).join('\n');
+                    logEvent('command', `Vial Status:\n${status}`, { blockHash });
+                } else if (cmd === '/auth') {
+                    if (parts.length < 2) throw new Error('Usage: /auth <userId>');
+                    userId = parts[1];
+                    await authenticate();
+                } else if (cmd === '/wallet') {
+                    if (parts[1] === 'create') {
+                        await fetchWithRetry(`${API_BASE}/api/wallet/create`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiCredentials.key}`
+                                'Authorization': `Bearer ${apiKey}`
                             },
-                            body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
-                        });
+                            body: JSON.stringify({ userId, address: 'mock-wallet', balance: 0, hash: 'mock-hash', webxos: 0.0 })
+                        }).then(response => response.json()).then(data => {
+                            logEvent('command', data.status, { blockHash });
+                            updateBalanceDisplay();
+                        }).catch(() => logEvent('error', 'Wallet creation failed, using offline mode', { blockHash }));
+                    } else if (parts[1] === 'import') {
+                        await importWallet();
+                    } else {
+                        throw new Error('Usage: /wallet create or /wallet import');
                     }
-                    updateBalanceDisplay();
-                    input.value = '';
-                };
-                input.click();
+                } else if (cmd === '/monitor') {
+                    await monitorVials();
+                } else if (cmd === '/train') {
+                    await trainVials();
+                } else if (cmd === '/reset') {
+                    await voidVials();
+                } else {
+                    throw new Error(`Unknown command: ${cmd}. Use /help`);
+                }
+                updateVialStatusBars();
             } catch (error) {
-                logEvent('error', `Import failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/wallet/import`, rawResponse: error.message });
-                showErrorNotification(`Import failed: ${error.message}`);
+                showErrorNotification(error.message);
+                logEvent('error', error.message, { error: error.stack, command: sanitizedCommand });
             }
         }
 
-        async function showApiCredentials() {
+        async function sendPromptToBackend(vialId, prompt, blockHash) {
             try {
-                const apiInput = document.getElementById('api-input');
-                const apiPopup = document.getElementById('api-popup');
-                apiInput.value = isOffline ? 'Offline Mode: No API key available' : `Key: ${apiCredentials.key}\nSecret: ${apiCredentials.secret}`;
-                apiPopup.classList.add('visible');
-            } catch (error) {
-                logEvent('error', `API credentials error: ${error.message}`, { error: error.stack });
-            }
-        }
-
-        async function generateNewApiCredentials() {
-            try {
-                if (isOffline) throw new Error('Cannot generate credentials offline');
-                const response = await fetchWithRetry(`${API_BASE}/auth/api-key/generate`, {
+                const response = await fetchWithRetry(`${API_BASE}/api/vials/${vialId}/prompt`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: `user-${generateUUID()}` })
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({ vialId, prompt, blockHash })
                 });
                 const text = await response.text();
                 let data;
@@ -795,53 +856,134 @@
                 } catch (e) {
                     throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
                 }
-                apiCredentials = { key: data.apiKey, secret: await sha256(generateUUID()) };
-                document.getElementById('api-input').value = `Key: ${apiCredentials.key}\nSecret: ${apiCredentials.secret}`;
-                const blockHash = await addToBlockchain('api_generate', { key: apiCredentials.key });
-                logEvent('command', 'New API credentials generated.', { blockHash });
+                logEvent('command', `Backend response for ${vialId}: ${data.response}`, { blockHash });
             } catch (error) {
-                logEvent('error', `Credentials generation failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/auth/api-key/generate`, rawResponse: error.message });
-                showErrorNotification(`Credentials generation failed: ${error.message}`);
+                logEvent('error', `Prompt error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/vials/${vialId}/prompt`, vialId, prompt, rawResponse: error.message });
             }
         }
 
-        function showConfigPopup(forceOnError = false) {
-            const configPopup = document.getElementById('config-popup');
-            const configInput = document.getElementById('config-input');
-            configInput.value = API_BASE;
-            configPopup.classList.add('visible');
-            if (forceOnError) {
-                showErrorNotification(`Backend unreachable at ${API_BASE}. Configure and test connection.`);
-            }
-        }
-
-        async function saveConfig() {
-            const configInput = document.getElementById('config-input');
-            let newApiBase = configInput.value.trim();
-            if (!newApiBase) {
-                showErrorNotification('Backend URL cannot be empty');
-                return;
-            }
+        async function sendTaskToBackend(vialId, task, blockHash) {
             try {
-                newApiBase = newApiBase.endsWith('/api') ? newApiBase : `${newApiBase.replace(/\/$/, '')}/api`;
-                new URL(newApiBase);
-            } catch (e) {
-                showErrorNotification(`Invalid URL: ${e.message}. Use http://localhost:8000/api or similar.`);
-                return;
+                const response = await fetchWithRetry(`${API_BASE}/api/vials/${vialId}/task`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({ vialId, task, blockHash })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                logEvent('command', `Task assigned to ${vialId}: ${data.status}`, { blockHash });
+            } catch (error) {
+                logEvent('error', `Task error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/vials/${vialId}/task`, vialId, task, rawResponse: error.message });
             }
-            API_BASE = newApiBase;
-            localStorage.setItem('apiBase', API_BASE);
-            logEvent('command', `Backend URL set to ${API_BASE}`, {});
-            document.getElementById('config-popup').classList.remove('visible');
-            isOffline = !(await checkBackendStatus());
-            if (isOffline) {
-                showConfigPopup(true);
-            } else if (isAuthenticated) {
-                await authenticate();
+        }
+
+        async function setConfigToBackend(vialId, key, value, blockHash) {
+            try {
+                const response = await fetchWithRetry(`${API_BASE}/api/vials/${vialId}/config`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({ vialId, key, value, blockHash })
+                });
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                }
+                logEvent('command', `Config updated for ${vialId}: ${key}=${value}`, { blockHash });
+            } catch (error) {
+                logEvent('error', `Config error: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/vials/${vialId}/config`, vialId, key, value, rawResponse: error.message });
             }
-            updateBalanceDisplay();
-            updateVialStatusBars();
-            if (isOffline) disableFunctions();
+        }
+
+        async function monitorVials() {
+            const isMonitoring = !document.getElementById('quantumLinkButton').classList.contains('active-monitor');
+            document.getElementById('quantumLinkButton').classList.toggle('active-monitor', isMonitoring);
+            document.getElementById('console').classList.toggle('active-monitor', isMonitoring);
+            document.body.classList.toggle('glow', isMonitoring);
+            logEvent('command', `Monitoring ${isMonitoring ? 'started' : 'stopped'}`);
+            if (isMonitoring) {
+                vials.forEach(vial => vial.status = 'running');
+                updateVialStatusBars();
+                while (document.getElementById('quantumLinkButton').classList.contains('active-monitor')) {
+                    try {
+                        if (!isOffline) {
+                            const response = await fetchWithRetry(`${API_BASE}/api/quantum/link`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${apiKey}`
+                                },
+                                body: JSON.stringify({ vials: vials.map(v => v.id) })
+                            });
+                            const text = await response.text();
+                            let data;
+                            try {
+                                data = JSON.parse(text);
+                            } catch (e) {
+                                throw new Error(`Invalid JSON response: ${e.message}. Raw: ${text.slice(0, 100)}...`);
+                            }
+                            vials.forEach((vial, i) => {
+                                vial.status = data.statuses[i] || 'running';
+                                vial.latency = data.latencies[i] || Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+                            });
+                        } else {
+                            const mockData = mockResponses['/api/quantum/link'];
+                            vials.forEach((vial, i) => {
+                                vial.status = mockData.statuses[i] || 'running';
+                                vial.latency = mockData.latencies[i] || 50;
+                            });
+                        }
+                        updateVialStatusBars();
+                    } catch (error) {
+                        logEvent('error', `Monitoring failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/quantum/link`, rawResponse: error.message });
+                        vials.forEach(vial => vial.status = 'stopped');
+                        updateVialStatusBars();
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+        }
+
+        async function trainVials() {
+            const isTraining = !document.getElementById('quantumLinkButton').classList.contains('active-train');
+            document.getElementById('quantumLinkButton').classList.toggle('active-train', isTraining);
+            document.getElementById('console').classList.toggle('active-train', isTraining);
+            document.body.classList.toggle('train-glow', isTraining);
+            logEvent('command', `Training ${isTraining ? 'started' : 'stopped'}`);
+            if (isTraining) {
+                vials.forEach(vial => vial.status = 'running');
+                updateVialStatusBars();
+                for (const vial of vials) {
+                    try {
+                        if (!isOffline) {
+                            await fetchWithRetry(`${API_BASE}/api/vials/${vial.id}/task`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${apiKey}`
+                                },
+                                body: JSON.stringify({ vialId: vial.id, task: 'train', blockHash: await addToBlockchain('task', { vialId: vial.id, task: 'train' }) })
+                            });
+                        }
+                        logEvent('command', `Offline mode: ${mockResponses[`/api/vials/${vial.id}/task`].status}`);
+                    } catch (error) {
+                        logEvent('error', `Training failed for ${vial.id}: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/vials/${vial.id}/task`, rawResponse: error.message });
+                    }
+                }
+            }
         }
 
         async function initializeApp() {
@@ -856,10 +998,19 @@
                 } else {
                     logEvent('system', `Backend online at ${API_BASE}. Ready to authenticate.`);
                 }
-                updateBalanceDisplay();
+                if (apiKey && userId) {
+                    logEvent('system', `Authenticated with API key: ${apiKey}`);
+                    isAuthenticated = true;
+                    document.getElementById('authButton').classList.add('active-monitor');
+                    ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                        document.getElementById(id).disabled = isOffline;
+                    });
+                    updateBalanceDisplay();
+                }
                 updateVialStatusBars();
+                setInterval(retryAuthentication, 60000);
             } catch (error) {
-                logEvent('error', `Initialization failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/health`, rawResponse: error.message });
+                logEvent('error', `Initialization failed: ${error.message}`, { error: error.stack, endpoint: `${API_BASE}/api/health`, rawResponse: error.message });
                 isOffline = true;
                 showConfigPopup(true);
                 disableFunctions();
@@ -876,7 +1027,7 @@
         document.getElementById('authButton').addEventListener('click', authenticate);
         document.getElementById('voidButton').addEventListener('click', voidVials);
         document.getElementById('troubleshootButton').addEventListener('click', troubleshoot);
-        document.getElementById('quantumLinkButton').addEventListener('click', quantumLink);
+        document.getElementById('quantumLinkButton').addEventListener('click', monitorVials);
         document.getElementById('exportButton').addEventListener('click', exportWallet);
         document.getElementById('importButton').addEventListener('click', importWallet);
         document.getElementById('apiAccessButton').addEventListener('click', showApiCredentials);
