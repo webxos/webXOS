@@ -1,38 +1,45 @@
 import jwt
+import hashlib
 from datetime import datetime, timedelta
-import os
-from dotenv import load_dotenv
+from fastapi import HTTPException
 import logging
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.getenv("JWT_SECRET", "secret-key")
-ALGORITHM = "HS256"
+class AuthManager:
+    def __init__(self):
+        self.secret_key = "vial-mcp-secret-2025"
+        self.api_keys = {"api-b2116602-3486-42a5-801b-a176bff044b7": {"user_id": "vial_user", "created_at": datetime.now()}}
+        
+    def verify_api_key(self, api_key: str) -> bool:
+        try:
+            return api_key in self.api_keys
+        except Exception as e:
+            logger.error(f"API key verification failed: {str(e)}")
+            return False
 
-logging.basicConfig(filename="db/errorlog.md", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    def generate_token(self, api_key: str) -> str:
+        try:
+            if not self.verify_api_key(api_key):
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            payload = {
+                "user_id": self.api_keys[api_key]["user_id"],
+                "exp": datetime.utcnow() + timedelta(hours=24)
+            }
+            token = jwt.encode(payload, self.secret_key, algorithm="HS256")
+            return token
+        except Exception as e:
+            logger.error(f"Token generation failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Token generation failed: {str(e)}")
 
-def create_jwt_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(hours=24)
-    }
-    try:
-        token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-        logging.info(f"JWT created for user {user_id}")
-        return token
-    except Exception as e:
-        logging.error(f"Failed to create JWT for {user_id}: {str(e)}")
-        raise
-
-def verify_jwt_token(token: str) -> str:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        logging.info(f"JWT verified for user {payload['sub']}")
-        return payload["sub"]
-    except jwt.ExpiredSignatureError:
-        logging.error("JWT expired")
-        raise ValueError("Token expired")
-    except jwt.InvalidTokenError:
-        logging.error("Invalid JWT")
-        raise ValueError("Invalid token")
+    def verify_token(self, token: str) -> dict:
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=["HS256"])
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        except Exception as e:
+            logger.error(f"Token verification failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Token verification failed: {str(e)}")
