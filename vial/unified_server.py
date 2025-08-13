@@ -1,73 +1,53 @@
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure
-import sqlite3
 import os
 import logging
-from datetime import datetime
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
+from pymongo import MongoClient
+from pymongo.errors import ConnectionError
+from pydantic import BaseModel
+import jwt
+from datetime import datetime, timedelta
 import hashlib
 import uuid
-from typing import List, Dict, Optional
+from dotenv import load_dotenv
+import httpx
+from fastapi.responses import JSONResponse
 
-# Configure logging
-logging.basicConfig(
-    filename="/db/errorlog.md",
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s: %(message)s"
-)
+# Setup logging
+logging.basicConfig(filename='/db/errorlog.md', level=logging.INFO, format='## [%(asctime)s] %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="WebXOS Unified Server", version="2.8", root_path="/api")
+# Load environment variables
+load_dotenv()
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
+JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key')
+AUTH_SERVICE_URL = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001')
+VIAL_SERVICE_URL = os.getenv('VIAL_SERVICE_URL', 'http://localhost:8002')
+BLOCKCHAIN_SERVICE_URL = os.getenv('BLOCKCHAIN_SERVICE_URL', 'http://localhost:8003')
+WALLET_SERVICE_URL = os.getenv('WALLET_SERVICE_URL', 'http://localhost:8004')
+QUANTUM_SERVICE_URL = os.getenv('QUANTUM_SERVICE_URL', 'http://localhost:8005')
+VIAL_VERSION = '2.8'
 
-# CORS setup
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Vial MCP API Gateway", version=VIAL_VERSION)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-# MongoDB setup
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017")
+# MongoDB connection for gateway metadata
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client['vial_mcp']
     client.admin.command('ping')
-    db = client["webxos"]
-    wallets_collection = db["wallets"]
-    logs_collection = db["logs"]
-    blockchain_collection = db["blockchain"]
-    use_mongo = True
-    logger.info("MongoDB connected successfully")
-except ConnectionFailure as e:
-    logger.error(f"MongoDB not available, using SQLite fallback: {str(e)}")
-    use_mongo = False
+except ConnectionError as e:
+    logger.error(f"MongoDB connection failed: {str(e)}")
+    raise Exception(f"MongoDB connection failed: {str(e)}")
 
-# SQLite fallback
-SQLITE_DB = "/vial/database.sqlite"
-def init_sqlite():
-    try:
-        conn = sqlite3.connect(SQLITE_DB)
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS wallets
-                         (user_id TEXT PRIMARY KEY, address TEXT, balance REAL, hash TEXT, transactions TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS logs
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, error TEXT, stack TEXT, source TEXT, endpoint TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS blockchain
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, data TEXT, timestamp TEXT, hash TEXT)''')
-        conn.commit()
-        conn.close()
-        logger.info("SQLite database initialized successfully")
-    except Exception as e:
-        logger.error(f"SQLite initialization failed: {str(e)}")
-        raise
+class ErrorLog(BaseModel):
+    error: str
+    stack: str
+    endpoint: str
+    timestamp: str
+    source: str
+    rawResponse: str
 
-if not use_mongo:
-    init_sqlite()
-
-# Pydantic models
 class AuthRequest(BaseModel):
     userId: str
 
@@ -76,259 +56,215 @@ class PromptRequest(BaseModel):
     prompt: str
     blockHash: str
 
-class QuantumLinkRequest(BaseModel):
-    vials: List[str]
+class TaskRequest(BaseModel):
+    vialId: str
+    task: str
+    blockHash: str
+
+class ConfigRequest(BaseModel):
+    vialId: str
+    key: str
+    value: str
+    blockHash: str
 
 class WalletRequest(BaseModel):
     userId: str
-    address: Optional[str]
+    address: str | None
     balance: float
-    hash: Optional[str]
+    hash: str | None
     webxos: float
-    transactions: List[Dict]
-
-class ImportWalletRequest(BaseModel):
-    userId: str
-    address: str
-    balance: float
-    hash: str
-    webxos: float
-    transactions: List[Dict]
-
-class ErrorLogRequest(BaseModel):
-    error: str
-    stack: str
-    timestamp: str
-    source: str
-    endpoint: Optional[str]
+    transactions: list
 
 class BlockchainRequest(BaseModel):
     type: str
-    data: Dict
+    data: dict
     timestamp: str
     hash: str
 
-# Utility functions
-def generate_wallet_address():
-    return f"webxos_{uuid.uuid4().hex[:32]}"
+class QuantumLinkRequest(BaseModel):
+    vials: list
 
-def generate_wallet_hash():
-    return hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()
+async def verify_token(token: str = Depends(oauth2_scheme)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{AUTH_SERVICE_URL}/auth/validate/{token}")
+            if response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
+            return response.json()['user_id']
+    except Exception as e:
+        logger.error(f"Token verification failed: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
-# Endpoints
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Error at {request.url}: {str(exc)}")
+    return JSONResponse(status_code=500, content={"detail": f"Server error: {str(exc)}"})
+
 @app.get("/api/health")
 async def health_check():
     try:
-        if use_mongo:
-            client.admin.command('ping')
-        logger.info("Health check successful")
-        return {"status": "healthy", "mongo": use_mongo, "version": "2.8"}
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
+        client.admin.command('ping')
+        async with httpx.AsyncClient() as client:
+            services = [
+                ('Authentication', f"{AUTH_SERVICE_URL}/auth/health"),
+                ('Vial Management', f"{VIAL_SERVICE_URL}/vials/health"),
+                ('Blockchain', f"{BLOCKCHAIN_SERVICE_URL}/blockchain/health"),
+                ('Wallet', f"{WALLET_SERVICE_URL}/wallet/health"),
+                ('Quantum Link', f"{QUANTUM_SERVICE_URL}/quantum/health")
+            ]
+            service_status = []
+            for name, url in services:
+                try:
+                    response = await client.get(url, timeout=2.0)
+                    service_status.append(name if response.status_code == 200 else f"{name} (down)")
+                except:
+                    service_status.append(f"{name} (down)")
+            return {"status": "healthy", "mongo": True, "version": VIAL_VERSION, "services": service_status}
+    except ConnectionError as e:
+        logger.error(f"Health check failed: MongoDB connection error: {str(e)}")
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "mongo": False, "version": VIAL_VERSION, "services": []})
 
-@app.post("/api/auth")
+@app.post("/api/auth/login")
 async def authenticate(auth: AuthRequest):
     try:
-        wallet_address = generate_wallet_address()
-        wallet_hash = generate_wallet_hash()
-        api_key = f"api_{uuid.uuid4().hex}"
-        wallet_data = {
-            "user_id": auth.userId,
-            "address": wallet_address,
-            "balance": 0.0,
-            "hash": wallet_hash,
-            "webxos": 0.0000,
-            "transactions": []
-        }
-        if use_mongo:
-            wallets_collection.update_one(
-                {"user_id": auth.userId},
-                {"$set": wallet_data},
-                upsert=True
-            )
-        else:
-            conn = sqlite3.connect(SQLITE_DB)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO wallets (user_id, address, balance, hash, transactions) VALUES (?, ?, ?, ?, ?)",
-                (auth.userId, wallet_address, 0.0, wallet_hash, "[]")
-            )
-            conn.commit()
-            conn.close()
-        logger.info(f"Authenticated user: {auth.userId}, wallet: {wallet_address}")
-        return {
-            "apiKey": api_key,
-            "walletAddress": wallet_address,
-            "walletHash": wallet_hash
-        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{AUTH_SERVICE_URL}/auth/login", json=auth.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
     except Exception as e:
-        logger.error(f"Authentication failed: {str(e)}")
+        logger.error(f"Auth error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
-@app.post("/api/prompt")
-async def process_prompt(prompt: PromptRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
-    if not api_key:
-        logger.error("Invalid or missing API key for /api/prompt")
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+@app.post("/api/auth/api-key/generate")
+async def generate_api_key(auth: AuthRequest):
     try:
-        response_text = f"Processed prompt for {prompt.vialId}: {prompt.prompt[:50]}..."
-        logger.info(f"Processed prompt for vial {prompt.vialId}, blockHash: {prompt.blockHash}")
-        return {"response": response_text, "blockHash": prompt.blockHash}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{AUTH_SERVICE_URL}/auth/api-key/generate", json=auth.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
     except Exception as e:
-        logger.error(f"Prompt processing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prompt processing failed: {str(e)}")
-
-@app.post("/api/quantum_link")
-async def quantum_link(link: QuantumLinkRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
-    if not api_key:
-        logger.error("Invalid or missing API key for /api/quantum_link")
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    try:
-        statuses = ["running" for _ in link.vials]
-        latencies = [50 + i * 10 for i in range(len(link.vials))]
-        logger.info(f"Quantum link established for vials: {', '.join(link.vials)}")
-        return {"statuses": statuses, "latencies": latencies}
-    except Exception as e:
-        logger.error(f"Quantum link failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Quantum link failed: {str(e)}")
-
-@app.post("/api/wallet")
-async def update_wallet(wallet: WalletRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
-    if not api_key:
-        logger.error("Invalid or missing API key for /api/wallet")
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    try:
-        wallet_data = {
-            "user_id": wallet.userId,
-            "address": wallet.address,
-            "balance": wallet.balance,
-            "hash": wallet.hash,
-            "webxos": wallet.webxos,
-            "transactions": wallet.transactions
-        }
-        if use_mongo:
-            wallets_collection.update_one(
-                {"user_id": wallet.userId},
-                {"$set": wallet_data},
-                upsert=True
-            )
-        else:
-            conn = sqlite3.connect(SQLITE_DB)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO wallets (user_id, address, balance, hash, transactions) VALUES (?, ?, ?, ?, ?)",
-                (wallet.userId, wallet.address, wallet.balance, wallet.hash, str(wallet.transactions))
-            )
-            conn.commit()
-            conn.close()
-        logger.info(f"Wallet updated for user: {wallet.userId}")
-        return {"status": "wallet updated"}
-    except Exception as e:
-        logger.error(f"Wallet update failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Wallet update failed: {str(e)}")
-
-@app.post("/api/import_wallet")
-async def import_wallet(wallet: ImportWalletRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
-    if not api_key:
-        logger.error("Invalid or missing API key for /api/import_wallet")
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    try:
-        wallet_data = {
-            "user_id": wallet.userId,
-            "address": wallet.address,
-            "balance": wallet.balance,
-            "hash": wallet.hash,
-            "webxos": wallet.webxos,
-            "transactions": wallet.transactions
-        }
-        if use_mongo:
-            wallets_collection.update_one(
-                {"user_id": wallet.userId},
-                {"$set": wallet_data},
-                upsert=True
-            )
-        else:
-            conn = sqlite3.connect(SQLITE_DB)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO wallets (user_id, address, balance, hash, transactions) VALUES (?, ?, ?, ?, ?)",
-                (wallet.userId, wallet.address, wallet.balance, wallet.hash, str(wallet.transactions))
-            )
-            conn.commit()
-            conn.close()
-        logger.info(f"Wallet imported for user: {wallet.userId}")
-        return {"status": "wallet imported"}
-    except Exception as e:
-        logger.error(f"Wallet import failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Wallet import failed: {str(e)}")
+        logger.error(f"API key generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"API key generation failed: {str(e)}")
 
 @app.post("/api/log_error")
-async def log_error(error: ErrorLogRequest):
+async def log_error(error: ErrorLog):
     try:
-        error_data = {
-            "timestamp": error.timestamp,
-            "error": error.error,
-            "stack": error.stack,
-            "source": error.source,
-            "endpoint": error.endpoint or "unknown"
-        }
-        if use_mongo:
-            logs_collection.insert_one(error_data)
-        else:
-            conn = sqlite3.connect(SQLITE_DB)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO logs (timestamp, error, stack, source, endpoint) VALUES (?, ?, ?, ?, ?)",
-                (error.timestamp, error.error, error.stack, error.source, error.endpoint or "unknown")
-            )
-            conn.commit()
-            conn.close()
-        logger.info(f"Error logged: {error.error}")
-        return {"status": "error logged"}
+        db['errors'].insert_one(error.dict())
+        return {"status": "logged"}
     except Exception as e:
         logger.error(f"Error logging failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error logging failed: {str(e)}")
 
-@app.post("/api/blockchain")
-async def add_to_blockchain(block: BlockchainRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
-    if not api_key:
-        logger.error("Invalid or missing API key for /api/blockchain")
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+@app.post("/api/vials/{vialId}/prompt")
+async def send_prompt(prompt: PromptRequest, user_id: str = Depends(verify_token)):
     try:
-        block_data = {
-            "type": block.type,
-            "data": block.data,
-            "timestamp": block.timestamp,
-            "hash": block.hash
-        }
-        if use_mongo:
-            blockchain_collection.insert_one(block_data)
-        else:
-            conn = sqlite3.connect(SQLITE_DB)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO blockchain (type, data, timestamp, hash) VALUES (?, ?, ?, ?)",
-                (block.type, str(block.data), block.timestamp, block.hash)
-            )
-            conn.commit()
-            conn.close()
-        logger.info(f"Block added to blockchain: {block.hash}")
-        return {"status": "block added", "hash": block.hash}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{VIAL_SERVICE_URL}/vials/{prompt.vialId}/prompt", json=prompt.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
     except Exception as e:
-        logger.error(f"Blockchain addition failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Blockchain addition failed: {str(e)}")
+        logger.error(f"Prompt error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prompt processing failed: {str(e)}")
 
-@app.exception_handler(HTTPException)
-async def custom_http_exception_handler(request, exc):
-    logger.error(f"HTTP {exc.status_code} on {request.url}: {exc.detail}")
-    return {"detail": exc.detail, "status_code": exc.status_code}
+@app.post("/api/vials/{vialId}/task")
+async def send_task(task: TaskRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{VIAL_SERVICE_URL}/vials/{task.vialId}/task", json=task.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Task error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Task processing failed: {str(e)}")
+
+@app.put("/api/vials/{vialId}/config")
+async def set_config(config: ConfigRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.put(f"{VIAL_SERVICE_URL}/vials/{config.vialId}/config", json=config.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Config error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Config update failed: {str(e)}")
+
+@app.delete("/api/vials/void")
+async def void_vials(user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"{VIAL_SERVICE_URL}/vials/void")
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Void error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Void failed: {str(e)}")
+
+@app.post("/api/wallet/create")
+async def create_wallet(wallet: WalletRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/create", json=wallet.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Wallet creation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Wallet creation failed: {str(e)}")
+
+@app.post("/api/wallet/import")
+async def import_wallet(wallet: WalletRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/import", json=wallet.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Wallet import error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Wallet import failed: {str(e)}")
+
+@app.post("/api/wallet/transaction")
+async def wallet_transaction(wallet: WalletRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{WALLET_SERVICE_URL}/wallet/transaction", json=wallet.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Wallet transaction error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Wallet transaction failed: {str(e)}")
+
+@app.post("/api/blockchain/transaction")
+async def add_to_blockchain(block: BlockchainRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{BLOCKCHAIN_SERVICE_URL}/blockchain/transaction", json=block.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Blockchain error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Blockchain error: {str(e)}")
+
+@app.post("/api/quantum/link")
+async def quantum_link(link: QuantumLinkRequest, user_id: str = Depends(verify_token)):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{QUANTUM_SERVICE_URL}/quantum/link", json=link.dict())
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            return response.json()
+    except Exception as e:
+        logger.error(f"Quantum link error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Quantum link failed: {str(e)}")
 
 if __name__ == "__main__":
-    try:
-        logger.info("Starting WebXOS Unified Server on 0.0.0.0:8000")
-        import uvicorn
-        uvicorn.run(app, host="0.0.0.0", port=8000)
-    except Exception as e:
-        logger.error(f"Server startup failed: {str(e)}")
-        raise
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
