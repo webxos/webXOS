@@ -5,12 +5,21 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 import sqlite3
 import os
+import logging
 from datetime import datetime
 import hashlib
 import uuid
 from typing import List, Dict, Optional
 
-app = FastAPI(title="WebXOS Unified Server", version="2.8")
+# Configure logging
+logging.basicConfig(
+    filename="/db/errorlog.md",
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="WebXOS Unified Server", version="2.8", root_path="/api")
 
 # CORS setup
 app.add_middleware(
@@ -31,23 +40,29 @@ try:
     logs_collection = db["logs"]
     blockchain_collection = db["blockchain"]
     use_mongo = True
-except ConnectionFailure:
-    print("MongoDB not available, using SQLite fallback")
+    logger.info("MongoDB connected successfully")
+except ConnectionFailure as e:
+    logger.error(f"MongoDB not available, using SQLite fallback: {str(e)}")
     use_mongo = False
 
 # SQLite fallback
-SQLITE_DB = "database.sqlite"
+SQLITE_DB = "/vial/database.sqlite"
 def init_sqlite():
-    conn = sqlite3.connect(SQLITE_DB)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS wallets
-                     (user_id TEXT PRIMARY KEY, address TEXT, balance REAL, hash TEXT, transactions TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS logs
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, error TEXT, stack TEXT, source TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS blockchain
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, data TEXT, timestamp TEXT, hash TEXT)''')
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(SQLITE_DB)
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS wallets
+                         (user_id TEXT PRIMARY KEY, address TEXT, balance REAL, hash TEXT, transactions TEXT)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS logs
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, error TEXT, stack TEXT, source TEXT, endpoint TEXT)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS blockchain
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, data TEXT, timestamp TEXT, hash TEXT)''')
+        conn.commit()
+        conn.close()
+        logger.info("SQLite database initialized successfully")
+    except Exception as e:
+        logger.error(f"SQLite initialization failed: {str(e)}")
+        raise
 
 if not use_mongo:
     init_sqlite()
@@ -85,6 +100,7 @@ class ErrorLogRequest(BaseModel):
     stack: str
     timestamp: str
     source: str
+    endpoint: Optional[str]
 
 class BlockchainRequest(BaseModel):
     type: str
@@ -100,16 +116,18 @@ def generate_wallet_hash():
     return hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()
 
 # Endpoints
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     try:
         if use_mongo:
             client.admin.command('ping')
+        logger.info("Health check successful")
         return {"status": "healthy", "mongo": use_mongo, "version": "2.8"}
     except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
-@app.post("/auth")
+@app.post("/api/auth")
 async def authenticate(auth: AuthRequest):
     try:
         wallet_address = generate_wallet_address()
@@ -138,39 +156,47 @@ async def authenticate(auth: AuthRequest):
             )
             conn.commit()
             conn.close()
+        logger.info(f"Authenticated user: {auth.userId}, wallet: {wallet_address}")
         return {
             "apiKey": api_key,
             "walletAddress": wallet_address,
             "walletHash": wallet_hash
         }
     except Exception as e:
+        logger.error(f"Authentication failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
-@app.post("/prompt")
+@app.post("/api/prompt")
 async def process_prompt(prompt: PromptRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
     if not api_key:
+        logger.error("Invalid or missing API key for /api/prompt")
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     try:
-        # Simulate chatbot response
         response_text = f"Processed prompt for {prompt.vialId}: {prompt.prompt[:50]}..."
+        logger.info(f"Processed prompt for vial {prompt.vialId}, blockHash: {prompt.blockHash}")
         return {"response": response_text, "blockHash": prompt.blockHash}
     except Exception as e:
+        logger.error(f"Prompt processing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prompt processing failed: {str(e)}")
 
-@app.post("/quantum_link")
+@app.post("/api/quantum_link")
 async def quantum_link(link: QuantumLinkRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
     if not api_key:
+        logger.error("Invalid or missing API key for /api/quantum_link")
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     try:
         statuses = ["running" for _ in link.vials]
         latencies = [50 + i * 10 for i in range(len(link.vials))]
+        logger.info(f"Quantum link established for vials: {', '.join(link.vials)}")
         return {"statuses": statuses, "latencies": latencies}
     except Exception as e:
+        logger.error(f"Quantum link failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Quantum link failed: {str(e)}")
 
-@app.post("/wallet")
+@app.post("/api/wallet")
 async def update_wallet(wallet: WalletRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
     if not api_key:
+        logger.error("Invalid or missing API key for /api/wallet")
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     try:
         wallet_data = {
@@ -196,13 +222,16 @@ async def update_wallet(wallet: WalletRequest, api_key: str = Depends(lambda x: 
             )
             conn.commit()
             conn.close()
+        logger.info(f"Wallet updated for user: {wallet.userId}")
         return {"status": "wallet updated"}
     except Exception as e:
+        logger.error(f"Wallet update failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Wallet update failed: {str(e)}")
 
-@app.post("/import_wallet")
+@app.post("/api/import_wallet")
 async def import_wallet(wallet: ImportWalletRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
     if not api_key:
+        logger.error("Invalid or missing API key for /api/import_wallet")
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     try:
         wallet_data = {
@@ -228,18 +257,21 @@ async def import_wallet(wallet: ImportWalletRequest, api_key: str = Depends(lamb
             )
             conn.commit()
             conn.close()
+        logger.info(f"Wallet imported for user: {wallet.userId}")
         return {"status": "wallet imported"}
     except Exception as e:
+        logger.error(f"Wallet import failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Wallet import failed: {str(e)}")
 
-@app.post("/log_error")
+@app.post("/api/log_error")
 async def log_error(error: ErrorLogRequest):
     try:
         error_data = {
             "timestamp": error.timestamp,
             "error": error.error,
             "stack": error.stack,
-            "source": error.source
+            "source": error.source,
+            "endpoint": error.endpoint or "unknown"
         }
         if use_mongo:
             logs_collection.insert_one(error_data)
@@ -247,18 +279,21 @@ async def log_error(error: ErrorLogRequest):
             conn = sqlite3.connect(SQLITE_DB)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO logs (timestamp, error, stack, source) VALUES (?, ?, ?, ?)",
-                (error.timestamp, error.error, error.stack, error.source)
+                "INSERT INTO logs (timestamp, error, stack, source, endpoint) VALUES (?, ?, ?, ?, ?)",
+                (error.timestamp, error.error, error.stack, error.source, error.endpoint or "unknown")
             )
             conn.commit()
             conn.close()
+        logger.info(f"Error logged: {error.error}")
         return {"status": "error logged"}
     except Exception as e:
+        logger.error(f"Error logging failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error logging failed: {str(e)}")
 
-@app.post("/blockchain")
+@app.post("/api/blockchain")
 async def add_to_blockchain(block: BlockchainRequest, api_key: str = Depends(lambda x: x.headers.get("Authorization", "").replace("Bearer ", ""))):
     if not api_key:
+        logger.error("Invalid or missing API key for /api/blockchain")
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     try:
         block_data = {
@@ -278,10 +313,22 @@ async def add_to_blockchain(block: BlockchainRequest, api_key: str = Depends(lam
             )
             conn.commit()
             conn.close()
+        logger.info(f"Block added to blockchain: {block.hash}")
         return {"status": "block added", "hash": block.hash}
     except Exception as e:
+        logger.error(f"Blockchain addition failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Blockchain addition failed: {str(e)}")
 
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request, exc):
+    logger.error(f"HTTP {exc.status_code} on {request.url}: {exc.detail}")
+    return {"detail": exc.detail, "status_code": exc.status_code}
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        logger.info("Starting WebXOS Unified Server on 0.0.0.0:8000")
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        logger.error(f"Server startup failed: {str(e)}")
+        raise
