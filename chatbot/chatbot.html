@@ -201,9 +201,10 @@
         </div>
     </div>
     <footer>
-        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.7</span>
+        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.8</span>
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mongodb@6.17.0/dist/index.min.js"></script>
     <script>
         // Embedded neurots.js content
         const initNeurots = () => {
@@ -226,7 +227,6 @@
             let scale = 0.1;
             let rotation = 0;
 
-            // Initialize dots for explosion
             const initDots = () => {
                 dots = [];
                 for (let i = 0; i < numDots; i++) {
@@ -243,7 +243,6 @@
                 }
             };
 
-            // Draw background dots
             const drawDots = () => {
                 if (explosionTime < 60) {
                     dots.forEach(dot => {
@@ -287,7 +286,6 @@
                 }
             };
 
-            // Agent-specific patterns
             const drawHelix = () => {
                 ctx.strokeStyle = '#00cc00';
                 ctx.lineWidth = 2;
@@ -431,7 +429,6 @@
                 requestAnimationFrame(animate);
             };
 
-            // Public API
             window.setAgentsActive = (active, agents = [], dna = false, galaxy = false) => {
                 scale = 0.1;
                 rotation = 0;
@@ -457,12 +454,11 @@
                 animate();
             };
 
-            // Trigger explosion on init
             initDots();
             animate();
         };
 
-        const version = "3.7";
+        const version = "3.8";
         let agents = {};
         let activeAgent = null;
         let authCredentials = null;
@@ -470,7 +466,8 @@
         let reputation = 0;
         let wallet = { balance: 0.0000, transactions: [], webxos: 0.0000 };
         let siteIndex = {};
-        const API_BASE = 'http://localhost:8000'; // Update to deployed URL for production
+        let mongoClient = null;
+        const API_BASE = 'http://localhost:8000/api'; // FastAPI base URL
         let importInstructionsShown = false;
         let mdImported = false;
 
@@ -496,6 +493,17 @@
                 process: (query) => `Galaxy Web Crawler Vial: Limited crawl for '${query}' (import nano_gpt_bots.md for full functionality).`
             }
         };
+
+        async function initMongoDB() {
+            try {
+                mongoClient = new MongoClient('mongodb://localhost:27017', { useNewUrlParser: true, useUnifiedTopology: true });
+                await mongoClient.connect();
+                displayMessage('Connected to MCP database.', 'System');
+            } catch (error) {
+                displayError(`Failed to connect to MCP database: ${error.message}. Using simulation mode.`);
+                mongoClient = null;
+            }
+        }
 
         async function loadSiteIndex() {
             try {
@@ -527,29 +535,15 @@
                     headers: { 'Authorization': `Bearer ${authCredentials.apiKey}` }
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}: Backend offline, ensure server is running at ${API_BASE}.`);
-                const text = await response.text();
-                const agentSections = text.split('## Agent ').slice(1);
-                if (agentSections.length !== 4) {
-                    throw new Error(`Expected 4 vials, found ${agentSections.length}`);
-                }
-                agents = {};
-                for (const section of agentSections) {
-                    const lines = section.split('\n');
-                    const id = lines[0].trim();
-                    const role = lines[1].match(/Role: (.*)/)?.[1] || '';
-                    const description = lines[2].match(/Description: (.*)/)?.[1] || '';
-                    let script = '';
-                    const scriptStart = lines.findIndex(line => line.startsWith('```python'));
-                    if (scriptStart !== -1) {
-                        script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
-                        if (script && window.pyodide) {
-                            await pyodide.runPythonAsync(script);
-                        }
-                    }
-                    agents[id] = { role, description, script };
-                }
-                displayMessage('Vials loaded successfully.', 'System');
+                const data = await response.json();
+                agents = data.agents;
                 mdImported = true;
+                displayMessage('Vials loaded successfully from MCP database.', 'System');
+                if (mongoClient) {
+                    const db = mongoClient.db('mcp_db');
+                    await db.collection('vials').deleteMany({});
+                    await db.collection('vials').insertMany(Object.entries(agents).map(([id, agent]) => ({ id, ...agent })));
+                }
             } catch (error) {
                 displayError(`Failed to load vials: ${error.message}. Using default agents with limited capability.`);
                 agents = { ...defaultAgents };
@@ -597,21 +591,19 @@
             errorElement.textContent = `ERROR: ${errorMessage}`;
             messagesDiv.appendChild(errorElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            if (authCredentials?.verified) logErrorToServer(errorMessage);
+            if (authCredentials?.verified && mongoClient) logErrorToMongo(errorMessage);
         }
 
-        async function logErrorToServer(errorMessage) {
+        async function logErrorToMongo(errorMessage) {
             try {
-                await fetch(`${API_BASE}/log_error`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authCredentials.apiKey}`
-                    },
-                    body: JSON.stringify({ error: errorMessage, timestamp: new Date().toISOString() })
+                const db = mongoClient.db('mcp_db');
+                await db.collection('errors').insertOne({
+                    error: errorMessage,
+                    timestamp: new Date().toISOString(),
+                    source: 'frontend'
                 });
             } catch (error) {
-                console.error('Failed to log error to server:', error.message);
+                console.error('Failed to log error to MongoDB:', error.message);
             }
         }
 
@@ -631,7 +623,7 @@
 
             try {
                 displayMessage(query, 'User');
-                await logQueryToServer(query);
+                await logQueryToMongo(query);
                 importInstructionsShown = false;
                 if (query.startsWith('/')) {
                     await handleCommand(query);
@@ -647,17 +639,27 @@
             }
         }
 
-        async function logQueryToServer(query) {
-            if (!authCredentials?.verified) return;
+        async function logQueryToMongo(query) {
             try {
-                await fetch(`${API_BASE}/log_query`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authCredentials.apiKey}`
-                    },
-                    body: JSON.stringify({ query, timestamp: new Date().toISOString() })
-                });
+                if (mongoClient) {
+                    const db = mongoClient.db('mcp_db');
+                    await db.collection('queries').insertOne({
+                        query,
+                        timestamp: new Date().toISOString(),
+                        userId: authCredentials?.apiKey || 'anonymous'
+                    });
+                }
+                if (authCredentials?.verified) {
+                    const response = await fetch(`${API_BASE}/log_query`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authCredentials.apiKey}`
+                        },
+                        body: JSON.stringify({ query, timestamp: new Date().toISOString() })
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                }
             } catch (error) {
                 displayError(`Failed to log query: ${error.message}`);
             }
@@ -686,7 +688,7 @@
                     timestamp: new Date().toISOString()
                 });
                 wallet.webxos += 0.0001;
-                if (authCredentials?.verified) await updateWalletOnServer({ type: 'basic_search', query });
+                if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'basic_search', query });
                 window.setAgentsActive(false);
             } catch (error) {
                 displayError(`Error performing basic search: ${error.message}`);
@@ -734,7 +736,7 @@
                             timestamp: new Date().toISOString()
                         });
                         wallet.webxos += 0.0001;
-                        if (authCredentials?.verified) await updateWalletOnServer({ type: 'vial_switch', vialId });
+                        if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'vial_switch', vialId });
                     } else {
                         displayMessage('Invalid vial ID. Use /vial1, /vial2, /vial3, or /vial4.');
                     }
@@ -767,7 +769,7 @@
                             'Authorization': `Bearer ${authCredentials.apiKey}`
                         },
                         body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
-                    }).then(res => res.ok ? res.text() : query);
+                    }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : query);
                     response = await pyodide.runPythonAsync(`
                         response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
                         response
@@ -783,7 +785,7 @@
                     timestamp: new Date().toISOString()
                 });
                 wallet.webxos += 0.0001;
-                if (authCredentials?.verified) await updateWalletOnServer({ type: 'query', vialId, query });
+                if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'query', vialId, query });
                 window.setAgentsActive(true, [`vial${vialId}`]);
             } catch (error) {
                 displayError(`Error processing query with Vial ${vialId}: ${error.message}`);
@@ -802,7 +804,7 @@
                                 'Authorization': `Bearer ${authCredentials.apiKey}`
                             },
                             body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
-                        }).then(res => res.ok ? res.text() : query).then(enhancedQuery =>
+                        }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : query).then(enhancedQuery =>
                             pyodide.runPythonAsync(`
                                 response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
                                 response
@@ -821,7 +823,7 @@
                     timestamp: new Date().toISOString()
                 });
                 wallet.webxos += 0.0001;
-                if (authCredentials?.verified) await updateWalletOnServer({ type: 'quantum_network', query });
+                if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'quantum_network', query });
                 displayMessage('Quantum Network response complete.', 'System');
                 window.setAgentsActive(true, [], true, false);
             } catch (error) {
@@ -841,7 +843,7 @@
                                 'Authorization': `Bearer ${authCredentials.apiKey}`
                             },
                             body: JSON.stringify({ query: 'Galaxy multi-agent search request', apiKey: authCredentials.apiKey })
-                        }).then(res => res.ok ? res.text() : 'Galaxy multi-agent search request').then(enhancedQuery =>
+                        }).then(res => res.ok ? res.json().then(data => data.enhanced_query) : 'Galaxy multi-agent search request').then(enhancedQuery =>
                             pyodide.runPythonAsync(`
                                 response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}", ${JSON.stringify(wallet)})
                                 response
@@ -859,11 +861,33 @@
                     timestamp: new Date().toISOString()
                 });
                 wallet.webxos += 0.0001;
-                if (authCredentials?.verified) await updateWalletOnServer({ type: 'galaxy_search' });
+                if (authCredentials?.verified && mongoClient) await updateWalletInMongo({ type: 'galaxy_search' });
                 displayMessage('Galaxy multi-agent search complete.', 'System');
                 window.setAgentsActive(true, [], false, true);
             } catch (error) {
                 displayError(`Error in Galaxy multi-agent search: ${error.message}`);
+            }
+        }
+
+        async function updateWalletInMongo(transaction) {
+            try {
+                const db = mongoClient.db('mcp_db');
+                await db.collection('wallet').updateOne(
+                    { userId: authCredentials?.apiKey || 'anonymous' },
+                    { $push: { transactions: transaction }, $inc: { webxos: 0.0001 } },
+                    { upsert: true }
+                );
+                const response = await fetch(`${API_BASE}/wallet`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authCredentials.apiKey}`
+                    },
+                    body: JSON.stringify({ transaction, wallet })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            } catch (error) {
+                displayError(`Failed to update wallet: ${error.message}`);
             }
         }
 
@@ -911,6 +935,14 @@
                             verified: true
                         };
                         displayMessage(`Authenticated with API Key: ${authCredentials.apiKey}`, 'System');
+                        if (mongoClient) {
+                            const db = mongoClient.db('mcp_db');
+                            await db.collection('wallet').updateOne(
+                                { userId: authCredentials.apiKey },
+                                { $set: { userId: authCredentials.apiKey, webxos: 0.0000, transactions: [] } },
+                                { upsert: true }
+                            );
+                        }
                     } catch (error) {
                         authCredentials = {
                             apiKey: `VIAL-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
@@ -925,46 +957,13 @@
                         timestamp: authCredentials.timestamp
                     });
                     wallet.webxos += 0.0001;
-                    if (authCredentials.verified) await updateWalletOnServer({ type: 'authentication', apiKey: authCredentials.apiKey });
+                    if (authCredentials.verified && mongoClient) await updateWalletInMongo({ type: 'authentication', apiKey: authCredentials.apiKey });
                     await loadAgents();
                 } else {
                     displayMessage('Already authenticated.', 'System');
                 }
             } catch (error) {
                 displayError(`Authentication error: ${error.message}`);
-            }
-        }
-
-        async function updateWalletOnServer(transaction) {
-            if (!authCredentials?.verified) return;
-            try {
-                await fetch(`${API_BASE}/wallet`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authCredentials.apiKey}`
-                    },
-                    body: JSON.stringify({ transaction, wallet })
-                });
-            } catch (error) {
-                displayError(`Failed to update wallet: ${error.message}`);
-            }
-        }
-
-        function troubleshoot() {
-            try {
-                displayMessage('Running diagnostics...');
-                displayMessage(`System version: ${version}`);
-                displayMessage(`Vials loaded: ${Object.keys(agents).length}`);
-                displayMessage(`Pyodide status: ${window.pyodide ? 'Loaded' : 'Not loaded'}`);
-                displayMessage(`Authentication status: ${authCredentials ? `Authenticated${authCredentials.verified ? '' : ' (local, simulation mode)'}` : 'Not authenticated, click OAuth to enable full features.'}`);
-                displayMessage(`$SearchBot Balance: ${balance.toFixed(4)} | Reputation: ${reputation} | WebXOS: ${wallet.webxos.toFixed(4)}`);
-                displayMessage(`Wallet transactions: ${wallet.transactions.length}`);
-                displayMessage(`Site index entries: ${Object.keys(siteIndex).length}`);
-                displayMessage(`MD imported: ${mdImported ? 'Yes' : 'No, limited capability until nano_gpt_bots.md is imported.'}`);
-                displayMessage(`Neural dots status: ${typeof window.initNeurots === 'function' && document.getElementById('neuralCanvas') ? 'Initialized' : 'Failed to initialize, check canvas element.'}`);
-            } catch (error) {
-                displayError(`Troubleshooting error: ${error.message}`);
             }
         }
 
@@ -1009,6 +1008,11 @@
                             }
                             displayMessage(`Imported ${Object.keys(agents).length} vials from ${file.name} locally (simulation mode).`, 'System');
                             mdImported = true;
+                            if (mongoClient) {
+                                const db = mongoClient.db('mcp_db');
+                                await db.collection('vials').deleteMany({});
+                                await db.collection('vials').insertMany(Object.entries(agents).map(([id, agent]) => ({ id, ...agent })));
+                            }
                         } else {
                             const formData = new FormData();
                             formData.append('file', file);
@@ -1020,8 +1024,13 @@
                             if (!response.ok) throw new Error(`HTTP ${response.status}: Backend offline, ensure server is running at ${API_BASE}.`);
                             const data = await response.json();
                             agents = data.agents;
-                            displayMessage(`Imported ${Object.keys(data.agents).length} vials from ${file.name}.`, 'System');
                             mdImported = true;
+                            displayMessage(`Imported ${Object.keys(data.agents).length} vials from ${file.name}.`, 'System');
+                            if (mongoClient) {
+                                const db = mongoClient.db('mcp_db');
+                                await db.collection('vials').deleteMany({});
+                                await db.collection('vials').insertMany(Object.entries(agents).map(([id, agent]) => ({ id, ...agent })));
+                            }
                         }
                         wallet.transactions.push({
                             type: 'import',
@@ -1029,7 +1038,7 @@
                             timestamp: new Date().toISOString()
                         });
                         wallet.webxos += 0.0001;
-                        if (authCredentials.verified) await updateWalletOnServer({ type: 'import', file: file.name });
+                        if (authCredentials.verified && mongoClient) await updateWalletInMongo({ type: 'import', file: file.name });
                         importInstructionsShown = false;
                     } catch (error) {
                         displayError(`Error importing .md file: ${error.message}`);
@@ -1043,6 +1052,24 @@
             }
         }
 
+        function troubleshoot() {
+            try {
+                displayMessage('Running diagnostics...');
+                displayMessage(`System version: ${version}`);
+                displayMessage(`Vials loaded: ${Object.keys(agents).length}`);
+                displayMessage(`Pyodide status: ${window.pyodide ? 'Loaded' : 'Not loaded'}`);
+                displayMessage(`MongoDB status: ${mongoClient ? 'Connected' : 'Not connected, simulation mode'}`);
+                displayMessage(`Authentication status: ${authCredentials ? `Authenticated${authCredentials.verified ? '' : ' (local, simulation mode)'}` : 'Not authenticated, click OAuth to enable full features.'}`);
+                displayMessage(`$SearchBot Balance: ${balance.toFixed(4)} | Reputation: ${reputation} | WebXOS: ${wallet.webxos.toFixed(4)}`);
+                displayMessage(`Wallet transactions: ${wallet.transactions.length}`);
+                displayMessage(`Site index entries: ${Object.keys(siteIndex).length}`);
+                displayMessage(`MD imported: ${mdImported ? 'Yes' : 'No, limited capability until nano_gpt_bots.md is imported.'}`);
+                displayMessage(`Neural dots status: ${typeof window.initNeurots === 'function' && document.getElementById('neuralCanvas') ? 'Initialized' : 'Failed to initialize, check canvas element.'}`);
+            } catch (error) {
+                displayError(`Troubleshooting error: ${error.message}`);
+            }
+        }
+
         document.getElementById('userInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
@@ -1050,6 +1077,7 @@
         window.onload = async () => {
             try {
                 agents = { ...defaultAgents };
+                await initMongoDB();
                 await initPyodide();
                 await loadSiteIndex();
                 await fetch(`${API_BASE}/health`, { method: 'GET' })
