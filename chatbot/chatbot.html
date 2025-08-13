@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebXOS Searchbot</title>
+    <title>WebXOS Vial MCP Controller</title>
     <style>
         /* Reset and base styles */
         * {
@@ -115,6 +115,7 @@
             flex-direction: row;
             gap: 0.5rem;
             padding: 0.5rem 0;
+            flex-wrap: wrap;
         }
 
         /* Input field */
@@ -132,8 +133,8 @@
             box-shadow: 0 0 5px #00ff00;
         }
 
-        /* Buttons (Search and Clear only) */
-        #searchButton, #clearButton {
+        /* Buttons */
+        #searchButton, #clearButton, #authButton, #importButton {
             background: #000000;
             border: 1px solid #00ff00;
             color: #00ff00;
@@ -144,13 +145,13 @@
             font-size: 11pt;
         }
 
-        #searchButton:hover, #clearButton:hover {
+        #searchButton:hover, #clearButton:hover, #authButton:hover, #importButton:hover {
             background: #00ff00;
             color: #000000;
             box-shadow: 0 0 5px #00ff00;
         }
 
-        #searchButton:disabled, #clearButton:disabled {
+        #searchButton:disabled, #clearButton:disabled, #authButton:disabled, #importButton:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -191,11 +192,20 @@
             color: #00ff00;
         }
 
+        /* Error log */
+        .error-log {
+            color: #ff0000;
+            text-align: center;
+            margin: 0.5rem 0;
+            white-space: pre-wrap;
+            user-select: text;
+        }
+
         /* Agent colors */
-        .agent1-color { color: #00cc00; text-shadow: 0 0 5px #00cc00; }
-        .agent2-color { color: #00ff99; text-shadow: 0 0 5px #00ff99; }
-        .agent3-color { color: #ff33cc; text-shadow: 0 0 5px #ff33cc; }
-        .agent4-color { color: #33ccff; text-shadow: 0 0 5px #33ccff; }
+        .vial1-color { color: #00cc00; text-shadow: 0 0 5px #00cc00; }
+        .vial2-color { color: #00ff99; text-shadow: 0 0 5px #00ff99; }
+        .vial3-color { color: #ff33cc; text-shadow: 0 0 5px #ff33cc; }
+        .vial4-color { color: #33ccff; text-shadow: 0 0 5px #33ccff; }
 
         /* Footer */
         footer {
@@ -230,7 +240,7 @@
                 font-size: 2.5rem;
             }
 
-            #searchButton, #clearButton {
+            #searchButton, #clearButton, #authButton, #importButton {
                 padding: 0.75rem 1.5rem;
             }
         }
@@ -239,25 +249,30 @@
 <body>
     <canvas id="neuralCanvas"></canvas>
     <div class="input-container">
-        <h1 class="title">WebXOS Searchbot</h1>
+        <h1 class="title">WebXOS Vial MCP Controller</h1>
         <div id="chatbox">
             <div id="messages"></div>
             <div class="input-group">
                 <input type="text" id="userInput" placeholder="Type your query...">
                 <button id="searchButton" onclick="sendMessage()">Search</button>
                 <button id="clearButton" onclick="clearMessages()">Clear</button>
+                <button id="authButton" onclick="authenticate()">OAuth</button>
+                <button id="importButton" onclick="importData()">Import</button>
             </div>
         </div>
     </div>
     <footer>
-        <span class="copyright">© 2025 WebXOS Searchbot</span>
+        <span class="copyright">WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.7</span>
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="neurots.js"></script>
     <script>
-        const version = "1.2.19";
+        const version = "2.7";
         let agents = {};
         let activeAgent = null;
+        let authCredentials = null;
+        let balance = 0.0000;
+        let reputation = 0;
 
         async function loadAgents() {
             try {
@@ -270,28 +285,34 @@
                     const role = lines[1].match(/Role: (.*)/)?.[1];
                     const description = lines[2].match(/Description: (.*)/)?.[1];
                     let script = '';
-                    if (id === '1') {
-                        const scriptStart = lines.findIndex(line => line.startsWith('```python'));
-                        if (scriptStart !== -1) {
-                            script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
-                        }
+                    const scriptStart = lines.findIndex(line => line.startsWith('```python'));
+                    if (scriptStart !== -1) {
+                        script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
                     }
                     agents[id] = { role, description, script };
                 });
+                displayMessage('Agents loaded successfully.', 'System');
             } catch (error) {
-                console.error('Error loading agents:', error);
+                displayError(`Error loading agents: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         }
 
         async function initPyodide() {
-            window.pyodide = await loadPyodide();
-            await pyodide.loadPackage('micropip');
-            await pyodide.runPythonAsync(`
-                import micropip
-                await micropip.install('torch')
-            `);
-            if (agents['1']?.script) {
-                await pyodide.runPythonAsync(agents['1'].script);
+            try {
+                window.pyodide = await loadPyodide();
+                await pyodide.loadPackage('micropip');
+                await pyodide.runPythonAsync(`
+                    import micropip
+                    await micropip.install('torch')
+                `);
+                for (const agentId in agents) {
+                    if (agents[agentId].script) {
+                        await pyodide.runPythonAsync(agents[agentId].script);
+                    }
+                }
+                displayMessage('Pyodide initialized successfully.', 'System');
+            } catch (error) {
+                displayError(`Error initializing Pyodide: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         }
 
@@ -299,11 +320,20 @@
             const messagesDiv = document.getElementById('messages');
             const messageElement = document.createElement('p');
             messageElement.textContent = `${sender}: ${message}`;
-            if (sender.startsWith('Agent')) {
-                const agentId = sender.match(/Agent (\d)/)?.[1];
-                if (agentId) messageElement.classList.add(`agent${agentId}-color`);
+            if (sender.startsWith('Vial')) {
+                const vialId = sender.match(/Vial (\d)/)?.[1];
+                if (vialId) messageElement.classList.add(`vial${vialId}-color`);
             }
             messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function displayError(errorMessage) {
+            const messagesDiv = document.getElementById('messages');
+            const errorElement = document.createElement('p');
+            errorElement.className = 'error-log';
+            errorElement.textContent = errorMessage;
+            messagesDiv.appendChild(errorElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
@@ -320,71 +350,170 @@
             } else if (activeAgent) {
                 await processAgentQuery(activeAgent, query);
             } else {
-                displayMessage('Please select an agent using /agent<1-4> or use /dna for network mode.');
+                displayMessage('Please select a vial using /vial<1-4> or use /dna for quantum network mode.');
             }
         }
 
         async function handleCommand(query) {
-            if (query.startsWith('/agent')) {
-                const agentId = query.match(/\/agent(\d)/)?.[1];
-                if (agentId && agents[agentId]) {
-                    activeAgent = agentId;
-                    displayMessage(`Switched to Agent ${agentId} (${agents[agentId].role})`);
+            try {
+                if (query.startsWith('/vial')) {
+                    const vialId = query.match(/\/vial(\d)/)?.[1];
+                    if (vialId && agents[vialId]) {
+                        activeAgent = vialId;
+                        displayMessage(`Switched to Vial ${vialId} (${agents[vialId].role})`);
+                    } else {
+                        displayMessage('Invalid vial ID. Use /vial1, /vial2, /vial3, or /vial4.');
+                    }
+                } else if (query === '/dna') {
+                    displayMessage('Engaging Quantum Network...', 'System');
+                    await visualizeNetwork();
+                    await processNetworkQuery('Quantum Network engaged. How can the Vial Network assist you?');
+                } else if (query === '/galaxy') {
+                    displayMessage('Initiating Galaxy web crawl...', 'System');
+                    await processGalaxyQuery();
+                } else if (query === '/troubleshoot') {
+                    troubleshoot();
                 } else {
-                    displayMessage('Invalid agent ID. Use /agent1, /agent2, /agent3, or /agent4.');
+                    displayMessage('Unknown command. Try /vial1, /vial2, /vial3, /vial4, /dna, /galaxy, or /troubleshoot.');
                 }
-            } else if (query === '/dna') {
-                displayMessage('Entering Agentic Network mode...');
-                await visualizeNetwork();
-                await processNetworkQuery('Hello, Agentic Network! How can you assist me?');
-            } else if (query === '/troubleshoot') {
-                displayMessage('Running diagnostics...');
-                displayMessage(`System version: ${version}`);
-                displayMessage(`Agents loaded: ${Object.keys(agents).length}`);
-                displayMessage(`Pyodide status: ${window.pyodide ? 'Loaded' : 'Not loaded'}`);
-            } else {
-                displayMessage('Unknown command. Try /agent1, /agent2, /agent3, /agent4, /dna, or /troubleshoot.');
+            } catch (error) {
+                displayError(`Error handling command: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         }
 
-        async function processAgentQuery(agentId, query) {
-            if (agentId === '1') {
-                try {
+        async function processAgentQuery(vialId, query) {
+            try {
+                if (agents[vialId].script) {
                     const response = await pyodide.runPythonAsync(`
                         response = generate_response("${query.replace(/"/g, '\\"')}")
                         response
                     `);
-                    displayMessage(response, `Agent ${agentId} (Chatbot)`);
-                } catch (error) {
-                    displayMessage(`Error processing query with Agent ${agentId}: ${error}`, 'System');
+                    displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
+                } else {
+                    displayMessage(`Vial ${vialId} (${agents[vialId].role}): Processing query "${query}"...`, 'System');
+                    displayMessage(`Simulated response from Vial ${vialId}.`, `Vial ${vialId}`);
                 }
-            } else if (agentId === '4') {
-                displayMessage(`Agent 4 (Galaxy) scraping web for: ${query}`);
-                const mockWebData = `Mock web data for "${query}" (Pyodide cannot access network, simulating results)`;
-                displayMessage(mockWebData, `Agent ${agentId} (Galaxy)`);
-            } else {
-                displayMessage(`Agent ${agentId} (${agents[agentId].role}): Processing query "${query}"...`, 'System');
-                displayMessage(`Simulated response from Agent ${agentId}.`, `Agent ${agentId}`);
+            } catch (error) {
+                displayError(`Error processing query with Vial ${vialId}: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         }
 
         async function processNetworkQuery(query) {
-            displayMessage('Agentic Network processing query...', 'System');
-            for (const agentId in agents) {
-                await processAgentQuery(agentId, query);
+            try {
+                displayMessage('Quantum Network processing query...', 'System');
+                for (const vialId in agents) {
+                    await processAgentQuery(vialId, query);
+                }
+                displayMessage('Quantum Network response complete.', 'System');
+            } catch (error) {
+                displayError(`Error in quantum network query: ${error}\n${error.stack || 'No stack trace available'}`);
             }
-            displayMessage('Network response complete.', 'System');
+        }
+
+        async function processGalaxyQuery() {
+            try {
+                displayMessage('Galaxy web crawl initiated. Simulating web search due to Pyodide limitations...', 'System');
+                const mockWebData = 'Mock web search results: Retrieved simulated data from the web.';
+                displayMessage(mockWebData, 'Vial 4 (Galaxy)');
+            } catch (error) {
+                displayError(`Error in Galaxy web crawl: ${error}\n${error.stack || 'No stack trace available'}`);
+            }
         }
 
         async function visualizeNetwork() {
-            if (window.neurots && window.neurots.visualizeNetwork) {
-                window.neurots.visualizeNetwork(Object.values(agents).map(agent => agent.role));
+            try {
+                if (window.neurots && window.neurots.visualizeNetwork) {
+                    window.neurots.visualizeNetwork(Object.values(agents).map(agent => agent.role));
+                }
+            } catch (error) {
+                displayError(`Error visualizing quantum network: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         }
 
         function clearMessages() {
-            document.getElementById('messages').innerHTML = '';
-            displayMessage('Chat cleared.', 'System');
+            try {
+                document.getElementById('messages').innerHTML = '';
+                authCredentials = null;
+                displayMessage('Chat and authentication session cleared.', 'System');
+            } catch (error) {
+                displayError(`Error clearing session: ${error}\n${error.stack || 'No stack trace available'}`);
+            }
+        }
+
+        function authenticate() {
+            try {
+                if (!authCredentials) {
+                    authCredentials = {
+                        apiKey: `VIAL-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+                        timestamp: new Date().toISOString()
+                    };
+                    displayMessage(`Authenticated with API Key: ${authCredentials.apiKey}`, 'System');
+                } else {
+                    displayMessage('Already authenticated.', 'System');
+                }
+            } catch (error) {
+                displayError(`Authentication error: ${error}\n${error.stack || 'No stack trace available'}`);
+            }
+        }
+
+        function troubleshoot() {
+            try {
+                displayMessage('Running diagnostics...');
+                displayMessage(`System version: ${version}`);
+                displayMessage(`Vials loaded: ${Object.keys(agents).length}`);
+                displayMessage(`Pyodide status: ${window.pyodide ? 'Loaded' : 'Not loaded'}`);
+                displayMessage(`Authentication status: ${authCredentials ? 'Authenticated' : 'Not authenticated'}`);
+                displayMessage(`$WEBXOS Balance: ${balance.toFixed(4)} | Reputation: ${reputation}`);
+            } catch (error) {
+                displayError(`Troubleshooting error: ${error}\n${error.stack || 'No stack trace available'}`);
+            }
+        }
+
+        async function importData() {
+            try {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.md';
+                input.onchange = async (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    if (!file.name.endsWith('.md')) {
+                        displayError('Invalid file format. Please upload a .md file.');
+                        return;
+                    }
+                    const text = await file.text();
+                    try {
+                        const agentSections = text.split('## Agent ').slice(1);
+                        if (agentSections.length === 0) {
+                            displayError('No valid vial data found in the .md file.');
+                            return;
+                        }
+                        agentSections.forEach(section => {
+                            const lines = section.split('\n');
+                            const id = lines[0].trim();
+                            const role = lines[1].match(/Role: (.*)/)?.[1];
+                            const description = lines[2].match(/Description: (.*)/)?.[1];
+                            let script = '';
+                            const scriptStart = lines.findIndex(line => line.startsWith('```python'));
+                            if (scriptStart !== -1) {
+                                script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
+                                if (script && window.pyodide) {
+                                    pyodide.runPythonAsync(script).catch(err => {
+                                        displayError(`Error loading vial script: ${err}\n${err.stack || 'No stack trace available'}`);
+                                    });
+                                }
+                            }
+                            agents[id] = { role, description, script };
+                        });
+                        displayMessage(`Imported ${agentSections.length} vials from ${file.name}.`, 'System');
+                    } catch (error) {
+                        displayError(`Error parsing .md file: ${error}\n${error.stack || 'No stack trace available'}`);
+                    }
+                };
+                input.click();
+            } catch (error) {
+                displayError(`Import error: ${error}\n${error.stack || 'No stack trace available'}`);
+            }
         }
 
         document.getElementById('userInput').addEventListener('keypress', (e) => {
@@ -392,13 +521,36 @@
         });
 
         window.onload = async () => {
-            await loadAgents();
-            await initPyodide();
-            displayMessage('WebXOS Searchbot initialized. Use /agent1, /agent2, /agent3, /agent4, or /dna to interact.');
-            if (window.neurots && window.neurots.initCanvas) {
-                window.neurots.initCanvas('neuralCanvas');
+            try {
+                await loadAgents();
+                await initPyodide();
+                displayMessage('Vial MCP Controller initialized. Use /help for commands.');
+                displayMessage(`$WEBXOS Balance: ${balance.toFixed(4)} | Reputation: ${reputation}`);
+                showHelp();
+                if (window.neurots && window.neurots.initCanvas) {
+                    window.neurots.initCanvas('neuralCanvas');
+                }
+            } catch (error) {
+                displayError(`Initialization error: ${error}\n${error.stack || 'No stack trace available'}`);
             }
         };
+
+        function showHelp() {
+            displayMessage('WebXOS Vial MCP Controller Commands:');
+            displayMessage('/vial1 - Switch to Chatbot Vial');
+            displayMessage('/vial2 - Switch to Data Analyst Vial');
+            displayMessage('/vial3 - Switch to Code Generator Vial');
+            displayMessage('/vial4 - Switch to Galaxy Web Crawler Vial');
+            displayMessage('/dna - Engage Quantum Network mode');
+            displayMessage('/galaxy - Initiate Galaxy web crawl');
+            displayMessage('/troubleshoot - Run system diagnostics');
+            displayMessage('Buttons:');
+            displayMessage('Search - Process query with active vial');
+            displayMessage('Clear - Clear chat history and authentication session');
+            displayMessage('OAuth - Authenticate with API credentials');
+            displayMessage('Import - Import .md file for vials');
+            displayMessage('Type your query without a slash to interact with the active vial.');
+        }
     </script>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 </body>
