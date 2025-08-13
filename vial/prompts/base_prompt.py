@@ -1,24 +1,24 @@
 from langchain.prompts import PromptTemplate
-import logging
-import datetime
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class BasePrompt:
     def __init__(self):
         self.template = PromptTemplate(
-            input_variables=["vial_id", "task"],
-            template="Execute task for vial {vial_id}: {task}"
+            input_variables=["query", "context"],
+            template="""
+            You are an AI assistant for the Vial MCP Controller. Use the provided context to answer the query concisely and accurately.
+            Query: {query}
+            Context: {context}
+            Response:
+            """
         )
 
-    def format_prompt(self, vial_id: str, task: str) -> str:
+    def format_prompt(self, query: str, context: str = "") -> str:
         try:
-            prompt = self.template.format(vial_id=vial_id, task=task)
-            logger.info(f"Formatted prompt for vial {vial_id}: {prompt}")
-            return prompt
+            return self.template.format(query=query, context=context)
         except Exception as e:
-            logger.error(f"Prompt formatting error: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Prompt formatting error: {str(e)}\n")
-            raise
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** Prompt formatting error: {str(e)}\n")
+            raise ValueError(f"Prompt formatting failed: {str(e)}")
+
+    def get_supported_models(self) -> list:
+        return ["llama3.3", "mistral", "gemma2", "qwen", "phi"]
