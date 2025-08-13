@@ -115,13 +115,26 @@
         async function logErrorToBackend(errorMessage, stack) {
             try {
                 const errorLog = `[${new Date().toISOString()}] ${errorMessage}\nStack: ${stack}\n`;
-                await fetch(`${API_BASE}/log_error`, {
+                await fetchWithRetry(`${API_BASE}/log_error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ error: errorMessage, stack, timestamp: new Date().toISOString(), source: 'frontend' })
                 });
             } catch (e) {
                 console.error('Failed to log error to backend:', e.message);
+            }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return response;
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
         }
 
@@ -161,7 +174,7 @@
                 const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}`);
                 const block = { type, data, timestamp, hash };
                 if (!isOffline) {
-                    await fetch(`${API_BASE}/blockchain`, {
+                    await fetchWithRetry(`${API_BASE}/blockchain`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -240,7 +253,7 @@
 
         async function sendPromptToBackend(vialId, prompt, blockHash) {
             try {
-                const response = await fetch(`${API_BASE}/prompt`, {
+                const response = await fetchWithRetry(`${API_BASE}/prompt`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -329,12 +342,12 @@
 
         async function authenticate() {
             try {
-                const healthResponse = await fetch(`${API_BASE}/health`, { method: 'GET' });
+                const healthResponse = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 if (!healthResponse.ok) throw new Error(`Backend health check failed: HTTP ${healthResponse.status}`);
                 const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
                 isOffline = !isOnline;
                 if (isOnline) {
-                    const response = await fetch(`${API_BASE}/auth`, {
+                    const response = await fetchWithRetry(`${API_BASE}/auth`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ userId: `user-${generateUUID()}` })
@@ -357,7 +370,7 @@
                 updateBalanceDisplay();
                 updateVialStatusBars();
                 if (!isOffline) {
-                    await fetch(`${API_BASE}/wallet`, {
+                    await fetchWithRetry(`${API_BASE}/wallet`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -405,7 +418,7 @@
                 logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
                 logEvent('command', `Reputation: ${isOffline ? 'N/A' : reputation}`);
                 logEvent('command', `Wallet Transactions: ${wallet.transactions.length}`);
-                const response = await fetch(`${API_BASE}/health`, { method: 'GET' });
+                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 logEvent('command', `Backend Health: ${response.ok ? 'Online' : 'Offline'}`, {});
             } catch (error) {
                 logEvent('error', `Troubleshooting error: ${error.message}`, { error: error.stack });
@@ -416,7 +429,7 @@
             try {
                 if (isOffline) throw new Error('Quantum Link unavailable in offline mode');
                 logEvent('command', 'Initiating Quantum Link...', {});
-                const response = await fetch(`${API_BASE}/quantum_link`, {
+                const response = await fetchWithRetry(`${API_BASE}/quantum_link`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -454,7 +467,7 @@
                 wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
                 wallet.webxos += 0.0001;
                 if (!isOffline) {
-                    await fetch(`${API_BASE}/wallet`, {
+                    await fetchWithRetry(`${API_BASE}/wallet`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -500,7 +513,7 @@
                     if (!newWallet.address || !newWallet.hash) throw new Error('Invalid .md format: Missing wallet address or hash');
                     wallet = newWallet;
                     if (!isOffline) {
-                        const response = await fetch(`${API_BASE}/import_wallet`, {
+                        const response = await fetchWithRetry(`${API_BASE}/import_wallet`, {
                             method: 'POST',
                             headers: {
                                 'Authorization': `Bearer ${apiCredentials.key}`,
@@ -515,7 +528,7 @@
                     wallet.transactions.push({ type: 'import', file: file.name, timestamp: new Date().toISOString() });
                     wallet.webxos += 0.0001;
                     if (!isOffline) {
-                        await fetch(`${API_BASE}/wallet`, {
+                        await fetchWithRetry(`${API_BASE}/wallet`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -548,7 +561,7 @@
         async function generateNewApiCredentials() {
             try {
                 if (isOffline) throw new Error('Cannot generate API credentials in offline mode');
-                const response = await fetch(`${API_BASE}/auth`, {
+                const response = await fetchWithRetry(`${API_BASE}/auth`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId: `user-${generateUUID()}` })
@@ -568,7 +581,7 @@
         async function initializeApp() {
             try {
                 logEvent('system', 'Application initialized.', {});
-                const response = await fetch(`${API_BASE}/health`, { method: 'GET' });
+                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
                 isOffline = !response.ok;
                 if (isOffline) logEvent('system', 'Backend offline: Running in offline mode.', {});
                 updateBalanceDisplay();
