@@ -86,7 +86,7 @@ async def health_check():
         return JSONResponse(content={"status": "healthy", "mongo": True, "version": "2.8", "services": ["auth", "wallet", "vials"]})
     except Exception as e:
         logging.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        return JSONResponse(content={"status": "unhealthy", "mongo": False, "version": "2.8", "services": []}, status_code=500)
 
 @app.post("/auth/login")
 async def login(auth: AuthRequest):
