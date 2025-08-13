@@ -1,50 +1,27 @@
-Agent 1
-Role: Chatbot VialDescription: A conversational AI for natural language interactions, answering queries with context-aware responses.
-def generate_response(query, wallet):
-    wallet["transactions"].append({
-        "type": "chatbot_query",
-        "query": query,
-        "timestamp": "2025-08-13T02:11:00Z"
-    })
-    wallet["webxos"] += 0.0001
-    return f"Chatbot Vial: Responding to '{query}' with WebXOS balance {wallet['webxos']:.4f}"
+Nano GPT Bots Documentation
+Overview
+The nano_gpt_bots.md file provides documentation for the chatbot module of the Vial MCP Controller project, focusing on the integration of nano-GPT models for conversational AI. This module supports the primary (chatbot.html) and secondary (chatbot2.html) chatbot UIs, interfacing with the backend (server.py) and service worker (sw.js).
+Components
 
-Agent 2
-Role: Data Analyst VialDescription: Analyzes data queries, providing insights or summaries based on input.
-def generate_response(query, wallet):
-    wallet["transactions"].append({
-        "type": "data_query",
-        "query": query,
-        "timestamp": "2025-08-13T02:11:00Z"
-    })
-    wallet["webxos"] += 0.0001
-    keywords = query.lower().split()
-    return f"Data Analyst Vial: Analyzed '{query}' (keywords: {', '.join(keywords)}) with WebXOS balance {wallet['webxos']:.4f}"
+chatbot.html: Primary chatbot UI, accessible from the root directory, providing a retro terminal interface.
+chatbot2.html: Secondary chatbot UI with a simplified interface for quick interactions.
+server.py: FastAPI backend handling chatbot queries, integrating with nano-GPT models.
+site_index.json: Search index for chatbot responses, enabling fuzzy search via /static/fuse.min.js.
+sw.js: Service worker for caching chatbot responses, ensuring offline functionality.
 
-Agent 3
-Role: Code Generator VialDescription: Generates lightweight, standalone code snippets for web development tasks.
-def generate_response(query, wallet):
-    wallet["transactions"].append({
-        "type": "code_query",
-        "query": query,
-        "timestamp": "2025-08-13T02:11:00Z"
-    })
-    wallet["webxos"] += 0.0001
-    if "html" in query.lower():
-        code = "<div>Hello, WebXOS!</div>"
-    elif "javascript" in query.lower():
-        code = "console.log('Hello, WebXOS!');"
-    else:
-        code = "# Sample Python code\nprint('Hello, WebXOS!')"
-    return f"Code Generator Vial: Generated code for '{query}':\n```code\n{code}\n``` with WebXOS balance {wallet['webxos']:.4f}"
+Integration
 
-Agent 4
-Role: Galaxy Web Crawler VialDescription: Simulates web crawling to fetch relevant information for search queries.
-def generate_response(query, wallet):
-    wallet["transactions"].append({
-        "type": "web_crawl",
-        "query": query,
-        "timestamp": "2025-08-13T02:11:00Z"
-    })
-    wallet["webxos"] += 0.0001
-    return f"Galaxy Web Crawler Vial: Crawled web for '{query}', found relevant data with WebXOS balance {wallet['webxos']:.4f}"
+Nano-GPT Models: The chatbot uses lightweight GPT models (distilgpt2) for generating responses, configured in server.py.
+Wallet System: Queries update the wallet via webxos_wallet.py, incrementing webxos balance by 0.0001.
+Inception Gateway: Queries are routed through endpoints defined in db/library_config.json.
+Frontend: Both UIs (chatbot.html, chatbot2.html) use /static/style.css and /vial/static/redaxios.min.js for styling and HTTP requests.
+
+Setup
+
+Install dependencies: pip install -r db/requirements.txt (includes transformers for nano-GPT).
+Start the chatbot server: python chatbot/server.py.
+Access UIs at /chatbot.html or /chatbot/chatbot2.html via webxos.netlify.app.
+
+Error Handling
+Errors are logged to db/errorlog.md with timestamps to prevent redundancy. Check this file for issues related to chatbot operations.
+For API details, see /docs/api.markdown.
