@@ -132,9 +132,22 @@
                     if (response.ok) return response;
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 } catch (error) {
-                    if (i === retries - 1) throw error;
+                    if (i === retries - 1) {
+                        logEvent('error', `Fetch failed after ${retries} retries: ${error.message}`, { error: error.stack });
+                        throw error;
+                    }
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
+            }
+        }
+
+        async function checkBackendStatus() {
+            try {
+                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
+                return response.ok;
+            } catch (error) {
+                logEvent('error', `Backend health check failed: ${error.message}`, { error: error.stack });
+                return false;
             }
         }
 
@@ -342,11 +355,15 @@
 
         async function authenticate() {
             try {
-                const healthResponse = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
-                if (!healthResponse.ok) throw new Error(`Backend health check failed: HTTP ${healthResponse.status}`);
-                const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
-                isOffline = !isOnline;
-                if (isOnline) {
+                const isBackendOnline = await checkBackendStatus();
+                if (!isBackendOnline) {
+                    logEvent('error', 'Backend is offline. Switching to offline mode.', {});
+                    isOffline = true;
+                } else {
+                    const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+                    isOffline = !isOnline;
+                }
+                if (!isOffline) {
                     const response = await fetchWithRetry(`${API_BASE}/auth`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -383,6 +400,7 @@
                 isOffline = true;
                 apiCredentials = { key: `OFFLINE-${generateUUID()}`, secret: null };
                 logEvent('error', `Authentication failed: ${error.message}`, { error: error.stack });
+                showErrorNotification(`Authentication failed: ${error.message}. Ensure unified_server.py is running.`);
                 disableFunctions();
             }
         }
@@ -581,8 +599,8 @@
         async function initializeApp() {
             try {
                 logEvent('system', 'Application initialized.', {});
-                const response = await fetchWithRetry(`${API_BASE}/health`, { method: 'GET' });
-                isOffline = !response.ok;
+                const isBackendOnline = await checkBackendStatus();
+                isOffline = !isBackendOnline;
                 if (isOffline) logEvent('system', 'Backend offline: Running in offline mode.', {});
                 updateBalanceDisplay();
                 updateVialStatusBars();
