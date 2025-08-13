@@ -1,37 +1,65 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import pymongo
 import logging
-from pymongo import MongoClient
+import datetime
+import json
+import os
 
+app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+mongo_client = pymongo.MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+db = mongo_client["mcp_db"]
+
+class VialRequest(BaseModel):
+    user_id: str
+    vial_id: str
+    command: str
+    wallet: dict
+
 class VialManager:
-    def __init__(self):
-        self.db = MongoClient('mongodb://mongo:27017')['mcp_db']
-
-    def validate_vials(self, vials: dict) -> bool:
+    async def manage_vial(self, user_id: str, vial_id: str, command: str, wallet: dict) -> dict:
         try:
-            if len(vials) != 4:
-                logger.error(f"Invalid number of vials: expected 4, found {len(vials)}")
-                return False
-            for vial_id, vial_data in vials.items():
-                if not vial_data.get('status') or not vial_data.get('script'):
-                    logger.error(f"Invalid vial data for {vial_id}")
-                    return False
-                if not vial_data.get('wallet_hash') or not re.match(r'^[0-9a-f]{64}$', vial_data['wallet_hash']):
-                    logger.error(f"Invalid wallet hash for {vial_id}")
-                    return False
-            return True
+            with open("db/library_config.json", "r") as f:
+                config = json.load(f)
+            
+            if vial_id not in config["libraries"]:
+                raise HTTPException(status_code=400, detail=f"Invalid vial ID: {vial_id}")
+            
+            # Log command
+            db.collection("vial_logs").insert_one({
+                "user_id": user_id,
+                "vial_id": vial_id,
+                "command": command,
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "wallet": wallet
+            })
+            
+            # Update wallet
+            wallet["transactions"].append({
+                "type": "vial_command",
+                "vial_id": vial_id,
+                "command": command,
+                "timestamp": datetime.datetime.utcnow().isoformat()
+            })
+            wallet["webxos"] = wallet.get("webxos", 0.0) + float(os.getenv("WALLET_INCREMENT", 0.0001))
+            db.collection("wallet").update_one(
+                {"user_id": user_id},
+                {"$set": {"wallet": wallet}, "$push": {"transactions": wallet["transactions"][-1]}},
+                upsert=True
+            )
+            
+            return {"status": "command processed", "vial_id": vial_id, "wallet": wallet}
         except Exception as e:
-            logger.error(f"Vial validation error: {str(e)}")
-            return False
+            logger.error(f"Vial management error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Vial management error: {str(e)}\n")
+            raise HTTPException(status_code=500, detail=str(e))
 
-    def update_vial(self, vial_id: str, data: dict) -> bool:
-        try:
-            self.db.vials.update_one({"id": vial_id}, {"$set": data}, upsert=True)
-            logger.info(f"Updated vial: {vial_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to update vial {vial_id}: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Vial update error: {str(e)}\n")
-            return False
+vial_manager = VialManager()
+
+@app.post("/api/manage_vial")
+async def manage_vial(request: VialRequest):
+    return await vial_manager.manage_vial(request.user_id, request.vial_id, request.command, request.wallet)
