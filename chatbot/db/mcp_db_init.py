@@ -1,65 +1,27 @@
-import psycopg2
+from pymongo import MongoClient
 import os
-import logging
-import datetime
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def init_postgres():
+def init_db():
     try:
-        conn = psycopg2.connect(os.getenv("POSTGRES_URI", "postgresql://user:password@localhost:5432/mcp_db"))
-        cur = conn.cursor()
-
-        # Create tables for API keys, RBAC policies, and wallet
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                user_id VARCHAR(255) PRIMARY KEY,
-                api_key TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS rbac_policies (
-                user_id VARCHAR(255),
-                role VARCHAR(255),
-                PRIMARY KEY (user_id, role)
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS wallet (
-                user_id VARCHAR(255) PRIMARY KEY,
-                webxos FLOAT DEFAULT 0.0,
-                transactions JSONB,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_data (
-                user_id VARCHAR(255),
-                data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        cur.execute("""
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE TABLE IF NOT EXISTS vectors (
-                user_id VARCHAR(255),
-                vector VECTOR(768),
-                data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        conn.commit()
-        logger.info("PostgreSQL tables initialized successfully")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://mongo:27017")
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db = client["webxos"]
+        
+        # Create collections if they don't exist
+        collections = ["wallets", "logs", "blockchain"]
+        for collection in collections:
+            if collection not in db.list_collection_names():
+                db.create_collection(collection)
+                print(f"Created collection: {collection}")
+        
+        # Create indexes
+        db.wallets.create_index("user_id", unique=True)
+        db.blockchain.create_index("hash", unique=True)
+        db.logs.create_index("timestamp")
+        
+        print("Database initialized successfully")
     except Exception as e:
-        logger.error(f"PostgreSQL initialization error: {str(e)}")
-        with open("db/errorlog.md", "a") as f:
-            f.write(f"- **[{datetime.datetime.utcnow().isoformat()}]** PostgreSQL initialization error: {str(e)}\n")
-        raise
-    finally:
-        cur.close()
-        conn.close()
+        print(f"Database initialization failed: {str(e)}")
 
 if __name__ == "__main__":
-    init_postgres()
+    init_db()
