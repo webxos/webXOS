@@ -1,47 +1,35 @@
-import logging
-import sqlite3
-from pymongo import MongoClient
-from vial.webxos_wallet import WebXOSWallet
+const axios = require('axios');
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+const networkSync = {
+  async syncAgents(userId, agents) {
+    try {
+      const endpoints = {
+        nomic: '/v1/api/nomic_search',
+        cognitallmware: '/v1/api/cognitallmware_search',
+        llmware: '/v1/api/llmware_search',
+        jinaai: '/v1/api/jinaai_search'
+      };
 
-class NetworkSync:
-    def __init__(self):
-        self.db = MongoClient('mongodb://mongo:27017')['mcp_db']
-        self.wallet = WebXOSWallet()
+      const results = {};
+      for (const agent of agents) {
+        if (!endpoints[agent]) {
+          throw new Error(`Unknown agent: ${agent}`);
+        }
+        const response = await axios.post(
+          `http://unified_server:8000${endpoints[agent]}`,
+          { user_id: userId, query: 'sync_check', limit: 1 },
+          { headers: { Authorization: `Bearer ${process.env.API_KEY}` } }
+        );
+        results[agent] = response.data;
+      }
 
-    def sync_wallet(self, user_id: str) -> bool:
-        try:
-            local_balance = self.wallet.get_balance(user_id)
-            remote_wallet = self.db.wallet.find_one({"userId": user_id}) or {"webxos": 0.0}
-            if local_balance != remote_wallet["webxos"]:
-                self.db.wallet.update_one(
-                    {"userId": user_id},
-                    {"$set": {"webxos": local_balance}},
-                    upsert=True
-                )
-                self.wallet.update_balance(user_id, remote_wallet["webxos"])
-            logger.info(f"Synced wallet for {user_id}: {local_balance} $WEBXOS")
-            return True
-        except Exception as e:
-            logger.error(f"Wallet sync error for {user_id}: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Wallet sync error: {str(e)}\n")
-            return False
+      console.log(`Network sync completed for user ${userId}`);
+      return { status: 'success', data: results };
+    } catch (error) {
+      console.error(`Network sync error: ${error.message}`);
+      return { status: 'error', error: error.message };
+    }
+  }
+};
 
-    def sync_vials(self, vials: dict) -> bool:
-        try:
-            for vial_id, vial_data in vials.items():
-                self.db.vials.update_one(
-                    {"id": vial_id},
-                    {"$set": vial_data},
-                    upsert=True
-                )
-            logger.info(f"Synced {len(vials)} vials")
-            return True
-        except Exception as e:
-            logger.error(f"Vial sync error: {str(e)}")
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Vial sync error: {str(e)}\n")
-            return False
+module.exports = networkSync;
