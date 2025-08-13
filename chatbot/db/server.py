@@ -1,161 +1,275 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pymongo import MongoClient
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
-import os
+import logging
+import re
 import hashlib
+import datetime
+import aiofiles
+import time
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://webxos.netlify.app", "http://localhost:8000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# MongoDB setup with retry
+def connect_mongo():
+    max_retries = 5
+    retry_delay = 2
+    for attempt in range(max_retries):
+        try:
+            client = MongoClient('mongodb://mongo:27017', serverSelectionTimeoutMS=5000)
+            client.admin.command('ping')
+            return client
+        except Exception as e:
+            logging.error(f"MongoDB connection attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                raise Exception(f"Failed to connect to MongoDB after {max_retries} attempts: {str(e)}")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017")
-client = AsyncIOMotorClient(MONGO_URI)
-db = client.searchbot
+mongo_client = connect_mongo()
+db = mongo_client['mcp_db']
 
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Security
+security = HTTPBearer()
+
+# Pydantic models
 class AuthRequest(BaseModel):
     userId: str
 
-class Transaction(BaseModel):
-    type: str
-    query: str | None = None
-    vialId: str | None = None
-    file: str | None = None
-    apiKey: str | None = None
-    timestamp: str
-
-class ErrorLog(BaseModel):
-    error: str
-    timestamp: str
-
-class QueryLog(BaseModel):
+class QueryRequest(BaseModel):
     query: str
     timestamp: str
 
-async def create_user_profile(apiKey: str, userId: str):
-    profile = {
-        "apiKey": apiKey,
-        "userId": userId,
-        "created_at": datetime.utcnow(),
-        "balance": 0.0,
-        "reputation": 0,
-        "query_count": 0,
-        "query_embeddings": []
-    }
-    await db.users.update_one({"apiKey": apiKey}, {"$setOnInsert": profile}, upsert=True)
+class WalletRequest(BaseModel):
+    transaction: dict
+    wallet: dict
 
-@app.post("/auth")
-async def authenticate(auth: AuthRequest):
-    apiKey = hashlib.sha256(auth.userId.encode()).hexdigest()
-    await create_user_profile(apiKey, auth.userId)
-    await db.security_logs.insert_one({
-        "apiKey": apiKey,
-        "event": "authentication_success",
-        "timestamp": datetime.utcnow()
-    })
-    return {"apiKey": apiKey}
+class EnhanceQueryRequest(BaseModel):
+    query: str
+    apiKey: str
 
-@app.get("/vials")
-async def get_vials(request: Request):
-    apiKey = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not apiKey or not await db.users.find_one({"apiKey": apiKey}):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+# Authentication dependency
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    api_key = credentials.credentials
+    user = db.users.find_one({"apiKey": api_key})
+    if not user:
+        logger.error(f"Invalid API key: {api_key}")
+        raise HTTPException(status_code=401, detail="Invalid or expired API key")
+    return user
+
+@app.get("/api/health")
+async def health():
     try:
-        with open("nano_gpt_bots.md", "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Vial definitions not found")
-
-@app.post("/import")
-async def import_vials(request: Request):
-    apiKey = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not apiKey or not await db.users.find_one({"apiKey": apiKey}):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    form = await request.form()
-    file = form.get("file")
-    if not file or not file.filename.endswith(".md"):
-        raise HTTPException(status_code=400, detail="Invalid file format")
-    
-    content = await file.read()
-    text = content.decode()
-    agentSections = text.split("## Agent ")[1:]
-    if len(agentSections) != 4:
-        raise HTTPException(status_code=400, detail=f"Expected 4 vials, found {len(agentSections)}")
-    
-    agents = {}
-    for section in agentSections:
-        lines = section.split('\n')
-        id = lines[0].strip()
-        role = lines[1].split("Role: ")[1].strip() if "Role: " in lines[1] else ""
-        description = lines[2].split("Description: ")[1].strip() if "Description: " in lines[2] else ""
-        script_start = next((i for i, line in enumerate(lines) if line.startswith("```python")), -1)
-        script = ""
-        if script_start != -1:
-            script_end = next((i for i, line in enumerate(lines[script_start:]) if line.startswith("```") and i > 0), len(lines))
-            script = "\n".join(lines[script_start + 1:script_start + script_end])
-        agents[id] = {"role": role, "description": description, "script": script}
-    
-    await db.users.update_one({"apiKey": apiKey}, {"$inc": {"query_count": 1}})
-    await db.security_logs.insert_one({
-        "apiKey": apiKey,
-        "event": "import_vials",
-        "file": file.filename,
-        "timestamp": datetime.utcnow()
-    })
-    return {"agents": agents}
-
-@app.post("/wallet")
-async def update_wallet(transaction: Transaction, request: Request):
-    apiKey = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not apiKey or not await db.users.find_one({"apiKey": apiKey}):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    await db.wallet_logs.insert_one({
-        "apiKey": apiKey,
-        **transaction.dict(exclude_unset=True),
-        "timestamp": datetime.utcnow()
-    })
-    await db.users.update_one({"apiKey": apiKey}, {"$inc": {"query_count": 1}})
-    return {"status": "success"}
-
-@app.post("/log_error")
-async def log_error(error: ErrorLog, request: Request):
-    apiKey = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if apiKey and await db.users.find_one({"apiKey": apiKey}):
-        await db.security_logs.insert_one({
-            "apiKey": apiKey,
-            "event": "error",
-            "error": error.error,
-            "timestamp": datetime.utcnow()
-        })
-    return {"status": "success"}
-
-@app.post("/log_query")
-async def log_query(query: QueryLog, request: Request):
-    apiKey = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not apiKey or not await db.users.find_one({"apiKey": apiKey}):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    await db.history.insert_one({
-        "apiKey": apiKey,
-        "query": query.query,
-        "timestamp": datetime.utcnow()
-    })
-    await db.users.update_one({"apiKey": apiKey}, {"$inc": {"query_count": 1}})
-    return {"status": "success"}
-
-@app.get("/health")
-async def health_check():
-    try:
-        await db.command("ping")
+        db.command("ping")
+        logger.info("Health check passed")
         return {"status": "healthy"}
-    except Exception:
-        raise HTTPException(status_code=503, detail="Database unavailable")
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Health check failed: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)}")
+
+@app.post("/api/auth")
+async def auth(auth_request: AuthRequest):
+    try:
+        api_key = hashlib.sha256(f"{auth_request.userId}{datetime.datetime.utcnow().isoformat()}".encode()).hexdigest()
+        user = {
+            "userId": auth_request.userId,
+            "apiKey": api_key,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+        db.users.update_one({"userId": auth_request.userId}, {"$set": user}, upsert=True)
+        logger.info(f"Authenticated user: {auth_request.userId}")
+        db.queries.insert_one({
+            "query": f"Authentication for {auth_request.userId}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": auth_request.userId
+        })
+        return {"apiKey": api_key}
+    except Exception as e:
+        logger.error(f"Auth error: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Auth error: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/vials", dependencies=[Depends(verify_token)])
+async def get_vials():
+    try:
+        vials = list(db.vials.find({}, {"_id": 0}))
+        agents = {vial["id"]: {k: v for k, v in vial.items() if k != "id"} for vial in vials}
+        logger.info(f"Retrieved {len(agents)} vials")
+        return {"agents": agents}
+    except Exception as e:
+        logger.error(f"Failed to load vials: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to load vials: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/log_query", dependencies=[Depends(verify_token)])
+async def log_query(query_request: QueryRequest, user: dict = Depends(verify_token)):
+    try:
+        db.queries.insert_one({
+            "query": query_request.query,
+            "timestamp": query_request.timestamp,
+            "userId": user["userId"]
+        })
+        logger.info(f"Logged query: {query_request.query} for user: {user['userId']}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to log query: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to log query: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/wallet", dependencies=[Depends(verify_token)])
+async def update_wallet(wallet_request: WalletRequest, user: dict = Depends(verify_token)):
+    try:
+        db.wallet.update_one(
+            {"userId": user["userId"]},
+            {"$push": {"transactions": wallet_request.transaction}, "$inc": {"webxos": 0.0001}},
+            upsert=True
+        )
+        logger.info(f"Updated wallet for user: {user['userId']}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to update wallet: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to update wallet: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/enhance_query", dependencies=[Depends(verify_token)])
+async def enhance_query(request: EnhanceQueryRequest, user: dict = Depends(verify_token)):
+    try:
+        from nlp_model import enhance_query
+        enhanced_query = enhance_query(request.query)
+        db.queries.insert_one({
+            "query": request.query,
+            "enhanced_query": enhanced_query,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": user["userId"]
+        })
+        logger.info(f"Enhanced query: {request.query} -> {enhanced_query}")
+        return {"enhanced_query": enhanced_query}
+    except Exception as e:
+        logger.error(f"Failed to enhance query: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to enhance query: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/import", dependencies=[Depends(verify_token)])
+async def import_vials(file: UploadFile = File(...), user: dict = Depends(verify_token)):
+    try:
+        async with aiofiles.open(f"/tmp/{file.filename}", 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        with open(f"/tmp/{file.filename}", 'r') as f:
+            text = f.read()
+        agent_sections = text.split('## Agent ')[1:]
+        if len(agent_sections) != 4:
+            logger.error(f"Invalid number of vials: expected 4, found {len(agent_sections)}")
+            db.errors.insert_one({
+                "error": f"Invalid number of vials: expected 4, found {len(agent_sections)}",
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "source": "backend"
+            })
+            raise HTTPException(status_code=400, detail=f"Expected 4 vials, found {len(agent_sections)}")
+        agents = {}
+        for section in agent_sections:
+            lines = section.split('\n')
+            id = lines[0].strip()
+            role = lines[1].split('Role: ')[1] if 'Role: ' in lines[1] else ''
+            description = lines[2].split('Description: ')[1] if 'Description: ' in lines[2] else ''
+            script_start = next(i for i, line in enumerate(lines) if line.startswith('```python'))
+            script_end = next(i for i, line in enumerate(lines[script_start:]) if line.startswith('```') and i > 0) + script_start
+            script = '\n'.join(lines[script_start + 1:script_end])
+            agents[id] = {"role": role, "description": description, "script": script}
+        db.vials.delete_many({})
+        db.vials.insert_many([{"id": id, **agent} for id, agent in agents.items()])
+        logger.info(f"Imported {len(agents)} vials from {file.filename} for user: {user['userId']}")
+        db.queries.insert_one({
+            "query": f"Imported {file.filename}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": user["userId"]
+        })
+        return {"agents": agents}
+    except Exception as e:
+        logger.error(f"Failed to import vials: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to import vials: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/modules", dependencies=[Depends(verify_token)])
+async def add_module(file: UploadFile = File(...), user: dict = Depends(verify_token)):
+    try:
+        async with aiofiles.open(f"/tmp/{file.filename}", 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        with open(f"/tmp/{file.filename}", 'r') as f:
+            text = f.read()
+        module_data = {
+            "name": file.filename,
+            "content": text,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": user["userId"]
+        }
+        db.modules.insert_one(module_data)
+        logger.info(f"Added module: {file.filename} for user: {user['userId']}")
+        db.queries.insert_one({
+            "query": f"Added module {file.filename}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "userId": user["userId"]
+        })
+        return {"status": "success", "module": module_data}
+    except Exception as e:
+        logger.error(f"Failed to add module: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to add module: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        db.command("ping")
+        logger.info("Connected to MongoDB")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {str(e)}")
+        db.errors.insert_one({
+            "error": f"Failed to connect to MongoDB: {str(e)}",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "source": "backend"
+        })
+        raise Exception(f"Failed to connect to MongoDB: {str(e)}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    mongo_client.close()
+    logger.info("Disconnected from MongoDB")
