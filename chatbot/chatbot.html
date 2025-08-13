@@ -212,7 +212,7 @@
         </div>
     </div>
     <footer>
-        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.0</span>
+        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.2</span>
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script>
@@ -275,7 +275,7 @@
         };
     </script>
     <script>
-        const version = "3.0";
+        const version = "3.2";
         let agents = {};
         let activeAgent = null;
         let authCredentials = null;
@@ -283,28 +283,29 @@
         let reputation = 0;
         let wallet = { balance: 0.0000, transactions: [] };
         let siteIndex = {};
-        const API_BASE = 'http://localhost:8000'; // Fallback to local for testing
+        const API_BASE = 'http://localhost:8000'; // Update to deployed URL for production
+        let importInstructionsShown = false; // Track if instructions were recently shown
 
         const defaultAgents = {
             '1': {
                 role: 'Chatbot Vial',
                 description: 'A fallback conversational AI for general-purpose dialogue.',
-                process: (query) => `Chatbot Vial: Responding to '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
+                process: (query) => `Chatbot Vial: Responding to '${query}' (fallback mode).`
             },
             '2': {
                 role: 'Data Analyst Vial',
                 description: 'A fallback vial for data analysis queries.',
-                process: (query) => `Data Analyst Vial: Analyzing '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
+                process: (query) => `Data Analyst Vial: Analyzing '${query}' (fallback mode).`
             },
             '3': {
                 role: 'Code Generator Vial',
                 description: 'A fallback vial for generating code snippets.',
-                process: (query) => `Code Generator Vial: Generating code for '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
+                process: (query) => `Code Generator Vial: Generating code for '${query}' (fallback mode).`
             },
             '4': {
                 role: 'Galaxy Web Crawler Vial',
                 description: 'A fallback vial for simulating web crawling and search.',
-                process: (query) => `Galaxy Web Crawler Vial: Crawling web for '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
+                process: (query) => `Galaxy Web Crawler Vial: Crawling web for '${query}' (fallback mode).`
             }
         };
 
@@ -312,18 +313,24 @@
             try {
                 const response = await fetch('site_index.json');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                siteIndex = await response.json();
+                const text = await response.text();
+                if (!text) throw new Error('Empty response');
+                siteIndex = JSON.parse(text);
                 displayMessage('Site index loaded.', 'System');
             } catch (error) {
                 displayError(`Failed to load site index: ${error.message}. Basic search disabled.`);
-                siteIndex = {};
+                siteIndex = {
+                    "Home": { "url": "/home", "content": "Welcome to SearchBot." },
+                    "About": { "url": "/about", "content": "SearchBot is a lightweight AI system." }
+                };
+                displayMessage('Using fallback site index.', 'System');
             }
         }
 
         async function loadAgents() {
-            if (!authCredentials) {
-                agents = { ...defaultAgents };
-                displayMessage('Authenticate to load vials.', 'System');
+            agents = { ...defaultAgents };
+            if (!authCredentials || !authCredentials.verified) {
+                displayMessage('Authenticate with backend to load vials.', 'System');
                 return;
             }
             try {
@@ -340,8 +347,8 @@
                 for (const section of agentSections) {
                     const lines = section.split('\n');
                     const id = lines[0].trim();
-                    const role = lines[1].match(/Role: (.*)/)?.[1];
-                    const description = lines[2].match(/Description: (.*)/)?.[1];
+                    const role = lines[1].match(/Role: (.*)/)?.[1] || '';
+                    const description = lines[2].match(/Description: (.*)/)?.[1] || '';
                     let script = '';
                     const scriptStart = lines.findIndex(line => line.startsWith('```python'));
                     if (scriptStart !== -1) {
@@ -356,12 +363,17 @@
             } catch (error) {
                 displayError(`Failed to load vials: ${error.message}. Using default agents.`);
                 agents = { ...defaultAgents };
+                if (!importInstructionsShown) {
+                    displayImportInstructions();
+                    importInstructionsShown = true;
+                }
             }
         }
 
         async function initPyodide() {
             try {
                 window.pyodide = await loadPyodide();
+                await window.pyodide.loadPackage('micropip');
                 displayMessage('Pyodide initialized.', 'System');
             } catch (error) {
                 displayError(`Failed to initialize Pyodide: ${error.message}`);
@@ -382,7 +394,7 @@
 
         let lastError = '';
         function displayError(errorMessage) {
-            if (errorMessage === lastError) return; // Suppress duplicate errors
+            if (errorMessage === lastError) return;
             lastError = errorMessage;
             const messagesDiv = document.getElementById('messages');
             const errorElement = document.createElement('p');
@@ -390,11 +402,10 @@
             errorElement.textContent = `ERROR: ${errorMessage}`;
             messagesDiv.appendChild(errorElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            logErrorToServer(errorMessage);
+            if (authCredentials && authCredentials.verified) logErrorToServer(errorMessage);
         }
 
         async function logErrorToServer(errorMessage) {
-            if (!authCredentials) return;
             try {
                 await fetch(`${API_BASE}/log_error`, {
                     method: 'POST',
@@ -410,10 +421,11 @@
         }
 
         function displayImportInstructions() {
-            if (lastError.includes('Authenticate to')) return; // Avoid redundant prompts
+            if (importInstructionsShown) return;
             displayMessage('Import a nano_gpt_bots.md file with this format:', 'System');
             displayMessage('## Agent 1\nRole: Chatbot Vial\nDescription: A conversational AI...\n```python\ndef generate_response(query):\n    wallet = globals().get("wallet", {"balance": 0.0, "transactions": []})\n    wallet["transactions"].append({...})\n    return f"Response..."\n```\n(Repeat for Agents 2-4: Data Analyst, Code Generator, Galaxy Web Crawler)', 'System');
-            displayMessage('Authenticate and use the Import button to upload.', 'System');
+            displayMessage('Use the Import button to upload after authentication.', 'System');
+            importInstructionsShown = true;
         }
 
         async function sendMessage() {
@@ -425,6 +437,7 @@
             try {
                 displayMessage(query, 'User');
                 await logQueryToServer(query);
+                importInstructionsShown = false; // Reset on new query
                 if (query.startsWith('/')) {
                     await handleCommand(query);
                 } else if (activeAgent && authCredentials) {
@@ -440,7 +453,7 @@
         }
 
         async function logQueryToServer(query) {
-            if (!authCredentials) return;
+            if (!authCredentials || !authCredentials.verified) return;
             try {
                 await fetch(`${API_BASE}/log_query`, {
                     method: 'POST',
@@ -477,7 +490,7 @@
                     query,
                     timestamp: new Date().toISOString()
                 });
-                await updateWalletOnServer({ type: 'basic_search', query });
+                if (authCredentials?.verified) await updateWalletOnServer({ type: 'basic_search', query });
             } catch (error) {
                 displayError(`Error performing basic search: ${error.message}`);
             }
@@ -488,6 +501,9 @@
                 if (query.startsWith('/vial')) {
                     if (!authCredentials) {
                         displayMessage('Authenticate to use vial commands.');
+                        if (!authCredentials?.verified && !importInstructionsShown) {
+                            displayImportInstructions();
+                        }
                         return;
                     }
                     const vialId = query.match(/\/vial(\d)/)?.[1];
@@ -499,13 +515,16 @@
                             vialId,
                             timestamp: new Date().toISOString()
                         });
-                        await updateWalletOnServer({ type: 'vial_switch', vialId });
+                        if (authCredentials.verified) await updateWalletOnServer({ type: 'vial_switch', vialId });
                     } else {
                         displayMessage('Invalid vial ID. Use /vial1, /vial2, /vial3, or /vial4.');
                     }
                 } else if (query === '/dna') {
                     if (!authCredentials) {
                         displayMessage('Authenticate to use DNA mode.');
+                        if (!authCredentials?.verified && !importInstructionsShown) {
+                            displayImportInstructions();
+                        }
                         return;
                     }
                     displayMessage('Engaging Quantum Network...', 'System');
@@ -514,6 +533,9 @@
                 } else if (query === '/galaxy') {
                     if (!authCredentials) {
                         displayMessage('Authenticate to use Galaxy mode.');
+                        if (!authCredentials?.verified && !importInstructionsShown) {
+                            displayImportInstructions();
+                        }
                         return;
                     }
                     displayMessage('Initiating Galaxy multi-agent search...', 'System');
@@ -530,30 +552,31 @@
 
         async function processAgentQuery(vialId, query) {
             try {
-                if (agents[vialId].script && window.pyodide) {
-                    const response = await pyodide.runPythonAsync(`
-                        response = generate_response("${query.replace(/"/g, '\\"')}")
+                let response;
+                if (authCredentials.verified && agents[vialId].script && window.pyodide) {
+                    const enhancedQuery = await fetch(`${API_BASE}/enhance_query`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authCredentials.apiKey}`
+                        },
+                        body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
+                    }).then(res => res.ok ? res.text() : query);
+                    response = await pyodide.runPythonAsync(`
+                        response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}")
                         response
                     `);
-                    displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
-                    wallet.transactions.push({
-                        type: 'query',
-                        vialId,
-                        query,
-                        timestamp: new Date().toISOString()
-                    });
-                    await updateWalletOnServer({ type: 'query', vialId, query });
                 } else {
-                    const response = agents[vialId].process(query);
-                    displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
-                    wallet.transactions.push({
-                        type: 'query_fallback',
-                        vialId,
-                        query,
-                        timestamp: new Date().toISOString()
-                    });
-                    await updateWalletOnServer({ type: 'query_fallback', vialId, query });
+                    response = agents[vialId].process(query);
                 }
+                displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
+                wallet.transactions.push({
+                    type: authCredentials?.verified ? 'query' : 'query_fallback',
+                    vialId,
+                    query,
+                    timestamp: new Date().toISOString()
+                });
+                if (authCredentials?.verified) await updateWalletOnServer({ type: 'query', vialId, query });
             } catch (error) {
                 displayError(`Error processing query with Vial ${vialId}: ${error.message}`);
             }
@@ -562,14 +585,24 @@
         async function processNetworkQuery(query) {
             try {
                 displayMessage('Quantum Network syncing vials...', 'System');
-                const responses = await Promise.all(Object.keys(agents).map(vialId =>
-                    agents[vialId].script && window.pyodide ?
-                        pyodide.runPythonAsync(`
-                            response = generate_response("${query.replace(/"/g, '\\"')}")
-                            response
-                        `) :
-                        Promise.resolve(agents[vialId].process(query))
-                ));
+                const responses = await Promise.all(Object.keys(agents).map(vialId => {
+                    if (authCredentials.verified && agents[vialId].script && window.pyodide) {
+                        return fetch(`${API_BASE}/enhance_query`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${authCredentials.apiKey}`
+                            },
+                            body: JSON.stringify({ query, apiKey: authCredentials.apiKey })
+                        }).then(res => res.ok ? res.text() : query).then(enhancedQuery =>
+                            pyodide.runPythonAsync(`
+                                response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}")
+                                response
+                            `)
+                        );
+                    }
+                    return Promise.resolve(agents[vialId].process(query));
+                }));
                 responses.forEach((response, i) => {
                     const vialId = Object.keys(agents)[i];
                     displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
@@ -579,7 +612,7 @@
                     query,
                     timestamp: new Date().toISOString()
                 });
-                await updateWalletOnServer({ type: 'quantum_network', query });
+                if (authCredentials?.verified) await updateWalletOnServer({ type: 'quantum_network', query });
                 displayMessage('Quantum Network response complete.', 'System');
             } catch (error) {
                 displayError(`Error in quantum network query: ${error.message}`);
@@ -589,14 +622,24 @@
         async function processGalaxyQuery() {
             try {
                 displayMessage('Galaxy multi-agent search initiated...', 'System');
-                const responses = await Promise.all(Object.keys(agents).map(vialId =>
-                    agents[vialId].script && window.pyodide ?
-                        pyodide.runPythonAsync(`
-                            response = generate_response("Galaxy multi-agent search request")
-                            response
-                        `) :
-                        Promise.resolve(agents[vialId].process('Galaxy multi-agent search request'))
-                ));
+                const responses = await Promise.all(Object.keys(agents).map(vialId => {
+                    if (authCredentials.verified && agents[vialId].script && window.pyodide) {
+                        return fetch(`${API_BASE}/enhance_query`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${authCredentials.apiKey}`
+                            },
+                            body: JSON.stringify({ query: 'Galaxy multi-agent search request', apiKey: authCredentials.apiKey })
+                        }).then(res => res.ok ? res.text() : 'Galaxy multi-agent search request').then(enhancedQuery =>
+                            pyodide.runPythonAsync(`
+                                response = generate_response("${enhancedQuery.replace(/"/g, '\\"')}")
+                                response
+                            `)
+                        );
+                    }
+                    return Promise.resolve(agents[vialId].process('Galaxy multi-agent search request'));
+                }));
                 responses.forEach((response, i) => {
                     const vialId = Object.keys(agents)[i];
                     displayMessage(response, `Vial ${vialId} (${agents[vialId].role})`);
@@ -605,7 +648,7 @@
                     type: 'galaxy_search',
                     timestamp: new Date().toISOString()
                 });
-                await updateWalletOnServer({ type: 'galaxy_search' });
+                if (authCredentials?.verified) await updateWalletOnServer({ type: 'galaxy_search' });
                 displayMessage('Galaxy multi-agent search complete.', 'System');
             } catch (error) {
                 displayError(`Error in Galaxy multi-agent search: ${error.message}`);
@@ -630,6 +673,7 @@
                 wallet.transactions = [];
                 activeAgent = null;
                 lastError = '';
+                importInstructionsShown = false;
                 displayMessage('Session cleared.', 'System');
             } catch (error) {
                 displayError(`Error clearing session: ${error.message}`);
@@ -639,7 +683,6 @@
         async function authenticate() {
             try {
                 if (!authCredentials) {
-                    // Fallback to local authentication if backend is down
                     try {
                         const response = await fetch(`${API_BASE}/auth`, {
                             method: 'POST',
@@ -653,6 +696,7 @@
                             timestamp: new Date().toISOString(),
                             verified: true
                         };
+                        displayMessage(`Authenticated with API Key: ${authCredentials.apiKey}`, 'System');
                     } catch (error) {
                         displayMessage('Backend offline, using local authentication.', 'System');
                         authCredentials = {
@@ -660,18 +704,15 @@
                             timestamp: new Date().toISOString(),
                             verified: false
                         };
+                        displayMessage(`Authenticated locally with API Key: ${authCredentials.apiKey}`, 'System');
                     }
                     wallet.transactions.push({
                         type: 'authentication',
                         apiKey: authCredentials.apiKey,
                         timestamp: authCredentials.timestamp
                     });
-                    await updateWalletOnServer({ type: 'authentication', apiKey: authCredentials.apiKey });
-                    displayMessage(`Authenticated with API Key: ${authCredentials.apiKey}`, 'System');
+                    if (authCredentials.verified) await updateWalletOnServer({ type: 'authentication', apiKey: authCredentials.apiKey });
                     await loadAgents();
-                    if (Object.keys(agents).every(id => agents[id].process)) {
-                        displayImportInstructions();
-                    }
                 } else {
                     displayMessage('Already authenticated.', 'System');
                 }
@@ -707,7 +748,7 @@
                 displayMessage(`Wallet transactions: ${wallet.transactions.length}`);
                 displayMessage(`Site index entries: ${Object.keys(siteIndex).length}`);
                 if (Object.keys(agents).every(id => agents[id].process)) {
-                    displayMessage('Running in Node.js fallback mode. Authenticate and import nano_gpt_bots.md.', 'System');
+                    displayMessage('Running in fallback mode. Import nano_gpt_bots.md for full functionality.', 'System');
                 }
             } catch (error) {
                 displayError(`Troubleshooting error: ${error.message}`);
@@ -731,31 +772,58 @@
                         return;
                     }
                     try {
-                        const text = await file.text();
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        const response = await fetch(`${API_BASE}/import`, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${authCredentials.apiKey}` },
-                            body: formData
-                        });
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
-                        agents = data.agents;
+                        if (!authCredentials.verified) {
+                            const text = await file.text();
+                            const agentSections = text.split('## Agent ').slice(1);
+                            if (agentSections.length !== 4) {
+                                throw new Error(`Expected 4 vials, found ${agentSections.length}`);
+                            }
+                            agents = {};
+                            for (const section of agentSections) {
+                                const lines = section.split('\n');
+                                const id = lines[0].trim();
+                                const role = lines[1].match(/Role: (.*)/)?.[1] || '';
+                                const description = lines[2].match(/Description: (.*)/)?.[1] || '';
+                                let script = '';
+                                const scriptStart = lines.findIndex(line => line.startsWith('```python'));
+                                if (scriptStart !== -1) {
+                                    script = lines.slice(scriptStart + 1, lines.findIndex((line, i) => i > scriptStart && line.startsWith('```'))).join('\n');
+                                    if (script && window.pyodide) {
+                                        await pyodide.runPythonAsync(script);
+                                    }
+                                }
+                                agents[id] = { role, description, script };
+                            }
+                            displayMessage(`Imported ${Object.keys(agents).length} vials from ${file.name} locally.`, 'System');
+                        } else {
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            const response = await fetch(`${API_BASE}/import`, {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${authCredentials.apiKey}` },
+                                body: formData
+                            });
+                            if (!response.ok) throw new Error(`HTTP ${response.status}: Backend offline or misconfigured. Ensure server is running at ${API_BASE}.`);
+                            const data = await response.json();
+                            agents = data.agents;
+                            displayMessage(`Imported ${Object.keys(data.agents).length} vials from ${file.name}.`, 'System');
+                        }
                         wallet.transactions.push({
                             type: 'import',
                             file: file.name,
                             timestamp: new Date().toISOString()
                         });
-                        await updateWalletOnServer({ type: 'import', file: file.name });
-                        displayMessage(`Imported ${Object.keys(data.agents).length} vials from ${file.name}.`, 'System');
+                        if (authCredentials.verified) await updateWalletOnServer({ type: 'import', file: file.name });
+                        importInstructionsShown = false; // Reset after successful import
                     } catch (error) {
                         displayError(`Error importing .md file: ${error.message}`);
+                        displayImportInstructions();
                     }
                 };
                 input.click();
             } catch (error) {
                 displayError(`Import error: ${error.message}`);
+                displayImportInstructions();
             }
         }
 
@@ -777,6 +845,7 @@
                 if (window.neurots && window.neurots.initCanvas) {
                     window.neurots.initCanvas('neuralCanvas');
                 }
+                authenticate(); // Auto-authenticate on load
             } catch (error) {
                 displayError(`Initialization error: ${error.message}`);
             }
@@ -796,7 +865,7 @@
             displayMessage('Clear - Clear session and wallet');
             displayMessage('OAuth - Authenticate with API credentials');
             displayMessage('Import - Import .md file for vials (requires authentication)');
-            displayMessage('Type a query without a slash for basic site search or to interact with the active vial (authentication required for vials).');
+            displayMessage('Type a query without a slash for basic site search or to interact with the active vial.');
         }
     </script>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
