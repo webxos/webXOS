@@ -1,74 +1,53 @@
+from fastapi import HTTPException
+import pymongo
+import logging
 import datetime
-import hashlib
-import uuid
-from vial.webxos_wallet import WebXOSWallet
+import os
+from typing import Dict, Any
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+mongo_client = pymongo.MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+db = mongo_client["mcp_db"]
 
 class ExportManager:
     def __init__(self):
-        self.wallet = WebXOSWallet()
+        self.output_dir = "vial"
 
-    def generate_export(self, user_id: str, vials: dict) -> str:
+    async def export_to_markdown(self, user_id: str, data: Dict[str, Any], wallet: Dict[str, Any], filename: str) -> str:
         try:
-            network_id = str(uuid.uuid4())
-            wallet_balance = self.wallet.get_balance(user_id)
-            wallet_address = str(uuid.uuid4())
-            wallet_hash = hashlib.sha256(f"{user_id}{datetime.datetime.utcnow().isoformat()}".encode()).hexdigest()
-            export_content = f"""# WebXOS Vial and Wallet Export
-
-## Agentic Network
-- Network ID: {network_id}
-- Session Start: {datetime.datetime.utcnow().isoformat()}
-- Session Duration: 0.00 seconds
-- Reputation: {int(wallet_balance * 1000)}
-
-## Wallet
-- Wallet Key: {str(uuid.uuid4())}
-- Session Balance: {wallet_balance:.4f} $WEBXOS
-- Address: {wallet_address}
-- Hash: {wallet_hash}
-
-## API Credentials
-- Key: none
-- Secret: none
-
-## Blockchain
-- Blocks: 11914
-- Last Hash: {wallet_hash}
-
-## Vials
-"""
-            for vial_id, vial_data in vials.items():
-                export_content += f"""# Vial Agent: {vial_id}
-- Status: {vial_data.get('status', 'running')}
-- Language: Python
-- Code Length: {len(vial_data.get('script', ''))} bytes
-- $WEBXOS Hash: {hashlib.sha256(vial_id.encode()).hexdigest()}
-- Wallet Balance: {(wallet_balance / 4):.4f} $WEBXOS
-- Wallet Address: {str(uuid.uuid4())}
-- Wallet Hash: {wallet_hash}
-- Tasks: none
-- Quantum State: {{
-      "qubits": [],
-      "entanglement": "synced"
-    }}
-- Training Data: [
-      {{
-        "tasks": [],
-        "parameters": {{}},
-        "hash": "{hashlib.sha256(str(datetime.datetime.utcnow()).encode()).hexdigest()}"
-      }}
-    ]
-- Config: {{}}
-
-```python
-{vial_data.get('script', '')}
-```
-"""
-            return export_content
+            timestamp = datetime.datetime.utcnow().isoformat()
+            markdown_content = f"# Export for {user_id}\n\n**Timestamp**: {timestamp}\n\n**Data**:\n{json.dumps(data, indent=2)}\n"
+            export_path = os.path.join(self.output_dir, f"vial_wallet_export_{user_id}_{timestamp}.md")
+            
+            with open(export_path, "w") as f:
+                f.write(markdown_content)
+            
+            # Update wallet
+            wallet["transactions"].append({
+                "type": "export",
+                "filename": export_path,
+                "timestamp": timestamp
+            })
+            wallet["webxos"] = wallet.get("webxos", 0.0) + float(os.getenv("WALLET_INCREMENT", 0.0001))
+            db.collection("wallet").update_one(
+                {"user_id": user_id},
+                {"$set": {"wallet": wallet}, "$push": {"transactions": wallet["transactions"][-1]}},
+                upsert=True
+            )
+            
+            # Log export
+            db.collection("export_logs").insert_one({
+                "user_id": user_id,
+                "filename": export_path,
+                "timestamp": timestamp,
+                "wallet": wallet
+            })
+            
+            return export_path
         except Exception as e:
-            with open("vial/errorlog.md", "a") as f:
-                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Export generation error: {str(e)}\n")
-            raise
-
-    def validate_export(self, export_data: str) -> bool:
-        return self.wallet.validate_export(export_data)
+            logger.error(f"Export error: {str(e)}")
+            with open("db/errorlog.md", "a") as f:
+                f.write(f"- **[{timestamp}]** Export error: {str(e)}\n")
+            raise HTTPException(status_code=500, detail=str(e))
