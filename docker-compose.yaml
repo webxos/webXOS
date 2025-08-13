@@ -1,35 +1,67 @@
 version: '3.8'
+
 services:
-  backend:
-    build: .
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    depends_on:
-      - mongo
-      - redis
-    volumes:
-      - .:/app
   mongo:
     image: mongo:latest
     ports:
       - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
     volumes:
-      - mongo_data:/data/db
+      - mongo-data:/data/db
+    networks:
+      - vial-network
+
   redis:
-    image: redis:7.0
+    image: redis:latest
     ports:
       - "6379:6379"
+    networks:
+      - vial-network
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+      - redis
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+      - WALLET_INCREMENT=${WALLET_INCREMENT}
     volumes:
-      - redis_data:/data
+      - .:/app
+    command: ["sh", "db/wait-for-it.sh", "mongo:27017", "--", "python", "vial/unified_server.py"]
+    networks:
+      - vial-network
+
   node:
     build:
       context: ./node
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
     volumes:
       - ./node:/app
+    command: ["npm", "start"]
+    networks:
+      - vial-network
+
 volumes:
-  mongo_data:
-  redis_data:
+  mongo-data:
+
+networks:
+  vial-network:
+    driver: bridge
