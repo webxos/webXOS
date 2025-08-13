@@ -1,46 +1,39 @@
+import pymongo
 import logging
-from pymongo import MongoClient
+import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def init_db():
+def initialize_db():
     try:
-        client = MongoClient('mongodb://mongo:27017', serverSelectionTimeoutMS=5000)
-        db = client['mcp_db']
+        client = pymongo.MongoClient("mongodb://localhost:27017")
+        db = client["mcp_db"]
         
         # Create collections
-        db.create_collection("users")
-        db.create_collection("wallet")
-        db.create_collection("vials")
-        db.create_collection("queries")
-        db.create_collection("errors")
-        db.create_collection("modules")
+        collections = ["wallet", "sync_logs", "auth_logs", "monitor_logs", "metrics_logs", "config_logs", "health_logs", "audit_logs"]
+        for collection in collections:
+            if collection not in db.list_collection_names():
+                db.create_collection(collection)
+                logger.info(f"Created collection: {collection}")
         
         # Create indexes
-        db.users.create_index("userId", unique=True)
-        db.users.create_index("apiKey")
-        db.wallet.create_index("userId")
-        db.vials.create_index("id")
-        db.queries.create_index("userId")
-        db.errors.create_index("timestamp")
-        db.modules.create_index("userId")
+        db.collection("wallet").create_index("user_id", unique=True)
+        db.collection("sync_logs").create_index("timestamp")
+        db.collection("auth_logs").create_index("user_id")
+        db.collection("monitor_logs").create_index("timestamp")
+        db.collection("metrics_logs").create_index("timestamp")
+        db.collection("config_logs").create_index("timestamp")
+        db.collection("health_logs").create_index("timestamp")
+        db.collection("audit_logs").create_index("timestamp")
         
-        # Initialize default data
-        default_user = {
-            "userId": "default_user",
-            "apiKey": "default_key",
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
-        db.users.update_one({"userId": "default_user"}, {"$set": default_user}, upsert=True)
-        
-        logger.info("MongoDB initialized successfully")
-        return True
+        logger.info("MongoDB initialization completed")
+        return {"status": "success"}
     except Exception as e:
-        logger.error(f"Database initialization error: {str(e)}")
-        with open("vial/errorlog.md", "a") as f:
-            f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Database initialization error: {str(e)}\n")
-        return False
+        logger.error(f"DB initialization error: {str(e)}")
+        with open("db/errorlog.md", "a") as f:
+            f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** DB initialization error: {str(e)}\n")
+        return {"status": "error", "detail": str(e)}
 
 if __name__ == "__main__":
-    init_db()
+    initialize_db()
