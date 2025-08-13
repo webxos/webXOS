@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SearchBot</title>
     <style>
-        /* Reset and base styles */
         * {
             margin: 0;
             padding: 0;
@@ -213,11 +212,10 @@
         </div>
     </div>
     <footer>
-        <span class="copyright">SearchBot | Offline Mode | 2025 | v2.9</span>
+        <span class="copyright">SearchBot | Offline Mode | 2025 | v3.0</span>
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script>
-        // neurots.js - Neural dots visualization
         window.neurots = {
             initCanvas(canvasId) {
                 const canvas = document.getElementById(canvasId);
@@ -277,7 +275,7 @@
         };
     </script>
     <script>
-        const version = "2.9";
+        const version = "3.0";
         let agents = {};
         let activeAgent = null;
         let authCredentials = null;
@@ -285,45 +283,47 @@
         let reputation = 0;
         let wallet = { balance: 0.0000, transactions: [] };
         let siteIndex = {};
-        const API_BASE = 'https://webxos.netlify.app/chatbot/db';
+        const API_BASE = 'http://localhost:8000'; // Fallback to local for testing
 
         const defaultAgents = {
             '1': {
                 role: 'Chatbot Vial',
                 description: 'A fallback conversational AI for general-purpose dialogue.',
-                process: (query) => `Chatbot Vial: Responding to '${query}' (Node.js fallback mode). Authenticate and import a valid nano_gpt_bots.md for full functionality.`
+                process: (query) => `Chatbot Vial: Responding to '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
             },
             '2': {
                 role: 'Data Analyst Vial',
                 description: 'A fallback vial for data analysis queries.',
-                process: (query) => `Data Analyst Vial: Analyzing '${query}' (Node.js fallback mode). Authenticate and import a valid nano_gpt_bots.md for full functionality.`
+                process: (query) => `Data Analyst Vial: Analyzing '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
             },
             '3': {
                 role: 'Code Generator Vial',
                 description: 'A fallback vial for generating code snippets.',
-                process: (query) => `Code Generator Vial: Generating code for '${query}' (Node.js fallback mode). Authenticate and import a valid nano_gpt_bots.md for full functionality.`
+                process: (query) => `Code Generator Vial: Generating code for '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
             },
             '4': {
                 role: 'Galaxy Web Crawler Vial',
                 description: 'A fallback vial for simulating web crawling and search.',
-                process: (query) => `Galaxy Web Crawler Vial: Crawling web for '${query}' (Node.js fallback mode). Authenticate and import a valid nano_gpt_bots.md for full functionality.`
+                process: (query) => `Galaxy Web Crawler Vial: Crawling web for '${query}' (fallback mode). Authenticate and import nano_gpt_bots.md for full functionality.`
             }
         };
 
         async function loadSiteIndex() {
             try {
                 const response = await fetch('site_index.json');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 siteIndex = await response.json();
                 displayMessage('Site index loaded.', 'System');
             } catch (error) {
-                displayError(`Failed to load site index: ${error.message}`);
+                displayError(`Failed to load site index: ${error.message}. Basic search disabled.`);
+                siteIndex = {};
             }
         }
 
         async function loadAgents() {
             if (!authCredentials) {
-                displayMessage('Authenticate to load vials.', 'System');
                 agents = { ...defaultAgents };
+                displayMessage('Authenticate to load vials.', 'System');
                 return;
             }
             try {
@@ -380,7 +380,10 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
+        let lastError = '';
         function displayError(errorMessage) {
+            if (errorMessage === lastError) return; // Suppress duplicate errors
+            lastError = errorMessage;
             const messagesDiv = document.getElementById('messages');
             const errorElement = document.createElement('p');
             errorElement.className = 'error-log';
@@ -407,6 +410,7 @@
         }
 
         function displayImportInstructions() {
+            if (lastError.includes('Authenticate to')) return; // Avoid redundant prompts
             displayMessage('Import a nano_gpt_bots.md file with this format:', 'System');
             displayMessage('## Agent 1\nRole: Chatbot Vial\nDescription: A conversational AI...\n```python\ndef generate_response(query):\n    wallet = globals().get("wallet", {"balance": 0.0, "transactions": []})\n    wallet["transactions"].append({...})\n    return f"Response..."\n```\n(Repeat for Agents 2-4: Data Analyst, Code Generator, Galaxy Web Crawler)', 'System');
             displayMessage('Authenticate and use the Import button to upload.', 'System');
@@ -453,6 +457,10 @@
 
         async function basicSearch(query) {
             try {
+                if (Object.keys(siteIndex).length === 0) {
+                    displayMessage('Site index unavailable. Basic search disabled.', 'SearchBot');
+                    return;
+                }
                 const results = Object.keys(siteIndex).filter(key => 
                     key.toLowerCase().includes(query.toLowerCase()) || 
                     siteIndex[key].content.toLowerCase().includes(query.toLowerCase())
@@ -621,6 +629,7 @@
                 authCredentials = null;
                 wallet.transactions = [];
                 activeAgent = null;
+                lastError = '';
                 displayMessage('Session cleared.', 'System');
             } catch (error) {
                 displayError(`Error clearing session: ${error.message}`);
@@ -630,18 +639,28 @@
         async function authenticate() {
             try {
                 if (!authCredentials) {
-                    const response = await fetch(`${API_BASE}/auth`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: `user-${Math.random().toString(36).slice(2, 10).toUpperCase()}` })
-                    });
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    authCredentials = {
-                        apiKey: data.apiKey,
-                        timestamp: new Date().toISOString(),
-                        verified: true
-                    };
+                    // Fallback to local authentication if backend is down
+                    try {
+                        const response = await fetch(`${API_BASE}/auth`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: `user-${Math.random().toString(36).slice(2, 10).toUpperCase()}` })
+                        });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        authCredentials = {
+                            apiKey: data.apiKey,
+                            timestamp: new Date().toISOString(),
+                            verified: true
+                        };
+                    } catch (error) {
+                        displayMessage('Backend offline, using local authentication.', 'System');
+                        authCredentials = {
+                            apiKey: `VIAL-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+                            timestamp: new Date().toISOString(),
+                            verified: false
+                        };
+                    }
                     wallet.transactions.push({
                         type: 'authentication',
                         apiKey: authCredentials.apiKey,
@@ -662,7 +681,7 @@
         }
 
         async function updateWalletOnServer(transaction) {
-            if (!authCredentials) return;
+            if (!authCredentials || !authCredentials.verified) return;
             try {
                 await fetch(`${API_BASE}/wallet`, {
                     method: 'POST',
@@ -683,7 +702,7 @@
                 displayMessage(`System version: ${version}`);
                 displayMessage(`Vials loaded: ${Object.keys(agents).length}`);
                 displayMessage(`Pyodide status: ${window.pyodide ? 'Loaded' : 'Not loaded'}`);
-                displayMessage(`Authentication status: ${authCredentials ? 'Authenticated' : 'Not authenticated'}`);
+                displayMessage(`Authentication status: ${authCredentials ? `Authenticated${authCredentials.verified ? '' : ' (local)'}` : 'Not authenticated'}`);
                 displayMessage(`$SearchBot Balance: ${balance.toFixed(4)} | Reputation: ${reputation}`);
                 displayMessage(`Wallet transactions: ${wallet.transactions.length}`);
                 displayMessage(`Site index entries: ${Object.keys(siteIndex).length}`);
@@ -749,7 +768,9 @@
                 agents = { ...defaultAgents };
                 await initPyodide();
                 await loadSiteIndex();
-                await fetch(`${API_BASE}/health`).catch(() => displayMessage('Backend offline, using fallback mode.', 'System'));
+                await fetch(`${API_BASE}/health`, { method: 'GET' })
+                    .then(res => res.ok || displayMessage('Backend offline, using fallback mode.', 'System'))
+                    .catch(() => displayMessage('Backend offline, using fallback mode.', 'System'));
                 displayMessage('SearchBot initialized. Use /help for commands.');
                 displayMessage(`$SearchBot Balance: ${balance.toFixed(4)} | Reputation: ${reputation}`);
                 showHelp();
