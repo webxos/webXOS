@@ -1,67 +1,105 @@
 version: '3.8'
-
 services:
   mongo:
     image: mongo:latest
-    ports:
-      - "27017:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
     volumes:
-      - mongo-data:/data/db
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
     networks:
-      - vial-network
-
+      - mcp_network
   redis:
     image: redis:latest
     ports:
       - "6379:6379"
     networks:
-      - vial-network
-
-  fastapi:
+      - mcp_network
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=mcp_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - mcp_network
+  milvus:
+    image: milvusdb/milvus:latest
+    ports:
+      - "19530:19530"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    networks:
+      - mcp_network
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    networks:
+      - mcp_network
+  nginx:
+    image: nginx:latest
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - unified_server
+    networks:
+      - mcp_network
+  unified_server:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: vial/Dockerfile
+    environment:
+      - MONGO_URI=${MONGO_URI}
+      - POSTGRES_URI=${POSTGRES_URI}
+      - MILVUS_URI=${MILVUS_URI}
+      - WEAVIATE_URI=${WEAVIATE_URI}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
     ports:
       - "8000:8000"
     depends_on:
       - mongo
       - redis
-    environment:
-      - MONGO_URI=mongodb://mongo:27017
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET}
-      - WALLET_INCREMENT=${WALLET_INCREMENT}
-    volumes:
-      - .:/app
-    command: ["sh", "db/wait-for-it.sh", "mongo:27017", "--", "python", "vial/unified_server.py"]
+      - postgres
+      - milvus
+      - weaviate
     networks:
-      - vial-network
-
-  node:
+      - mcp_network
+  node_server:
     build:
       context: ./node
       dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    depends_on:
-      - redis
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET}
-    volumes:
-      - ./node:/app
-    command: ["npm", "start"]
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
+    ports:
+      - "3001:3001"
     networks:
-      - vial-network
-
-volumes:
-  mongo-data:
-
+      - mcp_network
 networks:
-  vial-network:
+  mcp_network:
     driver: bridge
+volumes:
+  mongo_data:
+  postgres_data:
+  milvus_data:
+  weaviate_data:
