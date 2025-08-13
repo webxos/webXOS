@@ -1,51 +1,75 @@
-name: Vial MCP CI/CD
-
+name: CI/CD Pipeline
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-
+    branches: [main]
 jobs:
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
     services:
-      mongo:
-        image: mongo:latest
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: mcp_db
         ports:
-          - 27017:27017
+          - 5432:5432
       redis:
         image: redis:latest
         ports:
           - 6379:6379
+      mongo:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+      milvus:
+        image: milvusdb/milvus:latest
+        ports:
+          - 19530:19530
+      weaviate:
+        image: semitechnologies/weaviate:latest
+        ports:
+          - 8080:8080
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-      - name: Install Python dependencies
+          python-version: '3.10'
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r db/requirements.txt
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-      - name: Install Node.js dependencies
-        run: npm install --prefix node
-      - name: Initialize MongoDB
-        run: python db/mcp_db_init.py
       - name: Run tests
-        run: pytest db/ vial/tests/
-      - name: Build Docker image
-        run: docker build -t webxos/vial-mcp:latest .
-      - name: Deploy to Netlify
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          POSTGRES_URI: postgresql://user:password@localhost:5432/mcp_db
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          MONGO_URI: mongodb://localhost:27017
+          MILVUS_URI: localhost:19530
+          WEAVIATE_URI: http://localhost:8080
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
         run: |
-          npm install -g netlify-cli
-          netlify deploy --prod --dir=. --site=$NETLIFY_SITE_ID
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+          pytest vial/tests/ db/
+      - name: Security scan
+        run: |
+          pip install bandit
+          bandit -r vial/ db/ -ll
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npm install -g vercel
+          vercel --prod --token $VERCEL_TOKEN
