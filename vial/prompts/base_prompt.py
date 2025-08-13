@@ -1,10 +1,24 @@
 from langchain.prompts import PromptTemplate
+import logging
+import datetime
 
-base_prompt = PromptTemplate(
-    input_variables=["query", "vial_id"],
-    template="""You are vial {vial_id}, an AI agent in the Vial MCP Controller. Enhance the following query for optimal processing and $WEBXOS wallet integration:
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-Query: {query}
+class BasePrompt:
+    def __init__(self):
+        self.template = PromptTemplate(
+            input_variables=["vial_id", "task"],
+            template="Execute task for vial {vial_id}: {task}"
+        )
 
-Return an enhanced query that ensures compatibility with the WebXOS blockchain and vial training objectives."""
-)
+    def format_prompt(self, vial_id: str, task: str) -> str:
+        try:
+            prompt = self.template.format(vial_id=vial_id, task=task)
+            logger.info(f"Formatted prompt for vial {vial_id}: {prompt}")
+            return prompt
+        except Exception as e:
+            logger.error(f"Prompt formatting error: {str(e)}")
+            with open("vial/errorlog.md", "a") as f:
+                f.write(f"- **[{(datetime.datetime.utcnow().isoformat())}]** Prompt formatting error: {str(e)}\n")
+            raise
