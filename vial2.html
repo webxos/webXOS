@@ -68,7 +68,7 @@
     <h1>Vial MCP Controller</h1>
     <div id="console">
         <p>Vial MCP Controller initialized. Use /help for API commands.</p>
-        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
+        <p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>
     </div>
     <div id="error-notification"></div>
     <div id="api-popup">
@@ -90,12 +90,10 @@
     <div id="vial-status-bars"></div>
     <footer>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.8</footer>
     <input type="file" id="file-input" accept=".md">
-    <script src="/static/mongodb.min.js"></script>
     <script>
-        const API_BASE = 'http://localhost:8000/api';
+        const API_BASE = 'http://localhost:8000/api'; // Adjust for deployment (e.g., 'https://webxos.netlify.app/api')
         const version = '2.8';
-        let mongoClient = null;
-        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: N/A (Offline) | Reputation: N/A (Offline)</p>'];
         let isAuthenticated = false;
         let isOffline = true;
         let wallet = { address: null, balance: 0, hash: null, webxos: 0.0000, transactions: [] };
@@ -114,62 +112,16 @@
         let lastLogTime = 0;
         let lastLogId = 0;
 
-        async function initMongoDB() {
+        async function logErrorToBackend(errorMessage, stack) {
             try {
-                if (typeof MongoClient === 'undefined') {
-                    logEvent('error', 'MongoDB driver not loaded. Attempting to reload.', {});
-                    return new Promise((resolve, reject) => {
-                        const script = document.createElement('script');
-                        script.src = '/static/mongodb.min.js';
-                        script.onload = async () => {
-                            try {
-                                mongoClient = new MongoClient('mongodb://localhost:27017', { useNewUrlParser: true, useUnifiedTopology: true });
-                                await mongoClient.connect();
-                                logEvent('system', 'MongoDB connected after reload.', {});
-                                resolve();
-                            } catch (error) {
-                                reject(error);
-                            }
-                        };
-                        script.onerror = () => reject(new Error('MongoDB driver failed to load.'));
-                        document.head.appendChild(script);
-                    });
-                }
-                mongoClient = new MongoClient('mongodb://localhost:27017', { useNewUrlParser: true, useUnifiedTopology: true });
-                await mongoClient.connect();
-                logEvent('system', 'Connected to MongoDB.', {});
-            } catch (error) {
-                isOffline = true;
-                logEvent('error', `MongoDB connection failed: ${error.message}`, { error: error.stack });
-                throw error;
-            }
-        }
-
-        async function logErrorToMongo(errorMessage, stack) {
-            if (!mongoClient || isOffline) {
-                try {
-                    const errorLog = `[${new Date().toISOString()}] ${errorMessage}\nStack: ${stack}\n`;
-                    await fetch(`${API_BASE}/log_error`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ error: errorMessage, stack, timestamp: new Date().toISOString(), source: 'frontend' })
-                    });
-                } catch (e) {
-                    console.error('Failed to log error to file:', e.message);
-                }
-                return;
-            }
-            try {
-                const db = mongoClient.db('mcp_db');
-                await db.collection('errors').insertOne({
-                    error: errorMessage,
-                    stack: stack || 'No stack trace',
-                    timestamp: new Date().toISOString(),
-                    source: 'frontend',
-                    userId: apiCredentials.key || 'anonymous'
+                const errorLog = `[${new Date().toISOString()}] ${errorMessage}\nStack: ${stack}\n`;
+                await fetch(`${API_BASE}/log_error`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ error: errorMessage, stack, timestamp: new Date().toISOString(), source: 'frontend' })
                 });
-            } catch (error) {
-                logEvent('error', `Failed to log error to MongoDB: ${error.message}`, { error: error.stack });
+            } catch (e) {
+                console.error('Failed to log error to backend:', e.message);
             }
         }
 
@@ -208,9 +160,15 @@
                 const timestamp = new Date().toISOString();
                 const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}`);
                 const block = { type, data, timestamp, hash };
-                if (mongoClient && !isOffline) {
-                    const db = mongoClient.db('mcp_db');
-                    await db.collection('blockchain').insertOne(block);
+                if (!isOffline) {
+                    await fetch(`${API_BASE}/blockchain`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiCredentials.key}`
+                        },
+                        body: JSON.stringify(block)
+                    });
                 }
                 return hash;
             } catch (error) {
@@ -318,8 +276,12 @@
             logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
             if (logQueue.length > 50) logQueue.shift();
             debouncedUpdateConsole();
-            if (event_type === 'error') logErrorToMongo(message, metadata.error || 'No stack trace');
+            if (event_type === 'error') logErrorToBackend(message, metadata.error || 'No stack trace');
             console.log(`${event_type}: ${message}`, metadata);
+            // Send wallet update to parent (for sidebar)
+            if (window.parent && event_type === 'system' && message.includes('Authenticated')) {
+                window.parent.postMessage({ type: 'walletUpdate', wallet }, '*');
+            }
         }
 
         function showErrorNotification(message) {
@@ -367,6 +329,10 @@
             }
             if (logQueue.length > 50) logQueue.shift();
             debouncedUpdateConsole();
+            // Send wallet update to parent (for sidebar)
+            if (window.parent) {
+                window.parent.postMessage({ type: 'walletUpdate', wallet }, '*');
+            }
         }
 
         async function authenticate() {
@@ -398,13 +364,15 @@
                 document.getElementById('authButton').classList.add('active-monitor');
                 updateBalanceDisplay();
                 updateVialStatusBars();
-                if (mongoClient && !isOffline) {
-                    const db = mongoClient.db('mcp_db');
-                    await db.collection('wallet').updateOne(
-                        { userId: apiCredentials.key },
-                        { $set: { userId: apiCredentials.key, ...wallet } },
-                        { upsert: true }
-                    );
+                if (!isOffline) {
+                    await fetch(`${API_BASE}/wallet`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiCredentials.key}`
+                        },
+                        body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
+                    });
                 }
             } catch (error) {
                 isOffline = true;
@@ -440,7 +408,6 @@
                 logEvent('command', 'Running diagnostics...');
                 logEvent('command', `Version: ${version}`);
                 logEvent('command', `Vials: ${vials.length}`);
-                logEvent('command', `MongoDB: ${mongoClient ? 'Connected' : 'Disconnected'}`);
                 logEvent('command', `Authenticated: ${isAuthenticated ? 'Yes' : 'No'} (${isOffline ? 'Offline' : 'Online'})`);
                 logEvent('command', `API Key: ${apiCredentials.key || 'None'}`);
                 logEvent('command', `$WEBXOS Balance: ${isOffline ? 'N/A' : wallet.webxos.toFixed(4)}`);
@@ -494,13 +461,15 @@
                 logEvent('command', 'Wallet exported as Markdown.', { blockHash });
                 wallet.transactions.push({ type: 'export', timestamp: new Date().toISOString() });
                 wallet.webxos += 0.0001;
-                if (mongoClient && !isOffline) {
-                    const db = mongoClient.db('mcp_db');
-                    await db.collection('wallet').updateOne(
-                        { userId: apiCredentials.key },
-                        { $push: { transactions: { type: 'export', timestamp: new Date().toISOString() } }, $inc: { webxos: 0.0001 } },
-                        { upsert: true }
-                    );
+                if (!isOffline) {
+                    await fetch(`${API_BASE}/wallet`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiCredentials.key}`
+                        },
+                        body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
+                    });
                 }
                 updateBalanceDisplay();
             } catch (error) {
@@ -538,14 +507,6 @@
                     }
                     if (!newWallet.address || !newWallet.hash) throw new Error('Invalid .md format: Missing wallet address or hash');
                     wallet = newWallet;
-                    if (mongoClient && !isOffline) {
-                        const db = mongoClient.db('mcp_db');
-                        await db.collection('wallet').updateOne(
-                            { userId: apiCredentials.key },
-                            { $set: { userId: apiCredentials.key, ...wallet } },
-                            { upsert: true }
-                        );
-                    }
                     if (!isOffline) {
                         const response = await fetch(`${API_BASE}/import_wallet`, {
                             method: 'POST',
@@ -553,7 +514,7 @@
                                 'Authorization': `Bearer ${apiCredentials.key}`,
                                 'Content-Type': 'application/json'
                             },
-                            body: JSON.stringify(wallet)
+                            body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
                         });
                         if (!response.ok) throw new Error(`HTTP ${response.status}: Backend error`);
                     }
@@ -561,13 +522,15 @@
                     logEvent('command', `Imported wallet from ${file.name}.`, { blockHash });
                     wallet.transactions.push({ type: 'import', file: file.name, timestamp: new Date().toISOString() });
                     wallet.webxos += 0.0001;
-                    if (mongoClient && !isOffline) {
-                        const db = mongoClient.db('mcp_db');
-                        await db.collection('wallet').updateOne(
-                            { userId: apiCredentials.key },
-                            { $push: { transactions: { type: 'import', file: file.name, timestamp: new Date().toISOString() } }, $inc: { webxos: 0.0001 } },
-                            { upsert: true }
-                        );
+                    if (!isOffline) {
+                        await fetch(`${API_BASE}/wallet`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiCredentials.key}`
+                            },
+                            body: JSON.stringify({ userId: apiCredentials.key, ...wallet })
+                        });
                     }
                     updateBalanceDisplay();
                     input.value = '';
@@ -612,13 +575,12 @@
 
         async function initializeApp() {
             try {
-                await initMongoDB();
-                updateVialStatusBars();
                 logEvent('system', 'Application initialized.', {});
                 const response = await fetch(`${API_BASE}/health`, { method: 'GET' });
                 isOffline = !response.ok;
                 if (isOffline) logEvent('system', 'Backend offline: Running in offline mode.', {});
                 updateBalanceDisplay();
+                updateVialStatusBars();
             } catch (error) {
                 logEvent('error', `Initialization error: ${error.message}`, { error: error.stack });
                 isOffline = true;
@@ -645,6 +607,11 @@
             document.getElementById('api-popup').classList.remove('visible');
         });
         window.addEventListener('load', initializeApp);
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'requestWallet') {
+                window.parent.postMessage({ type: 'walletUpdate', wallet }, '*');
+            }
+        });
     </script>
 </body>
 </html>
