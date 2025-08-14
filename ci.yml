@@ -1,75 +1,46 @@
-name: CI/CD Pipeline
+name: Vial MCP CI/CD
+
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
+
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
+
     services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: mcp_db
-        ports:
-          - 5432:5432
       redis:
-        image: redis:latest
+        image: redis:6.2
         ports:
           - 6379:6379
-      mongo:
-        image: mongo:latest
-        ports:
-          - 27017:27017
-      milvus:
-        image: milvusdb/milvus:latest
-        ports:
-          - 19530:19530
-      weaviate:
-        image: semitechnologies/weaviate:latest
-        ports:
-          - 8080:8080
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r db/requirements.txt
-      - name: Run tests
-        env:
-          POSTGRES_URI: postgresql://user:password@localhost:5432/mcp_db
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          MONGO_URI: mongodb://localhost:27017
-          MILVUS_URI: localhost:19530
-          WEAVIATE_URI: http://localhost:8080
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
-          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
-        run: |
-          pytest vial/tests/ db/
-      - name: Security scan
-        run: |
-          pip install bandit
-          bandit -r vial/ db/ -ll
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to Vercel
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          npm install -g vercel
-          vercel --prod --token $VERCEL_TOKEN
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: pip install -r main/server/requirements.txt
+    - name: Lint Python
+      run: pylint main/server/mcp/*.py
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    - name: Install frontend dependencies
+      run: npm install --prefix main/pages
+    - name: Lint JavaScript
+      run: eslint main/pages/*.js main/pages/api/*.js main/server/vial/static/*.js
+    - name: Run tests
+      run: pytest main/server/mcp/test_*.py
+    - name: Build Docker image
+      run: docker build -t vial-mcp:latest .
+    - name: Run Docker Compose
+      run: docker-compose up -d
+    - name: Test API
+      run: |
+        sleep 10
+        curl --insecure -X GET https://localhost:8000/api/health
