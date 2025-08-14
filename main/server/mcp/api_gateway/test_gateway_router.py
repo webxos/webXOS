@@ -1,53 +1,50 @@
-import pytest
+# main/server/mcp/api_gateway/test_gateway_router.py
+import unittest
 from fastapi.testclient import TestClient
-from main.server.mcp.api_gateway.gateway_router import GatewayRouter
-from main.server.mcp.security_manager import SecurityManager
-from main.server.mcp.error_handler import ErrorHandler
-from main.server.unified_server import app
-from datetime import datetime
+from unittest.mock import patch
+from .gateway_router import app, SERVICE_REGISTRY
+import httpx
 
-@pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+class TestGatewayRouter(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
 
-@pytest.fixture
-def gateway_router():
-    """Create a GatewayRouter instance."""
-    security_manager = SecurityManager()
-    error_handler = ErrorHandler()
-    return GatewayRouter(security_manager, error_handler)
+    @patch('httpx.AsyncClient')
+    async def test_route_request(self, mock_client):
+        mock_client.return_value.__aenter__.return_value.request.return_value.json.return_value = {"status": "success"}
+        response = self.client.post("/route", json={
+            "service": "auth",
+            "endpoint": "token",
+            "method": "POST",
+            "data": {"user_id": "test_user"}
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "success"})
+        mock_client.return_value.__aenter__.return_value.request.assert_called_with(
+            method="POST",
+            url=f"{SERVICE_REGISTRY['auth']}/token",
+            json={"user_id": "test_user"},
+            params=None
+        )
 
-async def mock_handler(payload: dict, access_token: str) -> dict:
-    """Mock handler for testing."""
-    return {"response": "success", "payload": payload}
+    @patch('httpx.AsyncClient')
+    async def test_health_check(self, mock_client):
+        mock_client.return_value.__aenter__.return_value.get.return_value.json.return_value = {"status": "healthy"}
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "healthy")
+        self.assertEqual(len(response.json()["services"]), len(SERVICE_REGISTRY))
 
-def test_register_route(gateway_router):
-    """Test registering a route."""
-    gateway_router.register_route("/test", mock_handler)
-    assert "/test" in gateway_router.routes
-    assert gateway_router.routes["/test"] == mock_handler
+    def test_rate_limit_exceeded(self):
+        with patch('main.server.mcp.utils.rate_limiter.RateLimiter.allow', return_value=False):
+            response = self.client.post("/route", json={
+                "service": "auth",
+                "endpoint": "token",
+                "method": "POST",
+                "data": {}
+            })
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(response.json()["detail"], "Rate limit exceeded")
 
-def test_register_duplicate_route(gateway_router):
-    """Test registering a duplicate route."""
-    gateway_router.register_route("/test", mock_handler)
-    with pytest.raises(HTTPException) as exc:
-        gateway_router.register_route("/test", mock_handler)
-    assert exc.value.status_code == 500
-    assert "Endpoint /test already registered" in exc.value.detail
-
-@pytest.mark.asyncio
-async def test_route_request_success(gateway_router, mocker):
-    """Test routing a request successfully."""
-    mocker.patch.object(gateway_router.security_manager, "validate_token", return_value={"wallet_id": "wallet_123"})
-    gateway_router.register_route("/test", mock_handler)
-    response = await gateway_router.route_request("/test", {"data": "test"}, "valid_token")
-    assert response == {"response": "success", "payload": {"data": "test"}}
-
-@pytest.mark.asyncio
-async def test_route_request_not_found(gateway_router):
-    """Test routing to a non-existent endpoint."""
-    with pytest.raises(HTTPException) as exc:
-        await gateway_router.route_request("/invalid", {"data": "test"}, "valid_token")
-    assert exc.value.status_code == 500
-    assert "Endpoint /invalid not found" in exc.value.detail
+if __name__ == "__main__":
+    unittest.main()
