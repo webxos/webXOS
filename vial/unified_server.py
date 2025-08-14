@@ -4,10 +4,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
 import logging
+import traceback
 from vial.auth_manager import AuthManager
 from vial.quantum_simulator import QuantumSimulator
 from db.mcp_db_init import DatabaseManager
-import traceback
 
 app = FastAPI(title="Vial MCP Backend")
 logging.basicConfig(level=logging.INFO)
@@ -43,22 +43,31 @@ async def startup_event():
         await db_manager.connect()
         logger.info("Database connected successfully")
     except Exception as e:
-        logger.error(f"Database connection failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database connection failed")
+        logger.error(f"Database connection failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await db_manager.disconnect()
     logger.info("Database disconnected")
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
     try:
         db_status = await db_manager.check_health()
         return {"status": "healthy", "database": db_status}
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
+        logger.error(f"Health check failed: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+@app.get("/api/health")
+async def api_health_check():
+    try:
+        db_status = await db_manager.check_health()
+        return {"status": "healthy", "database": db_status}
+    except Exception as e:
+        logger.error(f"API health check failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"API health check failed: {str(e)}")
 
 @app.post("/api/auth/login")
 async def login(api_key: str = Security(API_KEY_HEADER)):
@@ -108,10 +117,18 @@ async def set_config(request: ConfigRequest, api_key: str = Depends(verify_api_k
         logger.error(f"Config setting failed: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Config setting failed: {str(e)}")
 
-@app.get("/api/log_error")
+@app.post("/api/vials/void")
+async def void_vials(api_key: str = Depends(verify_api_key)):
+    try:
+        await db_manager.void_vials()
+        return {"status": "success", "message": "All vials reset"}
+    except Exception as e:
+        logger.error(f"Vial void failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Vial void failed: {str(e)}")
+
+@app.post("/api/log_error")
 async def log_error(error: str, api_key: str = Depends(verify_api_key)):
     try:
-        logger.error(f"Client error: {error}")
         await db_manager.store_error(error)
         return {"status": "success", "message": "Error logged"}
     except Exception as e:
