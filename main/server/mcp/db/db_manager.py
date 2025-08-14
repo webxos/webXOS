@@ -1,143 +1,73 @@
-import logging
-import psycopg2
-import mysql.connector
-from pymongo import MongoClient
-from datetime import datetime
-from fastapi import HTTPException
-
-logger = logging.getLogger(__name__)
+# server/mcp/db/db_manager.py
+import sqlite3
+import os
+from contextlib import contextmanager
+from ..utils.error_handler import handle_db_error
 
 class DatabaseManager:
-    """Manages connections to PostgreSQL, MySQL, and MongoDB for Vial MCP."""
-    def __init__(self, postgres_config: dict, mysql_config: dict, mongo_config: dict):
-        """Initialize DatabaseManager with database configurations.
+    def __init__(self, db_path="vial_mcp.db"):
+        self.db_path = os.path.join(os.path.dirname(__file__), db_path)
+        self._init_db()
 
-        Args:
-            postgres_config (dict): PostgreSQL connection parameters.
-            mysql_config (dict): MySQL connection parameters.
-            mongo_config (dict): MongoDB connection parameters.
-        """
-        self.postgres_config = postgres_config
-        self.mysql_config = mysql_config
-        self.mongo_config = mongo_config
-        self.postgres_conn = None
-        self.mysql_conn = None
-        self.mongo_client = None
-        logger.info("DatabaseManager initialized")
+    def _init_db(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_name TEXT NOT NULL UNIQUE,
+                    status TEXT,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_id INTEGER,
+                    task_type TEXT,
+                    task_data TEXT,
+                    status TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (agent_id) REFERENCES agents(id)
+                )
+            """)
+            conn.commit()
 
-    def connect(self):
-        """Establish connections to all databases."""
+    @contextmanager
+    def get_connection(self):
+        conn = None
         try:
-            self.postgres_conn = psycopg2.connect(**self.postgres_config)
-            self.mysql_conn = mysql.connector.connect(**self.mysql_config)
-            self.mongo_client = MongoClient(**self.mongo_config)
-            logger.info("Connected to PostgreSQL, MySQL, and MongoDB")
-        except Exception as e:
-            logger.error(f"Database connection failed: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [DatabaseManager] Database connection failed: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
+            conn = sqlite3.connect(self.db_path)
+            yield conn
+        except sqlite3.Error as e:
+            handle_db_error(e)
+            raise
+        finally:
+            if conn:
+                conn.close()
 
-    def add_note(self, wallet_id: str, content: str, resource_id: str = None, db_type: str = "postgres") -> dict:
-        """Add a note to the specified database.
+    def save_agent_status(self, agent_name, status):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO agents (agent_name, status)
+                VALUES (?, ?)
+            """, (agent_name, status))
+            conn.commit()
 
-        Args:
-            wallet_id (str): Wallet ID.
-            content (str): Note content.
-            resource_id (str, optional): Resource ID.
-            db_type (str): Database type ('postgres', 'mysql', or 'mongo').
+    def save_task(self, agent_id, task_type, task_data, status="pending"):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO tasks (agent_id, task_type, task_data, status)
+                VALUES (?, ?, ?, ?)
+            """, (agent_id, task_type, task_data, status))
+            conn.commit()
+            return cursor.lastrowid
 
-        Returns:
-            dict: Success message with note ID.
-        """
-        try:
-            if db_type == "postgres":
-                with self.postgres_conn.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO notes (content, resource_id, timestamp, wallet_id) VALUES (%s, %s, %s, %s) RETURNING id",
-                        (content, resource_id, datetime.now(), wallet_id)
-                    )
-                    note_id = cursor.fetchone()[0]
-                    self.postgres_conn.commit()
-            elif db_type == "mysql":
-                with self.mysql_conn.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO notes (content, resource_id, timestamp, wallet_id) VALUES (%s, %s, %s, %s)",
-                        (content, resource_id, datetime.now(), wallet_id)
-                    )
-                    note_id = cursor.lastrowid
-                    self.mysql_conn.commit()
-            elif db_type == "mongo":
-                note = {
-                    "content": content,
-                    "resource_id": resource_id,
-                    "timestamp": datetime.now(),
-                    "wallet_id": wallet_id
-                }
-                note_id = str(self.mongo_client.vial_mcp.notes.insert_one(note).inserted_id)
-            else:
-                raise ValueError("Invalid database type")
-            
-            logger.info(f"Note {note_id} added to {db_type} for wallet {wallet_id}")
-            return {"status": "success", "note_id": note_id, "wallet_id": wallet_id}
-        except Exception as e:
-            logger.error(f"Note add failed in {db_type}: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [DatabaseManager] Note add failed in {db_type}: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Note add failed: {str(e)}")
-
-    def get_notes(self, wallet_id: str, limit: int = 10, db_type: str = "postgres") -> dict:
-        """Retrieve notes for a wallet from the specified database.
-
-        Args:
-            wallet_id (str): Wallet ID.
-            limit (int): Maximum number of notes to retrieve.
-            db_type (str): Database type ('postgres', 'mysql', or 'mongo').
-
-        Returns:
-            dict: List of notes.
-        """
-        try:
-            if db_type == "postgres":
-                with self.postgres_conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT id, content, resource_id, timestamp, wallet_id FROM notes WHERE wallet_id = %s ORDER BY timestamp DESC LIMIT %s",
-                        (wallet_id, limit)
-                    )
-                    notes = [{"id": r[0], "content": r[1], "resource_id": r[2], "timestamp": r[3].isoformat(), "wallet_id": r[4]} for r in cursor.fetchall()]
-            elif db_type == "mysql":
-                with self.mysql_conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT id, content, resource_id, timestamp, wallet_id FROM notes WHERE wallet_id = %s ORDER BY timestamp DESC LIMIT %s",
-                        (wallet_id, limit)
-                    )
-                    notes = [{"id": r[0], "content": r[1], "resource_id": r[2], "timestamp": r[3].isoformat(), "wallet_id": r[4]} for r in cursor.fetchall()]
-            elif db_type == "mongo":
-                notes = self.mongo_client.vial_mcp.notes.find({"wallet_id": wallet_id}).sort("timestamp", -1).limit(limit)
-                notes = [{"id": str(n["_id"]), "content": n["content"], "resource_id": n["resource_id"], "timestamp": n["timestamp"].isoformat(), "wallet_id": n["wallet_id"]} for n in notes]
-            else:
-                raise ValueError("Invalid database type")
-            
-            logger.info(f"Retrieved {len(notes)} notes from {db_type} for wallet {wallet_id}")
-            return {"status": "success", "notes": notes}
-        except Exception as e:
-            logger.error(f"Note retrieval failed in {db_type}: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [DatabaseManager] Note retrieval failed in {db_type}: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Note retrieval failed: {str(e)}")
-
-    def close(self):
-        """Close all database connections."""
-        try:
-            if self.postgres_conn:
-                self.postgres_conn.close()
-            if self.mysql_conn:
-                self.mysql_conn.close()
-            if self.mongo_client:
-                self.mongo_client.close()
-            logger.info("Database connections closed")
-        except Exception as e:
-            logger.error(f"Database connection close failed: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [DatabaseManager] Database connection close failed: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Database connection close failed: {str(e)}")
+    def get_agent_status(self, agent_name):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM agents WHERE agent_name = ?", (agent_name,))
+            result = cursor.fetchone()
+            return result[0] if result else None
