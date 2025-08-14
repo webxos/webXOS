@@ -1,50 +1,77 @@
-import logging
-from fastapi import HTTPException
+# main/server/mcp/quantum/mcp_server_quantum.py
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-from ..db.db_manager import DatabaseManager
-from ..quantum_simulator import QuantumSimulator
-from ..error_handler import ErrorHandler
+from qiskit import QuantumCircuit, Aer, execute
+from pymongo import MongoClient
+import os
+from datetime import datetime
+from ..utils.error_handler import handle_generic_error
+from ..utils.performance_metrics import PerformanceMetrics
+from fastapi.security import OAuth2PasswordBearer
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP Quantum Server")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+mongo_client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+db = mongo_client["vial_mcp"]
+quantum_collection = db["quantum_circuits"]
+metrics = PerformanceMetrics()
 
-class QuantumRequest(BaseModel):
-    wallet_id: str
+class QuantumCircuitRequest(BaseModel):
     vial_id: str
-    db_type: str
+    qubits: int
+    circuit: str
 
-class MCPQuantumHandler:
-    """Handles quantum link processing for Vial MCP."""
-    def __init__(self, db_manager: DatabaseManager = None, quantum_simulator: QuantumSimulator = None, error_handler: ErrorHandler = None):
-        """Initialize MCPQuantumHandler with dependencies.
+class QuantumResult(BaseModel):
+    vial_id: str
+    result: dict
+    execution_time: float
+    timestamp: str
 
-        Args:
-            db_manager (DatabaseManager): Database manager instance.
-            quantum_simulator (QuantumSimulator): Quantum simulator instance.
-            error_handler (ErrorHandler): Error handler instance.
-        """
-        self.db_manager = db_manager or DatabaseManager()
-        self.quantum_simulator = quantum_simulator or QuantumSimulator()
-        self.error_handler = error_handler or ErrorHandler()
-        logger.info("MCPQuantumHandler initialized")
-
-    async def process_quantum(self, request: QuantumRequest) -> dict:
-        """Process a quantum link request.
-
-        Args:
-            request (QuantumRequest): Quantum processing request.
-
-        Returns:
-            dict: Quantum processing result.
-
-        Raises:
-            HTTPException: If processing fails.
-        """
+@app.post("/quantum/execute", response_model=QuantumResult)
+async def execute_quantum_circuit(request: QuantumCircuitRequest, token: str = Depends(oauth2_scheme)):
+    with metrics.track_span("execute_quantum_circuit") as span:
         try:
-            # Simulate quantum operation
-            result = self.quantum_simulator.simulate_quantum_link(request.vial_id)
-            # Store result in database
-            quantum_id = await self.db_manager.add_quantum_link(request.wallet_id, request.vial_id, result, request.db_type)
-            logger.info(f"Processed quantum link {quantum_id} for wallet {request.wallet_id}")
-            return {"quantum_id": quantum_id, "vial_id": request.vial_id, "result": result}
+            metrics.verify_token(token)
+            circuit = QuantumCircuit(request.qubits, request.qubits)
+            # Simplified circuit parsing (in production, parse request.circuit safely)
+            circuit.h(0)
+            circuit.cx(0, 1)
+            circuit.measure_all()
+            
+            backend = Aer.get_backend('qasm_simulator')
+            start_time = datetime.utcnow().timestamp()
+            job = execute(circuit, backend, shots=1024)
+            result = job.result().get_counts()
+            execution_time = datetime.utcnow().timestamp() - start_time
+            
+            quantum_collection.insert_one({
+                "vial_id": request.vial_id,
+                "circuit": request.circuit,
+                "result": result,
+                "execution_time": execution_time,
+                "timestamp": datetime.utcnow()
+            })
+            
+            span.set_attribute("vial_id", request.vial_id)
+            span.set_attribute("qubits", request.qubits)
+            return QuantumResult(
+                vial_id=request.vial_id,
+                result=result,
+                execution_time=execution_time,
+                timestamp=datetime.utcnow().isoformat()
+            )
         except Exception as e:
-            self.error_handler.handle_exception("/api/quantum/link", request.wallet_id, e)
+            handle_generic_error(e, context="quantum_execution")
+            raise HTTPException(status_code=500, detail=f"Quantum execution failed: {str(e)}")
+
+@app.get("/quantum/history/{vial_id}")
+async def get_quantum_history(vial_id: str, token: str = Depends(oauth2_scheme)):
+    with metrics.track_span("get_quantum_history") as span:
+        try:
+            metrics.verify_token(token)
+            history = list(quantum_collection.find({"vial_id": vial_id}).sort("timestamp", -1).limit(10))
+            span.set_attribute("vial_id", vial_id)
+            return [{"vial_id": h["vial_id"], "result": h["result"], "execution_time": h["execution_time"], "timestamp": h["timestamp"]} for h in history]
+        except Exception as e:
+            handle_generic_error(e, context="quantum_history")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch quantum history: {str(e)}")
