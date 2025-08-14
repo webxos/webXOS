@@ -1,44 +1,109 @@
 version: '3.8'
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./main/server/vial/static:/app/main/server/vial/static
-      - ./main/server/mcp:/app/main/server/mcp
-      - ./main/pages:/app/main/pages
-      - ./main/server/docs:/app/main/server/docs
-      - ./main/server/prompts:/app/main/server/prompts
-      - ./notes:/app/notes
-      - ./certs:/app/certs
-      - ./vial_mcp.db:/app/vial_mcp.db
-      - ./backups:/app/backups
+  postgresdb:
+    image: postgres:14
+    container_name: vial_postgres
+    restart: unless-stopped
+    env_file: ./.env
     environment:
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - API_KEY=${API_KEY}
-    depends_on:
-      - redis
-  redis:
-    image: redis:6.2
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "6379:6379"
-  frontend:
-    image: node:18
-    working_dir: /app/main/pages
-    command: npm run dev
-    ports:
-      - "3000:3000"
+      - ${POSTGRES_LOCAL_PORT}:${POSTGRES_DOCKER_PORT}
     volumes:
-      - ./main/pages:/app/main/pages
+      - postgres_data:/var/lib/postgresql/data
+      - ./mcp/db/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  mysqldb:
+    image: mysql:8
+    container_name: vial_mysql
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DB}
+    ports:
+      - ${MYSQL_LOCAL_PORT}:${MYSQL_DOCKER_PORT}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mcp/db/mysql_init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  mongodb:
+    image: mongo:5
+    container_name: vial_mongo
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    ports:
+      - ${MONGO_LOCAL_PORT}:${MONGO_DOCKER_PORT}
+    volumes:
+      - mongo_data:/data/db
+      - ./mcp/db/mongo_init.js:/docker-entrypoint-initdb.d/mongo_init.js
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  app_python:
+    build: ./mcp
+    container_name: vial_python
     depends_on:
-      - backend
+      postgresdb:
+        condition: service_healthy
+      mysqldb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file: ./.env
+    ports:
+      - ${PYTHON_LOCAL_PORT}:${PYTHON_DOCKER_PORT}
+    volumes:
+      - ./mcp:/app/mcp
+  app_node:
+    build: ./mcp
+    container_name: vial_node
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      mysqldb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file: ./.env
+    ports:
+      - ${NODE_LOCAL_PORT}:${NODE_DOCKER_PORT}
+    volumes:
+      - ./mcp:/app/mcp
+  app_java:
+    build: ./mcp
+    container_name: vial_java
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      mysqldb:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file: ./.env
+    ports:
+      - ${JAVA_LOCAL_PORT}:${JAVA_DOCKER_PORT}
+    volumes:
+      - ./mcp:/app/mcp
 volumes:
-  notes:
-  certs:
-  vial_mcp.db:
-  backups:
+  postgres_data:
+  mysql_data:
+  mongo_data:
