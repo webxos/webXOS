@@ -1,34 +1,30 @@
 import logging
+from datetime import datetime
 import os
 import json
-from datetime import datetime
-from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
 class AuditLog:
-    """Manages audit logging for Vial MCP API actions."""
-    def __init__(self, log_file: str = "/app/audit_log.jsonl"):
-        """Initialize AuditLog with log file path.
+    """Manages audit logging for Vial MCP system actions."""
+    def __init__(self, audit_file: str = "/app/audit_log.jsonl"):
+        """Initialize AuditLog with audit file path.
 
         Args:
-            log_file (str): Path to audit log file.
+            audit_file (str): Path to store audit logs.
         """
-        self.log_file = log_file
-        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        self.audit_file = audit_file
+        os.makedirs(os.path.dirname(self.audit_file), exist_ok=True)
         logger.info("AuditLog initialized")
 
     def log_action(self, wallet_id: str, endpoint: str, action: str, details: dict = None) -> None:
-        """Log an API action to the audit log.
+        """Log a system action.
 
         Args:
             wallet_id (str): Wallet ID performing the action.
-            endpoint (str): API endpoint accessed.
-            action (str): Action performed (e.g., 'add_note', 'login').
+            endpoint (str): API endpoint called.
+            action (str): Action performed.
             details (dict, optional): Additional action details.
-
-        Raises:
-            HTTPException: If logging fails.
         """
         try:
             log_entry = {
@@ -38,14 +34,13 @@ class AuditLog:
                 "action": action,
                 "details": details or {}
             }
-            with open(self.log_file, "a") as f:
+            with open(self.audit_file, "a") as f:
                 f.write(json.dumps(log_entry) + "\n")
-            logger.info(f"Audit log entry created: {wallet_id} - {action} on {endpoint}")
+            logger.info(f"Audit log recorded for {action} by {wallet_id} at {endpoint}")
         except Exception as e:
-            logger.error(f"Audit logging failed: {str(e)}")
+            logger.error(f"Audit log failed: {str(e)}")
             with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [AuditLog] Audit logging failed: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Audit logging failed: {str(e)}")
+                f.write(f"[{datetime.now().isoformat()}] [AuditLog] Audit log failed: {str(e)}\n")
 
     def get_audit_logs(self, wallet_id: str = None, limit: int = 100) -> list:
         """Retrieve audit logs, optionally filtered by wallet ID.
@@ -56,14 +51,11 @@ class AuditLog:
 
         Returns:
             list: List of audit log entries.
-
-        Raises:
-            HTTPException: If log retrieval fails.
         """
         try:
             logs = []
-            if os.path.exists(self.log_file):
-                with open(self.log_file, "r") as f:
+            if os.path.exists(self.audit_file):
+                with open(self.audit_file, "r") as f:
                     lines = f.readlines()[-limit:]
                     for line in lines:
                         log_entry = json.loads(line.strip())
@@ -75,4 +67,4 @@ class AuditLog:
             logger.error(f"Audit log retrieval failed: {str(e)}")
             with open("/app/errorlog.md", "a") as f:
                 f.write(f"[{datetime.now().isoformat()}] [AuditLog] Audit log retrieval failed: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Audit log retrieval failed: {str(e)}")
+            return []
