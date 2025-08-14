@@ -1,68 +1,63 @@
-import logging
-from fastapi import HTTPException, Depends
-from typing import Dict, Callable
-from datetime import datetime
-from ..security_manager import SecurityManager
-from ..error_handler import ErrorHandler
+# main/server/mcp/api_gateway/gateway_router.py
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Dict, Any
+from ..utils.error_handler import handle_api_error
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.rate_limiter import RateLimiter
+import httpx
+import os
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP API Gateway")
+metrics = PerformanceMetrics()
+rate_limiter = RateLimiter(limit=100, window=60)  # 100 requests per minute
+SERVICE_REGISTRY = {
+    "auth": os.getenv("AUTH_SERVICE_URL", "http://localhost:8002"),
+    "quantum": os.getenv("QUANTUM_SERVICE_URL", "http://localhost:8001"),
+    "wallet": os.getenv("WALLET_SERVICE_URL", "http://localhost:8000/wallet"),
+    "vials": os.getenv("VIALS_SERVICE_URL", "http://localhost:8000/vials"),
+    "ai": os.getenv("AI_SERVICE_URL", "http://localhost:8000/ai")
+}
 
-class GatewayRouter:
-    """Routes API requests to appropriate services in Vial MCP."""
-    def __init__(self, security_manager: SecurityManager, error_handler: ErrorHandler):
-        """Initialize GatewayRouter with dependencies.
+class APIRequest(BaseModel):
+    service: str
+    endpoint: str
+    method: str = "GET"
+    data: Dict[str, Any] = {}
 
-        Args:
-            security_manager (SecurityManager): Manages JWT validation.
-            error_handler (ErrorHandler): Handles errors.
-        """
-        self.security_manager = security_manager
-        self.error_handler = error_handler
-        self.routes: Dict[str, Callable] = {}
-        logger.info("GatewayRouter initialized")
-
-    def register_route(self, endpoint: str, handler: Callable) -> None:
-        """Register an API endpoint with its handler.
-
-        Args:
-            endpoint (str): API endpoint path.
-            handler (Callable): Function to handle the endpoint.
-
-        Raises:
-            HTTPException: If endpoint is already registered.
-        """
+@app.post("/route")
+async def route_request(request: APIRequest):
+    with metrics.track_span("route_request", {"service": request.service, "endpoint": request.endpoint}):
         try:
-            if endpoint in self.routes:
-                error_msg = f"Endpoint {endpoint} already registered"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/gateway/register", "system", Exception(error_msg))
-            self.routes[endpoint] = handler
-            logger.info(f"Registered route {endpoint}")
+            if not rate_limiter.allow():
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            service_url = SERVICE_REGISTRY.get(request.service)
+            if not service_url:
+                raise HTTPException(status_code=400, detail="Unknown service")
+            url = f"{service_url}/{request.endpoint}"
+            async with httpx.AsyncClient() as client:
+                response = await client.request(
+                    method=request.method,
+                    url=url,
+                    json=request.data if request.method in ["POST", "PUT"] else None,
+                    params=request.data if request.method == "GET" else None
+                )
+                response.raise_for_status()
+                return response.json()
         except Exception as e:
-            self.error_handler.handle_exception("/api/gateway/register", "system", e)
+            handle_api_error(e, endpoint=f"{request.service}/{request.endpoint}")
+            raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
 
-    async def route_request(self, endpoint: str, payload: Dict, access_token: str) -> Dict:
-        """Route a request to the appropriate handler.
-
-        Args:
-            endpoint (str): API endpoint to route.
-            payload (Dict): Request payload.
-            access_token (str): JWT access token.
-
-        Returns:
-            Dict: Response from the handler.
-
-        Raises:
-            HTTPException: If routing fails or endpoint is not found.
-        """
+@app.get("/health")
+async def health_check():
+    with metrics.track_span("gateway_health_check"):
         try:
-            if endpoint not in self.routes:
-                error_msg = f"Endpoint {endpoint} not found"
-                logger.error(error_msg)
-                self.error_handler.handle_exception(endpoint, payload.get("wallet_id", "anonymous"), Exception(error_msg))
-            self.security_manager.validate_token(access_token)
-            response = await self.routes[endpoint](payload, access_token)
-            logger.info(f"Routed request to {endpoint}")
-            return response
+            results = {}
+            async with httpx.AsyncClient() as client:
+                for service, url in SERVICE_REGISTRY.items():
+                    response = await client.get(f"{url}/health")
+                    results[service] = response.json()
+            return {"status": "healthy", "services": results}
         except Exception as e:
-            self.error_handler.handle_exception(endpoint, payload.get("wallet_id", "anonymous"), e)
+            handle_api_error(e, endpoint="health")
+            raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
