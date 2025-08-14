@@ -1,39 +1,42 @@
-import pytest
+# main/server/mcp/quantum/test_mcp_server_quantum.py
+import unittest
 from fastapi.testclient import TestClient
-from main.server.mcp.quantum.mcp_server_quantum import MCPQuantumHandler, QuantumRequest
-from main.server.mcp.db.db_manager import DatabaseManager
-from main.server.mcp.quantum_simulator import QuantumSimulator
-from main.server.mcp.error_handler import ErrorHandler
-from main.server.unified_server import app
+from unittest.mock import patch
+from .mcp_server_quantum import app
+from datetime import datetime
 
-@pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+class TestMCPQuantumServer(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
 
-@pytest.fixture
-def quantum_handler():
-    """Create an MCPQuantumHandler instance."""
-    db_manager = DatabaseManager()
-    quantum_simulator = QuantumSimulator()
-    error_handler = ErrorHandler()
-    return MCPQuantumHandler(db_manager, quantum_simulator, error_handler)
+    @patch('pymongo.MongoClient')
+    @patch('qiskit.execute')
+    def test_execute_quantum_circuit(self, mock_execute, mock_mongo):
+        mock_execute.return_value.result.return_value.get_counts.return_value = {"00": 512, "11": 512}
+        mock_mongo.return_value.vial_mcp.quantum_circuits.insert_one.return_value = None
+        token = "mock_token"
+        with patch.object(app.dependency_overrides.get("oauth2_scheme"), "verify_token", return_value={"sub": "test_user"}):
+            response = self.client.post(
+                "/quantum/execute",
+                json={"vial_id": "vial1", "qubits": 2, "circuit": "h(0);cx(0,1);measure_all()"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["vial_id"], "vial1")
+        self.assertIn("result", response.json())
+        self.assertIn("execution_time", response.json())
 
-@pytest.mark.asyncio
-async def test_process_quantum_success(quantum_handler, mocker):
-    """Test successful quantum link processing."""
-    mocker.patch.object(quantum_handler.quantum_simulator, 'simulate_quantum_link', return_value={"state": "entangled"})
-    mocker.patch.object(quantum_handler.db_manager, 'add_quantum_link', return_value="quantum_123")
-    request = QuantumRequest(wallet_id="wallet_123", vial_id="vial_456", db_type="postgres")
-    response = await quantum_handler.process_quantum(request)
-    assert response == {"quantum_id": "quantum_123", "vial_id": "vial_456", "result": {"state": "entangled"}}
+    @patch('pymongo.MongoClient')
+    def test_get_quantum_history(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.quantum_circuits.find.return_value.sort.return_value.limit.return_value = [
+            {"vial_id": "vial1", "result": {"00": 512}, "execution_time": 0.1, "timestamp": datetime.utcnow()}
+        ]
+        token = "mock_token"
+        with patch.object(app.dependency_overrides.get("oauth2_scheme"), "verify_token", return_value={"sub": "test_user"}):
+            response = self.client.get("/quantum/history/vial1", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["vial_id"], "vial1")
 
-@pytest.mark.asyncio
-async def test_process_quantum_failure(quantum_handler, mocker):
-    """Test quantum link processing failure."""
-    mocker.patch.object(quantum_handler.quantum_simulator, 'simulate_quantum_link', side_effect=Exception("Simulation error"))
-    request = QuantumRequest(wallet_id="wallet_123", vial_id="vial_456", db_type="postgres")
-    with pytest.raises(HTTPException) as exc:
-        await quantum_handler.process_quantum(request)
-    assert exc.value.status_code == 500
-    assert "Simulation error" in exc.value.detail
+if __name__ == "__main__":
+    unittest.main()
