@@ -1,54 +1,34 @@
-import logging
-from fastapi import HTTPException
+# server/mcp/auth/mcp_auth_server.py
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-from datetime import datetime
-from ..db.db_manager import DatabaseManager
-from ..security_manager import SecurityManager
-from ..error_handler import ErrorHandler
+from .auth_manager import AuthManager
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP Auth Server")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+auth_manager = AuthManager()
 
-class AuthRequest(BaseModel):
-    wallet_id: str
-    api_key: str
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
-class MCPAuthServer:
-    """Handles authentication operations for Vial MCP."""
-    def __init__(self, db_manager: DatabaseManager = None, security_manager: SecurityManager = None, error_handler: ErrorHandler = None):
-        """Initialize MCPAuthServer with dependencies.
+class User(BaseModel):
+    username: str
+    password: str  # Note: In production, use proper password hashing
 
-        Args:
-            db_manager (DatabaseManager): Database manager instance.
-            security_manager (SecurityManager): Security manager instance.
-            error_handler (ErrorHandler): Error handler instance.
-        """
-        self.db_manager = db_manager or DatabaseManager()
-        self.security_manager = security_manager or SecurityManager()
-        self.error_handler = error_handler or ErrorHandler()
-        logger.info("MCPAuthServer initialized")
+@app.post("/token", response_model=Token)
+async def login_for_access_token(user: User):
+    # Simplified authentication (replace with proper user validation)
+    if user.username != "admin" or user.password != "secret":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = auth_manager.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
 
-    async def authenticate(self, request: AuthRequest) -> dict:
-        """Authenticate a user and issue a JWT token.
-
-        Args:
-            request (AuthRequest): Authentication request with wallet_id and api_key.
-
-        Returns:
-            dict: Authentication response with access token.
-
-        Raises:
-            HTTPException: If authentication fails.
-        """
-        try:
-            # Validate API key against database
-            user = await self.db_manager.get_user(request.wallet_id, request.api_key)
-            if not user:
-                error_msg = f"Invalid credentials for wallet {request.wallet_id}"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/auth/login", request.wallet_id, Exception(error_msg))
-            # Generate JWT token
-            token = self.security_manager.generate_token({"wallet_id": request.wallet_id})
-            logger.info(f"Authenticated wallet {request.wallet_id}")
-            return {"access_token": token, "token_type": "bearer"}
-        except Exception as e:
-            self.error_handler.handle_exception("/api/auth/login", request.wallet_id, e)
+@app.get("/users/me")
+async def read_users_me(token: str = Depends(oauth2_scheme)):
+    payload = auth_manager.verify_token(token)
+    return {"username": payload["sub"]}
