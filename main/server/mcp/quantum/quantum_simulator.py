@@ -1,72 +1,42 @@
 # main/server/mcp/quantum/quantum_simulator.py
+from typing import Dict, Any
 from qiskit import QuantumCircuit, Aer, execute
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Dict, List
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from ..db.db_manager import DBManager
-import os
-
-app = FastAPI(title="Vial MCP Quantum Simulator")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
-
-class QuantumCircuitRequest(BaseModel):
-    vial_id: str
-    user_id: str
-    circuit_data: Dict
-
-class QuantumResultResponse(BaseModel):
-    result_id: str
-    vial_id: str
-    results: Dict
-    timestamp: str
+from ..utils.mcp_error_handler import MCPError
 
 class QuantumSimulator:
     def __init__(self):
-        self.metrics = PerformanceMetrics()
-        self.backend = Aer.get_backend('statevector_simulator')
+        self.backend = Aer.get_backend('qasm_simulator')
 
-    def simulate_circuit(self, circuit_data: Dict) -> Dict:
-        with self.metrics.track_span("simulate_circuit", {"circuit_data": circuit_data}):
-            try:
-                circuit = QuantumCircuit(circuit_data.get("num_qubits", 2))
-                for gate in circuit_data.get("gates", []):
-                    if gate == "H":
-                        circuit.h(0)
-                    elif gate == "CNOT":
-                        circuit.cx(0, 1)
-                    elif gate == "X":
-                        circuit.x(0)
-                    elif gate == "Z":
-                        circuit.z(0)
-                job = execute(circuit, self.backend)
-                result = job.result()
-                statevector = result.get_statevector(circuit)
-                return {"statevector": statevector.to_dict()}
-            except Exception as e:
-                handle_generic_error(e, context="simulate_circuit")
-                raise
-
-quantum_simulator = QuantumSimulator()
-
-@app.post("/quantum/simulate", response_model=QuantumResultResponse)
-async def simulate_quantum_circuit(request: QuantumCircuitRequest, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("simulate_quantum_circuit_endpoint", {"vial_id": request.vial_id}):
+    async def simulate_circuit(self, circuit_data: Dict[str, Any], num_shots: int = 1024) -> Dict[str, Any]:
         try:
-            metrics.verify_token(token)
-            results = quantum_simulator.simulate_circuit(request.circuit_data)
-            result_data = {
-                "vial_id": request.vial_id,
-                "user_id": request.user_id,
-                "results": results,
-                "timestamp": datetime.utcnow().isoformat()
+            if not circuit_data or "num_qubits" not in circuit_data or "gates" not in circuit_data:
+                raise MCPError(code=-32602, message="Invalid circuit data: num_qubits and gates required")
+            if num_shots < 1 or num_shots > 10000:
+                raise MCPError(code=-32602, message="num_shots must be between 1 and 10000")
+
+            circuit = QuantumCircuit(circuit_data["num_qubits"], circuit_data["num_qubits"])
+            for gate in circuit_data["gates"]:
+                if gate == "H":
+                    circuit.h(range(circuit_data["num_qubits"]))
+                elif gate == "CNOT":
+                    for i in range(circuit_data["num_qubits"] - 1):
+                        circuit.cx(i, i + 1)
+                elif gate == "X":
+                    circuit.x(range(circuit_data["num_qubits"]))
+                else:
+                    raise MCPError(code=-32602, message=f"Unsupported gate: {gate}")
+            
+            circuit.measure_all()
+            job = execute(circuit, self.backend, shots=num_shots)
+            result = job.result()
+            counts = result.get_counts()
+
+            return {
+                "status": "success",
+                "counts": counts,
+                "circuit": circuit.qasm()
             }
-            result_id = db_manager.insert_one("quantum_results", result_data)
-            return QuantumResultResponse(result_id=result_id, **result_data)
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="simulate_quantum_circuit_endpoint")
-            raise HTTPException(status_code=500, detail=f"Failed to simulate circuit: {str(e)}")
+            raise MCPError(code=-32603, message=f"Quantum simulation failed: {str(e)}")
