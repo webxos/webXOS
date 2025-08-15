@@ -17,17 +17,17 @@ def validate_response(response):
         logger.error(f"JSON Decode Error: {str(e)}")
         return ErrorHandler.handle_error(e, "JSON decode error")
 
-@app.route('/vial2/api/troubleshoot', methods=['POST'])
+@app.route('/api/troubleshoot', methods=['POST'])
 def troubleshoot():
     try:
-        response = {"status": "OK", "details": "System check completed at 07:01 AM EDT", "healthy": True}
+        response = {"status": "OK", "details": "System check completed at 07:20 AM EDT", "healthy": True}
         validated_response = validate_response(response)
         return jsonify(validated_response), 200
     except Exception as e:
         logger.error(f"Troubleshoot Error: {str(e)}")
         return jsonify(ErrorHandler.handle_error(e)), 500
 
-@app.route('/vial2/api/auth/oauth', methods=['POST'])
+@app.route('/api/auth/oauth', methods=['POST'])
 def oauth():
     try:
         data = request.get_json()
@@ -37,7 +37,7 @@ def oauth():
         if not oauth_config.validate_credentials(data['provider'], data['code']):
             logger.error(f"Invalid credentials for provider: {data['provider']}")
             return jsonify(ErrorHandler.handle_error("Invalid OAuth credentials")), 401
-        response = {"access_token": "mock_token_abc", "vials": ["vial1"], "expires_in": 3600}
+        response = {"access_token": "mock_token_def", "vials": ["vial1"], "expires_in": 3600}
         return jsonify(validate_response(response)), 200
     except Exception as e:
         logger.error(f"OAuth Error: {str(e)}")
@@ -47,10 +47,6 @@ def oauth():
 def not_found(e):
     logger.error(f"404 Error: {str(e)} - Requested path: {request.path}")
     return jsonify(ErrorHandler.handle_error(f"Endpoint not found: {request.path}", "Routing error")), 404
-
-@app.route('/vial2/api/health')
-def health_check():
-    return jsonify({"status": "healthy", "time": "07:01 AM EDT"}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
