@@ -1,52 +1,62 @@
-import logging
-from fastapi import HTTPException
+# main/server/mcp/sync/auth_sync.py
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Dict, Optional
+from ..db.db_manager import DBManager
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.error_handler import handle_generic_error
+from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime
-from ..db.db_manager import DatabaseManager
-from ..security_manager import SecurityManager
-from ..error_handler import ErrorHandler
+import requests
+import os
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP Auth Sync")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+metrics = PerformanceMetrics()
+db_manager = DBManager()
 
 class AuthSyncRequest(BaseModel):
-    wallet_id: str
-    access_token: str
+    user_id: str
+    token: str
+    node_id: str
 
-class AuthSyncManager:
-    """Synchronizes authentication tokens across services."""
-    def __init__(self, db_manager: DatabaseManager = None, security_manager: SecurityManager = None, error_handler: ErrorHandler = None):
-        """Initialize AuthSyncManager with dependencies.
+class AuthSyncResponse(BaseModel):
+    user_id: str
+    token: str
+    node_id: str
+    timestamp: str
 
-        Args:
-            db_manager (DatabaseManager): Database manager instance.
-            security_manager (SecurityManager): Security manager instance.
-            error_handler (ErrorHandler): Error handler instance.
-        """
-        self.db_manager = db_manager or DatabaseManager()
-        self.security_manager = security_manager or SecurityManager()
-        self.error_handler = error_handler or ErrorHandler()
-        logger.info("AuthSyncManager initialized")
-
-    async def sync_auth_token(self, request: AuthSyncRequest) -> dict:
-        """Synchronize authentication token for a wallet.
-
-        Args:
-            request (AuthSyncRequest): Token synchronization request.
-
-        Returns:
-            dict: Synchronization result.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
+@app.post("/sync/auth", response_model=AuthSyncResponse)
+async def sync_auth(request: AuthSyncRequest, token: str = Depends(oauth2_scheme)):
+    with metrics.track_span("sync_auth", {"user_id": request.user_id, "node_id": request.node_id}):
         try:
-            payload = self.security_manager.validate_token(request.access_token)
-            if payload["wallet_id"] != request.wallet_id:
-                error_msg = "Invalid token for wallet"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/sync/auth", request.wallet_id, Exception(error_msg))
-            await self.db_manager.update_token(request.wallet_id, request.access_token)
-            logger.info(f"Synchronized token for wallet {request.wallet_id}")
-            return {"status": "success", "wallet_id": request.wallet_id}
+            metrics.verify_token(token)
+            existing_session = db_manager.find_one("sessions", {"user_id": request.user_id, "token": request.token})
+            if not existing_session:
+                raise HTTPException(status_code=404, detail="Session not found")
+            
+            sync_data = {
+                "user_id": request.user_id,
+                "token": request.token,
+                "node_id": request.node_id,
+                "timestamp": datetime.utcnow()
+            }
+            db_manager.insert_one("auth_sync", sync_data)
+            
+            # Notify other nodes
+            nodes = os.getenv("SYNC_NODES", "").split(",")
+            for node in nodes:
+                if node and node != request.node_id:
+                    try:
+                        requests.post(
+                            f"{node}/sync/auth",
+                            json=sync_data,
+                            timeout=5
+                        )
+                    except requests.RequestException:
+                        metrics.record_error("sync_auth_node_failure", f"Failed to sync with {node}")
+
+            return AuthSyncResponse(**sync_data)
         except Exception as e:
-            self.error_handler.handle_exception("/api/sync/auth", request.wallet_id, e)
+            handle_generic_error(e, context="sync_auth")
+            raise HTTPException(status_code=500, detail=f"Failed to sync auth: {str(e)}")
