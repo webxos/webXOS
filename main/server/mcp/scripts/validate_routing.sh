@@ -1,15 +1,18 @@
 #!/bin/bash
-
-set -e
-
-echo "Validating routing at 08:05 AM EDT..."
-endpoints=("troubleshoot" "auth/oauth" "health" "404")
+endpoints=(
+  "https://webxos.netlify.app/.netlify/functions/oauth"
+  "https://webxos.netlify.app/.netlify/functions/troubleshoot"
+  "https://webxos.netlify.app/.netlify/functions/health"
+  "https://webxos.netlify.app/.netlify/functions/404"
+)
 for endpoint in "${endpoints[@]}"; do
-  response=$(curl -s -o /dev/null -w "%{http_code}" https://webxos.netlify.app/api/$endpoint)
-  if [ $response -ne 200 ]; then
-    echo "❌ $endpoint returned $response"
+  status=$(curl -s -o /dev/null -w "%{http_code}" "$endpoint")
+  if [ "$status" -eq 200 ]; then
+    echo "Endpoint $endpoint is reachable."
+  else
+    echo "Error: Endpoint $endpoint returned $status."
+    curl -s "$endpoint" | head -n 10
     exit 1
   fi
-  echo "✅ $endpoint validated"
 done
-echo "Routing validation passed"
+echo "All endpoints validated successfully."
