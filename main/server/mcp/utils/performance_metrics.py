@@ -1,51 +1,42 @@
 # main/server/mcp/utils/performance_metrics.py
-from opentelemetry import trace, metrics
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.exporter.prometheus import PrometheusMetricReader
-from opentelemetry.sdk.resources import Resource
-import jwt
-import os
-from contextlib import contextmanager
-from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict
+from prometheus_client import Counter, Histogram, Gauge
+from ..utils.mcp_error_handler import MCPError
+import time
 
 class PerformanceMetrics:
     def __init__(self):
-        self.tracer = trace.get_tracer("vial_mcp_metrics")
-        self.meter = metrics.get_meter("vial_mcp_metrics")
-        self.request_duration = self.meter.create_histogram(
-            name="request_duration",
-            description="Duration of HTTP requests",
-            unit="seconds"
-        )
-        self.jwt_secret = os.getenv("JWT_SECRET", "secret_key")
+        self.request_count = Counter('mcp_requests_total', 'Total MCP requests', ['endpoint'])
+        self.request_latency = Histogram('mcp_request_latency_seconds', 'MCP request latency', ['endpoint'])
+        self.error_count = Counter('mcp_errors_total', 'Total MCP errors', ['endpoint', 'error_code'])
+        self.active_agents = Gauge('mcp_active_agents', 'Number of active agents', ['vial_id'])
 
-    @contextmanager
-    def track_span(self, span_name: str, attributes: Dict[str, Any] = None):
-        span = self.tracer.start_span(span_name)
-        if attributes:
-            for key, value in attributes.items():
-                span.set_attribute(key, value)
-        start_time = datetime.utcnow().timestamp()
+    def record_request(self, endpoint: str, duration: float) -> None:
         try:
-            yield span
-        finally:
-            duration = datetime.utcnow().timestamp() - start_time
-            self.request_duration.record(duration, attributes=attributes or {})
-            span.end()
+            self.request_count.labels(endpoint=endpoint).inc()
+            self.request_latency.labels(endpoint=endpoint).observe(duration)
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to record request metrics: {str(e)}")
 
-    def create_access_token(self, data: Dict[str, Any], expires_delta: timedelta = timedelta(minutes=30)) -> str:
-        to_encode = data.copy()
-        expire = datetime.utcnow() + expires_delta
-        to_encode.update({"exp": expire})
-        return jwt.encode(to_encode, self.jwt_secret, algorithm="HS256")
-
-    def verify_token(self, token: str) -> Dict[str, Any]:
+    def record_error(self, endpoint: str, error_code: int) -> None:
         try:
-            return jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
-        except jwt.PyJWTError as e:
-            from ..utils.error_handler import handle_auth_error
-            handle_auth_error(e)
-            raise
+            self.error_count.labels(endpoint=endpoint, error_code=error_code).inc()
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to record error metrics: {str(e)}")
 
-metrics.set_meter_provider(MeterProvider(resource=Resource.create(), metric_readers=[PrometheusMetricReader()]))
+    def set_active_agents(self, vial_id: str, count: int) -> None:
+        try:
+            self.active_agents.labels(vial_id=vial_id).set(count)
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to set active agents metric: {str(e)}")
+
+    def get_metrics(self) -> Dict[str, float]:
+        try:
+            return {
+                "requests_total": {k: v for k, v in self.request_count._metrics.items()},
+                "request_latency": {k: v._sum for k, v in self.request_latency._metrics.items()},
+                "errors_total": {k: v for k, v in self.error_count._metrics.items()},
+                "active_agents": {k: v._value.get() for k, v in self.active_agents._metrics.items()}
+            }
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to retrieve metrics: {str(e)}")
