@@ -1,90 +1,61 @@
 # main/server/mcp/api_gateway/service_registry.py
-from typing import Dict, List, Optional
-from pymongo import MongoClient
+from typing import Dict, Any, Callable, Optional
 from ..utils.mcp_error_handler import MCPError
-import os
-import time
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.api_config import APIConfig
+import logging
+import asyncio
 
-class ServiceInstance:
-    def __init__(self, service_id: str, address: str, port: int, metadata: Dict[str, str]):
-        self.service_id = service_id
-        self.address = address
-        self.port = port
-        self.metadata = metadata
-        self.last_heartbeat = time.time()
+logger = logging.getLogger("mcp")
 
 class ServiceRegistry:
     def __init__(self):
-        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
-        self.db = self.client["vial_mcp"]
-        self.collection = self.db["services"]
-        self.heartbeat_timeout = 30  # Seconds
-
-    async def register_service(self, service_name: str, address: str, port: int, metadata: Dict[str, str]) -> str:
+        self.metrics = PerformanceMetrics()
+        self.api_config = APIConfig()
+        self.services: Dict[str, Callable] = {}
+    
+    def register_service(self, method: str, handler: Callable) -> None:
         try:
-            if not service_name or not address or not port:
-                raise MCPError(code=-32602, message="Service name, address, and port are required")
-            service_id = f"{service_name}:{address}:{port}"
-            service = {
-                "service_id": service_id,
-                "service_name": service_name,
-                "address": address,
-                "port": port,
-                "metadata": metadata,
-                "last_heartbeat": time.time()
-            }
-            self.collection.update_one(
-                {"service_id": service_id},
-                {"$set": service},
-                upsert=True
-            )
-            return service_id
+            if not method or not handler:
+                raise MCPError(code=-32602, message="Method and handler are required")
+            if not self.api_config.validate_endpoint(method):
+                raise MCPError(code=-32601, message=f"Method {method} is not enabled")
+            self.services[method] = handler
+            logger.info(f"Registered service: {method}")
         except MCPError as e:
             raise e
         except Exception as e:
+            logger.error(f"Failed to register service {method}: {str(e)}")
             raise MCPError(code=-32603, message=f"Failed to register service: {str(e)}")
 
-    async def deregister_service(self, service_id: str) -> None:
+    async def dispatch(self, method: str, params: Dict[str, Any], request_id: Any) -> Dict[str, Any]:
         try:
-            result = self.collection.delete_one({"service_id": service_id})
-            if result.deleted_count == 0:
-                raise MCPError(code=-32003, message="Service not found")
+            if method not in self.services:
+                raise MCPError(code=-32601, message=f"Method {method} not found")
+            
+            self.metrics.requests_total.labels(endpoint=method).inc()
+            result = await self.services[method](params)
+            
+            logger.debug(f"Dispatched {method} with params: {params}")
+            return {
+                "jsonrpc": "2.0",
+                "result": result,
+                "id": request_id
+            }
         except MCPError as e:
-            raise e
+            logger.error(f"MCPError in dispatch {method}: {str(e)}")
+            return {
+                "jsonrpc": "2.0",
+                "error": {"code": e.code, "message": str(e), "data": e.data},
+                "id": request_id
+            }
         except Exception as e:
-            raise MCPError(code=-32603, message=f"Failed to deregister service: {str(e)}")
+            logger.error(f"Unexpected error in dispatch {method}: {str(e)}", exc_info=True)
+            return {
+                "jsonrpc": "2.0",
+                "error": {"code": -32603, "message": f"Internal error: {str(e)}", "data": {"traceback": str(e)}},
+                "id": request_id
+            }
 
-    async def update_heartbeat(self, service_id: str) -> None:
-        try:
-            result = self.collection.update_one(
-                {"service_id": service_id},
-                {"$set": {"last_heartbeat": time.time()}}
-            )
-            if result.matched_count == 0:
-                raise MCPError(code=-32003, message="Service not found")
-        except MCPError as e:
-            raise e
-        except Exception as e:
-            raise MCPError(code=-32603, message=f"Failed to update heartbeat: {str(e)}")
-
-    async def get_services(self, service_name: str) -> List[Dict[str, any]]:
-        try:
-            current_time = time.time()
-            services = self.collection.find({
-                "service_name": service_name,
-                "last_heartbeat": {"$gt": current_time - self.heartbeat_timeout}
-            })
-            return [
-                {
-                    "service_id": s["service_id"],
-                    "address": s["address"],
-                    "port": s["port"],
-                    "metadata": s["metadata"]
-                }
-                for s in services
-            ]
-        except Exception as e:
-            raise MCPError(code=-32603, message=f"Failed to retrieve services: {str(e)}")
-
-    def close(self):
-        self.client.close()
+    def get_registered_services(self) -> Dict[str, Any]:
+        return {method: {"enabled": self.api_config.validate_endpoint(method)} for method in self.services.keys()}
