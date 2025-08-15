@@ -115,6 +115,14 @@ async def authenticate(request: dict):
     except Exception as e:
         return handle_error(e)
 
+@app.post("/mcp/checklist")
+async def get_checklist():
+    try:
+        checklist = await auth_manager.validate_checklist()
+        return {"result": checklist}
+    except Exception as e:
+        return handle_error(e)
+
 @app.post("/mcp")
 async def mcp_endpoint(request: dict):
     try:
