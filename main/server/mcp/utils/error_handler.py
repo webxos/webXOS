@@ -1,40 +1,64 @@
 # main/server/mcp/utils/error_handler.py
-from fastapi import HTTPException
-from ..utils.performance_metrics import PerformanceMetrics
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+from ..utils.mcp_error_handler import MCPError
 import logging
-from typing import Any
+import re
+import json
 
-logging.basicConfig(
-    filename='vial_mcp_errors.log',
-    level=logging.ERROR,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logger = logging.getLogger("mcp")
 
 class ErrorHandler:
     def __init__(self):
-        self.metrics = PerformanceMetrics()
-        self.logger = logging.getLogger("vial_mcp")
+        self.suspicious_patterns = [
+            r"secret_key|api_key|token|password|credential",  # Secret keywords
+            r"<!--\s*hidden:\s*\".*?\"\s*-->",  # Hidden HTML comments (prompt injection)
+            r"exec\(|eval\(|system\(",  # Code execution attempts
+            r"private\s*repo|all\s*repos"  # Attempts to access private repos
+        ]
+        self.patterns = [re.compile(p, re.IGNORECASE) for p in self.suspicious_patterns]
 
-    def handle_generic_error(self, error: Exception, context: str) -> None:
-        with self.metrics.track_span("handle_generic_error", {"context": context}):
-            self.logger.error(f"Error in {context}: {str(error)}")
-            self.metrics.record_error(context, str(error))
+    async def detect_prompt_injection(self, content: str) -> bool:
+        try:
+            for pattern in self.patterns:
+                if pattern.search(content):
+                    logger.warning(f"Potential prompt injection detected: {content[:100]}...")
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Prompt injection detection failed: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to process content: {str(e)}")
 
-    def handle_wallet_error(self, error: Exception) -> None:
-        with self.metrics.track_span("handle_wallet_error"):
-            self.logger.error(f"Wallet error: {str(error)}")
-            self.metrics.record_error("wallet", str(error))
-
-    def handle_api_error(self, error: Exception, endpoint: str) -> None:
-        with self.metrics.track_span("handle_api_error", {"endpoint": endpoint}):
-            self.logger.error(f"API error at {endpoint}: {str(error)}")
-            self.metrics.record_error(f"api_{endpoint}", str(error))
-
-def handle_generic_error(error: Exception, context: str) -> None:
-    ErrorHandler().handle_generic_error(error, context)
-
-def handle_wallet_error(error: Exception) -> None:
-    ErrorHandler().handle_wallet_error(error)
-
-def handle_api_error(error: Exception, endpoint: str) -> None:
-    ErrorHandler().handle_api_error(error, endpoint)
+    async def handle_request(self, request: Request, call_next):
+        try:
+            # Inspect request body for prompt injection
+            if request.method in ["POST", "PUT"]:
+                body = await request.body()
+                if body:
+                    content = body.decode("utf-8")
+                    if await self.detect_prompt_injection(content):
+                        raise MCPError(
+                            code=-32004,
+                            message="Potential prompt injection detected in request"
+                        )
+            
+            response = await call_next(request)
+            return response
+        except MCPError as e:
+            logger.error(f"MCP Error: {e.message} (code: {e.code})")
+            return JSONResponse(
+                status_code=400,
+                content={"jsonrpc": "2.0", "error": {"code": e.code, "message": e.message}, "id": None}
+            )
+        except HTTPException as e:
+            logger.error(f"HTTP Error: {str(e)}")
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e.detail)}, "id": None}
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"jsonrpc": "2.0", "error": {"code": -32603, "message": f"Internal error: {str(e)}"}, "id": None}
+            )
