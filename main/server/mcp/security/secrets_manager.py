@@ -1,99 +1,82 @@
-# main/server/mcp/security/secrets_manager.py
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional
-from ..db.db_manager import DBManager
+# main/server/mcp/security/security_manager.py
+import asyncio
+from typing import Dict, Optional
+from fastapi import HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import kyber
+import re
 from ..utils.performance_metrics import PerformanceMetrics
 from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime
 import os
-import base64
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-app = FastAPI(title="Vial MCP Secrets Manager")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
+class PromptGuard:
+    def __init__(self):
+        self.injection_patterns = [
+            r"(?i)ignore.*instructions",
+            r"(?i)system:.*",
+            r"(?i)prompt:.*",
+            r"(?i)execute.*code",
+            r"\|.*\|",
+            r"<\|.*\|>",
+        ]
+        self.max_length = 1000
 
-class Secret(BaseModel):
-    user_id: str
-    key: str
-    value: str
+    async def validate_async(self, text: str) -> Dict:
+        if len(text) > self.max_length:
+            return {"threat_detected": True, "details": "Input too long"}
+        for pattern in self.injection_patterns:
+            if re.search(pattern, text):
+                return {"threat_detected": True, "details": f"Pattern matched: {pattern}"}
+        return {"threat_detected": False, "details": "Input clean"}
 
-class SecretResponse(BaseModel):
-    user_id: str
-    key: str
-    timestamp: str
-
-class SecretsManager:
+class SecurityManager:
     def __init__(self):
         self.metrics = PerformanceMetrics()
-        self.encryption_key = self._generate_encryption_key()
-        self.cipher = Fernet(self.encryption_key)
+        self.prompt_guard = PromptGuard()
+        self.oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+        self.kyber_keypair = kyber.Kyber512().generate_keypair()
 
-    def _generate_encryption_key(self) -> bytes:
-        with self.metrics.track_span("generate_encryption_key"):
+    async def validate_input(self, text: str, user_id: str) -> bool:
+        with self.metrics.track_span("validate_input", {"user_id": user_id}):
             try:
-                salt = os.getenv("ENCRYPTION_SALT", "vial_mcp_salt").encode()
-                kdf = PBKDF2HMAC(
-                    algorithm=hashes.SHA256(),
-                    length=32,
-                    salt=salt,
-                    iterations=100000,
-                )
-                return base64.urlsafe_b64encode(kdf.derive(os.getenv("JWT_SECRET", "secret_key").encode()))
+                result = await self.prompt_guard.validate_async(text)
+                if result["threat_detected"]:
+                    self.metrics.record_error("prompt_injection", result["details"])
+                    raise HTTPException(400, detail="Potentially malicious input detected")
+                return True
             except Exception as e:
-                handle_generic_error(e, context="generate_encryption_key")
+                handle_generic_error(e, context="validate_input")
                 raise
 
-    def encrypt_secret(self, value: str) -> str:
-        with self.metrics.track_span("encrypt_secret"):
+    async def encrypt_sensitive_data(self, data: str) -> bytes:
+        with self.metrics.track_span("encrypt_data", {}):
             try:
-                return self.cipher.encrypt(value.encode()).decode()
+                ciphertext = kyber.Kyber512().encrypt(data.encode(), self.kyber_keypair.public_key)
+                return ciphertext
             except Exception as e:
-                handle_generic_error(e, context="encrypt_secret")
+                handle_generic_error(e, context="encrypt_data")
                 raise
 
-    def decrypt_secret(self, encrypted_value: str) -> str:
-        with self.metrics.track_span("decrypt_secret"):
+    async def decrypt_sensitive_data(self, ciphertext: bytes) -> str:
+        with self.metrics.track_span("decrypt_data", {}):
             try:
-                return self.cipher.decrypt(encrypted_value.encode()).decode()
+                plaintext = kyber.Kyber512().decrypt(ciphertext, self.kyber_keypair.private_key)
+                return plaintext.decode()
             except Exception as e:
-                handle_generic_error(e, context="decrypt_secret")
+                handle_generic_error(e, context="decrypt_data")
                 raise
 
-secrets_manager = SecretsManager()
-
-@app.post("/secrets", response_model=SecretResponse)
-async def store_secret(secret: Secret, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("store_secret", {"user_id": secret.user_id, "key": secret.key}):
-        try:
-            metrics.verify_token(token)
-            encrypted_value = secrets_manager.encrypt_secret(secret.value)
-            secret_data = {
-                "user_id": secret.user_id,
-                "key": secret.key,
-                "value": encrypted_value,
-                "timestamp": datetime.utcnow()
-            }
-            db_manager.insert_one("secrets", secret_data)
-            return SecretResponse(user_id=secret.user_id, key=secret.key, timestamp=str(secret_data["timestamp"]))
-        except Exception as e:
-            handle_generic_error(e, context="store_secret")
-            raise HTTPException(status_code=500, detail=f"Failed to store secret: {str(e)}")
-
-@app.get("/secrets/{user_id}/{key}", response_model=SecretResponse)
-async def retrieve_secret(user_id: str, key: str, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("retrieve_secret", {"user_id": user_id, "key": key}):
-        try:
-            metrics.verify_token(token)
-            secret = db_manager.find_one("secrets", {"user_id": user_id, "key": key})
-            if not secret:
-                raise HTTPException(status_code=404, detail="Secret not found")
-            return SecretResponse(user_id=secret["user_id"], key=secret["key"], timestamp=str(secret["timestamp"]))
-        except Exception as e:
-            handle_generic_error(e, context="retrieve_secret")
-            raise HTTPException(status_code=500, detail=f"Failed to retrieve secret: {str(e)}")
+    async def verify_oauth3_token(self, token: str = Depends(oauth2_scheme)) -> Dict:
+        with self.metrics.track_span("verify_oauth3_token", {}):
+            try:
+                # Placeholder for OAuth 3.0 with PKCE verification
+                # In a full implementation, verify PKCE code_challenge and code_verifier
+                payload = self.metrics.verify_token(token)  # Reuse existing JWT verification
+                if not payload.get("code_challenge"):
+                    raise HTTPException(401, detail="Missing PKCE code challenge")
+                return payload
+            except Exception as e:
+                handle_generic_error(e, context="verify_oauth3_token")
+                raise HTTPException(401, detail=f"Invalid token: {str(e)}")
