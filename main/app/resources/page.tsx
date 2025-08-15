@@ -1,108 +1,99 @@
 // main/app/resources/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { trace } from '@opentelemetry/api';
+import { useState, useEffect } from 'react';
 import styles from './resources.module.css';
+import { listResources, getResourceById } from '../../server/mcp/functions/resources';
+import { login } from '../../server/mcp/functions/auth';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000/api';
-
-interface Resource {
-  type: string;
-  usage: number;
-  total: number;
-  unit: string;
-}
-
-const Resources = () => {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const tracer = trace.getTracer('vial_mcp_resources');
-
-  const fetchWithRetry = useCallback(async (url: string, options: RequestInit, retries = 3, baseDelay = 1000): Promise<{ ok: boolean; json: () => Promise<any> }> => {
-    const span = tracer.startSpan('fetch_with_retry', { attributes: { url, retries } });
-    const apiKey = localStorage.getItem('apiKey');
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await fetch(url, { ...options, headers: { ...options.headers, 'Authorization': `Bearer ${apiKey}` } });
-        span.setStatus({ code: 1 });
-        span.end();
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-        return { ok: response.ok, json: () => response.json() };
-      } catch (error: any) {
-        if (i === retries - 1) {
-          span.recordException(error);
-          span.setStatus({ code: 2 });
-          span.end();
-          setErrorMessage(`Fetch failed: ${error.message}`);
-          return { ok: false, json: () => ({ error: 'Offline mode' }) };
-        }
-        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, i)));
-      }
-    }
-    span.end();
-    return { ok: false, json: () => ({ error: 'Fetch failed' }) };
-  }, [tracer]);
-
-  const fetchResources = useCallback(async () => {
-    const span = tracer.startSpan('fetch_resources');
-    try {
-      const response = await fetchWithRetry(`${API_BASE}/resources`, { method: 'GET' });
-      const data = await response.json();
-      setResources(data.resources || []);
-      setIsAuthenticated(true);
-      span.setStatus({ code: 1 });
-    } catch (error: any) {
-      setErrorMessage(`Failed to load resources: ${error.message}`);
-      span.setStatus({ code: 2 });
-      span.recordException(error);
-    } finally {
-      span.end();
-    }
-  }, [fetchWithRetry]);
+export default function Resources() {
+  const [resources, setResources] = useState([]);
+  const [selectedResource, setSelectedResource] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('apiKey'));
 
   useEffect(() => {
-    if (localStorage.getItem('apiKey') && localStorage.getItem('userId')) {
+    if (isAuthenticated) {
       fetchResources();
-      const interval = setInterval(fetchResources, 30000);
-      return () => clearInterval(interval);
     }
-  }, [fetchResources]);
+  }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (errorMessage) {
-      const timer = setTimeout(() => setErrorMessage(''), 5000);
-      return () => clearTimeout(timer);
+  const fetchResources = async () => {
+    try {
+      const data = await listResources('docs');
+      setResources(data);
+    } catch (error) {
+      console.error('Failed to fetch resources:', error);
+      alert('Failed to load resources.');
     }
-  }, [errorMessage]);
+  };
+
+  const handleResourceClick = async (resourceId) => {
+    try {
+      const resource = await getResourceById(resourceId);
+      setSelectedResource(resource);
+    } catch (error) {
+      console.error('Failed to fetch resource:', error);
+      alert('Failed to load resource details.');
+    }
+  };
+
+  const handleAuthenticate = async () => {
+    try {
+      const username = prompt('Enter username:');
+      const password = prompt('Enter password:');
+      if (username && password) {
+        await login(username, password);
+        setIsAuthenticated(true);
+        alert('Authentication successful!');
+        fetchResources();
+      }
+    } catch (error) {
+      console.error('Authentication failed:', error);
+      alert('Authentication failed.');
+    }
+  };
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Vial MCP Resources</h1>
-      {errorMessage && (
-        <div className={`${styles.error} ${errorMessage.includes('success') ? styles.success : ''}`}>
-          {errorMessage}
+      <header className={styles.header}>
+        <h1>WebXOS Resources with Vial</h1>
+      </header>
+      <main className={styles.main}>
+        <div className={styles.resourcesContainer}>
+          {isAuthenticated ? (
+            <>
+              <h2>Resources</h2>
+              <ul className={styles.resourceList}>
+                {resources.map((resource) => (
+                  <li
+                    key={resource.resource_id}
+                    className={styles.resourceItem}
+                    onClick={() => handleResourceClick(resource.resource_id)}
+                  >
+                    {resource.title}
+                  </li>
+                ))}
+              </ul>
+              {selectedResource && (
+                <div className={styles.resourceDetails}>
+                  <h3>{selectedResource.title}</h3>
+                  <p>{selectedResource.content}</p>
+                </div>
+              )}
+              <button className={styles.button} onClick={fetchResources}>
+                Refresh Resources
+              </button>
+            </>
+          ) : (
+            <button className={styles.button} onClick={handleAuthenticate}>
+              Authenticate
+            </button>
+          )}
         </div>
-      )}
-      <div className={styles.resourceGrid}>
-        {resources.map((resource, index) => (
-          <div key={index} className={styles.resourceCard}>
-            <span className={styles.resourceType}>{resource.type}</span>
-            <div className={styles.progressBar}>
-              <div
-                className={styles.progressFill}
-                style={{ width: `${(resource.usage / resource.total) * 100}%` }}
-              ></div>
-            </div>
-            <span className={styles.resourceDetails}>
-              {resource.usage.toFixed(2)} / {resource.total.toFixed(2)} {resource.unit}
-            </span>
-          </div>
-        ))}
-      </div>
+      </main>
+      <footer className={styles.footer}>
+        <p>Copyright webXOS 2025</p>
+      </footer>
     </div>
   );
-};
-
-export default Resources;
+}
