@@ -1,6 +1,7 @@
 # main/server/mcp/utils/cache_manager.py
 import redis
 import json
+import time
 from typing import Any, Optional
 from ..utils.performance_metrics import PerformanceMetrics
 from ..utils.error_handler import handle_generic_error
@@ -10,6 +11,7 @@ class CacheManager:
     def __init__(self):
         self.metrics = PerformanceMetrics()
         self.redis_client = None
+        self.in_memory_cache = {}
         try:
             self.redis_client = redis.Redis(
                 host=os.getenv("REDIS_HOST", "localhost"),
@@ -18,17 +20,17 @@ class CacheManager:
             )
             self.redis_client.ping()
         except redis.ConnectionError:
-            self.redis_client = None  # Fallback to in-memory caching
-            self.in_memory_cache = {}
+            self.redis_client = None
 
     def set(self, key: str, value: Any, expiry: int = 3600) -> bool:
         with self.metrics.track_span("cache_set", {"key": key}):
             try:
-                value_json = json.dumps(value)
+                serialized_value = json.dumps(value)
                 if self.redis_client:
-                    return self.redis_client.setex(key, expiry, value_json)
+                    self.redis_client.setex(key, expiry, serialized_value)
+                    return True
                 else:
-                    self.in_memory_cache[key] = {"value": value, "expiry": time.time() + expiry}
+                    self.in_memory_cache[key] = {"value": value, "expiry": int(time.time()) + expiry}
                     return True
             except Exception as e:
                 handle_generic_error(e, context="cache_set")
@@ -44,7 +46,8 @@ class CacheManager:
                     if key in self.in_memory_cache:
                         if time.time() < self.in_memory_cache[key]["expiry"]:
                             return self.in_memory_cache[key]["value"]
-                        del self.in_memory_cache[key]
+                        else:
+                            del self.in_memory_cache[key]
                     return None
             except Exception as e:
                 handle_generic_error(e, context="cache_get")
@@ -54,7 +57,7 @@ class CacheManager:
         with self.metrics.track_span("cache_delete", {"key": key}):
             try:
                 if self.redis_client:
-                    return bool(self.redis_client.delete(key))
+                    return self.redis_client.delete(key) > 0
                 else:
                     if key in self.in_memory_cache:
                         del self.in_memory_cache[key]
