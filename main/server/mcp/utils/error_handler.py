@@ -1,64 +1,75 @@
 # main/server/mcp/utils/error_handler.py
-from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
-from ..utils.mcp_error_handler import MCPError
+import traceback
 import logging
-import re
-import json
+from typing import Dict, Any, Optional
+from fastapi import HTTPException
 
 logger = logging.getLogger("mcp")
 
-class ErrorHandler:
-    def __init__(self):
-        self.suspicious_patterns = [
-            r"secret_key|api_key|token|password|credential",  # Secret keywords
-            r"<!--\s*hidden:\s*\".*?\"\s*-->",  # Hidden HTML comments (prompt injection)
-            r"exec\(|eval\(|system\(",  # Code execution attempts
-            r"private\s*repo|all\s*repos"  # Attempts to access private repos
-        ]
-        self.patterns = [re.compile(p, re.IGNORECASE) for p in self.suspicious_patterns]
+class MCPError(Exception):
+    def __init__(self, code: int, message: str, data: Optional[Dict[str, Any]] = None):
+        self.code = code
+        self.message = message
+        self.data = data or {}
+        super().__init__(message)
 
-    async def detect_prompt_injection(self, content: str) -> bool:
-        try:
-            for pattern in self.patterns:
-                if pattern.search(content):
-                    logger.warning(f"Potential prompt injection detected: {content[:100]}...")
-                    return True
-            return False
-        except Exception as e:
-            logger.error(f"Prompt injection detection failed: {str(e)}")
-            raise MCPError(code=-32603, message=f"Failed to process content: {str(e)}")
-
-    async def handle_request(self, request: Request, call_next):
-        try:
-            # Inspect request body for prompt injection
-            if request.method in ["POST", "PUT"]:
-                body = await request.body()
-                if body:
-                    content = body.decode("utf-8")
-                    if await self.detect_prompt_injection(content):
-                        raise MCPError(
-                            code=-32004,
-                            message="Potential prompt injection detected in request"
-                        )
-            
-            response = await call_next(request)
-            return response
-        except MCPError as e:
-            logger.error(f"MCP Error: {e.message} (code: {e.code})")
-            return JSONResponse(
-                status_code=400,
-                content={"jsonrpc": "2.0", "error": {"code": e.code, "message": e.message}, "id": None}
-            )
-        except HTTPException as e:
-            logger.error(f"HTTP Error: {str(e)}")
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e.detail)}, "id": None}
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"jsonrpc": "2.0", "error": {"code": -32603, "message": f"Internal error: {str(e)}"}, "id": None}
-            )
+def handle_error(e: Exception, request_id: Any = None) -> Dict[str, Any]:
+    """
+    Handles errors and returns a JSON-RPC 2.0 compliant error response with traceback.
+    """
+    try:
+        if isinstance(e, MCPError):
+            error_data = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": e.code,
+                    "message": str(e),
+                    "data": {
+                        **e.data,
+                        "traceback": "".join(traceback.format_tb(e.__traceback__))
+                    }
+                },
+                "id": request_id
+            }
+            logger.error(f"MCPError: {str(e)}, Traceback: {error_data['error']['data']['traceback']}")
+            return error_data
+        elif isinstance(e, HTTPException):
+            error_data = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32000,
+                    "message": f"HTTP error: {e.detail}",
+                    "data": {
+                        "status_code": e.status_code,
+                        "traceback": "".join(traceback.format_tb(e.__traceback__))
+                    }
+                },
+                "id": request_id
+            }
+            logger.error(f"HTTPException: {e.detail}, Traceback: {error_data['error']['data']['traceback']}")
+            return error_data
+        else:
+            error_data = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32603,
+                    "message": f"Internal server error: {str(e)}",
+                    "data": {
+                        "traceback": "".join(traceback.format_tb(e.__traceback__))
+                    }
+                },
+                "id": request_id
+            }
+            logger.error(f"Unexpected error: {str(e)}, Traceback: {error_data['error']['data']['traceback']}")
+            return error_data
+    except Exception as handler_error:
+        logger.error(f"Error handler failed: {str(handler_error)}", exc_info=True)
+        return {
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32603,
+                "message": "Error handler failed",
+                "data": {"traceback": "".join(traceback.format_tb(handler_error.__traceback__))}
+            },
+            "id": request_id
+        }
