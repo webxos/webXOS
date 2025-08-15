@@ -1,87 +1,75 @@
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from .mcp.mcp_server_auth import MCPAuthHandler, AuthRequest, RefreshRequest
-from .mcp.mcp_server_quantum import MCPQuantumHandler, QuantumRequest
-from .mcp.mcp_server_notes import MCPNotesHandler, NoteRequest, NoteReadRequest
-from .mcp.mcp_server_resources import MCPResourcesHandler, ResourceRequest
-from .mcp.webxos_wallet import MCPWalletManager, WalletRequest
-from .mcp.health_check import add_health_check
-from .mcp.db.db_manager import DatabaseManager
-from .mcp.base_prompt import BasePromptManager
-import os
+# main/server/unified_server.py
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from .mcp.api_gateway.gateway_router import router as gateway_router
+from .mcp.auth.auth_manager import AuthManager
+from .mcp.notes.mcp_server_notes import NotesService
+from .mcp.quantum.quantum_simulator import QuantumSimulator
+from .mcp.agents.global_mcp_agents import GlobalMCPAgents
+from .mcp.agents.translator_agent import TranslatorAgent
+from .mcp.agents.library_agent import LibraryAgent
+from .mcp.wallet.webxos_wallet import WalletService
+from .mcp.utils.health_check import router as health_router
+from .mcp.utils.mcp_error_handler import handle_mcp_error
 import logging
+import logging.config
+import os
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP Controller", version="1.0")
 
-app = FastAPI()
+# Load logging configuration
+logging.config.fileConfig('main/server/mcp/config/logging.conf', disable_existing_loggers=False)
+logger = logging.getLogger("mcp")
 
-# Database configurations
-postgres_config = {
-    "host": os.getenv("POSTGRES_HOST", "postgresdb"),
-    "port": int(os.getenv("POSTGRES_DOCKER_PORT", 5432)),
-    "user": os.getenv("POSTGRES_USER", "postgres"),
-    "password": os.getenv("POSTGRES_PASSWORD", "postgres"),
-    "database": os.getenv("POSTGRES_DB", "vial_mcp")
-}
-mysql_config = {
-    "host": os.getenv("MYSQL_HOST", "mysqldb"),
-    "port": int(os.getenv("MYSQL_DOCKER_PORT", 3306)),
-    "user": os.getenv("MYSQL_USER", "root"),
-    "password": os.getenv("MYSQL_ROOT_PASSWORD", "mysql"),
-    "database": os.getenv("MYSQL_DB", "vial_mcp")
-}
-mongo_config = {
-    "host": os.getenv("MONGO_HOST", "mongodb"),
-    "port": int(os.getenv("MONGO_DOCKER_PORT", 27017)),
-    "username": os.getenv("MONGO_USER", "mongo"),
-    "password": os.getenv("MONGO_PASSWORD", "mongo")
-}
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-db_manager = DatabaseManager(postgres_config, mysql_config, mongo_config)
-db_manager.connect()
-auth_handler = MCPAuthHandler()
-quantum_handler = MCPQuantumHandler()
-notes_handler = MCPNotesHandler()
-resources_handler = MCPResourcesHandler()
-wallet_manager = MCPWalletManager()
-prompt_manager = BasePromptManager()
+# Include routers
+app.include_router(gateway_router, prefix="/mcp")
+app.include_router(health_router)
 
-add_health_check(app)
+# Services
+auth_manager = AuthManager()
+notes_service = NotesService()
+quantum_simulator = QuantumSimulator()
+global_agents = GlobalMCPAgents()
+translator_agent = TranslatorAgent()
+library_agent = LibraryAgent()
+wallet_service = WalletService()
 
-@app.post("/api/auth/login")
-async def login(request: AuthRequest):
-    return await auth_handler.authenticate(request)
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Vial MCP Controller")
+    # Initialize services (e.g., check DB connections)
+    try:
+        await notes_service.collection.find_one()
+        await wallet_service.verify_wallet("0x0000000000000000000000000000000000000000")
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+        raise
 
-@app.post("/api/auth/refresh")
-async def refresh(request: RefreshRequest):
-    return await auth_handler.refresh_token(request)
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Shutting down Vial MCP Controller")
+    notes_service.close()
+    global_agents.close()
+    translator_agent.close()
+    library_agent.close()
 
-@app.post("/api/quantum/link")
-async def quantum_link(request: QuantumRequest, access_token: str = Depends(lambda x: x)):
-    return await quantum_handler.process_quantum(request, access_token)
+@app.exception_handler(MCPError)
+async def mcp_error_handler(request, exc: MCPError):
+    return handle_mcp_error(exc)
 
-@app.post("/api/notes/add")
-async def add_note(request: NoteRequest, access_token: str = Depends(lambda x: x)):
-    payload = auth_handler.auth_manager.verify_token(access_token)
-    if payload["wallet_id"] != request.wallet_id:
-        raise HTTPException(status_code=401, detail="Unauthorized wallet access")
-    return db_manager.add_note(request.wallet_id, request.content, request.resource_id, request.db_type)
+@app.get("/")
+async def root():
+    return {"message": "Vial MCP Controller API", "version": "1.0"}
 
-@app.post("/api/notes/read")
-async def read_note(request: NoteReadRequest, access_token: str = Depends(lambda x: x)):
-    payload = auth_handler.auth_manager.verify_token(access_token)
-    if payload["wallet_id"] != request.wallet_id:
-        raise HTTPException(status_code=401, detail="Unauthorized wallet access")
-    return db_manager.get_notes(request.wallet_id, 10, request.db_type)
-
-@app.post("/api/resources/latest")
-async def get_resources(request: ResourceRequest, access_token: str = Depends(lambda x: x)):
-    return await resources_handler.get_latest_resources(request, access_token)
-
-@app.post("/api/wallet/create")
-async def create_wallet(request: WalletRequest, access_token: str = Depends(lambda x: x)):
-    return await wallet_manager.create_wallet(request, access_token)
-
-@app.post("/api/prompts/get")
-async def get_prompt(agent_name: str, wallet_id: str = None, vial_id: str = None, content: str = None):
-    return {"prompt": prompt_manager.get_prompt(agent_name, wallet_id, vial_id, content)}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host=os.getenv("MCP_SERVER_HOST", "0.0.0.0"), port=int(os.getenv("MCP_SERVER_PORT", 8080)))
