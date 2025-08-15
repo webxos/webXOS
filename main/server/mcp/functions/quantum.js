@@ -1,30 +1,40 @@
 // main/server/mcp/functions/quantum.js
-async function simulateQuantumCircuit(vialId, circuitData) {
-  const token = localStorage.getItem('apiKey');
-  const userId = localStorage.getItem('userId');
-  if (!token || !userId) throw new Error('Not authenticated');
-  const response = await fetch(`${process.env.API_BASE || 'http://localhost:8000'}/quantum/simulate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ vial_id: vialId, circuit_data: circuitData, user_id: userId })
-  });
-  if (!response.ok) throw new Error(`Quantum simulation failed: ${await response.text()}`);
-  return await response.json();
+import { callTool } from './mcp.js';
+
+export async function simulateQuantumCircuit(numQubits, gates, numShots = 1024) {
+  try {
+    const response = await fetch('/mcp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('apiKey')}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'mcp.simulateCircuit',
+        params: {
+          circuit_data: {
+            num_qubits: numQubits,
+            gates: gates
+          },
+          num_shots: numShots
+        },
+        id: Math.floor(Math.random() * 1000),
+      }),
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.result;
+  } catch (error) {
+    throw new Error(`Quantum simulation failed: ${error.message}`);
+  }
 }
 
-async function getQuantumResults(vialId) {
-  const token = localStorage.getItem('apiKey');
-  const userId = localStorage.getItem('userId');
-  if (!token || !userId) throw new Error('Not authenticated');
-  const response = await fetch(`${process.env.API_BASE || 'http://localhost:8000'}/quantum/results/${vialId}`, {
-    method: 'GET',
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!response.ok) throw new Error(`Failed to fetch quantum results: ${await response.text()}`);
-  return await response.json();
+export async function getCircuitResult(circuitId) {
+  try {
+    const response = await callTool('get_circuit_result', { circuit_id: circuitId });
+    return response;
+  } catch (error) {
+    throw new Error(`Failed to retrieve circuit result: ${error.message}`);
+  }
 }
-
-export { simulateQuantumCircuit, getQuantumResults };
