@@ -1,73 +1,55 @@
-# server/mcp/db/db_manager.py
-import sqlite3
+# main/server/mcp/db/db_manager.py
+from pymongo import MongoClient
+from typing import Any, Dict, List, Optional
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.error_handler import handle_generic_error
 import os
-from contextlib import contextmanager
-from ..utils.error_handler import handle_db_error
 
-class DatabaseManager:
-    def __init__(self, db_path="vial_mcp.db"):
-        self.db_path = os.path.join(os.path.dirname(__file__), db_path)
-        self._init_db()
+class DBManager:
+    def __init__(self):
+        self.client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.metrics = PerformanceMetrics()
 
-    def _init_db(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS agents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent_name TEXT NOT NULL UNIQUE,
-                    status TEXT,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent_id INTEGER,
-                    task_type TEXT,
-                    task_data TEXT,
-                    status TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (agent_id) REFERENCES agents(id)
-                )
-            """)
-            conn.commit()
+    def insert_one(self, collection: str, document: Dict[str, Any]) -> str:
+        with self.metrics.track_span("db_insert_one", {"collection": collection}):
+            try:
+                result = self.db[collection].insert_one(document)
+                return str(result.inserted_id)
+            except Exception as e:
+                handle_generic_error(e, context=f"db_insert_one_{collection}")
+                raise
 
-    @contextmanager
-    def get_connection(self):
-        conn = None
-        try:
-            conn = sqlite3.connect(self.db_path)
-            yield conn
-        except sqlite3.Error as e:
-            handle_db_error(e)
-            raise
-        finally:
-            if conn:
-                conn.close()
+    def find_one(self, collection: str, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        with self.metrics.track_span("db_find_one", {"collection": collection}):
+            try:
+                return self.db[collection].find_one(query)
+            except Exception as e:
+                handle_generic_error(e, context=f"db_find_one_{collection}")
+                raise
 
-    def save_agent_status(self, agent_name, status):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO agents (agent_name, status)
-                VALUES (?, ?)
-            """, (agent_name, status))
-            conn.commit()
+    def find_many(self, collection: str, query: Dict[str, Any], limit: int = 0, skip: int = 0) -> List[Dict[str, Any]]:
+        with self.metrics.track_span("db_find_many", {"collection": collection, "limit": limit, "skip": skip}):
+            try:
+                return list(self.db[collection].find(query).skip(skip).limit(limit))
+            except Exception as e:
+                handle_generic_error(e, context=f"db_find_many_{collection}")
+                raise
 
-    def save_task(self, agent_id, task_type, task_data, status="pending"):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO tasks (agent_id, task_type, task_data, status)
-                VALUES (?, ?, ?, ?)
-            """, (agent_id, task_type, task_data, status))
-            conn.commit()
-            return cursor.lastrowid
+    def update_one(self, collection: str, query: Dict[str, Any], update: Dict[str, Any]) -> int:
+        with self.metrics.track_span("db_update_one", {"collection": collection}):
+            try:
+                result = self.db[collection].update_one(query, {"$set": update})
+                return result.modified_count
+            except Exception as e:
+                handle_generic_error(e, context=f"db_update_one_{collection}")
+                raise
 
-    def get_agent_status(self, agent_name):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT status FROM agents WHERE agent_name = ?", (agent_name,))
-            result = cursor.fetchone()
-            return result[0] if result else None
+    def delete_one(self, collection: str, query: Dict[str, Any]) -> int:
+        with self.metrics.track_span("db_delete_one", {"collection": collection}):
+            try:
+                result = self.db[collection].delete_one(query)
+                return result.deleted_count
+            except Exception as e:
+                handle_generic_error(e, context=f"db_delete_one_{collection}")
+                raise
