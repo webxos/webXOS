@@ -14,6 +14,11 @@ netlify functions:list | grep -E "auth|troubleshoot" > /dev/null 2>&1 || {
   exit 1
 }
 
+echo "Checking OAuth configuration..."
+if [ ! -f "server/mcp/config/oauth_config.py" ]; then
+  echo "Warning: oauth_config.py is missing. Ensure OAuth provider credentials are configured."
+fi
+
 echo "Running health check..."
 curl -s http://localhost:8081/health | grep -q "healthy" || {
   echo "Error: Health check failed. Server may be unhealthy."
