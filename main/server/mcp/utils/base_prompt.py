@@ -1,43 +1,39 @@
-import logging
-from fastapi import HTTPException
-from pydantic import BaseModel
-from datetime import datetime
-
-logger = logging.getLogger(__name__)
-
-class PromptRequest(BaseModel):
-    context: str
-    task_type: str
+# main/server/mcp/utils/base_prompt.py
+from typing import Dict, Optional
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.error_handler import handle_generic_error
 
 class BasePrompt:
-    """Generates base prompts for agent interactions."""
     def __init__(self):
-        """Initialize BasePrompt."""
-        logger.info("BasePrompt initialized")
+        self.metrics = PerformanceMetrics()
+        self.default_system_prompt = (
+            "You are Grok, created by xAI. You are a highly capable AI assistant designed to provide accurate, helpful, and context-aware responses. "
+            "Your responses should be clear, concise, and aligned with the user's intent. Use the provided context to tailor your answers, "
+            "and ensure all responses adhere to xAI's mission of advancing human scientific discovery."
+        )
 
-    def generate_prompt(self, request: PromptRequest) -> str:
-        """Generate a prompt based on context and task type.
+    def format_prompt(self, user_input: str, system_prompt: Optional[str] = None, context: Optional[Dict] = None) -> Dict:
+        with self.metrics.track_span("format_prompt"):
+            try:
+                prompt = {
+                    "system": system_prompt or self.default_system_prompt,
+                    "user": user_input
+                }
+                if context:
+                    prompt["context"] = context
+                return prompt
+            except Exception as e:
+                handle_generic_error(e, context="format_prompt")
+                raise
 
-        Args:
-            request (PromptRequest): Prompt generation request.
-
-        Returns:
-            str: Generated prompt.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
-        try:
-            prompt_templates = {
-                "translator": "Translate the following text: {context}",
-                "library": "Summarize the following document: {context}"
-            }
-            template = prompt_templates.get(request.task_type, "Process the following: {context}")
-            prompt = template.format(context=request.context)
-            logger.info(f"Generated prompt for task {request.task_type}")
-            return prompt
-        except Exception as e:
-            logger.error(f"Failed to generate prompt: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [BasePrompt] Failed to generate prompt: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {str(e)}")
+    def validate_prompt(self, prompt: Dict) -> bool:
+        with self.metrics.track_span("validate_prompt"):
+            try:
+                if not isinstance(prompt, dict) or "user" not in prompt or not prompt["user"]:
+                    return False
+                if "system" not in prompt:
+                    prompt["system"] = self.default_system_prompt
+                return True
+            except Exception as e:
+                handle_generic_error(e, context="validate_prompt")
+                return False
