@@ -1,30 +1,46 @@
-# server/mcp/db/test_db_manager.py
+# main/server/mcp/db/test_db_manager.py
 import unittest
-import os
-from .db_manager import DatabaseManager
+from unittest.mock import patch
+from .db_manager import DBManager
 
-class TestDatabaseManager(unittest.TestCase):
+class TestDBManager(unittest.TestCase):
     def setUp(self):
-        self.db_path = "test_vial_mcp.db"
-        self.db_manager = DatabaseManager(self.db_path)
+        self.db_manager = DBManager()
 
-    def tearDown(self):
-        if os.path.exists(self.db_path):
-            os.remove(self.db_path)
+    @patch('pymongo.MongoClient')
+    def test_insert_one(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.test_collection.insert_one.return_value.inserted_id = "123"
+        result = self.db_manager.insert_one("test_collection", {"key": "value"})
+        self.assertEqual(result, "123")
+        mock_mongo.return_value.vial_mcp.test_collection.insert_one.assert_called_with({"key": "value"})
 
-    def test_save_and_get_agent_status(self):
-        self.db_manager.save_agent_status("agent1", "active")
-        status = self.db_manager.get_agent_status("agent1")
-        self.assertEqual(status, "active")
+    @patch('pymongo.MongoClient')
+    def test_find_one(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.test_collection.find_one.return_value = {"key": "value"}
+        result = self.db_manager.find_one("test_collection", {"key": "value"})
+        self.assertEqual(result, {"key": "value"})
+        mock_mongo.return_value.vial_mcp.test_collection.find_one.assert_called_with({"key": "value"})
 
-    def test_save_task(self):
-        self.db_manager.save_agent_status("agent1", "active")
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM agents WHERE agent_name = ?", ("agent1",))
-            agent_id = cursor.fetchone()[0]
-        task_id = self.db_manager.save_task(agent_id, "search_docs", "query: test", "pending")
-        self.assertIsNotNone(task_id)
+    @patch('pymongo.MongoClient')
+    def test_find_many(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.test_collection.find.return_value.skip.return_value.limit.return_value = [{"key": "value"}]
+        result = self.db_manager.find_many("test_collection", {"key": "value"}, limit=10, skip=0)
+        self.assertEqual(result, [{"key": "value"}])
+        mock_mongo.return_value.vial_mcp.test_collection.find.assert_called_with({"key": "value"})
+
+    @patch('pymongo.MongoClient')
+    def test_update_one(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.test_collection.update_one.return_value.modified_count = 1
+        result = self.db_manager.update_one("test_collection", {"key": "value"}, {"new_key": "new_value"})
+        self.assertEqual(result, 1)
+        mock_mongo.return_value.vial_mcp.test_collection.update_one.assert_called_with({"key": "value"}, {"$set": {"new_key": "new_value"}})
+
+    @patch('pymongo.MongoClient')
+    def test_delete_one(self, mock_mongo):
+        mock_mongo.return_value.vial_mcp.test_collection.delete_one.return_value.deleted_count = 1
+        result = self.db_manager.delete_one("test_collection", {"key": "value"})
+        self.assertEqual(result, 1)
+        mock_mongo.return_value.vial_mcp.test_collection.delete_one.assert_called_with({"key": "value"})
 
 if __name__ == "__main__":
     unittest.main()
