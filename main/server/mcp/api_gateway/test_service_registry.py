@@ -1,68 +1,51 @@
 # main/server/mcp/api_gateway/test_service_registry.py
 import pytest
-from pymongo import MongoClient
 from ..api_gateway.service_registry import ServiceRegistry, MCPError
+from ..utils.performance_metrics import PerformanceMetrics
+import asyncio
 
 @pytest.fixture
 async def service_registry():
     registry = ServiceRegistry()
     yield registry
-    registry.collection.delete_many({})
-    registry.close()
 
 @pytest.mark.asyncio
-async def test_register_service(service_registry):
-    service_id = await service_registry.register_service(
-        service_name="notes_service",
-        address="localhost",
-        port=8081,
-        metadata={"version": "1.0"}
-    )
-    assert service_id == "notes_service:localhost:8081"
-    services = await service_registry.get_services("notes_service")
-    assert len(services) == 1
-    assert services[0]["address"] == "localhost"
-    assert services[0]["port"] == 8081
+async def test_register_service(service_registry, mocker):
+    mocker.patch("main.server.mcp.utils.api_config.APIConfig.validate_endpoint", return_value=True)
+    async def mock_handler(params):
+        return {"result": "success"}
+    
+    service_registry.register_service("mcp.testMethod", mock_handler)
+    assert "mcp.testMethod" in service_registry.services
+    assert service_registry.metrics.requests_total.labels(endpoint="mcp.testMethod")._value.get() == 0
 
 @pytest.mark.asyncio
-async def test_register_service_invalid(service_registry):
+async def test_register_service_invalid_endpoint(service_registry, mocker):
+    mocker.patch("main.server.mcp.utils.api_config.APIConfig.validate_endpoint", return_value=False)
+    async def mock_handler(params):
+        return {"result": "success"}
+    
     with pytest.raises(MCPError) as exc_info:
-        await service_registry.register_service(
-            service_name="",
-            address="localhost",
-            port=8081,
-            metadata={"version": "1.0"}
-        )
-    assert exc_info.value.code == -32602
-    assert exc_info.value.message == "Service name, address, and port are required"
+        service_registry.register_service("mcp.invalidMethod", mock_handler)
+    assert exc_info.value.code == -32601
+    assert exc_info.value.message == "Method mcp.invalidMethod is not enabled"
 
 @pytest.mark.asyncio
-async def test_deregister_service(service_registry):
-    service_id = await service_registry.register_service(
-        service_name="notes_service",
-        address="localhost",
-        port=8081,
-        metadata={"version": "1.0"}
-    )
-    await service_registry.deregister_service(service_id)
-    services = await service_registry.get_services("notes_service")
-    assert len(services) == 0
+async def test_dispatch_success(service_registry, mocker):
+    mocker.patch("main.server.mcp.utils.api_config.APIConfig.validate_endpoint", return_value=True)
+    async def mock_handler(params):
+        return {"result": "success"}
+    
+    service_registry.register_service("mcp.testMethod", mock_handler)
+    response = await service_registry.dispatch("mcp.testMethod", {"param": "value"}, 1)
+    assert response["jsonrpc"] == "2.0"
+    assert response["result"] == {"result": "success"}
+    assert response["id"] == 1
+    assert service_registry.metrics.requests_total.labels(endpoint="mcp.testMethod")._value.get() == 1
 
 @pytest.mark.asyncio
-async def test_deregister_service_not_found(service_registry):
-    with pytest.raises(MCPError) as exc_info:
-        await service_registry.deregister_service("invalid_id")
-    assert exc_info.value.code == -32003
-    assert exc_info.value.message == "Service not found"
-
-@pytest.mark.asyncio
-async def test_update_heartbeat(service_registry):
-    service_id = await service_registry.register_service(
-        service_name="notes_service",
-        address="localhost",
-        port=8081,
-        metadata={"version": "1.0"}
-    )
-    await service_registry.update_heartbeat(service_id)
-    services = await service_registry.get_services("notes_service")
-    assert len(services) == 1
+async def test_dispatch_method_not_found(service_registry):
+    response = await service_registry.dispatch("mcp.unknownMethod", {"param": "value"}, 1)
+    assert response["jsonrpc"] == "2.0"
+    assert response["error"]["code"] == -32601
+    assert response["error"]["message"] == "Method mcp.unknownMethod not found"
