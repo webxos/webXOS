@@ -23,7 +23,9 @@ export default function Vial() {
         const text = await response.text();
         throw new Error(`Expected JSON, received: ${text.substring(0, 100)}`);
       }
-      return await response.json();
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data;
     } catch (err) {
       throw err instanceof Error ? err : new Error(String(err));
     }
