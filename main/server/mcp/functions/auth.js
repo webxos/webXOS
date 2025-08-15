@@ -7,7 +7,18 @@ exports.handler = async (event) => {
     };
   }
 
-  const { provider, code } = JSON.parse(event.body || '{}');
+  let data;
+  try {
+    data = event.body ? JSON.parse(event.body) : {};
+  } catch (e) {
+    return {
+      statusCode: 400,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { code: -32700, message: 'Invalid JSON input' } })
+    };
+  }
+
+  const { provider, code } = data;
   if (!provider || !code) {
     return {
       statusCode: 400,
@@ -22,15 +33,16 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          access_token: 'mock_token_123',
-          vials: ['vial1', 'vial2']
+          access_token: 'mock_token_456',
+          vials: ['vial1', 'vial2'],
+          expires_in: 3600
         })
       };
     }
     throw new Error('Invalid credentials');
   } catch (error) {
     return {
-      statusCode: 500,
+      statusCode: 401,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: { code: -32603, message: error.message } })
     };
