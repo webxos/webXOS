@@ -1,79 +1,99 @@
-import logging
-import os
-from fastapi import HTTPException
+# main/server/mcp/security/secrets_manager.py
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
+from ..db.db_manager import DBManager
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.error_handler import handle_generic_error
+from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime
-from ..error_handler import ErrorHandler
+import os
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Vial MCP Secrets Manager")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+metrics = PerformanceMetrics()
+db_manager = DBManager()
 
-class SecretRequest(BaseModel):
+class Secret(BaseModel):
+    user_id: str
     key: str
     value: str
 
+class SecretResponse(BaseModel):
+    user_id: str
+    key: str
+    timestamp: str
+
 class SecretsManager:
-    """Manages secrets for Vial MCP."""
-    def __init__(self, error_handler: ErrorHandler = None):
-        """Initialize SecretsManager with environment-based secrets.
+    def __init__(self):
+        self.metrics = PerformanceMetrics()
+        self.encryption_key = self._generate_encryption_key()
+        self.cipher = Fernet(self.encryption_key)
 
-        Args:
-            error_handler (ErrorHandler): Error handler instance.
-        """
-        self.secrets = {}
-        self.error_handler = error_handler or ErrorHandler()
-        self.load_secrets()
-        logger.info("SecretsManager initialized")
+    def _generate_encryption_key(self) -> bytes:
+        with self.metrics.track_span("generate_encryption_key"):
+            try:
+                salt = os.getenv("ENCRYPTION_SALT", "vial_mcp_salt").encode()
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                )
+                return base64.urlsafe_b64encode(kdf.derive(os.getenv("JWT_SECRET", "secret_key").encode()))
+            except Exception as e:
+                handle_generic_error(e, context="generate_encryption_key")
+                raise
 
-    def load_secrets(self):
-        """Load secrets from environment variables."""
+    def encrypt_secret(self, value: str) -> str:
+        with self.metrics.track_span("encrypt_secret"):
+            try:
+                return self.cipher.encrypt(value.encode()).decode()
+            except Exception as e:
+                handle_generic_error(e, context="encrypt_secret")
+                raise
+
+    def decrypt_secret(self, encrypted_value: str) -> str:
+        with self.metrics.track_span("decrypt_secret"):
+            try:
+                return self.cipher.decrypt(encrypted_value.encode()).decode()
+            except Exception as e:
+                handle_generic_error(e, context="decrypt_secret")
+                raise
+
+secrets_manager = SecretsManager()
+
+@app.post("/secrets", response_model=SecretResponse)
+async def store_secret(secret: Secret, token: str = Depends(oauth2_scheme)):
+    with metrics.track_span("store_secret", {"user_id": secret.user_id, "key": secret.key}):
         try:
-            self.secrets["JWT_SECRET"] = os.getenv("JWT_SECRET", "default_jwt_secret")
-            self.secrets["GROK_API_KEY"] = os.getenv("GROK_API_KEY", "default_grok_key")
-            logger.info("Secrets loaded from environment")
+            metrics.verify_token(token)
+            encrypted_value = secrets_manager.encrypt_secret(secret.value)
+            secret_data = {
+                "user_id": secret.user_id,
+                "key": secret.key,
+                "value": encrypted_value,
+                "timestamp": datetime.utcnow()
+            }
+            db_manager.insert_one("secrets", secret_data)
+            return SecretResponse(user_id=secret.user_id, key=secret.key, timestamp=str(secret_data["timestamp"]))
         except Exception as e:
-            logger.error(f"Failed to load secrets: {str(e)}")
-            with open("/app/errorlog.md", "a") as f:
-                f.write(f"[{datetime.now().isoformat()}] [SecretsManager] Failed to load secrets: {str(e)}\n")
-            raise HTTPException(status_code=500, detail=f"Failed to load secrets: {str(e)}")
+            handle_generic_error(e, context="store_secret")
+            raise HTTPException(status_code=500, detail=f"Failed to store secret: {str(e)}")
 
-    async def store_secret(self, request: SecretRequest) -> dict:
-        """Store a secret.
-
-        Args:
-            request (SecretRequest): Secret key-value pair.
-
-        Returns:
-            dict: Store result.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
+@app.get("/secrets/{user_id}/{key}", response_model=SecretResponse)
+async def retrieve_secret(user_id: str, key: str, token: str = Depends(oauth2_scheme)):
+    with metrics.track_span("retrieve_secret", {"user_id": user_id, "key": key}):
         try:
-            self.secrets[request.key] = request.value
-            logger.info(f"Stored secret: {request.key}")
-            return {"status": "success", "key": request.key}
+            metrics.verify_token(token)
+            secret = db_manager.find_one("secrets", {"user_id": user_id, "key": key})
+            if not secret:
+                raise HTTPException(status_code=404, detail="Secret not found")
+            return SecretResponse(user_id=secret["user_id"], key=secret["key"], timestamp=str(secret["timestamp"]))
         except Exception as e:
-            self.error_handler.handle_exception("/api/secrets/store", request.key, e)
-
-    async def retrieve_secret(self, key: str) -> dict:
-        """Retrieve a secret.
-
-        Args:
-            key (str): Secret key.
-
-        Returns:
-            dict: Secret value.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
-        try:
-            value = self.secrets.get(key)
-            if not value:
-                error_msg = f"Secret not found: {key}"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/secrets/retrieve", key, Exception(error_msg))
-            logger.info(f"Retrieved secret: {key}")
-            return {"key": key, "value": value}
-        except Exception as e:
-            self.error_handler.handle_exception("/api/secrets/retrieve", key, e)
+            handle_generic_error(e, context="retrieve_secret")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve secret: {str(e)}")
