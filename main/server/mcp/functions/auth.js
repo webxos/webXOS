@@ -32,10 +32,9 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Simulate credential validation
     if (provider === 'mock' && code === 'test_code') {
       const response = {
-        access_token: 'mock_token_def',
+        access_token: 'mock_token_mno',
         vials: ['vial1', 'vial2'],
         expires_in: 3600,
         timestamp: new Date().toISOString()
