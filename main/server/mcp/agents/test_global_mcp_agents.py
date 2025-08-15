@@ -1,72 +1,62 @@
 # main/server/mcp/agents/test_global_mcp_agents.py
 import pytest
-from pymongo import MongoClient
 from ..agents.global_mcp_agents import GlobalMCPAgents, MCPError
+from ..utils.performance_metrics import PerformanceMetrics
 
 @pytest.fixture
-def agent_service():
-    service = GlobalMCPAgents()
-    yield service
-    service.collection.delete_many({})
-    service.close()
+async def global_agents():
+    agents = GlobalMCPAgents()
+    yield agents
+    agents.agents.delete_many({})
+    agents.db["sub_issues"].delete_many({})
+    agents.close()
 
 @pytest.mark.asyncio
-async def test_create_agent(agent_service, mocker):
-    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
-    result = await agent_service.create_agent(
+async def test_create_agent(global_agents):
+    result = await global_agents.create_agent(
         vial_id="vial1",
-        tasks=["train_model"],
-        config={"lr": 0.01},
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
         user_id="test_user"
     )
-    assert result["status"] == "success"
     assert "agent_id" in result
-    assert result["wallet_address"] == "0x1234567890abcdef"
+    assert result["status"] == "created"
+    agent = global_agents.agents.find_one({"agent_id": result["agent_id"]})
+    assert agent["user_id"] == "test_user"
+    assert agent["vial_id"] == "vial1"
 
 @pytest.mark.asyncio
-async def test_create_agent_invalid_vial_id(agent_service):
+async def test_create_agent_invalid(global_agents):
     with pytest.raises(MCPError) as exc_info:
-        await agent_service.create_agent(
-            vial_id="invalid_id",
-            tasks=["train_model"],
-            config={"lr": 0.01},
-            user_id="test_user"
-        )
+        await global_agents.create_agent("", [], {}, "test_user")
     assert exc_info.value.code == -32602
-    assert exc_info.value.message == "Invalid vial ID: Must start with 'vial'"
+    assert exc_info.value.message == "Vial ID, tasks, and user ID are required"
 
 @pytest.mark.asyncio
-async def test_update_agent_status(agent_service, mocker):
-    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
-    create_result = await agent_service.create_agent(
+async def test_execute_workflow(global_agents, mocker):
+    mocker.patch.object(global_agents.library_agent, "list_resources", return_value=[{"uri": "test_resource"}])
+    mocker.patch.object(global_agents.translator_agent, "translate_config", return_value={"translated": True})
+    
+    create_result = await global_agents.create_agent(
         vial_id="vial1",
-        tasks=["train_model"],
-        config={"lr": 0.01},
+        tasks=["manage_resources", "translate"],
+        config={"resource_type": "dataset"},
         user_id="test_user"
     )
-    agent_id = create_result["agent_id"]
-    result = await agent_service.update_agent_status(agent_id, "running", "test_user")
-    assert result["status"] == "success"
-    assert result["agent_id"] == agent_id
-
-@pytest.mark.asyncio
-async def test_update_agent_status_invalid(agent_service):
-    with pytest.raises(MCPError) as exc_info:
-        await agent_service.update_agent_status("invalid_id", "running", "test_user")
-    assert exc_info.value.code == -32003
-    assert exc_info.value.message == "Agent not found or access denied"
-
-@pytest.mark.asyncio
-async def test_list_agents(agent_service, mocker):
-    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
-    await agent_service.create_agent(
-        vial_id="vial1",
-        tasks=["train_model"],
-        config={"lr": 0.01},
+    result = await global_agents.execute_workflow(
+        agent_id=create_result["agent_id"],
+        workflow_config={"action": "process_data"},
         user_id="test_user"
     )
-    agents = await agent_service.list_agents("test_user")
-    assert len(agents) == 1
-    assert agents[0]["vial_id"] == "vial1"
-    assert agents[0]["user_id"] == "test_user"
-    assert agents[0]["wallet_address"] == "0x1234567890abcdef"
+    assert "workflow_id" in result
+    assert result["status"] == "executed"
+    assert "resources" in result["config"]
+
+@pytest.mark.asyncio
+async def test_add_sub_issue(global_agents):
+    result = await global_agents.add_sub_issue("parent123", "Sub-issue content", "test_user")
+    assert "sub_issue_id" in result
+    assert result["status"] == "created"
+    sub_issue = global_agents.db["sub_issues"].find_one({"sub_issue_id": result["sub_issue_id"]})
+    assert sub_issue["parent_issue_id"] == "parent123"
+    assert sub_issue["user_id"] == "test_user"
