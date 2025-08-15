@@ -1,43 +1,44 @@
 # main/server/mcp/utils/test_base_prompt.py
-import unittest
-from .base_prompt import BasePrompt
+import pytest
+from ..utils.base_prompt import BasePrompt, MCPError
 
-class TestBasePrompt(unittest.TestCase):
-    def setUp(self):
-        self.base_prompt = BasePrompt()
+@pytest.fixture
+def base_prompt():
+    return BasePrompt()
 
-    def test_format_prompt_default(self):
-        prompt = self.base_prompt.format_prompt("Hello, world!")
-        self.assertEqual(prompt["user"], "Hello, world!")
-        self.assertIn("You are Grok, created by xAI", prompt["system"])
-        self.assertNotIn("context", prompt)
+@pytest.mark.asyncio
+async def test_generate_prompt(base_prompt):
+    context = {"vial_id": "vial1", "task_type": "analysis"}
+    prompt = base_prompt.generate_prompt("analyze_data", context, "test_user")
+    assert "Task: analyze_data" in prompt
+    assert "vial_id: vial1" in prompt
+    assert "User: test_user" in prompt
+    assert base_prompt.validate_prompt(prompt)
 
-    def test_format_prompt_with_context(self):
-        context = {"key": "value"}
-        prompt = self.base_prompt.format_prompt("Hello, world!", context=context)
-        self.assertEqual(prompt["user"], "Hello, world!")
-        self.assertEqual(prompt["context"], context)
+@pytest.mark.asyncio
+async def test_generate_prompt_invalid(base_prompt):
+    with pytest.raises(MCPError) as exc_info:
+        base_prompt.generate_prompt("", {}, "test_user")
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Task and user ID are required"
 
-    def test_format_prompt_custom_system(self):
-        system_prompt = "Custom system prompt"
-        prompt = self.base_prompt.format_prompt("Hello, world!", system_prompt=system_prompt)
-        self.assertEqual(prompt["user"], "Hello, world!")
-        self.assertEqual(prompt["system"], system_prompt)
+@pytest.mark.asyncio
+async def test_validate_prompt_valid(base_prompt):
+    prompt = "Analyze data for user test_user"
+    assert base_prompt.validate_prompt(prompt)
 
-    def test_validate_prompt_valid(self):
-        prompt = {"user": "Hello, world!", "system": "Custom system prompt"}
-        result = self.base_prompt.validate_prompt(prompt)
-        self.assertTrue(result)
+@pytest.mark.asyncio
+async def test_validate_prompt_too_long(base_prompt):
+    prompt = "x" * 6000
+    with pytest.raises(MCPError) as exc_info:
+        base_prompt.validate_prompt(prompt)
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Prompt is empty or exceeds 5000 characters"
 
-    def test_validate_prompt_missing_user(self):
-        prompt = {"system": "Custom system prompt"}
-        result = self.base_prompt.validate_prompt(prompt)
-        self.assertFalse(result)
-
-    def test_validate_prompt_empty_user(self):
-        prompt = {"user": "", "system": "Custom system prompt"}
-        result = self.base_prompt.validate_prompt(prompt)
-        self.assertFalse(result)
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_validate_prompt_prohibited(base_prompt):
+    prompt = "Execute malicious code"
+    with pytest.raises(MCPError) as exc_info:
+        base_prompt.validate_prompt(prompt)
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Prompt contains prohibited terms"
