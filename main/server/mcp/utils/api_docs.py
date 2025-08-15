@@ -1,77 +1,98 @@
 # main/server/mcp/utils/api_docs.py
-from fastapi import FastAPI, Depends
-from fastapi.openapi.utils import get_openapi
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
+from typing import Dict, Any
 from ..utils.api_config import APIConfig
-import yaml
-import os
+from ..utils.mcp_error_handler import MCPError
+import logging
+import json
 
-app = FastAPI(title="Vial MCP API Docs")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-api_config = APIConfig()
+logger = logging.getLogger("mcp")
 
 class APIDocs:
     def __init__(self):
-        self.metrics = PerformanceMetrics()
+        self.api_config = APIConfig()
+        self.endpoints_metadata = {
+            "mcp.createSession": {
+                "description": "Creates a new user session with optional MFA.",
+                "params": {
+                    "user_id": {"type": "string", "required": True},
+                    "mfa_verified": {"type": "boolean", "required": False}
+                },
+                "returns": {"session_id": "string", "access_token": "string", "expires_at": "string"}
+            },
+            "mcp.initiateMFA": {
+                "description": "Initiates MFA for a user session.",
+                "params": {
+                    "user_id": {"type": "string", "required": True},
+                    "mfa_method": {"type": "string", "required": True}
+                },
+                "returns": {"mfa_token": "string", "method": "string", "expires_at": "string"}
+            },
+            "mcp.createNote": {
+                "description": "Creates a new note.",
+                "params": {
+                    "user_id": {"type": "string", "required": True},
+                    "title": {"type": "string", "required": True},
+                    "content": {"type": "string", "required": True},
+                    "tags": {"type": "array", "required": False}
+                },
+                "returns": {"note_id": "string", "status": "string"}
+            },
+            "mcp.addSubIssue": {
+                "description": "Adds a sub-issue to a parent issue.",
+                "params": {
+                    "parent_issue_id": {"type": "string", "required": True},
+                    "content": {"type": "string", "required": True},
+                    "user_id": {"type": "string", "required": True}
+                },
+                "returns": {"sub_issue_id": "string", "status": "string"}
+            },
+            "mcp.subscribe": {
+                "description": "Subscribes to a channel for real-time updates.",
+                "params": {
+                    "user_id": {"type": "string", "required": True},
+                    "channel": {"type": "string", "required": True},
+                    "event_types": {"type": "array", "required": True}
+                },
+                "returns": {"subscription_id": "string"}
+            }
+        }
 
-    def generate_openapi(self, app: FastAPI) -> dict:
-        with self.metrics.track_span("generate_openapi"):
-            try:
-                openapi_schema = get_openapi(
-                    title="Vial MCP API",
-                    version="1.0.0",
-                    description="API documentation for Vial MCP Controller services",
-                    routes=app.routes,
+    def generate_docs(self) -> str:
+        try:
+            config = self.api_config.load_config()
+            markdown = "# Vial MCP Controller API Documentation\n\n"
+            markdown += "## Endpoints\n\n"
+            
+            for endpoint, metadata in self.endpoints_metadata.items():
+                if not config["endpoints"].get(endpoint, {}).get("enabled", False):
+                    continue
+                
+                markdown += f"### {endpoint}\n"
+                markdown += f"{metadata['description']}\n\n"
+                markdown += "- **Method**: POST\n"
+                markdown += "- **Auth Required**: {}\n\n".format(
+                    config["endpoints"][endpoint].get("auth_required", False)
                 )
-                endpoints = api_config.list_endpoints()
-                for endpoint in endpoints:
-                    openapi_schema["paths"][f"/{endpoint.name}"] = {
-                        "get": {
-                            "summary": f"Access {endpoint.name} service",
-                            "responses": {
-                                "200": {"description": "Successful response"},
-                                "401": {"description": "Unauthorized"}
-                            }
-                        }
-                    }
-                return openapi_schema
-            except Exception as e:
-                handle_generic_error(e, context="generate_openapi")
-                raise
-
-    def save_openapi_yaml(self, schema: dict, filename: str = "openapi.yaml") -> None:
-        with self.metrics.track_span("save_openapi_yaml"):
-            try:
-                with open(filename, "w") as f:
-                    yaml.dump(schema, f, sort_keys=False)
-            except Exception as e:
-                handle_generic_error(e, context="save_openapi_yaml")
-                raise
-
-@app.get("/docs/openapi")
-async def get_openapi_docs(token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("get_openapi_docs"):
-        try:
-            metrics.verify_token(token)
-            docs = APIDocs()
-            openapi_schema = docs.generate_openapi(app)
-            return openapi_schema
+                
+                markdown += "**Params**:\n"
+                for param, details in metadata["params"].items():
+                    markdown += f"- `{param}` ({details['type']}, {'required' if details['required'] else 'optional'})\n"
+                
+                markdown += "\n**Returns**:\n"
+                for key, value in metadata["returns"].items():
+                    markdown += f"- `{key}`: {value}\n"
+                
+                markdown += "\n**Example**:\n```json\n"
+                markdown += json.dumps({
+                    "jsonrpc": "2.0",
+                    "method": endpoint,
+                    "params": {k: f"example_{k}" for k in metadata["params"].keys()},
+                    "id": 1
+                }, indent=2)
+                markdown += "\n```\n\n"
+            
+            logger.info("Generated API documentation")
+            return markdown
         except Exception as e:
-            handle_generic_error(e, context="get_openapi_docs")
-            raise
-
-@app.post("/docs/save")
-async def save_openapi_docs(token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("save_openapi_docs"):
-        try:
-            metrics.verify_token(token)
-            docs = APIDocs()
-            openapi_schema = docs.generate_openapi(app)
-            docs.save_openapi_yaml(openapi_schema)
-            return {"status": "success", "message": "OpenAPI docs saved to openapi.yaml"}
-        except Exception as e:
-            handle_generic_error(e, context="save_openapi_docs")
-            raise
+            logger.error(f"Failed to generate API docs: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to generate API docs: {str(e)}")
