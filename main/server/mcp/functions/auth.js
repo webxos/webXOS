@@ -1,3 +1,5 @@
+const { writeFileSync } = require('fs');
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
@@ -12,6 +14,7 @@ exports.handler = async (event) => {
     data = event.body ? JSON.parse(event.body) : {};
     if (typeof data !== 'object' || data === null) throw new Error('Invalid JSON object');
   } catch (e) {
+    writeFileSync('/tmp/auth_error.log', `Parse Error: ${e.message} at ${new Date().toISOString()}\n`);
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json' },
@@ -29,19 +32,24 @@ exports.handler = async (event) => {
   }
 
   try {
+    // Simulate credential validation
     if (provider === 'mock' && code === 'test_code') {
+      const response = {
+        access_token: 'mock_token_def',
+        vials: ['vial1', 'vial2'],
+        expires_in: 3600,
+        timestamp: new Date().toISOString()
+      };
+      writeFileSync('/tmp/auth_success.log', `Success: ${JSON.stringify(response)} at ${new Date().toISOString()}\n`);
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          access_token: 'mock_token_abc',
-          vials: ['vial1', 'vial2'],
-          expires_in: 3600
-        })
+        body: JSON.stringify(response)
       };
     }
     throw new Error('Invalid credentials');
   } catch (error) {
+    writeFileSync('/tmp/auth_error.log', `Auth Error: ${error.message} at ${new Date().toISOString()}\n`, { flag: 'a' });
     return {
       statusCode: 401,
       headers: { 'Content-Type': 'application/json' },
