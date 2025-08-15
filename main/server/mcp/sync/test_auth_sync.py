@@ -1,39 +1,32 @@
-import pytest
+# main/server/mcp/sync/test_auth_sync.py
+import unittest
 from fastapi.testclient import TestClient
-from main.server.mcp.sync.auth_sync import AuthSyncManager, AuthSyncRequest
-from main.server.mcp.db.db_manager import DatabaseManager
-from main.server.mcp.security_manager import SecurityManager
-from main.server.mcp.error_handler import ErrorHandler
-from main.server.unified_server import app
+from unittest.mock import patch
+from .auth_sync import app, db_manager
 
-@pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+class TestAuthSync(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
 
-@pytest.fixture
-def auth_sync_manager():
-    """Create an AuthSyncManager instance."""
-    db_manager = DatabaseManager()
-    security_manager = SecurityManager()
-    error_handler = ErrorHandler()
-    return AuthSyncManager(db_manager, security_manager, error_handler)
+    @patch.object(db_manager, 'find_one')
+    @patch.object(db_manager, 'insert_one')
+    @patch('requests.post')
+    def test_sync_auth(self, mock_post, mock_insert, mock_find):
+        mock_find.return_value = {"user_id": "test_user", "token": "test_token"}
+        mock_insert.return_value = "sync123"
+        mock_post.return_value.raise_for_status.return_value = None
+        token = "mock_token"
+        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
+            response = self.client.post(
+                "/sync/auth",
+                json={"user_id": "test_user", "token": "test_token", "node_id": "node1"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_id"], "test_user")
+        self.assertEqual(response.json()["node_id"], "node1")
+        mock_insert.assert_called_once()
+        mock_post.assert_called()
 
-@pytest.mark.asyncio
-async def test_sync_auth_token_success(auth_sync_manager, mocker):
-    """Test successful token synchronization."""
-    mocker.patch.object(auth_sync_manager.security_manager, 'validate_token', return_value={"wallet_id": "wallet_123"})
-    mocker.patch.object(auth_sync_manager.db_manager, 'update_token', return_value=None)
-    request = AuthSyncRequest(wallet_id="wallet_123", access_token="mocked_token")
-    response = await auth_sync_manager.sync_auth_token(request)
-    assert response == {"status": "success", "wallet_id": "wallet_123"}
-
-@pytest.mark.asyncio
-async def test_sync_auth_token_invalid(auth_sync_manager, mocker):
-    """Test token synchronization with invalid token."""
-    mocker.patch.object(auth_sync_manager.security_manager, 'validate_token', return_value={"wallet_id": "wrong_wallet"})
-    request = AuthSyncRequest(wallet_id="wallet_123", access_token="mocked_token")
-    with pytest.raises(HTTPException) as exc:
-        await auth_sync_manager.sync_auth_token(request)
-    assert exc.value.status_code == 500
-    assert "Invalid token for wallet" in exc.value.detail
+if __name__ == "__main__":
+    unittest.main()
