@@ -1,62 +1,85 @@
 # main/server/mcp/agents/library_agent.py
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
-from ..db.db_manager import DBManager
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime
+from typing import Dict, Any, Optional, List
+from pymongo import MongoClient
+from ..utils.mcp_error_handler import MCPError
+from ..agents.global_mcp_agents import GlobalMCPAgents
+import os
+import requests
 
-app = FastAPI(title="Vial MCP Library Agent")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
+class LibraryResource(BaseModel):
+    resource_id: str
+    name: str
+    uri: str
+    type: str
+    metadata: Dict[str, Any]
 
-class LibraryItem(BaseModel):
-    user_id: str
-    title: str
-    content: str
-    tags: List[str] = []
-    category: Optional[str] = None
+class LibraryAgent:
+    def __init__(self):
+        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.collection = self.db["library_resources"]
+        self.global_agents = GlobalMCPAgents()
+        self.resource_api_url = os.getenv("RESOURCE_API_URL", "https://api.example.com/resources")
 
-class LibraryItemResponse(LibraryItem):
-    item_id: str
-    timestamp: str
-
-@app.post("/agents/library", response_model=LibraryItemResponse)
-async def add_library_item(item: LibraryItem, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("add_library_item", {"user_id": item.user_id}):
+    async def add_resource(self, agent_id: str, name: str, uri: str, resource_type: str, metadata: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         try:
-            metrics.verify_token(token)
-            item_dict = item.dict()
-            item_dict["timestamp"] = datetime.utcnow()
-            item_id = db_manager.insert_one("library", item_dict)
-            return LibraryItemResponse(item_id=item_id, **item_dict)
-        except Exception as e:
-            handle_generic_error(e, context="add_library_item")
-            raise HTTPException(status_code=500, detail=f"Failed to add library item: {str(e)}")
+            # Validate agent and user
+            agents = await self.global_agents.list_agents(user_id)
+            agent = next((a for a in agents if a["agent_id"] == agent_id), None)
+            if not agent:
+                raise MCPError(code=-32003, message="Agent not found or access denied")
+            
+            # Validate input
+            if not name or not uri or not resource_type:
+                raise MCPError(code=-32602, message="Name, URI, and resource type are required")
+            if resource_type not in ["dataset", "model", "document"]:
+                raise MCPError(code=-32602, message="Unsupported resource type")
 
-@app.get("/agents/library/{user_id}", response_model=List[LibraryItemResponse])
-async def get_library_items(user_id: str, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("get_library_items", {"user_id": user_id}):
-        try:
-            metrics.verify_token(token)
-            items = db_manager.find_many("library", {"user_id": user_id})
-            return [LibraryItemResponse(item_id=str(item["_id"]), **item) for item in items]
-        except Exception as e:
-            handle_generic_error(e, context="get_library_items")
-            raise HTTPException(status_code=500, detail=f"Failed to fetch library items: {str(e)}")
+            # Verify resource accessibility (mocked for simplicity)
+            response = requests.head(uri)
+            if response.status_code != 200:
+                raise MCPError(code=-32603, message="Resource URI is not accessible")
 
-@app.delete("/agents/library/{item_id}")
-async def delete_library_item(item_id: str, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("delete_library_item", {"item_id": item_id}):
-        try:
-            metrics.verify_token(token)
-            result = db_manager.delete_one("library", {"_id": item_id})
-            if result == 0:
-                raise HTTPException(status_code=404, detail="Library item not found")
-            return {"status": "success", "message": "Library item deleted"}
+            resource = {
+                "agent_id": agent_id,
+                "user_id": user_id,
+                "name": name,
+                "uri": uri,
+                "type": resource_type,
+                "metadata": metadata
+            }
+            result = self.collection.insert_one(resource)
+            return {
+                "status": "success",
+                "resource_id": str(result.inserted_id)
+            }
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="delete_library_item")
-            raise HTTPException(status_code=500, detail=f"Failed to delete library item: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to add resource: {str(e)}")
+
+    async def list_resources(self, agent_id: str, user_id: str, resource_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            agents = await self.global_agents.list_agents(user_id)
+            if not any(a["agent_id"] == agent_id for a in agents):
+                raise MCPError(code=-32003, message="Agent not found or access denied")
+            
+            query = {"agent_id": agent_id, "user_id": user_id}
+            if resource_type:
+                query["type"] = resource_type
+            resources = self.collection.find(query).limit(100)
+            return [
+                {
+                    "resource_id": str(r["_id"]),
+                    "name": r["name"],
+                    "uri": r["uri"],
+                    "type": r["type"],
+                    "metadata": r["metadata"]
+                }
+                for r in resources
+            ]
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to list resources: {str(e)}")
+
+    def close(self):
+        self.client.close()
