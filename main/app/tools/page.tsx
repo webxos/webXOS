@@ -1,130 +1,101 @@
 // main/app/tools/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { trace } from '@opentelemetry/api';
+import { useState, useEffect } from 'react';
 import styles from './tools.module.css';
+import { simulateQuantumCircuit } from '../../server/mcp/functions/quantum';
+import { getWalletBalance } from '../../server/mcp/functions/wallet';
+import { login } from '../../server/mcp/functions/auth';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000/api';
+export default function Tools() {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('apiKey'));
+  const [quantumResult, setQuantumResult] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(null);
 
-interface Tool {
-  id: string;
-  name: string;
-  status: 'active' | 'inactive';
-  description: string;
-}
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchWalletBalance();
+    }
+  }, [isAuthenticated]);
 
-const Tools = () => {
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const tracer = trace.getTracer('vial_mcp_tools');
+  const fetchWalletBalance = async () => {
+    try {
+      const userId = localStorage.getItem('userId');
+      const balance = await getWalletBalance(userId);
+      setWalletBalance(balance);
+    } catch (error) {
+      console.error('Failed to fetch wallet balance:', error);
+      alert('Failed to load wallet balance.');
+    }
+  };
 
-  const fetchWithRetry = useCallback(async (url: string, options: RequestInit, retries = 3, baseDelay = 1000): Promise<{ ok: boolean; json: () => Promise<any> }> => {
-    const span = tracer.startSpan('fetch_with_retry', { attributes: { url, retries } });
-    const apiKey = localStorage.getItem('apiKey');
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await fetch(url, { ...options, headers: { ...options.headers, 'Authorization': `Bearer ${apiKey}` } });
-        span.setStatus({ code: 1 });
-        span.end();
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-        return { ok: response.ok, json: () => response.json() };
-      } catch (error: any) {
-        if (i === retries - 1) {
-          span.recordException(error);
-          span.setStatus({ code: 2 });
-          span.end();
-          setErrorMessage(`Fetch failed: ${error.message}`);
-          return { ok: false, json: () => ({ error: 'Offline mode' }) };
-        }
-        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, i)));
+  const handleQuantumSimulate = async () => {
+    try {
+      const circuitData = { num_qubits: 2, gates: ['H', 'CNOT'] };
+      const result = await simulateQuantumCircuit('vial123', circuitData);
+      setQuantumResult(result);
+      alert('Quantum simulation successful!');
+    } catch (error) {
+      console.error('Quantum simulation failed:', error);
+      alert('Quantum simulation failed.');
+    }
+  };
+
+  const handleAuthenticate = async () => {
+    try {
+      const username = prompt('Enter username:');
+      const password = prompt('Enter password:');
+      if (username && password) {
+        await login(username, password);
+        setIsAuthenticated(true);
+        alert('Authentication successful!');
+        fetchWalletBalance();
       }
+    } catch (error) {
+      console.error('Authentication failed:', error);
+      alert('Authentication failed.');
     }
-    span.end();
-    return { ok: false, json: () => ({ error: 'Fetch failed' }) };
-  }, [tracer]);
-
-  const fetchTools = useCallback(async () => {
-    const span = tracer.startSpan('fetch_tools');
-    try {
-      const response = await fetchWithRetry(`${API_BASE}/tools`, { method: 'GET' });
-      const data = await response.json();
-      setTools(data.tools || []);
-      setIsAuthenticated(true);
-      span.setStatus({ code: 1 });
-    } catch (error: any) {
-      setErrorMessage(`Failed to load tools: ${error.message}`);
-      span.setStatus({ code: 2 });
-      span.recordException(error);
-    } finally {
-      span.end();
-    }
-  }, [fetchWithRetry]);
-
-  const toggleToolStatus = useCallback(async (toolId: string, currentStatus: string) => {
-    const span = tracer.startSpan('toggle_tool_status', { attributes: { toolId } });
-    try {
-      const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      const response = await fetchWithRetry(`${API_BASE}/tools/${toolId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      const data = await response.json();
-      setTools(prev => prev.map(tool => tool.id === toolId ? { ...tool, status: newStatus } : tool));
-      setErrorMessage('Tool status updated successfully');
-      span.setStatus({ code: 1 });
-    } catch (error: any) {
-      setErrorMessage(`Failed to update tool status: ${error.message}`);
-      span.setStatus({ code: 2 });
-      span.recordException(error);
-    } finally {
-      span.end();
-    }
-  }, [fetchWithRetry]);
-
-  useEffect(() => {
-    if (localStorage.getItem('apiKey') && localStorage.getItem('userId')) {
-      fetchTools();
-    }
-  }, [fetchTools]);
-
-  useEffect(() => {
-    if (errorMessage) {
-      const timer = setTimeout(() => setErrorMessage(''), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [errorMessage]);
+  };
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Vial MCP Tools</h1>
-      {errorMessage && (
-        <div className={`${styles.error} ${errorMessage.includes('success') ? styles.success : ''}`}>
-          {errorMessage}
-        </div>
-      )}
-      <div className={styles.toolGrid}>
-        {tools.map(tool => (
-          <div key={tool.id} className={styles.toolCard}>
-            <span className={styles.toolName}>{tool.name}</span>
-            <span className={`${styles.toolStatus} ${tool.status === 'active' ? styles.active : styles.inactive}`}>
-              Status: {tool.status}
-            </span>
-            <span className={styles.toolDescription}>{tool.description}</span>
-            <button
-              onClick={() => toggleToolStatus(tool.id, tool.status)}
-              className={styles.toggleButton}
-              disabled={!isAuthenticated}
-            >
-              Toggle Status
+      <header className={styles.header}>
+        <h1>WebXOS Tools with Vial</h1>
+      </header>
+      <main className={styles.main}>
+        <div className={styles.toolsContainer}>
+          {isAuthenticated ? (
+            <>
+              <h2>Tools</h2>
+              <div className={styles.toolSection}>
+                <h3>Quantum Simulator</h3>
+                <button className={styles.button} onClick={handleQuantumSimulate}>
+                  Run Quantum Simulation
+                </button>
+                {quantumResult && (
+                  <div className={styles.result}>
+                    <p>Quantum Result: {JSON.stringify(quantumResult)}</p>
+                  </div>
+                )}
+              </div>
+              <div className={styles.toolSection}>
+                <h3>Wallet</h3>
+                <p>Balance: {walletBalance ? `${walletBalance.balance} ETH` : 'Loading...'}</p>
+                <button className={styles.button} onClick={fetchWalletBalance}>
+                  Refresh Balance
+                </button>
+              </div>
+            </>
+          ) : (
+            <button className={styles.button} onClick={handleAuthenticate}>
+              Authenticate
             </button>
-          </div>
-        ))}
-      </div>
+          )}
+        </div>
+      </main>
+      <footer className={styles.footer}>
+        <p>Copyright webXOS 2025</p>
+      </footer>
     </div>
   );
-};
-
-export default Tools;
+}
