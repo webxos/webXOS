@@ -219,6 +219,7 @@
         async function fetchWithRetry(url, options, retries = 3) {
             if (!navigator.onLine) {
                 log('Offline: Please check your connection', true);
+                flashRedGlow();
                 return { status: 0, json: () => ({ error: 'Offline mode' }) };
             }
 
@@ -226,16 +227,27 @@
                 try {
                     const response = await fetch(url, options);
                     if (response.status === 404) {
-                        const fallback = await fetch('/.netlify/functions/api/404', { method: 'GET' });
-                        log('Error: Endpoint not found', true);
+                        log(`Error: Endpoint not found (${url})`, true);
                         flashRedGlow();
-                        return fallback;
+                        return { status: 404, json: () => ({ error: 'Endpoint not found', path: url }) };
                     }
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    return response;
+                    if (!response.ok) {
+                        const text = await response.text();
+                        log(`HTTP Error ${response.status}: ${text}`, true);
+                        flashRedGlow();
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const text = await response.text();
+                    try {
+                        return { status: response.status, json: () => JSON.parse(text) };
+                    } catch (e) {
+                        log(`JSON Parse Error for ${url}: ${e.message}`, true);
+                        flashRedGlow();
+                        return { status: response.status, json: () => ({ error: 'Invalid JSON response', details: text }) };
+                    }
                 } catch (error) {
                     if (i === retries - 1) {
-                        log(`Error: ${error.message}`, true);
+                        log(`Error for ${url}: ${error.message}`, true);
                         flashRedGlow();
                         throw error;
                     }
@@ -254,14 +266,7 @@
             for (const endpoint of endpoints) {
                 try {
                     const response = await fetchWithRetry(endpoint, { method: 'GET' });
-                    const text = await response.text();
-                    let data;
-                    try {
-                        data = JSON.parse(text);
-                    } catch (e) {
-                        log(`JSON Parse Error for ${endpoint}: ${e.message}`, true);
-                        continue;
-                    }
+                    const data = await response.json();
                     log(`Endpoint ${endpoint}: ${JSON.stringify(data)}`, true);
                 } catch (error) {
                     log(`Endpoint ${endpoint} failed: ${error.message}`, true);
@@ -275,14 +280,7 @@
             try {
                 log('Running system diagnostics...', true);
                 const response = await fetchWithRetry('/.netlify/functions/api/troubleshoot', { method: 'GET' });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    log(`Troubleshoot JSON Parse Error: ${e.message}`, true);
-                    return;
-                }
+                const data = await response.json();
                 log(data.message || 'Troubleshoot complete', true);
             } catch (error) {
                 log(`Troubleshoot error: ${error.message}`, true);
@@ -295,14 +293,7 @@
             try {
                 log('Initiating OAuth authentication...', true);
                 const response = await fetchWithRetry('/.netlify/functions/api/auth/oauth', { method: 'GET' });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    log(`OAuth JSON Parse Error: ${e.message}`, true);
-                    return;
-                }
+                const data = await response.json();
                 if (data.redirect) {
                     window.location.href = data.redirect;
                 } else {
@@ -318,6 +309,7 @@
         document.getElementById('dashboard-btn').addEventListener('click', async () => {
             if (!isAuthenticated) {
                 log('Please authenticate via OAuth first', true);
+                flashRedGlow();
                 return;
             }
             triggerGlow();
@@ -325,14 +317,7 @@
             try {
                 log('Accessing dashboard...', true);
                 const response = await fetchWithRetry('/.netlify/functions/api/health', { method: 'GET' });
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    log(`Dashboard JSON Parse Error: ${e.message}`, true);
-                    return;
-                }
+                const data = await response.json();
                 log(data.status || 'Dashboard access granted', true);
             } catch (error) {
                 log(`Dashboard error: ${error.message}`, true);
@@ -345,6 +330,7 @@
                     log('Service Worker registered', true);
                 }).catch(err => {
                     log(`Service Worker registration failed: ${err.message}`, true);
+                    flashRedGlow();
                 });
             });
         }
