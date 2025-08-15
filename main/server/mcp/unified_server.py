@@ -1,5 +1,5 @@
 # main/server/mcp/unified_server.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from .api_gateway.gateway_router import router as api_router
 from .utils.error_handler import handle_error, MCPError
@@ -87,8 +87,18 @@ async def get_system_metrics(params):
     return {
         "cpu_usage": psutil.cpu_percent(),
         "memory_usage": psutil.virtual_memory().percent,
-        "active_users": 5,  # Placeholder; replace with actual count
+        "active_users": 5,
+        "balance": 1000.0  # Mock WebXOS balance
     }
+
+async def generate_api_key(params):
+    return {"result": await auth_manager.generate_api_key(params.get("user_id"))}
+
+async def import_md(params):
+    return await auth_manager.import_md(params.get("user_id"), params.get("md_content"))
+
+async def export_md(params):
+    return {"result": await auth_manager.export_md(params.get("user_id"))}
 
 # Register services
 registry.register_service("initialize", initialize)
@@ -102,6 +112,9 @@ registry.register_service("ping", ping)
 registry.register_service("createMessage", create_message)
 registry.register_service("setLevel", set_level)
 registry.register_service("getSystemMetrics", get_system_metrics)
+registry.register_service("generateApiKey", generate_api_key)
+registry.register_service("importMd", import_md)
+registry.register_service("exportMd", export_md)
 
 @app.post("/mcp/auth")
 async def authenticate(request: dict):
@@ -123,18 +136,49 @@ async def get_checklist():
     except Exception as e:
         return handle_error(e)
 
-@app.post("/mcp")
-async def mcp_endpoint(request: dict):
+@app.post("/mcp/status")
+async def status(request: dict):
     try:
-        request_id = request.get("id")
-        method = request.get("method")
-        params = request.get("params", {})
-        if not method:
-            raise MCPError(code=-32600, message="Invalid Request")
-        result = await registry.dispatch(method, params, request_id)
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not await auth_manager.verify_token(token):
+            raise MCPError(code=-32002, message="Invalid token")
+        result = await get_system_metrics({"user_id": "test_user"})
+        return {"result": result}
+    except Exception as e:
+        return handle_error(e)
+
+@app.post("/mcp/api_key")
+async def api_key(request: dict):
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not await auth_manager.verify_token(token):
+            raise MCPError(code=-32002, message="Invalid token")
+        result = await generate_api_key({"user_id": "test_user"})
         return result
     except Exception as e:
-        return handle_error(e, request.get("id"))
+        return handle_error(e)
+
+@app.post("/mcp/import")
+async def import_endpoint(request: dict):
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not await auth_manager.verify_token(token):
+            raise MCPError(code=-32002, message="Invalid token")
+        result = await import_md(request.json.get("params", {}))
+        return result
+    except Exception as e:
+        return handle_error(e)
+
+@app.post("/mcp/export")
+async def export_endpoint(request: dict):
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not await auth_manager.verify_token(token):
+            raise MCPError(code=-32002, message="Invalid token")
+        result = await export_md(request.json.get("params", {}))
+        return result
+    except Exception as e:
+        return handle_error(e)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)
