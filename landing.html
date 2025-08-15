@@ -70,6 +70,7 @@
         const nextStepsDiv = document.getElementById('next-steps');
         let logQueue = [];
         let isAuthenticated = false;
+        const maxRetries = 2;
 
         function log(message, isCommand = false, isError = false) {
             const formattedMessage = isCommand 
@@ -122,29 +123,34 @@
         }
 
         const SERVER_URL = 'https://webxos.netlify.app/vial2/api';
-        const fetchWithFallback = async (url, options = {}) => {
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    method: options.method || 'POST',
-                    headers: { 'Content-Type': 'application/json', ...options.headers }
-                });
-                if (!response.ok) {
-                    const text = await response.text();
-                    if (response.status === 404 && text.includes('<!DOCTYPE html>')) {
-                        throw new Error(`HTTP 404: Endpoint not found - Response starts with HTML: ${text.substring(0, 50)}`);
+        const fetchWithRetry = async (url, options = {}, retries = maxRetries) => {
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        method: options.method || 'POST',
+                        headers: { 'Content-Type': 'application/json', ...options.headers }
+                    });
+                    if (!response.ok) {
+                        const text = await response.text();
+                        if (response.status === 404 && text.includes('<!DOCTYPE html>')) {
+                            throw new Error(`HTTP 404: Endpoint not found - Response starts with HTML: ${text.substring(0, 50)} (Attempt ${attempt}/${retries})`);
+                        }
+                        throw new Error(`HTTP ${response.status}: ${response.statusText} - Response: ${text.substring(0, 100)}`);
                     }
-                    throw new Error(`HTTP ${response.status}: ${response.statusText} - Response: ${text.substring(0, 100)}`);
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType?.includes('application/json')) {
+                        const text = await response.text();
+                        throw new Error(`Expected JSON, received: ${text.substring(0, 100)}`);
+                    }
+                    return await response.json();
+                } catch (err) {
+                    if (attempt === retries) {
+                        errorDiv.textContent = err.message;
+                        return { error: { code: -32000, message: err.message, traceback: err.stack } };
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
                 }
-                const contentType = response.headers.get('content-type');
-                if (!contentType?.includes('application/json')) {
-                    const text = await response.text();
-                    throw new Error(`Expected JSON, received: ${text.substring(0, 100)}`);
-                }
-                return await response.json();
-            } catch (err) {
-                errorDiv.textContent = err.message;
-                return { error: { code: -32000, message: err.message, traceback: err.stack } };
             }
         };
 
@@ -156,7 +162,7 @@
             troubleshootBtn.disabled = true;
             try {
                 log('Running troubleshoot...', true);
-                const response = await fetchWithFallback(`${SERVER_URL}/troubleshoot`);
+                const response = await fetchWithRetry(`${SERVER_URL}/troubleshoot`);
                 if (response.error) {
                     log(`Troubleshoot Error: ${response.error.message} Source: ${response.error.traceback}`, false, true);
                     updateNextSteps('Troubleshoot failed. Check routing or redeploy. Prompt: "Fix routing"');
@@ -178,14 +184,14 @@
             oauthBtn.disabled = true;
             try {
                 log('Running authentication...', true);
-                const response = await fetchWithFallback(`${SERVER_URL}/auth/oauth`, {
+                const response = await fetchWithRetry(`${SERVER_URL}/auth/oauth`, {
                     method: 'POST',
                     body: JSON.stringify({ provider: 'mock', code: 'test_code' })
                 });
                 if (response.error) {
                     log(`Authentication Error: ${response.error.message} Traceback: ${response.error.traceback}`, false, true);
                     if (response.error.message.includes('HTTP 404')) {
-                        updateNextSteps('OAuth failed. Endpoint not found. Check deployment. Prompt: "Fix deployment"');
+                        updateNextSteps('OAuth failed. Endpoint not found. Redeploy or fix routing. Prompt: "Fix deployment"');
                     } else {
                         updateNextSteps('OAuth failed. Check credentials or logs. Prompt: "Verify OAuth configuration"');
                     }
@@ -198,7 +204,7 @@
                 }
             } catch (err) {
                 log(`Authentication Error: ${err.message} Traceback: ${err.stack}`, false, true);
-                updateNextSteps('OAuth failed. Check routing or deployment. Prompt: "Fix routing"');
+                updateNextSteps('OAuth failed. Check routing or redeploy. Prompt: "Fix routing"');
             }
             oauthBtn.disabled = false;
         }
