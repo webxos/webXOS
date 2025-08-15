@@ -2,142 +2,99 @@ import React, { useState, useEffect } from 'react';
 import styles from './dashboard.module.css';
 
 interface Metric {
-  name: string;
-  value: string | number;
+  cpu_usage: number;
+  memory_usage: number;
+  active_users: number;
+  balance: number;
 }
 
-interface MCPRequest {
-  message: string;
-  description: string;
+interface Vial {
+  name: string;
+  balance: number;
 }
 
 const DashboardPage: React.FC = () => {
-  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [metrics, setMetrics] = useState<Metric | null>(null);
+  const [vials, setVials] = useState<Vial[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [userId] = useState<string>('test_user'); // Replace with actual user auth
-  const mcpRequests: MCPRequest[] = [
-    { message: 'InitializeRequest', description: 'This request is sent from the client to the server when it first connects, asking it to begin initialization' },
-    { message: 'ListToolsRequest', description: 'Sent from the client to request a list of tools the server has' },
-    { message: 'CallToolRequest', description: 'Used by the client to invoke a tool provided by the server' },
-    { message: 'ListResourcesRequest', description: 'Sent from the client to request a list of resources the server has' },
-    { message: 'ReadResourceRequest', description: 'Sent from the client to the server, to read a specific resource URI' },
-    { message: 'ListPromptsRequest', description: 'Sent from the client to request a list of prompts and prompt templates the server has' },
-    { message: 'GetPromptRequest', description: 'Used by the client to get a prompt provided by the server' },
-    { message: 'PingRequest', description: 'A ping, issued by either the server or the client, to check that the other party is still alive' },
-    { message: 'CreateMessageRequest', description: 'A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it' },
-    { message: 'SetLevelRequest', description: 'A request from the client to the server, to enable or adjust logging' },
-  ];
 
   useEffect(() => {
-    const fetchMetrics = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch('/mcp', {
+        const token = localStorage.getItem('access_token');
+        if (!token) throw new Error('No authentication token found');
+        const response = await fetch('/mcp/status', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({
             jsonrpc: '2.0',
             method: 'mcp.getSystemMetrics',
-            params: { user_id: userId },
+            params: { user_id: 'test_user' },
             id: 1,
           }),
         });
         const data = await response.json();
         if (data.error) throw new Error(`${data.error.message}\n${data.error.data?.traceback || ''}`);
-        setMetrics([
-          { name: 'CPU Usage', value: data.result.cpu_usage },
-          { name: 'Memory Usage', value: data.result.memory_usage },
-          { name: 'Active Users', value: data.result.active_users },
-        ]);
+        setMetrics(data.result);
+        const cached = JSON.parse(await localStorage.getItem('vials') || '{}');
+        setVials(Object.entries(cached).map(([name, { balance }]) => ({ name, balance })));
       } catch (err: any) {
-        setError(`Failed to fetch metrics: ${err.message}\n${err.stack}`);
+        setError(`Failed to fetch data: ${err.message}\n${err.stack}`);
         console.error('Dashboard error:', err);
       }
     };
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000); // Update every 5 seconds
+    fetchData();
+    const interval = setInterval(fetchData, 5000); // Update every 5 seconds
     return () => clearInterval(interval);
-  }, [userId]);
+  }, []);
 
-  const handleAction = async (action: string) => {
+  const handleExport = async () => {
     try {
-      let response;
-      switch (action) {
-        case 'createSession':
-          response = await fetch('/mcp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.createSession', params: { user_id: userId }, id: 2 }),
-          });
-          break;
-        case 'createNote':
-          response = await fetch('/mcp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.createNote', params: { user_id: userId, title: 'Test Note', content: 'Test content' }, id: 3 }),
-          });
-          break;
-        case 'syncResources':
-          response = await fetch('/mcp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.syncResources', params: { user_id: userId, repo_name: 'test/repo' }, id: 4 }),
-          });
-          break;
-        default:
-          throw new Error(`Unknown action: ${action}`);
-      }
+      const token = localStorage.getItem('access_token');
+      if (!token) throw new Error('No authentication token found');
+      const response = await fetch('/mcp/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.exportMd', params: { user_id: 'test_user' }, id: 3 }),
+      });
       const data = await response.json();
-      if (data.error) throw new Error(`${data.error.message}\n${data.error.data?.traceback || ''}`);
-      setMessages((prev) => [...prev, { id: Date.now().toString(), text: `Action ${action} succeeded: ${JSON.stringify(data.result)}`, sender: 'system' }]);
+      if (data.error) throw new Error(data.error.message);
+      const blob = new Blob([data.result], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dashboard_data.md';
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err: any) {
-      setError(`Action ${action} failed: ${err.message}\n${err.stack}`);
-      console.error('Action error:', err);
+      setError(`Export failed: ${err.message}\n${err.stack}`);
     }
   };
 
   return (
     <div className={styles.container}>
       <h1 className={styles.title}>Vial MCP Dashboard</h1>
-      {error && (
-        <div className={styles.error}>
-          <pre>{error}</pre>
+      {error && <div className={styles.error}><pre>{error}</pre></div>}
+      {metrics && (
+        <div className={styles.metrics}>
+          <div>CPU Usage: {metrics.cpu_usage}%</div>
+          <div>Memory Usage: {metrics.memory_usage}%</div>
+          <div>Active Users: {metrics.active_users}</div>
+          <div>WebXOS Balance: {metrics.balance}</div>
         </div>
       )}
-      <div className={styles.metrics}>
-        {metrics.map((metric) => (
-          <div key={metric.name} className={styles.metricCard}>
-            <h2>{metric.name}</h2>
-            <p>{metric.value}</p>
+      <div className={styles.vials}>
+        {vials.map((vial) => (
+          <div key={vial.name} className={styles.vialCard}>
+            <h2>{vial.name}</h2>
+            <p>Balance: {vial.balance} WebXOS</p>
           </div>
         ))}
       </div>
-      <div className={styles.inspector}>
-        <h2>MCP Inspector</h2>
-        <table className={styles.inspectorTable}>
-          <thead>
-            <tr>
-              <th>Message</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mcpRequests.map((req, index) => (
-              <tr key={index}>
-                <td>{req.message}</td>
-                <td>{req.description}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className={styles.buttonGroup}>
-        <button onClick={() => handleAction('createSession')} className={styles.button}>Create Session</button>
-        <button onClick={() => handleAction('createNote')} className={styles.button}>Create Note</button>
-        <button onClick={() => handleAction('syncResources')} className={styles.button}>Sync Resources</button>
-      </div>
+      <button className={styles.button} onClick={handleExport}>Export MD</button>
     </div>
   );
 };
