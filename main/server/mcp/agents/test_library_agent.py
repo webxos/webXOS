@@ -1,51 +1,109 @@
 # main/server/mcp/agents/test_library_agent.py
-import unittest
-from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .library_agent import app, db_manager
+import pytest
+from pymongo import MongoClient
+from ..agents.library_agent import LibraryAgent, MCPError
+from ..agents.global_mcp_agents import GlobalMCPAgents
 
-class TestLibraryAgent(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+@pytest.fixture
+def library_agent():
+    agent = LibraryAgent()
+    yield agent
+    agent.collection.delete_many({})
+    agent.close()
 
-    @patch.object(db_manager, 'insert_one')
-    def test_add_library_item(self, mock_insert):
-        mock_insert.return_value = "item123"
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.post(
-                "/agents/library",
-                json={"user_id": "test_user", "title": "Test Resource", "content": "Sample content", "tags": ["test"], "category": "docs"},
-                headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["item_id"], "item123")
-        self.assertEqual(response.json()["title"], "Test Resource")
-        mock_insert.assert_called_once()
+@pytest.fixture
+def global_agents():
+    agents = GlobalMCPAgents()
+    yield agents
+    agents.collection.delete_many({})
+    agents.close()
 
-    @patch.object(db_manager, 'find_many')
-    def test_get_library_items(self, mock_find):
-        mock_find.return_value = [
-            {"_id": "item123", "user_id": "test_user", "title": "Test Resource", "content": "Sample content", "tags": ["test"], "category": "docs", "timestamp": "2025-08-14T00:00:00"}
-        ]
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.get("/agents/library/test_user", headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()), 1)
-        self.assertEqual(response.json()[0]["item_id"], "item123")
+@pytest.mark.asyncio
+async def test_add_resource(library_agent, global_agents, mocker):
+    # Mock resource API
+    mocker.patch("requests.head", return_value=mocker.Mock(status_code=200))
+    
+    # Create agent
+    create_result = await global_agents.create_agent(
+        vial_id="vial1",
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
 
-    @patch.object(db_manager, 'delete_one')
-    def test_delete_library_item(self, mock_delete):
-        mock_delete.return_value = 1
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.delete("/agents/library/item123", headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "success")
-        mock_delete.assert_called_with("library", {"_id": "item123"})
+    # Test adding resource
+    result = await library_agent.add_resource(
+        agent_id=agent_id,
+        name="Test Dataset",
+        uri="https://example.com/dataset",
+        resource_type="dataset",
+        metadata={"size": "1GB"},
+        user_id="test_user"
+    )
+    assert result["status"] == "success"
+    assert "resource_id" in result
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_add_resource_invalid_agent(library_agent):
+    with pytest.raises(MCPError) as exc_info:
+        await library_agent.add_resource(
+            agent_id="invalid_id",
+            name="Test Dataset",
+            uri="https://example.com/dataset",
+            resource_type="dataset",
+            metadata={"size": "1GB"},
+            user_id="test_user"
+        )
+    assert exc_info.value.code == -32003
+    assert exc_info.value.message == "Agent not found or access denied"
+
+@pytest.mark.asyncio
+async def test_add_resource_invalid_type(library_agent, global_agents):
+    create_result = await global_agents.create_agent(
+        vial_id="vial1",
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
+    
+    with pytest.raises(MCPError) as exc_info:
+        await library_agent.add_resource(
+            agent_id=agent_id,
+            name="Test Dataset",
+            uri="https://example.com/dataset",
+            resource_type="invalid",
+            metadata={"size": "1GB"},
+            user_id="test_user"
+        )
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Unsupported resource type"
+
+@pytest.mark.asyncio
+async def test_list_resources(library_agent, global_agents, mocker):
+    mocker.patch("requests.head", return_value=mocker.Mock(status_code=200))
+    
+    create_result = await global_agents.create_agent(
+        vial_id="vial1",
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
+    
+    await library_agent.add_resource(
+        agent_id=agent_id,
+        name="Test Dataset",
+        uri="https://example.com/dataset",
+        resource_type="dataset",
+        metadata={"size": "1GB"},
+        user_id="test_user"
+    )
+    
+    resources = await library_agent.list_resources(agent_id, "test_user", "dataset")
+    assert len(resources) == 1
+    assert resources[0]["name"] == "Test Dataset"
+    assert resources[0]["uri"] == "https://example.com/dataset"
+    assert resources[0]["type"] == "dataset"
+    assert resources[0]["metadata"] == {"size": "1GB"}
