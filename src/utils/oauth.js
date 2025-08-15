@@ -15,43 +15,50 @@ const generateCodeChallenge = (verifier) => {
 };
 
 export const initiateOAuth = async () => {
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(codeVerifier);
-  sessionStorage.setItem('code_verifier', codeVerifier);
+  try {
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = generateCodeChallenge(codeVerifier);
+    sessionStorage.setItem('code_verifier', codeVerifier);
 
-  const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=read:user&response_type=code&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-
-  return authUrl;
+    const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=read:user&response_type=code&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+    return authUrl;
+  } catch (err) {
+    throw new Error('Failed to initiate OAuth: ' + err.message);
+  }
 };
 
 export const handleCallback = async () => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const code = urlParams.get('code');
-  const codeVerifier = sessionStorage.getItem('code_verifier');
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const codeVerifier = sessionStorage.getItem('code_verifier');
 
-  if (!code || !codeVerifier) {
-    throw new Error('Missing OAuth code or verifier');
+    if (!code || !codeVerifier) {
+      throw new Error('Missing OAuth code or verifier');
+    }
+
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error_description || 'OAuth token exchange failed');
+    }
+
+    localStorage.setItem('oauth_token', data.access_token);
+    sessionStorage.removeItem('code_verifier');
+  } catch (err) {
+    throw new Error('OAuth callback failed: ' + err.message);
   }
-
-  const response = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({
-      client_id: clientId,
-      code,
-      code_verifier: codeVerifier,
-      redirect_uri: redirectUri,
-    }),
-  });
-
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(data.error_description || 'OAuth token exchange failed');
-  }
-
-  localStorage.setItem('oauth_token', data.access_token);
-  sessionStorage.removeItem('code_verifier');
 };
