@@ -79,6 +79,17 @@
             font-family: 'Courier New', Courier, monospace;
             font-size: 12px;
         }
+        .dashboard {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            display: none;
+        }
+        .dashboard.active {
+            display: block;
+        }
         .button-container {
             display: flex;
             flex-wrap: wrap;
@@ -122,6 +133,9 @@
             .terminal input {
                 font-size: 10px;
             }
+            .dashboard {
+                font-size: 10px;
+            }
         }
     </style>
 </head>
@@ -135,6 +149,14 @@
         <div class="terminal" id="terminal">
             <div id="terminal-output"></div>
             <input type="text" id="terminal-input" placeholder="Enter command (e.g., /help)">
+        </div>
+        <div class="dashboard" id="dashboard">
+            <h3>Dashboard</h3>
+            <p>Wallet Key: <span id="dashboard-wallet-key">N/A</span></p>
+            <p>Session Balance: <span id="dashboard-balance">0.0000</span> $WEBXOS</p>
+            <p>Address: <span id="dashboard-address">N/A</span></p>
+            <p>Vial Agent: <span id="dashboard-vial-status">N/A</span></p>
+            <p>Quantum State: <span id="dashboard-quantum-state">N/A</span></p>
         </div>
         <div class="credentials">
             <h3>API Access Credentials</h3>
@@ -169,7 +191,11 @@
             reputation: 0,
             apiKey: 'WEBXOS-MOCKKEY',
             apiSecret: 'MOCKSECRET1234567890',
-            accessToken: null
+            accessToken: null,
+            walletKey: null,
+            address: null,
+            vialStatus: null,
+            quantumState: null
         };
 
         // Terminal output handling
@@ -196,6 +222,7 @@
                     logToTerminal('/clear - Clear terminal');
                 } else if (command === '/status') {
                     logToTerminal(`Balance: ${wallet.balance.toFixed(4)}, Reputation: ${wallet.reputation}, Access Token: ${wallet.accessToken || 'None'}`);
+                    logToTerminal(`Wallet Key: ${wallet.walletKey || 'None'}, Address: ${wallet.address || 'None'}`);
                 } else if (command === '/clear') {
                     terminalOutput.innerHTML = '';
                 } else {
@@ -210,6 +237,11 @@
             document.getElementById('reputation').textContent = wallet.reputation;
             document.getElementById('apiKey').value = wallet.apiKey;
             document.getElementById('apiSecret').value = wallet.apiSecret;
+            document.getElementById('dashboard-wallet-key').textContent = wallet.walletKey || 'N/A';
+            document.getElementById('dashboard-balance').textContent = wallet.balance.toFixed(4);
+            document.getElementById('dashboard-address').textContent = wallet.address || 'N/A';
+            document.getElementById('dashboard-vial-status').textContent = wallet.vialStatus || 'N/A';
+            document.getElementById('dashboard-quantum-state').textContent = wallet.quantumState ? JSON.stringify(wallet.quantumState) : 'N/A';
         }
 
         // Validate JSON response
@@ -220,7 +252,7 @@
                 try {
                     return JSON.parse(text);
                 } catch (error) {
-                    throw new Error(`Invalid JSON: ${error.message}. Response: ${text.slice(0, 50)}...`);
+                    throw new Error(`Invalid JSON: ${error.message}. Status: ${response.status}, Headers: ${JSON.stringify([...response.headers])}, Response: ${text.slice(0, 50)}...`);
                 }
             } catch (error) {
                 throw error;
@@ -411,7 +443,9 @@
                     body: JSON.stringify({ state: 'sync' })
                 });
                 const data = await parseJSONResponse(response);
-                logToTerminal(data.message || 'Quantum Link sync initiated: Simulated state entanglement.');
+                wallet.quantumState = data.quantumState || { qubits: [], entanglement: 'synced' };
+                updateUI();
+                logToTerminal(data.message || 'Quantum Link sync initiated: State entanglement updated.');
             } catch (error) {
                 logToTerminal(`Quantum Link failed: ${error.message}. Using mock sync.`, true);
                 logToTerminal('Simulated Quantum Link: State sync completed with mock entanglement.');
@@ -420,42 +454,99 @@
                 logToTerminal('Sample Node.js endpoint:');
                 logToTerminal('```js', true);
                 logToTerminal('app.post("/quantum-link", (req, res) => {', true);
-                logToTerminal('  res.json({ message: "Quantum sync complete" });', true);
+                logToTerminal('  res.json({ message: "Quantum sync complete", quantumState: { qubits: [], entanglement: "synced" } });', true);
                 logToTerminal('});', true);
                 logToTerminal('```', true);
+                wallet.quantumState = { qubits: [], entanglement: 'synced' };
+                updateUI();
             }
         }
 
         // Export wallet data
         async function exportData() {
             try {
-                const data = JSON.stringify(wallet, null, 2);
-                const blob = new Blob([data], { type: 'application/json' });
+                const mdContent = `# WebXOS Vial and Wallet Export\n\n` +
+                    `## Wallet\n` +
+                    `- Wallet Key: ${wallet.walletKey || 'N/A'}\n` +
+                    `- Session Balance: ${wallet.balance.toFixed(4)} $WEBXOS\n` +
+                    `- Address: ${wallet.address || 'N/A'}\n` +
+                    `- Hash: ${wallet.hash || 'N/A'}\n\n` +
+                    `## API Credentials\n` +
+                    `- Key: ${wallet.apiKey}\n` +
+                    `- Secret: ${wallet.apiSecret}\n\n` +
+                    `## Vials\n` +
+                    `# Vial Agent: vial1\n` +
+                    `- Status: ${wallet.vialStatus || 'N/A'}\n` +
+                    `- Quantum State: ${JSON.stringify(wallet.quantumState || { qubits: [], entanglement: 'N/A' })}\n`;
+                const blob = new Blob([mdContent], { type: 'text/markdown' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'webxos-wallet.json';
+                a.download = `vial_wallet_export_${new Date().toISOString()}.md`;
                 a.click();
                 URL.revokeObjectURL(url);
-                logToTerminal('Wallet data exported successfully.');
+                logToTerminal('Wallet data exported successfully as .md file.');
             } catch (error) {
                 logToTerminal(`Export failed: ${error.message}`, true);
             }
         }
 
-        // Import wallet data
+        // Import wallet data (only .md files)
         async function importData() {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.json';
+            input.accept = '.md';
             input.onchange = async (e) => {
                 try {
                     const file = e.target.files[0];
+                    if (!file.name.endsWith('.md')) {
+                        logToTerminal('Invalid file format. Only .md files are accepted.', true);
+                        return;
+                    }
                     const text = await file.text();
-                    const importedWallet = JSON.parse(text);
-                    wallet = { ...wallet, ...importedWallet, accessToken: null };
+                    const lines = text.split('\n');
+                    const importedWallet = {
+                        balance: 0,
+                        reputation: 0,
+                        apiKey: wallet.apiKey,
+                        apiSecret: wallet.apiSecret,
+                        accessToken: null,
+                        walletKey: null,
+                        address: null,
+                        hash: null,
+                        vialStatus: null,
+                        quantumState: null
+                    };
+                    let currentSection = '';
+                    for (const line of lines) {
+                        if (line.startsWith('## ')) {
+                            currentSection = line.slice(3).trim();
+                        } else if (currentSection === 'Wallet' && line.startsWith('- ')) {
+                            const [key, value] = line.slice(2).split(':').map(s => s.trim());
+                            if (key === 'Session Balance') {
+                                importedWallet.balance = parseFloat(value) || 0;
+                            } else if (key === 'Wallet Key') {
+                                importedWallet.walletKey = value;
+                            } else if (key === 'Address') {
+                                importedWallet.address = value;
+                            } else if (key === 'Hash') {
+                                importedWallet.hash = value;
+                            }
+                        } else if (currentSection === 'Agentic Network' && line.startsWith('- Reputation:')) {
+                            importedWallet.reputation = parseInt(line.split(':')[1].trim()) || 0;
+                        } else if (currentSection === 'Vials' && line.startsWith('- Status:')) {
+                            importedWallet.vialStatus = line.split(':')[1].trim();
+                        } else if (currentSection === 'Vials' && line.startsWith('- Quantum State:')) {
+                            try {
+                                importedWallet.quantumState = JSON.parse(line.split(':')[1].trim());
+                            } catch (error) {
+                                logToTerminal(`Failed to parse Quantum State: ${error.message}`, true);
+                            }
+                        }
+                    }
+                    wallet = { ...wallet, ...importedWallet };
                     updateUI();
-                    logToTerminal('Wallet data imported successfully.');
+                    logToTerminal('Wallet data imported successfully from .md file.');
                 } catch (error) {
                     logToTerminal(`Import failed: ${error.message}`, true);
                 }
@@ -488,9 +579,11 @@
             }
         }
 
-        // Show Dashboard (Placeholder)
+        // Show Dashboard
         async function showDashboard() {
-            logToTerminal('Dashboard feature is under development.');
+            const dashboard = document.getElementById('dashboard');
+            dashboard.classList.toggle('active');
+            logToTerminal(dashboard.classList.contains('active') ? 'Dashboard displayed.' : 'Dashboard hidden.');
         }
 
         // Initialize wallet data
