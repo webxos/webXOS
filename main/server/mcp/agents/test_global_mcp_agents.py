@@ -1,43 +1,72 @@
 # main/server/mcp/agents/test_global_mcp_agents.py
-import unittest
-from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .global_mcp_agents import app, db_manager, global_agents
+import pytest
+from pymongo import MongoClient
+from ..agents.global_mcp_agents import GlobalMCPAgents, MCPError
 
-class TestGlobalAgents(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+@pytest.fixture
+def agent_service():
+    service = GlobalMCPAgents()
+    yield service
+    service.collection.delete_many({})
+    service.close()
 
-    @patch.object(db_manager, 'insert_one')
-    @patch.object(global_agents, 'execute_task')
-    def test_create_task(self, mock_execute_task, mock_insert):
-        mock_insert.return_value = "task123"
-        mock_execute_task.return_value = {"status": "completed", "output": "Processed test_task"}
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.post(
-                "/agents/tasks",
-                json={"task_id": "task123", "user_id": "test_user", "task_type": "test_task", "parameters": {"param": "value"}},
-                headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["task_id"], "task123")
-        self.assertEqual(response.json()["result"]["status"], "completed")
-        mock_insert.assert_called_once()
-        mock_execute_task.assert_called_once()
+@pytest.mark.asyncio
+async def test_create_agent(agent_service, mocker):
+    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
+    result = await agent_service.create_agent(
+        vial_id="vial1",
+        tasks=["train_model"],
+        config={"lr": 0.01},
+        user_id="test_user"
+    )
+    assert result["status"] == "success"
+    assert "agent_id" in result
+    assert result["wallet_address"] == "0x1234567890abcdef"
 
-    @patch.object(db_manager, 'find_many')
-    def test_list_tasks(self, mock_find):
-        mock_find.return_value = [
-            {"_id": "task123", "task_id": "task123", "user_id": "test_user", "task_type": "test_task", "parameters": {"param": "value"}, "status": "completed", "result": {}, "timestamp": "2025-08-14T00:00:00"}
-        ]
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.get("/agents/tasks/test_user", headers={"Authorization": f"Bearer {token}"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()), 1)
-        self.assertEqual(response.json()[0]["task_id"], "task123")
-        mock_find.assert_called_with("tasks", {"user_id": "test_user"})
+@pytest.mark.asyncio
+async def test_create_agent_invalid_vial_id(agent_service):
+    with pytest.raises(MCPError) as exc_info:
+        await agent_service.create_agent(
+            vial_id="invalid_id",
+            tasks=["train_model"],
+            config={"lr": 0.01},
+            user_id="test_user"
+        )
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Invalid vial ID: Must start with 'vial'"
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_update_agent_status(agent_service, mocker):
+    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
+    create_result = await agent_service.create_agent(
+        vial_id="vial1",
+        tasks=["train_model"],
+        config={"lr": 0.01},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
+    result = await agent_service.update_agent_status(agent_id, "running", "test_user")
+    assert result["status"] == "success"
+    assert result["agent_id"] == agent_id
+
+@pytest.mark.asyncio
+async def test_update_agent_status_invalid(agent_service):
+    with pytest.raises(MCPError) as exc_info:
+        await agent_service.update_agent_status("invalid_id", "running", "test_user")
+    assert exc_info.value.code == -32003
+    assert exc_info.value.message == "Agent not found or access denied"
+
+@pytest.mark.asyncio
+async def test_list_agents(agent_service, mocker):
+    mocker.patch.object(agent_service.wallet_service, 'create_wallet', return_value="0x1234567890abcdef")
+    await agent_service.create_agent(
+        vial_id="vial1",
+        tasks=["train_model"],
+        config={"lr": 0.01},
+        user_id="test_user"
+    )
+    agents = await agent_service.list_agents("test_user")
+    assert len(agents) == 1
+    assert agents[0]["vial_id"] == "vial1"
+    assert agents[0]["user_id"] == "test_user"
+    assert agents[0]["wallet_address"] == "0x1234567890abcdef"
