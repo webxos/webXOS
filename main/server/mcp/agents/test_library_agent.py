@@ -1,109 +1,61 @@
 # main/server/mcp/agents/test_library_agent.py
 import pytest
-from pymongo import MongoClient
 from ..agents.library_agent import LibraryAgent, MCPError
-from ..agents.global_mcp_agents import GlobalMCPAgents
+from ..utils.performance_metrics import PerformanceMetrics
+import aiohttp
+import json
 
 @pytest.fixture
-def library_agent():
+async def library_agent():
     agent = LibraryAgent()
     yield agent
-    agent.collection.delete_many({})
+    agent.resources.delete_many({})
     agent.close()
 
-@pytest.fixture
-def global_agents():
-    agents = GlobalMCPAgents()
-    yield agents
-    agents.collection.delete_many({})
-    agents.close()
-
 @pytest.mark.asyncio
-async def test_add_resource(library_agent, global_agents, mocker):
-    # Mock resource API
-    mocker.patch("requests.head", return_value=mocker.Mock(status_code=200))
-    
-    # Create agent
-    create_result = await global_agents.create_agent(
-        vial_id="vial1",
-        tasks=["manage_resources"],
-        config={"resource_type": "dataset"},
-        user_id="test_user"
-    )
-    agent_id = create_result["agent_id"]
-
-    # Test adding resource
-    result = await library_agent.add_resource(
-        agent_id=agent_id,
-        name="Test Dataset",
-        uri="https://example.com/dataset",
-        resource_type="dataset",
-        metadata={"size": "1GB"},
-        user_id="test_user"
-    )
-    assert result["status"] == "success"
-    assert "resource_id" in result
-
-@pytest.mark.asyncio
-async def test_add_resource_invalid_agent(library_agent):
-    with pytest.raises(MCPError) as exc_info:
-        await library_agent.add_resource(
-            agent_id="invalid_id",
-            name="Test Dataset",
-            uri="https://example.com/dataset",
-            resource_type="dataset",
-            metadata={"size": "1GB"},
-            user_id="test_user"
-        )
-    assert exc_info.value.code == -32003
-    assert exc_info.value.message == "Agent not found or access denied"
-
-@pytest.mark.asyncio
-async def test_add_resource_invalid_type(library_agent, global_agents):
-    create_result = await global_agents.create_agent(
-        vial_id="vial1",
-        tasks=["manage_resources"],
-        config={"resource_type": "dataset"},
-        user_id="test_user"
-    )
-    agent_id = create_result["agent_id"]
-    
-    with pytest.raises(MCPError) as exc_info:
-        await library_agent.add_resource(
-            agent_id=agent_id,
-            name="Test Dataset",
-            uri="https://example.com/dataset",
-            resource_type="invalid",
-            metadata={"size": "1GB"},
-            user_id="test_user"
-        )
-    assert exc_info.value.code == -32602
-    assert exc_info.value.message == "Unsupported resource type"
-
-@pytest.mark.asyncio
-async def test_list_resources(library_agent, global_agents, mocker):
-    mocker.patch("requests.head", return_value=mocker.Mock(status_code=200))
-    
-    create_result = await global_agents.create_agent(
-        vial_id="vial1",
-        tasks=["manage_resources"],
-        config={"resource_type": "dataset"},
-        user_id="test_user"
-    )
-    agent_id = create_result["agent_id"]
-    
-    await library_agent.add_resource(
-        agent_id=agent_id,
-        name="Test Dataset",
-        uri="https://example.com/dataset",
-        resource_type="dataset",
-        metadata={"size": "1GB"},
-        user_id="test_user"
-    )
-    
-    resources = await library_agent.list_resources(agent_id, "test_user", "dataset")
+async def test_list_resources(library_agent, mocker):
+    resource = {
+        "user_id": "test_user",
+        "agent_id": "test_agent",
+        "type": "github_repo",
+        "uri": "https://github.com/test/repo",
+        "metadata": {"name": "repo"},
+        "created_at": datetime.utcnow()
+    }
+    library_agent.resources.insert_one(resource)
+    resources = await library_agent.list_resources("test_agent", "test_user")
     assert len(resources) == 1
-    assert resources[0]["name"] == "Test Dataset"
-    assert resources[0]["uri"] == "https://example.com/dataset"
-    assert resources[0]["type"] == "dataset"
-    assert resources[0]["metadata"] == {"size": "1GB"}
+    assert resources[0]["uri"] == "https://github.com/test/repo"
+    assert library_agent.metrics.requests_total.labels(endpoint="list_resources")._value.get() == 1
+
+@pytest.mark.asyncio
+async def test_list_resources_cached(library_agent, mocker):
+    mocker.patch.object(library_agent.cache, "get_cache", return_value=[{"uri": "cached"}])
+    resources = await library_agent.list_resources("test_agent", "test_user")
+    assert len(resources) == 1
+    assert resources[0]["uri"] == "cached"
+
+@pytest.mark.asyncio
+async def test_sync_github_resource(library_agent, mocker):
+    mocker.patch("aiohttp.ClientSession.get", return_value=mocker.AsyncMock(
+        status=200,
+        json=mocker.AsyncMock(return_value={
+            "html_url": "https://github.com/test/repo",
+            "name": "repo",
+            "description": "Test repo",
+            "updated_at": "2023-01-01T00:00:00Z"
+        })
+    ))
+    result = await library_agent.sync_github_resource("test_user", "test/repo")
+    assert "resource_id" in result
+    assert result["status"] == "synced"
+    resource = library_agent.resources.find_one({"user_id": "test_user"})
+    assert resource["uri"] == "https://github.com/test/repo"
+
+@pytest.mark.asyncio
+async def test_sync_github_resource_error(library_agent, mocker):
+    mocker.patch("aiohttp.ClientSession.get", return_value=mocker.AsyncMock(status=404))
+    with pytest.raises(MCPError) as exc_info:
+        await library_agent.sync_github_resource("test_user", "test/repo")
+    assert exc_info.value.code == -32603
+    assert "GitHub API error" in exc_info.value.message
