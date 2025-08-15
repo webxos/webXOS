@@ -1,65 +1,88 @@
 # main/server/mcp/utils/health_check.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.mcp_error_handler import MCPError
 from pymongo import MongoClient
 import redis.asyncio as redis
-from ..utils.mcp_error_handler import MCPError
 import os
+import logging
+import asyncio
 
 router = APIRouter()
+logger = logging.getLogger("mcp")
 
-class HealthStatus:
+class HealthCheck:
     def __init__(self):
+        self.metrics = PerformanceMetrics()
         self.mongo_client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
         self.redis_client = redis.from_url(os.getenv("REDIS_URI", "redis://localhost:6379"))
 
-    async def check_mongodb(self) -> bool:
+    async def check_db(self) -> bool:
         try:
+            await asyncio.sleep(0)  # Ensure async context
             self.mongo_client.admin.command("ping")
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Database health check failed: {str(e)}")
             return False
 
     async def check_redis(self) -> bool:
         try:
             await self.redis_client.ping()
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Redis health check failed: {str(e)}")
             return False
 
-    async def get_health(self) -> dict:
+    @router.get("/health")
+    async def health(self):
         try:
-            mongo_status = await self.check_mongodb()
+            db_status = await self.check_db()
             redis_status = await self.check_redis()
-            status = "healthy" if mongo_status and redis_status else "unhealthy"
+            metrics = await self.metrics.get_metrics()
+            
+            if not db_status or not redis_status:
+                raise HTTPException(status_code=503, detail="Service Unavailable")
+            
             return {
-                "status": status,
-                "services": {
-                    "mongodb": "up" if mongo_status else "down",
-                    "redis": "up" if redis_status else "down"
-                }
+                "status": "healthy",
+                "database": "ok" if db_status else "failed",
+                "redis": "ok" if redis_status else "failed",
+                "metrics": metrics
             }
+        except HTTPException:
+            raise
         except Exception as e:
-            raise MCPError(code=-32603, message=f"Health check failed: {str(e)}")
+            logger.error(f"Health check failed: {str(e)}")
+            raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
-    async def get_readiness(self) -> dict:
+    @router.get("/health/liveness")
+    async def liveness(self):
         try:
-            health = await self.get_health()
-            return {
-                "status": "ready" if health["status"] == "healthy" else "not ready",
-                "services": health["services"]
-            }
+            db_status = await self.check_db()
+            if not db_status:
+                raise HTTPException(status_code=503, detail="Database unavailable")
+            return {"status": "alive"}
+        except HTTPException:
+            raise
         except Exception as e:
-            raise MCPError(code=-32603, message=f"Readiness check failed: {str(e)}")
+            logger.error(f"Liveness check failed: {str(e)}")
+            raise HTTPException(status_code=503, detail=f"Liveness check failed: {str(e)}")
 
-    def close(self):
+    @router.get("/health/readiness")
+    async def readiness(self):
+        try:
+            db_status = await self.check_db()
+            redis_status = await self.check_redis()
+            if not db_status or not redis_status:
+                raise HTTPException(status_code=503, detail="Service not ready")
+            return {"status": "ready"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Readiness check failed: {str(e)}")
+            raise HTTPException(status_code=503, detail=f"Readiness check failed: {str(e)}")
+
+    async def close(self):
         self.mongo_client.close()
-
-health_status = HealthStatus()
-
-@router.get("/health")
-async def health_check():
-    return await health_status.get_health()
-
-@router.get("/ready")
-async def readiness_check():
-    return await health_status.get_readiness()
+        await self.redis_client.aclose()
