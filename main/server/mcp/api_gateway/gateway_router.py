@@ -20,7 +20,7 @@ def validate_response(response):
 @app.route('/vial2/api/troubleshoot', methods=['POST'])
 def troubleshoot():
     try:
-        response = {"status": "OK", "details": "System check completed at 06:15 AM EDT"}
+        response = {"status": "OK", "details": "System check completed at 06:35 AM EDT"}
         validated_response = validate_response(response)
         return jsonify(validated_response), 200
     except Exception as e:
@@ -37,11 +37,16 @@ def oauth():
         if not oauth_config.validate_credentials(data['provider'], data['code']):
             logger.error(f"Invalid credentials for provider: {data['provider']}")
             return jsonify(ErrorHandler.handle_error("Invalid OAuth credentials")), 401
-        response = {"access_token": "mock_token_jkl", "vials": ["vial1"]}
+        response = {"access_token": "mock_token_pqr", "vials": ["vial1"]}
         return jsonify(validate_response(response)), 200
     except Exception as e:
         logger.error(f"OAuth Error: {str(e)}")
         return jsonify(ErrorHandler.handle_error(e)), 500
+
+@app.errorhandler(404)
+def not_found(e):
+    logger.error(f"404 Error: {str(e)} - Requested path: {request.path}")
+    return jsonify(ErrorHandler.handle_error(f"Endpoint not found: {request.path}", "Routing error")), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
