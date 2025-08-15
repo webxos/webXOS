@@ -1,21 +1,15 @@
-# main/server/mcp/utils/error_handler.py
-import traceback
-from typing import Any
-
-class MCPError(Exception):
-    def __init__(self, code: int, message: str):
-        self.code = code
-        self.message = message
-        super().__init__(self.message)
-
-def handle_error(error: Exception) -> dict:
-    error_dict = {
-        "jsonrpc": "2.0",
-        "error": {
-            "code": -32603 if not isinstance(error, MCPError) else error.code,
+class ErrorHandler:
+    @staticmethod
+    def handle_error(error, context=""):
+        error_dict = {
+            "code": -32000 if "network" in str(error).lower() or "json" in str(error).lower() else -32603,
             "message": str(error),
-            "traceback": traceback.format_exc()
-        },
-        "id": None
-    }
-    return error_dict
+            "traceback": context or str(error)
+        }
+        if "json" in str(error).lower():
+            error_dict["message"] = f"JSON parse error: {str(error)}"
+        return {"error": error_dict}
+
+    @staticmethod
+    def log_error(error, logger):
+        logger.error(f"Error: {error['message']}, Traceback: {error['traceback']}")
