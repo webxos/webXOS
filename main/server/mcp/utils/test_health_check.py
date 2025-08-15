@@ -1,33 +1,78 @@
 # main/server/mcp/utils/test_health_check.py
-import unittest
+import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .health_check import app, HealthStatus
+from ..utils.health_check import HealthStatus, router
+from ..utils.mcp_error_handler import MCPError
 
-class TestHealthCheck(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+@pytest.fixture
+def client():
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    return TestClient(app)
 
-    @patch.object(HealthStatus, 'check_mongo')
-    @patch.object(HealthStatus, 'check_redis')
-    def test_health_check_healthy(self, mock_check_redis, mock_check_mongo):
-        mock_check_mongo.return_value = True
-        mock_check_redis.return_value = True
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["overall"])
-        self.assertTrue(response.json()["mongo"])
-        self.assertTrue(response.json()["redis"])
-        self.assertIn("timestamp", response.json())
+@pytest.fixture
+def health_status(mocker):
+    status = HealthStatus()
+    yield status
+    status.close()
 
-    @patch.object(HealthStatus, 'check_mongo')
-    @patch.object(HealthStatus, 'check_redis')
-    def test_health_check_unhealthy_mongo(self, mock_check_redis, mock_check_mongo):
-        mock_check_mongo.return_value = False
-        mock_check_redis.return_value = True
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["detail"], "One or more services are unhealthy")
+@pytest.mark.asyncio
+async def test_health_check_healthy(client, health_status, mocker):
+    mocker.patch.object(health_status, 'check_mongodb', return_value=True)
+    mocker.patch.object(health_status, 'check_redis', return_value=True)
+    
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "services": {
+            "mongodb": "up",
+            "redis": "up"
+        }
+    }
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_health_check_unhealthy(client, health_status, mocker):
+    mocker.patch.object(health_status, 'check_mongodb', return_value=False)
+    mocker.patch.object(health_status, 'check_redis', return_value=True)
+    
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "unhealthy",
+        "services": {
+            "mongodb": "down",
+            "redis": "up"
+        }
+    }
+
+@pytest.mark.asyncio
+async def test_readiness_check_ready(client, health_status, mocker):
+    mocker.patch.object(health_status, 'check_mongodb', return_value=True)
+    mocker.patch.object(health_status, 'check_redis', return_value=True)
+    
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "services": {
+            "mongodb": "up",
+            "redis": "up"
+        }
+    }
+
+@pytest.mark.asyncio
+async def test_readiness_check_not_ready(client, health_status, mocker):
+    mocker.patch.object(health_status, 'check_mongodb', return_value=False)
+    mocker.patch.object(health_status, 'check_redis', return_value=True)
+    
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "not ready",
+        "services": {
+            "mongodb": "down",
+            "redis": "up"
+        }
+    }
