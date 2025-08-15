@@ -1,42 +1,37 @@
 # main/server/mcp/utils/test_performance_metrics.py
-import unittest
-from unittest.mock import patch
-from .performance_metrics import PerformanceMetrics
-import jwt
-from datetime import datetime, timedelta
+import pytest
+from ..utils.performance_metrics import PerformanceMetrics, MCPError
 
-class TestPerformanceMetrics(unittest.TestCase):
-    def setUp(self):
-        self.metrics = PerformanceMetrics()
+@pytest.fixture
+def metrics():
+    return PerformanceMetrics()
 
-    @patch('opentelemetry.trace.get_tracer')
-    def test_track_span(self, mock_get_tracer):
-        mock_span = mock_get_tracer.return_value.start_span.return_value
-        with self.metrics.track_span("test_operation", {"key": "value"}):
-            pass
-        mock_get_tracer.assert_called_with("vial_mcp_tracer")
-        mock_span.set_attributes.assert_called_with({"key": "value"})
-        mock_span.end.assert_called_once()
+@pytest.mark.asyncio
+async def test_record_request(metrics):
+    metrics.record_request("/mcp", 0.123)
+    metrics_data = metrics.get_metrics()
+    assert metrics_data["requests_total"][("/mcp",)] == 1
+    assert metrics_data["request_latency"][("/mcp",)] == 0.123
 
-    @patch('opentelemetry.metrics.get_meter')
-    def test_record_error(self, mock_get_meter):
-        mock_counter = mock_get_meter.return_value.create_counter.return_value
-        self.metrics.record_error("test_context", "test_error")
-        mock_get_meter.assert_called_with("vial_mcp_metrics")
-        mock_counter.add.assert_called_with(1, {"context": "test_context", "error": "test_error"})
+@pytest.mark.asyncio
+async def test_record_error(metrics):
+    metrics.record_error("/mcp", -32601)
+    metrics_data = metrics.get_metrics()
+    assert metrics_data["errors_total"][("/mcp", "-32601")] == 1
 
-    def test_verify_token(self):
-        token = jwt.encode(
-            {"sub": "test_user", "iat": datetime.utcnow(), "exp": datetime.utcnow() + timedelta(minutes=30)},
-            "secret_key",
-            algorithm="HS256"
-        )
-        payload = self.metrics.verify_token(token)
-        self.assertEqual(payload["sub"], "test_user")
+@pytest.mark.asyncio
+async def test_set_active_agents(metrics):
+    metrics.set_active_agents("vial1", 5)
+    metrics_data = metrics.get_metrics()
+    assert metrics_data["active_agents"][("vial1",)] == 5
 
-    def test_verify_token_invalid(self):
-        with self.assertRaises(jwt.InvalidTokenError):
-            self.metrics.verify_token("invalid_token")
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_get_metrics(metrics):
+    metrics.record_request("/mcp", 0.123)
+    metrics.record_error("/mcp", -32601)
+    metrics.set_active_agents("vial1", 5)
+    metrics_data = metrics.get_metrics()
+    assert "requests_total" in metrics_data
+    assert "request_latency" in metrics_data
+    assert "errors_total" in metrics_data
+    assert "active_agents" in metrics_data
