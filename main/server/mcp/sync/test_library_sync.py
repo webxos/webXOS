@@ -1,38 +1,80 @@
 # main/server/mcp/sync/test_library_sync.py
-import unittest
-from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .library_sync import app, db_manager
+import pytest
+from pymongo import MongoClient
+from ..sync.library_sync import LibrarySync, MCPError
+from ..agents.global_mcp_agents import GlobalMCPAgents
+from datetime import datetime
 
-class TestLibrarySync(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+@pytest.fixture
+async def library_sync():
+    sync = LibrarySync()
+    yield sync
+    sync.sync_log.delete_many({})
+    sync.close()
 
-    @patch.object(db_manager, 'find_one')
-    @patch.object(db_manager, 'insert_one')
-    @patch.object(db_manager, 'update_one')
-    @patch('requests.post')
-    def test_sync_library(self, mock_post, mock_update, mock_insert, mock_find):
-        mock_find.return_value = None
-        mock_insert.return_value = "item123"
-        mock_post.return_value.raise_for_status.return_value = None
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.post(
-                "/sync/library",
-                json={
-                    "user_id": "test_user",
-                    "item_id": "item123",
-                    "node_id": "node1",
-                    "item_data": {"title": "Test Resource", "content": "Sample content"}
-                },
-                headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["user_id"], "test_user")
-        self.assertEqual(response.json()["item_id"], "item123")
-        mock_insert.assert_called()
-        mock_post.assert_called()
+@pytest.fixture
+async def global_agents():
+    agents = GlobalMCPAgents()
+    yield agents
+    agents.collection.delete_many({})
+    agents.close()
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_sync_resources(library_sync, global_agents, mocker):
+    # Mock library agent
+    mocker.patch.object(library_sync.library_agent, 'list_resources', return_value=[])
+    mocker.patch.object(library_sync.library_agent, 'add_resource', return_value={"status": "success", "resource_id": "123"})
+    
+    # Create agent
+    create_result = await global_agents.create_agent(
+        vial_id="vial1",
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
+    
+    # Test sync
+    resources = [
+        {
+            "name": "Test Dataset",
+            "uri": "https://example.com/dataset",
+            "type": "dataset",
+            "metadata": {"size": "1GB"}
+        }
+    ]
+    result = await library_sync.sync_resources("test_user", agent_id, "external_service", resources)
+    assert result["status"] == "success"
+    assert result["added"] == 1
+    assert result["updated"] == 0
+    assert "sync_id" in result
+
+@pytest.mark.asyncio
+async def test_sync_resources_invalid(library_sync):
+    with pytest.raises(MCPError) as exc_info:
+        await library_sync.sync_resources("", "agent1", "external_service", [])
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "User ID, agent ID, and external service are required"
+
+@pytest.mark.asyncio
+async def test_get_sync_history(library_sync, global_agents, mocker):
+    mocker.patch.object(library_sync.library_agent, 'list_resources', return_value=[])
+    mocker.patch.object(library_sync.library_agent, 'add_resource', return_value={"status": "success", "resource_id": "123"})
+    
+    create_result = await global_agents.create_agent(
+        vial_id="vial1",
+        tasks=["manage_resources"],
+        config={"resource_type": "dataset"},
+        user_id="test_user"
+    )
+    agent_id = create_result["agent_id"]
+    
+    await library_sync.sync_resources("test_user", agent_id, "external_service", [
+        {"name": "Test Dataset", "uri": "https://example.com/dataset", "type": "dataset", "metadata": {"size": "1GB"}}
+    ])
+    
+    history = await library_sync.get_sync_history("test_user", agent_id)
+    assert len(history) == 1
+    assert history[0]["external_service"] == "external_service"
+    assert history[0]["added"] == 1
+    assert history[0]["updated"] == 0
