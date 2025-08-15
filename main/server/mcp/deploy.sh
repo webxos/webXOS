@@ -14,11 +14,13 @@ netlify functions:list | grep -E "auth|troubleshoot" > /dev/null 2>&1 || {
   exit 1
 }
 
-echo "Testing endpoint availability..."
+echo "Testing OAuth endpoint..."
 curl -s -X POST -H "Content-Type: application/json" -d '{"provider":"mock","code":"test_code"}' https://webxos.netlify.app/vial2/api/auth/oauth -o /dev/null -w "%{http_code}" | grep -q 200 || {
   echo "Error: OAuth endpoint returned non-200 status. Check routing or deployment."
   exit 1
 }
+
+echo "Testing Troubleshoot endpoint..."
 curl -s -X POST https://webxos.netlify.app/vial2/api/troubleshoot -o /dev/null -w "%{http_code}" | grep -q 200 || {
   echo "Error: Troubleshoot endpoint returned non-200 status. Check routing or deployment."
   exit 1
