@@ -1,66 +1,90 @@
 # main/server/mcp/api_gateway/service_registry.py
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict
-from ..db.db_manager import DBManager
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime
+from typing import Dict, List, Optional
+from pymongo import MongoClient
+from ..utils.mcp_error_handler import MCPError
 import os
+import time
 
-app = FastAPI(title="Vial MCP Service Registry")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
+class ServiceInstance:
+    def __init__(self, service_id: str, address: str, port: int, metadata: Dict[str, str]):
+        self.service_id = service_id
+        self.address = address
+        self.port = port
+        self.metadata = metadata
+        self.last_heartbeat = time.time()
 
-class Service(BaseModel):
-    name: str
-    url: str
-    health_check: str
-    metadata: Dict = {}
+class ServiceRegistry:
+    def __init__(self):
+        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.collection = self.db["services"]
+        self.heartbeat_timeout = 30  # Seconds
 
-class ServiceResponse(BaseModel):
-    service_id: str
-    name: str
-    url: str
-    health_check: str
-    metadata: Dict
-    timestamp: str
-
-@app.post("/services", response_model=ServiceResponse)
-async def register_service(service: Service, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("register_service", {"name": service.name}):
+    async def register_service(self, service_name: str, address: str, port: int, metadata: Dict[str, str]) -> str:
         try:
-            metrics.verify_token(token)
-            service_data = service.dict()
-            service_data["timestamp"] = datetime.utcnow()
-            service_id = db_manager.insert_one("services", service_data)
-            return ServiceResponse(service_id=service_id, **service_data)
+            if not service_name or not address or not port:
+                raise MCPError(code=-32602, message="Service name, address, and port are required")
+            service_id = f"{service_name}:{address}:{port}"
+            service = {
+                "service_id": service_id,
+                "service_name": service_name,
+                "address": address,
+                "port": port,
+                "metadata": metadata,
+                "last_heartbeat": time.time()
+            }
+            self.collection.update_one(
+                {"service_id": service_id},
+                {"$set": service},
+                upsert=True
+            )
+            return service_id
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="register_service")
-            raise HTTPException(status_code=500, detail=f"Failed to register service: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to register service: {str(e)}")
 
-@app.get("/services", response_model=List[ServiceResponse])
-async def list_services(token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("list_services"):
+    async def deregister_service(self, service_id: str) -> None:
         try:
-            metrics.verify_token(token)
-            services = db_manager.find_many("services", {})
-            return [ServiceResponse(service_id=str(service["_id"]), **service) for service in services]
+            result = self.collection.delete_one({"service_id": service_id})
+            if result.deleted_count == 0:
+                raise MCPError(code=-32003, message="Service not found")
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="list_services")
-            raise HTTPException(status_code=500, detail=f"Failed to list services: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to deregister service: {str(e)}")
 
-@app.get("/services/{name}", response_model=ServiceResponse)
-async def get_service(name: str, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("get_service", {"name": name}):
+    async def update_heartbeat(self, service_id: str) -> None:
         try:
-            metrics.verify_token(token)
-            service = db_manager.find_one("services", {"name": name})
-            if not service:
-                raise HTTPException(status_code=404, detail="Service not found")
-            return ServiceResponse(service_id=str(service["_id"]), **service)
+            result = self.collection.update_one(
+                {"service_id": service_id},
+                {"$set": {"last_heartbeat": time.time()}}
+            )
+            if result.matched_count == 0:
+                raise MCPError(code=-32003, message="Service not found")
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="get_service")
-            raise HTTPException(status_code=500, detail=f"Failed to retrieve service: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to update heartbeat: {str(e)}")
+
+    async def get_services(self, service_name: str) -> List[Dict[str, any]]:
+        try:
+            current_time = time.time()
+            services = self.collection.find({
+                "service_name": service_name,
+                "last_heartbeat": {"$gt": current_time - self.heartbeat_timeout}
+            })
+            return [
+                {
+                    "service_id": s["service_id"],
+                    "address": s["address"],
+                    "port": s["port"],
+                    "metadata": s["metadata"]
+                }
+                for s in services
+            ]
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to retrieve services: {str(e)}")
+
+    def close(self):
+        self.client.close()
