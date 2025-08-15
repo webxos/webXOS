@@ -226,15 +226,13 @@
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, options);
-                    if (response.status === 404) {
-                        log(`Error: Endpoint not found (${url})`, true);
-                        flashRedGlow();
-                        return { status: 404, json: () => ({ error: 'Endpoint not found', path: url }) };
-                    }
                     if (!response.ok) {
                         const text = await response.text();
-                        log(`HTTP Error ${response.status}: ${text}`, true);
+                        log(`HTTP Error ${response.status} (${url}): ${text}`, true);
                         flashRedGlow();
+                        if (response.status === 404) {
+                            return { status: 404, json: () => ({ error: 'Endpoint not found', path: url }) };
+                        }
                         throw new Error(`HTTP ${response.status}`);
                     }
                     const text = await response.text();
@@ -258,18 +256,24 @@
 
         async function testBackend() {
             const endpoints = [
-                '/.netlify/functions/api/auth/oauth',
-                '/.netlify/functions/api/troubleshoot',
-                '/.netlify/functions/api/health',
-                '/.netlify/functions/api/404'
+                '/.netlify/functions/oauth',
+                '/.netlify/functions/troubleshoot',
+                '/.netlify/functions/health',
+                '/.netlify/functions/404'
             ];
             for (const endpoint of endpoints) {
                 try {
                     const response = await fetchWithRetry(endpoint, { method: 'GET' });
                     const data = await response.json();
-                    log(`Endpoint ${endpoint}: ${JSON.stringify(data)}`, true);
+                    if (data.error) {
+                        log(`Endpoint ${endpoint} failed: ${data.error}`, true);
+                        flashRedGlow();
+                    } else {
+                        log(`Endpoint ${endpoint}: ${JSON.stringify(data)}`, true);
+                    }
                 } catch (error) {
                     log(`Endpoint ${endpoint} failed: ${error.message}`, true);
+                    flashRedGlow();
                 }
             }
         }
@@ -279,11 +283,17 @@
             flashRedGlow();
             try {
                 log('Running system diagnostics...', true);
-                const response = await fetchWithRetry('/.netlify/functions/api/troubleshoot', { method: 'GET' });
+                const response = await fetchWithRetry('/.netlify/functions/troubleshoot', { method: 'GET' });
                 const data = await response.json();
-                log(data.message || 'Troubleshoot complete', true);
+                if (data.error) {
+                    log(`Troubleshoot failed: ${data.error}`, true);
+                    flashRedGlow();
+                } else {
+                    log(data.message || 'Troubleshoot complete', true);
+                }
             } catch (error) {
                 log(`Troubleshoot error: ${error.message}`, true);
+                flashRedGlow();
             }
         });
 
@@ -292,9 +302,12 @@
             flashRedGlow();
             try {
                 log('Initiating OAuth authentication...', true);
-                const response = await fetchWithRetry('/.netlify/functions/api/auth/oauth', { method: 'GET' });
+                const response = await fetchWithRetry('/.netlify/functions/oauth', { method: 'GET' });
                 const data = await response.json();
-                if (data.redirect) {
+                if (data.error) {
+                    log(`OAuth failed: ${data.error}`, true);
+                    flashRedGlow();
+                } else if (data.redirect) {
                     window.location.href = data.redirect;
                 } else {
                     isAuthenticated = true;
@@ -303,6 +316,7 @@
                 }
             } catch (error) {
                 log(`OAuth error: ${error.message}`, true);
+                flashRedGlow();
             }
         });
 
@@ -316,11 +330,17 @@
             flashRedGlow();
             try {
                 log('Accessing dashboard...', true);
-                const response = await fetchWithRetry('/.netlify/functions/api/health', { method: 'GET' });
+                const response = await fetchWithRetry('/.netlify/functions/health', { method: 'GET' });
                 const data = await response.json();
-                log(data.status || 'Dashboard access granted', true);
+                if (data.error) {
+                    log(`Dashboard failed: ${data.error}`, true);
+                    flashRedGlow();
+                } else {
+                    log(data.status || 'Dashboard access granted', true);
+                }
             } catch (error) {
                 log(`Dashboard error: ${error.message}`, true);
+                flashRedGlow();
             }
         });
 
