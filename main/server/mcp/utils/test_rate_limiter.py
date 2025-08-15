@@ -1,41 +1,46 @@
 # main/server/mcp/utils/test_rate_limiter.py
-import unittest
-from unittest.mock import patch
-from .rate_limiter import RateLimiter
+import pytest
+import redis.asyncio as redis
+from ..utils.rate_limiter import RateLimiter, MCPError
+import time
 
-class TestRateLimiter(unittest.TestCase):
-    def setUp(self):
-        self.rate_limiter = RateLimiter()
+@pytest.fixture
+async def rate_limiter():
+    limiter = RateLimiter()
+    yield limiter
+    await limiter.clear_rate_limit("test_user")
+    await limiter.close()
 
-    @patch('redis.Redis')
-    def test_check_rate_limit_redis(self, mock_redis):
-        mock_redis.return_value.incr.return_value = 1
-        mock_redis.return_value.expire.return_value = None
-        result = self.rate_limiter.check_rate_limit("test_user")
-        self.assertTrue(result)
-        mock_redis.return_value.incr.assert_called_with("rate_limit:test_user:0")
-        mock_redis.return_value.expire.assert_called_with("rate_limit:test_user:0", 60)
+@pytest.mark.asyncio
+async def test_rate_limit_within_limit(rate_limiter):
+    for _ in range(50):  # Within limit of 60
+        await rate_limiter.check_rate_limit("test_user", "/mcp")
+    assert True  # No exception means success
 
-    def test_check_rate_limit_in_memory(self):
-        self.rate_limiter.redis_client = None
-        result = self.rate_limiter.check_rate_limit("test_user")
-        self.assertTrue(result)
-        self.assertEqual(self.rate_limiter.in_memory_cache["rate_limit:test_user:0"]["count"], 1)
+@pytest.mark.asyncio
+async def test_rate_limit_exceeded(rate_limiter):
+    for _ in range(60):  # Reach limit
+        await rate_limiter.check_rate_limit("test_user", "/mcp")
+    
+    with pytest.raises(MCPError) as exc_info:
+        await rate_limiter.check_rate_limit("test_user", "/mcp")
+    assert exc_info.value.code == -32029
+    assert exc_info.value.message == "Rate limit exceeded"
 
-    @patch('redis.Redis')
-    def test_reset_rate_limit_redis(self, mock_redis):
-        mock_redis.return_value.keys.return_value = ["rate_limit:test_user:0"]
-        mock_redis.return_value.delete.return_value = 1
-        result = self.rate_limiter.reset_rate_limit("test_user")
-        self.assertTrue(result)
-        mock_redis.return_value.delete.assert_called_with("rate_limit:test_user:0")
+@pytest.mark.asyncio
+async def test_burst_limit(rate_limiter, mocker):
+    mocker.patch("time.time", return_value=1000)
+    for _ in range(10):  # Within burst limit
+        await rate_limiter.check_rate_limit("test_user", "/mcp")
+    
+    with pytest.raises(MCPError) as exc_info:
+        await rate_limiter.check_rate_limit("test_user", "/mcp")
+    assert exc_info.value.code == -32029
+    assert exc_info.value.message == "Burst limit exceeded"
 
-    def test_reset_rate_limit_in_memory(self):
-        self.rate_limiter.redis_client = None
-        self.rate_limiter.in_memory_cache["rate_limit:test_user:0"] = {"count": 1, "expiry": int(time.time()) + 60}
-        result = self.rate_limiter.reset_rate_limit("test_user")
-        self.assertTrue(result)
-        self.assertNotIn("rate_limit:test_user:0", self.rate_limiter.in_memory_cache)
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_clear_rate_limit(rate_limiter):
+    await rate_limiter.check_rate_limit("test_user", "/mcp")
+    await rate_limiter.clear_rate_limit("test_user")
+    await rate_limiter.check_rate_limit("test_user", "/mcp")  # Should not raise
+    assert True
