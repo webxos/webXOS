@@ -1,45 +1,66 @@
 # main/server/mcp/utils/test_webhook_manager.py
-import unittest
+import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .webhook_manager import app, db_manager
+from ..utils.webhook_manager import WebhookManager, router
+from ..utils.mcp_error_handler import MCPError
 
-class TestWebhookManager(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+@pytest.fixture
+def client():
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    return TestClient(app)
 
-    @patch.object(db_manager, 'insert_one')
-    def test_register_webhook(self, mock_insert):
-        mock_insert.return_value = "webhook123"
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.post(
-                "/webhooks",
-                json={"user_id": "test_user", "url": "http://example.com/webhook", "event_type": "vial_update"},
-                headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["webhook_id"], "webhook123")
-        self.assertEqual(response.json()["event_type"], "vial_update")
-        mock_insert.assert_called_once()
+@pytest.fixture
+async def webhook_manager():
+    manager = WebhookManager()
+    yield manager
+    await manager.redis_client.flushdb()
+    await manager.close()
 
-    @patch.object(db_manager, 'find_many')
-    @patch.object(db_manager, 'insert_one')
-    @patch('requests.post')
-    def test_notify_webhooks(self, mock_post, mock_insert, mock_find):
-        mock_find.return_value = [{"_id": "webhook123", "url": "http://example.com/webhook", "event_type": "vial_update"}]
-        mock_post.return_value.raise_for_status.return_value = None
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.post(
-                "/webhooks/notify/vial_update",
-                json={"data": "test_event"},
-                headers={"Authorization": f"Bearer {token}"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "success")
-        mock_find.assert_called_with("webhooks", {"event_type": "vial_update"})
-        mock_post.assert_called_with("http://example.com/webhook", json={"data": "test_event"}, timeout=5)
+@pytest.mark.asyncio
+async def test_register_webhook(webhook_manager):
+    webhook_id = await webhook_manager.register_webhook(
+        user_id="test_user",
+        endpoint="https://example.com/webhook",
+        event_types=["note_created", "agent_updated"]
+    )
+    assert webhook_id in webhook_manager.webhooks
+    assert webhook_manager.webhooks[webhook_id]["user_id"] == "test_user"
+    assert webhook_manager.webhooks[webhook_id]["endpoint"] == "https://example.com/webhook"
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_register_webhook_invalid(webhook_manager):
+    with pytest.raises(MCPError) as exc_info:
+        await webhook_manager.register_webhook("test_user", "", ["note_created"])
+    assert exc_info.value.code == -32602
+    assert exc_info.value.message == "Endpoint and event types are required"
+
+@pytest.mark.asyncio
+async def test_publish_event(webhook_manager, mocker):
+    mocker.patch("redis.asyncio.Redis.publish")
+    webhook_id = await webhook_manager.register_webhook(
+        user_id="test_user",
+        endpoint="https://example.com/webhook",
+        event_types=["note_created"]
+    )
+    await webhook_manager.publish_event("note_created", {"note_id": "123"})
+    webhook_manager.redis_client.publish.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_deregister_webhook(webhook_manager):
+    webhook_id = await webhook_manager.register_webhook(
+        user_id="test_user",
+        endpoint="https://example.com/webhook",
+        event_types=["note_created"]
+    )
+    await webhook_manager.deregister_webhook(webhook_id, "test_user")
+    assert webhook_id not in webhook_manager.webhooks
+    assert await webhook_manager.redis_client.get(f"webhook:{webhook_id}") is None
+
+@pytest.mark.asyncio
+async def test_deregister_webhook_invalid(webhook_manager):
+    with pytest.raises(MCPError) as exc_info:
+        await webhook_manager.deregister_webhook("invalid_id", "test_user")
+    assert exc_info.value.code == -32003
+    assert exc_info.value.message == "Webhook not found or access denied"
