@@ -1,78 +1,87 @@
 # main/server/mcp/agents/global_mcp_agents.py
-from fastapi import FastAPI, Depends, HTTPException
+from typing import List, Dict, Any, Optional
+from pymongo import MongoClient
 from pydantic import BaseModel
-from typing import Dict, List
-from ..db.db_manager import DBManager
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime
+from bson import ObjectId
+from ..utils.mcp_error_handler import MCPError
+from ..wallet.webxos_wallet import WalletService
 import os
-import json
 
-app = FastAPI(title="Vial MCP Global Agents")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
-
-class AgentTask(BaseModel):
-    task_id: str
-    user_id: str
-    task_type: str
-    parameters: Dict
-    status: str = "pending"
-
-class AgentTaskResponse(BaseModel):
-    task_id: str
-    user_id: str
-    task_type: str
+class Agent(BaseModel):
+    agent_id: str
+    vial_id: str
     status: str
-    result: Dict
-    timestamp: str
+    tasks: List[str]
+    config: Dict[str, Any]
+    user_id: str
+    wallet_address: Optional[str] = None
 
-class GlobalAgents:
+class GlobalMCPAgents:
     def __init__(self):
-        self.metrics = PerformanceMetrics()
-        self.db_manager = DBManager()
+        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.collection = self.db["agents"]
+        self.wallet_service = WalletService()
 
-    async def execute_task(self, task: AgentTask) -> Dict:
-        with self.metrics.track_span("execute_task", {"task_id": task.task_id, "task_type": task.task_type}):
-            try:
-                # Simulate task execution (e.g., scheduling, resource allocation)
-                result = {"status": "completed", "output": f"Processed {task.task_type} with params {task.parameters}"}
-                task_data = task.dict()
-                task_data["result"] = result
-                task_data["timestamp"] = datetime.utcnow()
-                task_data["status"] = "completed"
-                self.db_manager.update_one("tasks", {"task_id": task.task_id}, task_data)
-                return result
-            except Exception as e:
-                handle_generic_error(e, context="execute_task")
-                raise
-
-global_agents = GlobalAgents()
-
-@app.post("/agents/tasks", response_model=AgentTaskResponse)
-async def create_task(task: AgentTask, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("create_task", {"task_id": task.task_id, "user_id": task.user_id}):
+    async def create_agent(self, vial_id: str, tasks: List[str], config: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         try:
-            metrics.verify_token(token)
-            task_data = task.dict()
-            task_data["timestamp"] = datetime.utcnow()
-            task_id = db_manager.insert_one("tasks", task_data)
-            result = await global_agents.execute_task(task)
-            return AgentTaskResponse(task_id=task_id, result=result, **task_data)
+            if not vial_id.startswith("vial"):
+                raise MCPError(code=-32602, message="Invalid vial ID: Must start with 'vial'")
+            if len(tasks) > 10:
+                raise MCPError(code=-32602, message="Maximum 10 tasks allowed")
+            wallet_address = await self.wallet_service.create_wallet(user_id)
+            agent = {
+                "vial_id": vial_id,
+                "status": "stopped",
+                "tasks": tasks,
+                "config": config,
+                "user_id": user_id,
+                "wallet_address": wallet_address
+            }
+            result = self.collection.insert_one(agent)
+            return {
+                "status": "success",
+                "agent_id": str(result.inserted_id),
+                "wallet_address": wallet_address
+            }
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="create_task")
-            raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to create agent: {str(e)}")
 
-@app.get("/agents/tasks/{user_id}", response_model=List[AgentTaskResponse])
-async def list_tasks(user_id: str, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("list_tasks", {"user_id": user_id}):
+    async def update_agent_status(self, agent_id: str, status: str, user_id: str) -> Dict[str, Any]:
         try:
-            metrics.verify_token(token)
-            tasks = db_manager.find_many("tasks", {"user_id": user_id})
-            return [AgentTaskResponse(task_id=str(task["_id"]), **task) for task in tasks]
+            if status not in ["stopped", "running", "training"]:
+                raise MCPError(code=-32602, message="Invalid status: Must be stopped, running, or training")
+            result = self.collection.update_one(
+                {"_id": ObjectId(agent_id), "user_id": user_id},
+                {"$set": {"status": status}}
+            )
+            if result.matched_count == 0:
+                raise MCPError(code=-32003, message="Agent not found or access denied")
+            return {"status": "success", "agent_id": agent_id}
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="list_tasks")
-            raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to update agent status: {str(e)}")
+
+    async def list_agents(self, user_id: str) -> List[Dict[str, Any]]:
+        try:
+            agents = self.collection.find({"user_id": user_id}).limit(100)
+            return [
+                {
+                    "agent_id": str(agent["_id"]),
+                    "vial_id": agent["vial_id"],
+                    "status": agent["status"],
+                    "tasks": agent["tasks"],
+                    "config": agent["config"],
+                    "user_id": agent["user_id"],
+                    "wallet_address": agent.get("wallet_address")
+                }
+                for agent in agents
+            ]
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to list agents: {str(e)}")
+
+    def close(self):
+        self.client.close()
