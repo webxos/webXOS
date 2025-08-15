@@ -1,34 +1,20 @@
 # main/server/mcp/Dockerfile
-FROM python:3.11-slim-bullseye
+# Multi-stage build for secure Vial MCP Controller
 
-# Install security updates and dependencies
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN adduser --disabled-password --gecos '' appuser
-
-# Set working directory
+# Build stage
+FROM python:3.11-slim AS builder
 WORKDIR /app
-
-# Copy and install dependencies
-COPY requirements.txt .
+COPY ./requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Final stage
+FROM python:3.11-slim
+WORKDIR /app
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
-
-# Switch to non-root user
-USER appuser
-
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run the application
-CMD ["uvicorn", "main.server.mcp.unified_server:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN useradd -m mcpuser && chown -R mcpuser:mcpuser /app
+USER mcpuser
+EXPOSE 8080
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "unified_server.py"]
