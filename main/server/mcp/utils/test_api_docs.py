@@ -1,38 +1,38 @@
 # main/server/mcp/utils/test_api_docs.py
-import unittest
-from fastapi.testclient import TestClient
-from unittest.mock import patch
-from .api_docs import app, APIDocs
+import pytest
+from ..utils.api_docs import APIDocs, MCPError
+import json
 
-class TestAPIDocs(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
-        self.api_docs = APIDocs()
+@pytest.fixture
+def api_docs():
+    return APIDocs()
 
-    @patch('main.server.mcp.utils.api_config.APIConfig.list_endpoints')
-    def test_generate_openapi(self, mock_list_endpoints):
-        mock_list_endpoints.return_value = [
-            type("Endpoint", (), {"name": "test", "url": "http://test", "method": "GET", "requires_auth": True})
-        ]
-        schema = self.api_docs.generate_openapi(app)
-        self.assertEqual(schema["info"]["title"], "Vial MCP API")
-        self.assertIn("/test", schema["paths"])
-        self.assertEqual(schema["paths"]["/test"]["get"]["summary"], "Access test service")
+@pytest.mark.asyncio
+async def test_generate_docs(api_docs, mocker):
+    mocker.patch.object(api_docs.api_config, "load_config", return_value={
+        "endpoints": {
+            "mcp.createSession": {"enabled": True, "auth_required": True},
+            "mcp.initiateMFA": {"enabled": True, "auth_required": False}
+        }
+    })
+    docs = api_docs.generate_docs()
+    assert "# Vial MCP Controller API Documentation" in docs
+    assert "### mcp.createSession" in docs
+    assert "Auth Required: True" in docs
+    assert "user_id (string, required)" in docs
+    assert "```json" in docs
 
-    @patch('yaml.dump')
-    def test_save_openapi_yaml(self, mock_yaml_dump):
-        schema = {"info": {"title": "Test API"}}
-        self.api_docs.save_openapi_yaml(schema)
-        mock_yaml_dump.assert_called_with(schema, unittest.mock.ANY, sort_keys=False)
+@pytest.mark.asyncio
+async def test_generate_docs_no_endpoints(api_docs, mocker):
+    mocker.patch.object(api_docs.api_config, "load_config", return_value={"endpoints": {}})
+    docs = api_docs.generate_docs()
+    assert "# Vial MCP Controller API Documentation" in docs
+    assert "### mcp.createSession" not in docs
 
-    @patch('main.server.mcp.utils.api_docs.APIDocs.generate_openapi')
-    def test_get_openapi_docs(self, mock_generate):
-        mock_generate.return_value = {"info": {"title": "Vial MCP API"}}
-        token = "mock_token"
-        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
-            response = self.client.get("/docs/openapi", headers={"Authorization": f"Bearer {token}"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["info"]["title"], "Vial MCP API")
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_generate_docs_error(api_docs, mocker):
+    mocker.patch.object(api_docs.api_config, "load_config", side_effect=Exception("Config error"))
+    with pytest.raises(MCPError) as exc_info:
+        api_docs.generate_docs()
+    assert exc_info.value.code == -32603
+    assert "Failed to generate API docs" in exc_info.value.message
