@@ -1,39 +1,45 @@
 # main/server/mcp/wallet/test_webxos_wallet.py
 import unittest
+from fastapi.testclient import TestClient
 from unittest.mock import patch
-from .webxos_wallet import WebXOSWallet
+from .webxos_wallet import app
 from datetime import datetime
 
-class TestWebXOSWallet(unittest.TestCase):
+class TestMCPWalletServer(unittest.TestCase):
     def setUp(self):
-        self.wallet_manager = WebXOSWallet()
+        self.client = TestClient(app)
 
     @patch('pymongo.MongoClient')
     @patch('web3.Web3')
-    async def test_create_wallet(self, mock_web3, mock_mongo):
-        mock_web3.eth.account.create.return_value = type('Account', (), {'address': '0x123', 'privateKey': 'key'})
-        mock_web3.keccak.return_value.hex.return_value = '0xhash'
-        wallet = await self.wallet_manager.create_wallet("test_user")
-        self.assertEqual(wallet["user_id"], "test_user")
-        self.assertEqual(wallet["address"], "0x123")
-        self.assertEqual(wallet["hash"], "0xhash")
-        self.assertEqual(len(wallet["transactions"]), 1)
-        self.assertEqual(wallet["transactions"][0]["type"], "created")
+    def test_verify_wallet(self, mock_web3, mock_mongo):
+        mock_web3.return_value.eth.get_balance.return_value = 1000000000000000000  # 1 ETH
+        mock_web3.return_value.is_address.return_value = True
+        mock_mongo.return_value.vial_mcp.wallets.update_one.return_value = None
+        token = "mock_token"
+        with patch.object(app.dependency_overrides.get("oauth2_scheme"), "verify_token", return_value={"sub": "test_user"}):
+            response = self.client.get(
+                "/wallet/verify?user_id=test_user&address=0x1234567890abcdef1234567890abcdef12345678",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_id"], "test_user")
+        self.assertEqual(response.json()["balance"], 1.0)
 
     @patch('pymongo.MongoClient')
-    async def test_import_wallet(self, mock_mongo):
-        wallet_data = """
-## Wallet
-- Address: 0x123
-- Balance: 10.0 $WEBXOS
-- Hash: 0xhash
-- Transactions: []
-"""
-        wallet = await self.wallet_manager.import_wallet("test_user", wallet_data)
-        self.assertEqual(wallet["address"], "0x123")
-        self.assertEqual(wallet["webxos"], 10.0)
-        self.assertEqual(len(wallet["transactions"]), 1)
-        self.assertEqual(wallet["transactions"][0]["type"], "imported")
+    @patch('web3.Web3')
+    def test_transact(self, mock_web3, mock_mongo):
+        mock_web3.return_value.is_address.return_value = True
+        mock_mongo.return_value.vial_mcp.wallets.find_one.return_value = {"user_id": "test_user", "address": "0x1234567890abcdef1234567890abcdef12345678"}
+        mock_mongo.return_value.vial_mcp.wallets.insert_one.return_value = None
+        token = "mock_token"
+        with patch.object(app.dependency_overrides.get("oauth2_scheme"), "verify_token", return_value={"sub": "test_user"}):
+            response = self.client.post(
+                "/wallet/transact",
+                json={"user_id": "test_user", "to_address": "0xabcdef1234567890abcdef1234567890abcdef12", "amount": 0.1, "currency": "ETH"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
 
 if __name__ == "__main__":
     unittest.main()
