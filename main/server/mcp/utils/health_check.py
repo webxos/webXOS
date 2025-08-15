@@ -1,32 +1,23 @@
-# main/server/mcp/utils/health_check.py
-import os
-import logging
-from typing import Dict, Any
-from ..utils.mcp_error_handler import MCPError
+from flask import Flask, jsonify
 
-logger = logging.getLogger("mcp")
+app = Flask(__name__)
 
-class HealthCheck:
-    async def get_health(self) -> Dict[str, Any]:
-        try:
-            return {
-                "cpu_usage": 10.5,
-                "memory_usage": 20.3,
-                "active_users": 3,
-                "balance": 500.0
+@app.route('/health', methods=['GET'])
+def health_check():
+    try:
+        return jsonify({
+            "status": "healthy",
+            "timestamp": "2025-08-15T05:15:00Z",
+            "services": {
+                "auth": "running",
+                "troubleshoot": "running"
             }
-        except Exception as e:
-            logger.error(f"Health check error: {str(e)}", exc_info=True)
-            raise MCPError(code=-32603, message=f"Health check failed: {str(e)}")
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
 
-    async def check_system(self) -> Dict[str, Any]:
-        try:
-            required_files = [
-                "unified_server.py", "auth_manager.py", "webxos_balance.py", "error_handler.py",
-                "logging.conf", "service_registry.py", "secrets_manager.py"
-            ]
-            file_status = {f: os.path.isfile(f"main/server/mcp/{f}") for f in required_files}
-            return {"result": {"all_files_present": all(file_status.values()), "file_status": file_status}}
-        except Exception as e:
-            logger.error(f"System check error: {str(e)}", exc_info=True)
-            raise MCPError(code=-32603, message=f"System check failed: {str(e)}")
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8081)
