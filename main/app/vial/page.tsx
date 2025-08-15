@@ -1,88 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import styles from './vial.module.css';
+'use client';
 
-interface Vial {
-  name: string;
-  balance: number;
-}
+import { useState, useEffect } from 'react';
+import Head from 'next/head';
 
-const VialPage: React.FC = () => {
-  const [vials, setVials] = useState<Vial[]>([]);
-  const [balance, setBalance] = useState<number>(0);
-  const [error, setError] = useState<string | null>(null);
+export default function Vial() {
+  const [log, setLog] = useState<string[]>([]);
+  const [error, setError] = useState<string>('');
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = localStorage.getItem('access_token');
-        if (!token) throw new Error('No authentication token found');
-        const response = await fetch('/mcp/status', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'mcp.getSystemMetrics',
-            params: { user_id: 'test_user' },
-            id: 1,
-          }),
-        });
-        const data = await response.json();
-        if (data.error) throw new Error(`${data.error.message}\n${data.error.data?.traceback || ''}`);
-        const cached = JSON.parse(await localStorage.getItem('vials') || '{}');
-        setVials(Object.entries(cached).map(([name, { balance }]) => ({ name, balance })));
-        setBalance(data.result.balance || 0);
-      } catch (err: any) {
-        setError(`Failed to fetch data: ${err.message}\n${err.stack}`);
-        console.error('Vial error:', err);
-      }
-    };
-    fetchData();
-    const interval = setInterval(fetchData, 5000); // Update every 5 seconds
-    return () => clearInterval(interval);
-  }, []);
+  const SERVER_URL = 'https://webxos.netlify.app/vial2/api';
 
-  const handleExport = async () => {
+  const fetchWithFallback = async (url: string) => {
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) throw new Error('No authentication token found');
-      const response = await fetch('/mcp/export', {
+      const response = await fetch(url, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Expected JSON, received: ${text.substring(0, 100)}`);
+      }
+      return await response.json();
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  };
+
+  const troubleshoot = async () => {
+    setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Running troubleshoot...`]);
+    try {
+      const result = await fetchWithFallback(`${SERVER_URL}/troubleshoot`);
+      setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Troubleshoot Report: ${JSON.stringify(result)}`]);
+    } catch (err) {
+      setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Troubleshoot Error: ${err.message}`]);
+      setError(`Troubleshoot Failed: ${err.message}`);
+    }
+  };
+
+  const oauthAuthenticate = async () => {
+    setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Running authentication...`]);
+    try {
+      const result = await fetchWithFallback(`${SERVER_URL}/auth/oauth`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.exportMd', params: { user_id: 'test_user' }, id: 3 }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'mock', code: 'test_code' })
       });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      const blob = new Blob([data.result], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'vial_data.md';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(`Export failed: ${err.message}\n${err.stack}`);
+      setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Authentication successful.`]);
+      // Unlock dashboard logic here
+    } catch (err) {
+      setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Authentication Error: ${err.message}`]);
+      setError(`Authentication Failed: ${err.message}`);
     }
   };
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.title}>Vial MCP Remote</h1>
-      {error && <div className={styles.error}><pre>{error}</pre></div>}
-      <div className={styles.vials}>
-        {vials.map((vial) => (
-          <div key={vial.name} className={styles.vialCard}>
-            <h2>{vial.name}</h2>
-            <p>Balance: {vial.balance} WebXOS</p>
-          </div>
-        ))}
+    <div style={{ background: '#000', color: '#0f0', minHeight: '100vh', padding: '1rem' }}>
+      <Head>
+        <title>Vial MCP Gateway</title>
+      </Head>
+      <h1 style={{ textAlign: 'center', margin: '1rem 0' }}>VIAL MCP GATEWAY</h1>
+      <div style={{ maxWidth: '900px', margin: '0 auto', overflowY: 'auto', maxHeight: '60vh' }}>
+        {log.map((msg, index) => <p key={index} style={{ margin: '0.5rem 0' }}>{msg}</p>)}
       </div>
-      <div className={styles.balance}>Total Balance: {balance} WebXOS</div>
-      <button className={styles.button} onClick={handleExport}>Export MD</button>
+      <div style={{ color: '#ff0000', textAlign: 'center', margin: '1rem 0' }}>{error}</div>
+      <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', margin: '1rem 0' }}>
+        <button onClick={troubleshoot} style={{ background: '#0f0', color: '#000', padding: '0.5rem 1rem' }}>Troubleshoot</button>
+        <button onClick={oauthAuthenticate} style={{ background: '#0f0', color: '#000', padding: '0.5rem 1rem' }}>OAuth</button>
+        <button disabled style={{ background: '#666', color: '#000', padding: '0.5rem 1rem' }}>Dashboard</button>
+      </div>
     </div>
   );
-};
-
-export default VialPage;
+}
