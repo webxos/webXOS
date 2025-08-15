@@ -1,20 +1,22 @@
 #!/bin/bash
 
-# Exit on any error
 set -e
 
-# Build the project
 echo "Building project..."
 npm run build
 
-# Deploy to Netlify
 echo "Deploying to Netlify..."
 netlify deploy --prod --dir=main/app
 
-# Verify function deployment
 echo "Verifying function deployment..."
 netlify functions:list | grep -E "auth|troubleshoot" > /dev/null 2>&1 || {
   echo "Error: Functions not deployed correctly. Check Netlify configuration."
+  exit 1
+}
+
+echo "Running health check..."
+curl -s http://localhost:8081/health | grep -q "healthy" || {
+  echo "Error: Health check failed. Server may be unhealthy."
   exit 1
 }
 
