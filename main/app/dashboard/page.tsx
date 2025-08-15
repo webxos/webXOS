@@ -1,75 +1,67 @@
-// main/app/dashboard/page.tsx
-'use client';
-
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createSession } from '../../server/mcp/functions/auth';
 import styles from './dashboard.module.css';
-import { getSystemMetrics } from '../../server/mcp/functions/resources';
-import { login } from '../../server/mcp/functions/auth';
 
-export default function Dashboard() {
-  const [metrics, setMetrics] = useState({ cpu_usage: 0, memory_usage: 0 });
-  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('apiKey'));
+interface Metric {
+  name: string;
+  value: string | number;
+}
+
+const DashboardPage: React.FC = () => {
+  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [userId] = useState<string>('test_user'); // Replace with actual user auth
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchMetrics();
-    }
-  }, [isAuthenticated]);
-
-  const fetchMetrics = async () => {
-    try {
-      const data = await getSystemMetrics();
-      setMetrics(data);
-    } catch (error) {
-      console.error('Failed to fetch metrics:', error);
-      alert('Failed to load dashboard metrics.');
-    }
-  };
-
-  const handleAuthenticate = async () => {
-    try {
-      const username = prompt('Enter username:');
-      const password = prompt('Enter password:');
-      if (username && password) {
-        await login(username, password);
-        setIsAuthenticated(true);
-        alert('Authentication successful!');
-        fetchMetrics();
+    const fetchMetrics = async () => {
+      try {
+        await createSession(userId);
+        const response = await fetch('/mcp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'mcp.getSystemMetrics',
+            params: { user_id: userId },
+            id: 1,
+          }),
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        setMetrics([
+          { name: 'CPU Usage', value: data.result.cpu_usage },
+          { name: 'Memory Usage', value: data.result.memory_usage },
+          { name: 'Active Users', value: data.result.active_users },
+        ]);
+      } catch (err: any) {
+        setError(`Failed to fetch metrics: ${err.message}\n${err.stack}`);
+        console.error('Dashboard error:', err);
       }
-    } catch (error) {
-      console.error('Authentication failed:', error);
-      alert('Authentication failed.');
-    }
-  };
+    };
+    fetchMetrics();
+  }, [userId]);
 
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
-        <h1>WebXOS Dashboard with Vial</h1>
-      </header>
-      <main className={styles.main}>
-        <div className={styles.dashboardContainer}>
-          {isAuthenticated ? (
-            <>
-              <h2>System Metrics</h2>
-              <div className={styles.metrics}>
-                <p>CPU Usage: {metrics.cpu_usage}%</p>
-                <p>Memory Usage: {metrics.memory_usage}%</p>
-              </div>
-              <button className={styles.button} onClick={fetchMetrics}>
-                Refresh Metrics
-              </button>
-            </>
-          ) : (
-            <button className={styles.button} onClick={handleAuthenticate}>
-              Authenticate
-            </button>
-          )}
+      <h1 className={styles.title}>Vial MCP Dashboard</h1>
+      {error && (
+        <div className={styles.error}>
+          <pre>{error}</pre>
         </div>
-      </main>
-      <footer className={styles.footer}>
-        <p>Copyright webXOS 2025</p>
-      </footer>
+      )}
+      <div className={styles.metrics}>
+        {metrics.map((metric) => (
+          <div key={metric.name} className={styles.metricCard}>
+            <h2>{metric.name}</h2>
+            <p>{metric.value}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
-}
+};
+
+export default DashboardPage;
