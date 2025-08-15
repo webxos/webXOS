@@ -1,29 +1,38 @@
-// main/server/mcp/functions/auth.js
-document.addEventListener('DOMContentLoaded', () => {
-  const authenticateBtn = document.getElementById('authenticateBtn');
-  const errorDiv = document.getElementById('error');
-
-  if (authenticateBtn) {
-    authenticateBtn.addEventListener('click', async () => {
-      try {
-        const username = prompt('Enter username:');
-        const password = prompt('Enter password:');
-        if (!username || !password) throw new Error('Username and password are required');
-
-        const response = await fetch('/mcp/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await response.json();
-        if (data.error) throw new Error(`${data.error.message}\n${data.error.data?.traceback || ''}`);
-
-        localStorage.setItem('access_token', data.access_token);
-        window.location.href = data.redirect;
-      } catch (err) {
-        errorDiv.textContent = `Authentication failed: ${err.message}`;
-        console.error('Auth error:', err);
-      }
-    });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { code: -32601, message: 'Method not allowed' } })
+    };
   }
-});
+
+  const { provider, code } = JSON.parse(event.body || '{}');
+  if (!provider || !code) {
+    return {
+      statusCode: 400,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { code: -32602, message: 'Missing provider or code' } })
+    };
+  }
+
+  try {
+    if (provider === 'mock' && code === 'test_code') {
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: 'mock_token_123',
+          vials: ['vial1', 'vial2']
+        })
+      };
+    }
+    throw new Error('Invalid credentials');
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { code: -32603, message: error.message } })
+    };
+  }
+};
