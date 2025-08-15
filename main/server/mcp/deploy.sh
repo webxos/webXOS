@@ -14,16 +14,15 @@ netlify functions:list | grep -E "auth|troubleshoot" > /dev/null 2>&1 || {
   exit 1
 }
 
-echo "Validating routes..."
-python server/mcp/config/route_validator.py || {
-  echo "Error: Route validation failed. Check netlify.toml routing."
+echo "Testing endpoint availability..."
+curl -s -X POST -H "Content-Type: application/json" -d '{"provider":"mock","code":"test_code"}' https://webxos.netlify.app/vial2/api/auth/oauth -o /dev/null -w "%{http_code}" | grep -q 200 || {
+  echo "Error: OAuth endpoint returned non-200 status. Check routing or deployment."
   exit 1
 }
-
-echo "Checking OAuth configuration..."
-if [ ! -f "server/mcp/config/oauth_config.py" ]; then
-  echo "Warning: oauth_config.py is missing. Ensure OAuth provider credentials are configured."
-fi
+curl -s -X POST https://webxos.netlify.app/vial2/api/troubleshoot -o /dev/null -w "%{http_code}" | grep -q 200 || {
+  echo "Error: Troubleshoot endpoint returned non-200 status. Check routing or deployment."
+  exit 1
+}
 
 echo "Running health check..."
 curl -s http://localhost:8081/health | grep -q "healthy" || {
