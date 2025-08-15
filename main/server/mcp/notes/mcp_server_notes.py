@@ -1,95 +1,83 @@
-import logging
-from fastapi import HTTPException
+# main/server/mcp/notes/mcp_server_notes.py
+from typing import List, Dict, Any, Optional
+from pymongo import MongoClient
 from pydantic import BaseModel
-from datetime import datetime
-from ..db.db_manager import DatabaseManager
-from ..cache_manager import CacheManager
-from ..security_manager import SecurityManager
-from ..error_handler import ErrorHandler
+from bson import ObjectId
+from ..utils.mcp_error_handler import MCPError
+import os
 
-logger = logging.getLogger(__name__)
-
-class NoteRequest(BaseModel):
-    wallet_id: str
+class Note(BaseModel):
+    note_id: str
+    title: str
     content: str
-    resource_id: str
-    db_type: str
+    tags: List[str]
+    user_id: str
 
-class NoteReadRequest(BaseModel):
-    wallet_id: str
-    db_type: str
+class NotesService:
+    def __init__(self):
+        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.collection = self.db["notes"]
 
-class MCPNotesHandler:
-    """Handles note-related operations for Vial MCP."""
-    def __init__(self, db_manager: DatabaseManager = None, cache_manager: CacheManager = None, security_manager: SecurityManager = None, error_handler: ErrorHandler = None):
-        """Initialize MCPNotesHandler with dependencies.
-
-        Args:
-            db_manager (DatabaseManager): Database manager instance.
-            cache_manager (CacheManager): Cache manager instance.
-            security_manager (SecurityManager): Security manager instance.
-            error_handler (ErrorHandler): Error handler instance.
-        """
-        self.db_manager = db_manager or DatabaseManager()
-        self.cache_manager = cache_manager or CacheManager()
-        self.security_manager = security_manager or SecurityManager()
-        self.error_handler = error_handler or ErrorHandler()
-        logger.info("MCPNotesHandler initialized")
-
-    async def add_note(self, request: NoteRequest, access_token: str) -> dict:
-        """Add a new note for a wallet.
-
-        Args:
-            request (NoteRequest): Note creation request.
-            access_token (str): JWT access token.
-
-        Returns:
-            dict: Added note details.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
+    async def create_note(self, title: str, content: str, tags: List[str], user_id: str) -> Dict[str, Any]:
         try:
-            payload = self.security_manager.validate_token(access_token)
-            if payload["wallet_id"] != request.wallet_id:
-                error_msg = "Unauthorized wallet access"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/notes/add", request.wallet_id, Exception(error_msg))
-            note = await self.db_manager.add_note(request.wallet_id, request.content, request.resource_id, request.db_type)
-            cache_key = f"notes:{request.wallet_id}:{request.db_type}"
-            self.cache_manager.invalidate_cache(cache_key)
-            logger.info(f"Added note for wallet {request.wallet_id} in {request.db_type}")
-            return note
+            if not title or not content:
+                raise MCPError(code=-32602, message="Title and content are required")
+            if len(tags) > 10:
+                raise MCPError(code=-32602, message="Maximum 10 tags allowed")
+            note = {
+                "title": title,
+                "content": content,
+                "tags": tags,
+                "user_id": user_id
+            }
+            result = self.collection.insert_one(note)
+            return {
+                "status": "success",
+                "note_id": str(result.inserted_id)
+            }
+        except MCPError as e:
+            raise e
         except Exception as e:
-            self.error_handler.handle_exception("/api/notes/add", request.wallet_id, e)
+            raise MCPError(code=-32603, message=f"Failed to create note: {str(e)}")
 
-    async def read_note(self, request: NoteReadRequest, access_token: str) -> dict:
-        """Retrieve notes for a wallet.
-
-        Args:
-            request (NoteReadRequest): Note retrieval request.
-            access_token (str): JWT access token.
-
-        Returns:
-            dict: List of notes.
-
-        Raises:
-            HTTPException: If the operation fails.
-        """
+    async def get_note(self, note_id: str, user_id: str) -> Dict[str, Any]:
         try:
-            payload = self.security_manager.validate_token(access_token)
-            if payload["wallet_id"] != request.wallet_id:
-                error_msg = "Unauthorized wallet access"
-                logger.error(error_msg)
-                self.error_handler.handle_exception("/api/notes/read", request.wallet_id, Exception(error_msg))
-            cache_key = f"notes:{request.wallet_id}:{request.db_type}"
-            cached = self.cache_manager.get_cached_response(cache_key)
-            if cached:
-                logger.info(f"Cache hit for notes: {cache_key}")
-                return {"notes": cached}
-            notes = await self.db_manager.get_notes(request.wallet_id, 10, request.db_type)
-            self.cache_manager.cache_response(cache_key, notes)
-            logger.info(f"Retrieved {len(notes)} notes for wallet {request.wallet_id} from {request.db_type}")
-            return {"notes": notes}
+            note = self.collection.find_one({"_id": ObjectId(note_id), "user_id": user_id})
+            if not note:
+                raise MCPError(code=-32003, message="Note not found or access denied")
+            return {
+                "note_id": str(note["_id"]),
+                "title": note["title"],
+                "content": note["content"],
+                "tags": note["tags"],
+                "user_id": note["user_id"]
+            }
+        except MCPError as e:
+            raise e
         except Exception as e:
-            self.error_handler.handle_exception("/api/notes/read", request.wallet_id, e)
+            raise MCPError(code=-32603, message=f"Failed to retrieve note: {str(e)}")
+
+    async def search_notes(self, user_id: str, tags: Optional[List[str]] = None, query: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            search_filter = {"user_id": user_id}
+            if tags:
+                search_filter["tags"] = {"$all": tags}
+            if query:
+                search_filter["$text"] = {"$search": query}
+            notes = self.collection.find(search_filter).limit(100)
+            return [
+                {
+                    "note_id": str(note["_id"]),
+                    "title": note["title"],
+                    "content": note["content"],
+                    "tags": note["tags"],
+                    "user_id": note["user_id"]
+                }
+                for note in notes
+            ]
+        except Exception as e:
+            raise MCPError(code=-32603, message=f"Failed to search notes: {str(e)}")
+
+    def close(self):
+        self.client.close()
