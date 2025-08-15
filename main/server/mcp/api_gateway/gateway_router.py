@@ -20,7 +20,7 @@ def validate_response(response):
 @app.route('/vial2/api/troubleshoot', methods=['POST'])
 def troubleshoot():
     try:
-        response = {"status": "OK", "details": "System check completed at 06:50 AM EDT"}
+        response = {"status": "OK", "details": "System check completed at 07:01 AM EDT", "healthy": True}
         validated_response = validate_response(response)
         return jsonify(validated_response), 200
     except Exception as e:
@@ -34,10 +34,10 @@ def oauth():
         if not data or not data.get('provider') or not data.get('code'):
             logger.error("Missing required OAuth fields")
             return jsonify(ErrorHandler.handle_error("Missing required fields", "OAuth request validation")), 400
-        if not oauth_config.validate_credentials(data['provider'], data['get_code']):
+        if not oauth_config.validate_credentials(data['provider'], data['code']):
             logger.error(f"Invalid credentials for provider: {data['provider']}")
             return jsonify(ErrorHandler.handle_error("Invalid OAuth credentials")), 401
-        response = {"access_token": "mock_token_vwx", "vials": ["vial1"], "expires_in": 3600}
+        response = {"access_token": "mock_token_abc", "vials": ["vial1"], "expires_in": 3600}
         return jsonify(validate_response(response)), 200
     except Exception as e:
         logger.error(f"OAuth Error: {str(e)}")
@@ -47,6 +47,10 @@ def oauth():
 def not_found(e):
     logger.error(f"404 Error: {str(e)} - Requested path: {request.path}")
     return jsonify(ErrorHandler.handle_error(f"Endpoint not found: {request.path}", "Routing error")), 404
+
+@app.route('/vial2/api/health')
+def health_check():
+    return jsonify({"status": "healthy", "time": "07:01 AM EDT"}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
