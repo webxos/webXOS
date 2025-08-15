@@ -1,48 +1,64 @@
 # main/server/mcp/utils/base_prompt.py
 from typing import Dict, Any, Optional
 from ..utils.mcp_error_handler import MCPError
+from ..utils.performance_metrics import PerformanceMetrics
+from ..agents.translator_agent import TranslatorAgent
 import logging
-import os
+import json
 
 logger = logging.getLogger("mcp")
 
 class BasePrompt:
     def __init__(self):
-        self.default_prompt = os.getenv("DEFAULT_PROMPT", "You are a helpful AI assistant for the Vial MCP Controller. Provide accurate and concise responses.")
+        self.metrics = PerformanceMetrics()
+        self.translator = TranslatorAgent()
+        self.default_prompt = {
+            "system": "You are an AI assistant for the Vial MCP Controller, designed to manage resources, execute workflows, and provide secure, efficient responses. Follow JSON-RPC 2.0 standards and maintain security best practices.",
+            "user": "Provide a response to the following request: {{request}}",
+            "constraints": {
+                "max_tokens": 1000,
+                "language": "en",
+                "response_format": "json"
+            }
+        }
 
-    def generate_prompt(self, task: str, context: Dict[str, Any], user_id: str) -> str:
+    @self.metrics.track_request("generate_prompt")
+    async def generate_prompt(self, request: Dict[str, Any], user_id: str, language: Optional[str] = None) -> Dict[str, Any]:
         try:
-            if not task or not user_id:
-                raise MCPError(code=-32602, message="Task and user ID are required")
+            if not request or not user_id:
+                raise MCPError(code=-32602, message="Request and user ID are required")
             
-            # Base prompt structure
-            prompt = f"{self.default_prompt}\n\nTask: {task}\n"
+            prompt = self.default_prompt.copy()
+            prompt["user"] = prompt["user"].replace("{{request}}", json.dumps(request))
             
-            # Add context if provided
-            if context:
-                prompt += "Context:\n"
-                for key, value in context.items():
-                    prompt += f"{key}: {value}\n"
+            if language and language != "en":
+                prompt = await self.translator.translate_config(prompt, language)
             
-            prompt += f"User: {user_id}\nRespond in a professional and secure manner."
-            
-            logger.debug(f"Generated prompt for user {user_id}: {prompt}")
+            logger.info(f"Generated prompt for user {user_id}, language: {language or 'en'}")
             return prompt
         except MCPError as e:
             raise e
         except Exception as e:
-            logger.error(f"Prompt generation failed: {str(e)}")
+            logger.error(f"Failed to generate prompt: {str(e)}")
             raise MCPError(code=-32603, message=f"Failed to generate prompt: {str(e)}")
 
-    def validate_prompt(self, prompt: str) -> bool:
+    @self.metrics.track_request("validate_prompt")
+    async def validate_prompt(self, prompt: Dict[str, Any]) -> bool:
         try:
-            if not prompt or len(prompt) > 5000:
-                raise MCPError(code=-32602, message="Prompt is empty or exceeds 5000 characters")
-            if any(word in prompt.lower() for word in ["malicious", "hack", "exploit"]):
-                raise MCPError(code=-32602, message="Prompt contains prohibited terms")
+            required_keys = ["system", "user", "constraints"]
+            if not all(key in prompt for key in required_keys):
+                raise MCPError(code=-32602, message="Prompt missing required keys")
+            if not isinstance(prompt["constraints"].get("max_tokens"), int):
+                raise MCPError(code=-32602, message="Invalid max_tokens in constraints")
+            if prompt["constraints"].get("response_format") != "json":
+                raise MCPError(code=-32602, message="Response format must be JSON")
+            logger.info("Prompt validated successfully")
             return True
         except MCPError as e:
             raise e
         except Exception as e:
-            logger.error(f"Prompt validation failed: {str(e)}")
+            logger.error(f"Failed to validate prompt: {str(e)}")
             raise MCPError(code=-32603, message=f"Failed to validate prompt: {str(e)}")
+
+    async def close(self):
+        self.translator.close()
