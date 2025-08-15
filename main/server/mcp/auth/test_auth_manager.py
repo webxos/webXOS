@@ -1,48 +1,56 @@
 # main/server/mcp/auth/test_auth_manager.py
-import unittest
-from unittest.mock import patch
-from datetime import datetime, timedelta
-from .auth_manager import AuthManager
+import pytest
+import base64
+from fastapi.testclient import TestClient
+from ..auth_manager import AuthManager, AuthCredentials, MCPError
 
-class TestAuthManager(unittest.TestCase):
-    def setUp(self):
-        self.auth_manager = AuthManager()
+@pytest.fixture
+def auth_manager():
+    return AuthManager()
 
-    @patch('main.server.mcp.db.db_manager.DBManager.insert_one')
-    def test_create_token(self, mock_insert):
-        mock_insert.return_value = "session_id"
-        token = self.auth_manager.create_token("test_user", {"role": "admin"})
-        self.assertIsNotNone(token)
-        mock_insert.assert_called_once()
-        payload = jwt.decode(token, self.auth_manager.secret_key, algorithms=["HS256"])
-        self.assertEqual(payload["sub"], "test_user")
-        self.assertEqual(payload["role"], "admin")
+@pytest.mark.asyncio
+async def test_password_authentication(auth_manager):
+    credentials = AuthCredentials(username="test_user", password="secure_password")
+    response = await auth_manager.authenticate_user(credentials)
+    assert response.token_type == "Bearer"
+    assert response.user_id == "test_user"
+    assert response.access_token
 
-    @patch('main.server.mcp.db.db_manager.DBManager.find_one')
-    def test_verify_token(self, mock_find):
-        token = jwt.encode({
-            "sub": "test_user",
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(minutes=30)
-        }, self.auth_manager.secret_key, algorithm="HS256")
-        mock_find.return_value = {"token": token, "expires_at": datetime.utcnow() + timedelta(minutes=30)}
-        payload = self.auth_manager.verify_token(token)
-        self.assertEqual(payload["sub"], "test_user")
+@pytest.mark.asyncio
+async def test_invalid_password(auth_manager):
+    credentials = AuthCredentials(username="test_user", password="wrong_password")
+    with pytest.raises(MCPError) as exc_info:
+        await auth_manager.authenticate_user(credentials)
+    assert exc_info.value.code == -32001
+    assert exc_info.value.message == "Invalid username or password"
 
-    @patch('main.server.mcp.db.db_manager.DBManager.delete_one')
-    def test_invalidate_token(self, mock_delete):
-        mock_delete.return_value = 1
-        result = self.auth_manager.invalidate_token("test_token")
-        self.assertTrue(result)
-        mock_delete.assert_called_with("sessions", {"token": "test_token"})
+@pytest.mark.asyncio
+async def test_wallet_authentication(auth_manager, mocker):
+    mocker.patch.object(auth_manager.wallet_service, 'verify_wallet', return_value=True)
+    credentials = AuthCredentials(wallet_address="0x1234567890abcdef")
+    response = await auth_manager.authenticate_user(credentials)
+    assert response.token_type == "Bearer"
+    assert response.user_id == "0x1234567890abcdef"
+    assert response.access_token
 
-    @patch('main.server.mcp.db.db_manager.DBManager.update_one')
-    def test_webauthn_challenge(self, mock_update):
-        mock_update.return_value = 1
-        challenge = self.auth_manager.webauthn_challenge("test_user")
-        self.assertIn("challenge", challenge)
-        self.assertEqual(len(challenge["challenge"]), 64)
-        mock_update.assert_called_with("users", {"user_id": "test_user"}, {"webauthn_challenge": challenge["challenge"]})
+@pytest.mark.asyncio
+async def test_invalid_wallet(auth_manager, mocker):
+    mocker.patch.object(auth_manager.wallet_service, 'verify_wallet', return_value=False)
+    credentials = AuthCredentials(wallet_address="0xinvalid")
+    with pytest.raises(MCPError) as exc_info:
+        await auth_manager.authenticate_user(credentials)
+    assert exc_info.value.code == -32001
+    assert exc_info.value.message == "Invalid wallet address"
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_token_validation(auth_manager):
+    token = base64.b64encode(b"test_user:1234567890abcdef").decode()
+    result = await auth_manager.validate_token(token)
+    assert result["user_id"] == "test_user"
+
+@pytest.mark.asyncio
+async def test_invalid_token(auth_manager):
+    with pytest.raises(MCPError) as exc_info:
+        await auth_manager.validate_token("invalid_token")
+    assert exc_info.value.code == -32001
+    assert exc_info.value.message.startswith("Token validation failed")
