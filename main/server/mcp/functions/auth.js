@@ -34,7 +34,7 @@ exports.handler = async (event) => {
   try {
     if (provider === 'mock' && code === 'test_code') {
       const response = {
-        access_token: 'mock_token_stu',
+        access_token: 'mock_token_xyz',
         vials: ['vial1', 'vial2'],
         expires_in: 3600,
         timestamp: new Date().toISOString()
@@ -49,10 +49,17 @@ exports.handler = async (event) => {
     throw new Error('Invalid credentials');
   } catch (error) {
     writeFileSync('/tmp/auth_error.log', `Auth Error: ${error.message} at ${new Date().toISOString()}\n`, { flag: 'a' });
+    if (error.message.includes('not found')) {
+      return {
+        statusCode: 404,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: { code: -32604, message: 'Endpoint not found' } })
+      };
+    }
     return {
-      statusCode: 404,
+      statusCode: 401,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: { code: -32603, message: `Not found or ${error.message}` } })
+      body: JSON.stringify({ error: { code: -32603, message: error.message } })
     };
   }
 };
