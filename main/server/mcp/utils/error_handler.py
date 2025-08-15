@@ -1,48 +1,40 @@
 # main/server/mcp/utils/error_handler.py
 from fastapi import HTTPException
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from ..utils.performance_metrics import PerformanceMetrics
 import logging
 from typing import Any
 
-logger = logging.getLogger("vial_mcp")
-tracer = trace.getTracer("vial_mcp_error_handler")
+logging.basicConfig(
+    filename='vial_mcp_errors.log',
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-def handle_auth_error(error: Exception) -> None:
-    with tracer.start_as_current_span("handle_auth_error") as span:
-        span.record_exception(error)
-        span.set_status(Status(StatusCode.ERROR))
-        logger.error(f"Authentication error: {str(error)}", exc_info=True)
-        span.set_attribute("error_type", type(error).__name__)
+class ErrorHandler:
+    def __init__(self):
+        self.metrics = PerformanceMetrics()
+        self.logger = logging.getLogger("vial_mcp")
+
+    def handle_generic_error(self, error: Exception, context: str) -> None:
+        with self.metrics.track_span("handle_generic_error", {"context": context}):
+            self.logger.error(f"Error in {context}: {str(error)}")
+            self.metrics.record_error(context, str(error))
+
+    def handle_wallet_error(self, error: Exception) -> None:
+        with self.metrics.track_span("handle_wallet_error"):
+            self.logger.error(f"Wallet error: {str(error)}")
+            self.metrics.record_error("wallet", str(error))
+
+    def handle_api_error(self, error: Exception, endpoint: str) -> None:
+        with self.metrics.track_span("handle_api_error", {"endpoint": endpoint}):
+            self.logger.error(f"API error at {endpoint}: {str(error)}")
+            self.metrics.record_error(f"api_{endpoint}", str(error))
+
+def handle_generic_error(error: Exception, context: str) -> None:
+    ErrorHandler().handle_generic_error(error, context)
 
 def handle_wallet_error(error: Exception) -> None:
-    with tracer.start_as_current_span("handle_wallet_error") as span:
-        span.record_exception(error)
-        span.set_status(Status(StatusCode.ERROR))
-        logger.error(f"Wallet error: {str(error)}", exc_info=True)
-        span.set_attribute("error_type", type(error).__name__)
+    ErrorHandler().handle_wallet_error(error)
 
 def handle_api_error(error: Exception, endpoint: str) -> None:
-    with tracer.start_as_current_span("handle_api_error") as span:
-        span.record_exception(error)
-        span.set_status(Status(StatusCode.ERROR))
-        logger.error(f"API error at {endpoint}: {str(error)}", exc_info=True)
-        span.set_attribute("error_type", type(error).__name__)
-        span.set_attribute("endpoint", endpoint)
-
-def handle_generic_error(error: Exception, context: str = "unknown") -> None:
-    with tracer.start_as_current_span("handle_generic_error") as span:
-        span.record_exception(error)
-        span.set_status(Status(StatusCode.ERROR))
-        logger.error(f"Error in {context}: {str(error)}", exc_info=True)
-        span.set_attribute("error_type", type(error).__name__)
-        span.set_attribute("context", context)
-
-def raise_http_exception(status_code: int, detail: str, error: Exception = None) -> None:
-    with tracer.start_as_current_span("raise_http_exception") as span:
-        if error:
-            span.record_exception(error)
-            span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute("error_type", type(error).__name__)
-        logger.error(f"HTTP {status_code}: {detail}")
-        raise HTTPException(status_code=status_code, detail=detail)
+    ErrorHandler().handle_api_error(error, endpoint)
