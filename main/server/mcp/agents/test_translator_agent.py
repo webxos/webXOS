@@ -1,40 +1,31 @@
-import pytest
+# main/server/mcp/agents/test_translator_agent.py
+import unittest
 from fastapi.testclient import TestClient
-from main.server.mcp.agents.translator_agent import TranslatorAgent, TranslationRequest
-from main.server.mcp.db.db_manager import DatabaseManager
-from main.server.mcp.error_handler import ErrorHandler
-from main.server.unified_server import app
-import aiohttp
+from unittest.mock import patch
+from .translator_agent import app, db_manager
 
-@pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+class TestTranslatorAgent(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
 
-@pytest.fixture
-def translator_agent():
-    """Create a TranslatorAgent instance."""
-    db_manager = DatabaseManager()
-    error_handler = ErrorHandler()
-    return TranslatorAgent(db_manager, error_handler)
+    @patch('requests.post')
+    @patch.object(db_manager, 'insert_one')
+    def test_translate_text(self, mock_insert, mock_post):
+        mock_post.return_value.json.return_value = {"translated_text": "Hola"}
+        mock_post.return_value.raise_for_status.return_value = None
+        mock_insert.return_value = "trans123"
+        token = "mock_token"
+        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
+            response = self.client.post(
+                "/agents/translate",
+                json={"user_id": "test_user", "text": "Hello", "source_lang": "en", "target_lang": "es"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["translation_id"], "trans123")
+        self.assertEqual(response.json()["translated_text"], "Hola")
+        self.assertEqual(response.json()["target_lang"], "es")
+        mock_insert.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_process_task_success(translator_agent, mocker):
-    """Test successful translation task."""
-    mocker.patch.object(translator_agent.base_prompt, 'generate_prompt', return_value="Translate the following text: Hola")
-    mocker.patch('aiohttp.ClientSession.post', return_value=mocker.AsyncMock(status=200, json=mocker.AsyncMock(return_value={"translated_text": "Hello"})))
-    mocker.patch.object(translator_agent.db_manager, 'log_translation', return_value=None)
-    parameters = {"text": "Hola", "source_lang": "es", "target_lang": "en"}
-    response = await translator_agent.process_task(parameters)
-    assert response == {"translated_text": "Hello", "source_lang": "es", "target_lang": "en"}
-
-@pytest.mark.asyncio
-async def test_process_task_api_failure(translator_agent, mocker):
-    """Test translation task with API failure."""
-    mocker.patch.object(translator_agent.base_prompt, 'generate_prompt', return_value="Translate the following text: Hola")
-    mocker.patch('aiohttp.ClientSession.post', return_value=mocker.AsyncMock(status=500, json=mocker.AsyncMock(return_value={})))
-    parameters = {"text": "Hola", "source_lang": "es", "target_lang": "en"}
-    with pytest.raises(HTTPException) as exc:
-        await translator_agent.process_task(parameters)
-    assert exc.value.status_code == 500
-    assert "Translation API failed" in exc.value.detail
+if __name__ == "__main__":
+    unittest.main()
