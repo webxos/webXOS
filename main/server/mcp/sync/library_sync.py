@@ -1,65 +1,94 @@
 # main/server/mcp/sync/library_sync.py
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict
-from ..db.db_manager import DBManager
-from ..utils.performance_metrics import PerformanceMetrics
-from ..utils.error_handler import handle_generic_error
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime
-import requests
+from typing import Dict, Any, List
+from pymongo import MongoClient
+from ..utils.mcp_error_handler import MCPError
+from ..agents.library_agent import LibraryAgent
+import logging
 import os
+import json
 
-app = FastAPI(title="Vial MCP Library Sync")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-metrics = PerformanceMetrics()
-db_manager = DBManager()
+logger = logging.getLogger("mcp")
 
-class LibrarySyncRequest(BaseModel):
-    user_id: str
-    item_id: str
-    node_id: str
-    item_data: Dict
+class LibrarySync:
+    def __init__(self):
+        self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+        self.db = self.client["vial_mcp"]
+        self.sync_log = self.db["sync_log"]
+        self.library_agent = LibraryAgent()
 
-class LibrarySyncResponse(BaseModel):
-    user_id: str
-    item_id: str
-    node_id: str
-    timestamp: str
-
-@app.post("/sync/library", response_model=LibrarySyncResponse)
-async def sync_library(request: LibrarySyncRequest, token: str = Depends(oauth2_scheme)):
-    with metrics.track_span("sync_library", {"user_id": request.user_id, "item_id": request.item_id}):
+    async def sync_resources(self, user_id: str, agent_id: str, external_service: str, external_resources: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
-            metrics.verify_token(token)
-            existing_item = db_manager.find_one("library", {"_id": request.item_id, "user_id": request.user_id})
-            if not existing_item:
-                db_manager.insert_one("library", {**request.item_data, "_id": request.item_id, "user_id": request.user_id})
-            else:
-                db_manager.update_one("library", {"_id": request.item_id}, request.item_data)
-
-            sync_data = {
-                "user_id": request.user_id,
-                "item_id": request.item_id,
-                "node_id": request.node_id,
+            # Validate input
+            if not user_id or not agent_id or not external_service:
+                raise MCPError(code=-32602, message="User ID, agent ID, and external service are required")
+            
+            # Verify agent access
+            resources = await self.library_agent.list_resources(agent_id, user_id)
+            existing_uris = {r["uri"] for r in resources}
+            
+            # Sync new resources
+            added = 0
+            updated = 0
+            for resource in external_resources:
+                if not all(k in resource for k in ["name", "uri", "type", "metadata"]):
+                    continue
+                
+                if resource["uri"] in existing_uris:
+                    # Update existing resource (simplified; real implementation would compare metadata)
+                    updated += 1
+                else:
+                    # Add new resource
+                    await self.library_agent.add_resource(
+                        agent_id=agent_id,
+                        name=resource["name"],
+                        uri=resource["uri"],
+                        resource_type=resource["type"],
+                        metadata=resource["metadata"],
+                        user_id=user_id
+                    )
+                    added += 1
+            
+            # Log sync operation
+            sync_record = {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "external_service": external_service,
+                "added": added,
+                "updated": updated,
                 "timestamp": datetime.utcnow()
             }
-            db_manager.insert_one("library_sync", sync_data)
-
-            # Notify other nodes
-            nodes = os.getenv("SYNC_NODES", "").split(",")
-            for node in nodes:
-                if node and node != request.node_id:
-                    try:
-                        requests.post(
-                            f"{node}/sync/library",
-                            json={**sync_data, "item_data": request.item_data},
-                            timeout=5
-                        )
-                    except requests.RequestException:
-                        metrics.record_error("sync_library_node_failure", f"Failed to sync with {node}")
-
-            return LibrarySyncResponse(**sync_data)
+            self.sync_log.insert_one(sync_record)
+            
+            logger.info(f"Synced {added} new and {updated} updated resources for user {user_id} from {external_service}")
+            return {
+                "status": "success",
+                "added": added,
+                "updated": updated,
+                "sync_id": str(sync_record["_id"])
+            }
+        except MCPError as e:
+            raise e
         except Exception as e:
-            handle_generic_error(e, context="sync_library")
-            raise HTTPException(status_code=500, detail=f"Failed to sync library item: {str(e)}")
+            logger.error(f"Resource sync failed: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to sync resources: {str(e)}")
+
+    async def get_sync_history(self, user_id: str, agent_id: str) -> List[Dict[str, Any]]:
+        try:
+            sync_records = self.sync_log.find({"user_id": user_id, "agent_id": agent_id}).limit(100)
+            return [
+                {
+                    "sync_id": str(r["_id"]),
+                    "external_service": r["external_service"],
+                    "added": r["added"],
+                    "updated": r["updated"],
+                    "timestamp": r["timestamp"].isoformat()
+                }
+                for r in sync_records
+            ]
+        except Exception as e:
+            logger.error(f"Failed to retrieve sync history: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to retrieve sync history: {str(e)}")
+
+    def close(self):
+        self.client.close()
+        self.library_agent.close()
