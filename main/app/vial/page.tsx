@@ -1,62 +1,86 @@
 import React, { useState, useEffect } from 'react';
-import { createSession } from '../../server/mcp/functions/auth';
 import styles from './vial.module.css';
 
-interface Resource {
-  resource_id: string;
-  uri: string;
-  metadata: { name: string };
+interface Vial {
+  name: string;
+  balance: number;
 }
 
 const VialPage: React.FC = () => {
-  const [resources, setResources] = useState<Resource[]>([]);
+  const [vials, setVials] = useState<Vial[]>([]);
+  const [balance, setBalance] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [userId] = useState<string>('test_user'); // Replace with actual user auth
 
   useEffect(() => {
-    const fetchResources = async () => {
+    const fetchData = async () => {
       try {
-        await createSession(userId);
-        const response = await fetch('/mcp', {
+        const token = localStorage.getItem('access_token');
+        if (!token) throw new Error('No authentication token found');
+        const response = await fetch('/mcp/status', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({
             jsonrpc: '2.0',
-            method: 'mcp.listResources',
-            params: { user_id: userId, agent_id: 'default_agent' },
+            method: 'mcp.getSystemMetrics',
+            params: { user_id: 'test_user' },
             id: 1,
           }),
         });
         const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
-        setResources(data.result);
+        if (data.error) throw new Error(`${data.error.message}\n${data.error.data?.traceback || ''}`);
+        const cached = JSON.parse(await localStorage.getItem('vials') || '{}');
+        setVials(Object.entries(cached).map(([name, { balance }]) => ({ name, balance })));
+        setBalance(data.result.balance || 0);
       } catch (err: any) {
-        setError(`Failed to fetch resources: ${err.message}\n${err.stack}`);
+        setError(`Failed to fetch data: ${err.message}\n${err.stack}`);
         console.error('Vial error:', err);
       }
     };
-    fetchResources();
-  }, [userId]);
+    fetchData();
+    const interval = setInterval(fetchData, 5000); // Update every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleExport = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) throw new Error('No authentication token found');
+      const response = await fetch('/mcp/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'mcp.exportMd', params: { user_id: 'test_user' }, id: 3 }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      const blob = new Blob([data.result], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'vial_data.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(`Export failed: ${err.message}\n${err.stack}`);
+    }
+  };
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Vial MCP Controller</h1>
-      {error && (
-        <div className={styles.error}>
-          <pre>{error}</pre>
-        </div>
-      )}
-      <div className={styles.resources}>
-        {resources.map((resource) => (
-          <div key={resource.resource_id} className={styles.resourceCard}>
-            <h2>{resource.metadata.name}</h2>
-            <p><a href={resource.uri} target="_blank" rel="noopener noreferrer">{resource.uri}</a></p>
+      <h1 className={styles.title}>Vial MCP Remote</h1>
+      {error && <div className={styles.error}><pre>{error}</pre></div>}
+      <div className={styles.vials}>
+        {vials.map((vial) => (
+          <div key={vial.name} className={styles.vialCard}>
+            <h2>{vial.name}</h2>
+            <p>Balance: {vial.balance} WebXOS</p>
           </div>
         ))}
       </div>
+      <div className={styles.balance}>Total Balance: {balance} WebXOS</div>
+      <button className={styles.button} onClick={handleExport}>Export MD</button>
     </div>
   );
 };
