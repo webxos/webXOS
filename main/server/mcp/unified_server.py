@@ -9,6 +9,7 @@ from .utils.mcp_server_notes import NotesAPI
 from .utils.mcp_server_resources import ResourcesAPI
 from .utils.mcp_server_quantum import QuantumAPI
 from .api_gateway.service_registry import ServiceRegistry
+from .auth.auth_manager import AuthManager
 import logging
 import asyncio
 import psutil
@@ -33,6 +34,7 @@ notes_api = NotesAPI()
 resources_api = ResourcesAPI()
 quantum_api = QuantumAPI()
 metrics = PerformanceMetrics()
+auth_manager = AuthManager({"address": "0x123", "hash": "abc123", "reputation": 1000})
 
 async def initialize(params):
     logger.info(f"Initializing for user_id: {params.get('user_id')}")
@@ -100,6 +102,18 @@ registry.register_service("ping", ping)
 registry.register_service("createMessage", create_message)
 registry.register_service("setLevel", set_level)
 registry.register_service("getSystemMetrics", get_system_metrics)
+
+@app.post("/mcp/auth")
+async def authenticate(request: dict):
+    try:
+        username = request.get("username")
+        password = request.get("password")
+        if not username or not password:
+            raise MCPError(code=-32602, message="Username and password are required")
+        result = await auth_manager.authenticate(username, password)
+        return result
+    except Exception as e:
+        return handle_error(e)
 
 @app.post("/mcp")
 async def mcp_endpoint(request: dict):
