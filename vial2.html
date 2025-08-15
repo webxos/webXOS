@@ -47,7 +47,8 @@
     }
     .terminal {
       background: #000000;
-      border: 1px solid #00ff00;
+      border: 2px solid #00ff00;
+      box-shadow: 0 0 10px #00ff00;
       width: 100%;
       max-width: 300px;
       height: 200px;
@@ -55,12 +56,16 @@
       padding: 0.5rem;
       margin: 0 auto 1rem;
       font-size: 0.9rem;
-      white-space: pre-wrap;
-      text-align: center;
+      color: #00ff00;
+      text-align: left;
       flex-grow: 1;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
+    }
+    .terminal span.error {
+      color: #ff3333;
+      text-shadow: 0 0 2px #ff3333;
     }
     .input {
       width: 80%;
@@ -88,6 +93,7 @@
       cursor: pointer;
       border-radius: 3px;
       transition: box-shadow 0.3s;
+      touch-action: manipulation; /* Enable one-click for mobile */
     }
     .button:hover, .button:focus {
       box-shadow: 0 0 10px #ff3333;
@@ -139,7 +145,7 @@
       <button class="button" id="oauthBtn">OAuth</button>
       <button class="button" id="troubleshootBtn">Troubleshoot</button>
     </div>
-    <div class="footer">WebXOS 2025 © | Version: xAI Artifact Updated | Time: 04:13 AM EDT, August 15, 2025</div>
+    <div class="footer">WebXOS 2025 © | Version: xAI Artifact Updated | Time: 04:30 AM EDT, August 15, 2025</div>
 
     <script>
       const terminal = document.getElementById('terminal');
@@ -153,8 +159,8 @@
       let connectionCheckInterval;
 
       const log = (message, isError = false) => {
-        const color = isError ? '#ff3333' : '#00ff00';
-        terminal.innerHTML += `<span style="color: ${color}">${message}</span><br>`;
+        const colorClass = isError ? 'error' : '';
+        terminal.innerHTML += `<span class="${colorClass}">${message}</span><br>`;
         terminal.scrollTop = terminal.scrollHeight;
       };
 
@@ -168,9 +174,9 @@
             log(`Network Error: NetworkError when attempting to fetch resource.\nTraceback: ${err.message}`, true);
             return { error: { code: -32000, message: err.message, traceback: err.stack } };
           }
-          log('Offline: Using cached data or fallback...', true);
+          log('Offline: Fallback to cached data or default response...', true);
           const cached = localStorage.getItem('lastResponse');
-          return cached ? JSON.parse(cached) : { error: { code: -32005, message: 'Offline with no cached data' } };
+          return cached ? JSON.parse(cached) : { result: { status: 'Offline mode', message: 'No recent data available' } };
         }
       };
 
@@ -213,10 +219,29 @@
               lastTroubleshoot = now;
               response = await fetchWithFallback(`${SERVER_URL}/mcp/checklist`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
               if (response.error) {
-                log(`Troubleshoot Error: ${response.error.message}\nTraceback: ${response.error.traceback}`, true);
+                log(`Troubleshoot Error: ${response.error.message}\nSource: ${response.error.traceback || 'Unknown backend issue'}`);
+                if (response.error.code === -32000) {
+                  log('Possible Cause: Network connectivity issue or server down.');
+                } else if (response.error.code === -32603) {
+                  log('Possible Cause: Internal server error or misconfiguration.');
+                } else {
+                  log('Possible Cause: Unknown backend issue, check server logs.');
+                }
               } else {
                 log(`Checklist Result:\n${JSON.stringify(response.result, null, 2)}`);
               }
+              break;
+            case '/status':
+              await fetchStatus();
+              break;
+            case '/help':
+              log('Help Menu:\n- /auth: Authenticate via OAuth\n- /status: Check server status\n- /troubleshoot: Run system check\n- /clear: Clear terminal\n- /version: Display version');
+              break;
+            case '/clear':
+              terminal.innerHTML = '';
+              break;
+            case '/version':
+              log('Version: xAI Artifact Updated');
               break;
             default:
               throw new Error(`Unknown command: ${cmd}`);
@@ -250,17 +275,56 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ provider: 'mock', code: 'test_code' }),
           });
-          if (response.error) throw new Error(response.error.message);
+          if (response.error) {
+            throw new Error(`OAuth Validation Failed: ${response.error.message} (Code: ${response.error.code})`);
+          }
+          if (!response.access_token || !response.vials) {
+            throw new Error('OAuth response missing required fields');
+          }
           localStorage.setItem('access_token', response.access_token);
           localStorage.setItem('vials', JSON.stringify(response.vials));
           localStorage.setItem('lastResponse', JSON.stringify(response));
+          log('Authentication successful. Redirecting to dashboard...');
           window.location.href = '/app/dashboard';
         } catch (err) {
           log(`OAuth Error: ${err.message}\nTraceback: ${err.stack}`, true);
+          errorDiv.textContent = `OAuth Failed: ${err.message}`;
+          errorDiv.style.textShadow = '0 0 5px #ff3333';
+          setTimeout(() => errorDiv.style.textShadow = '0 0 2px #ff3333', 300);
         }
       });
 
-      troubleshootBtn.addEventListener('click', () => handleCommand('/troubleshoot'));
+      troubleshootBtn.addEventListener('click', async () => {
+        try {
+          const now = Date.now();
+          if (now - lastTroubleshoot < 5000) {
+            log('Please wait 5 seconds before next troubleshoot.', true);
+            return;
+          }
+          lastTroubleshoot = now;
+          const response = await fetchWithFallback(`${SERVER_URL}/mcp/checklist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          if (response.error) {
+            log(`Troubleshoot Error: ${response.error.message}\nSource: ${response.error.traceback || 'Unknown backend issue'}`);
+            if (response.error.code === -32000) {
+              log('Possible Cause: Network connectivity issue or server down.');
+            } else if (response.error.code === -32603) {
+              log('Possible Cause: Internal server error or misconfiguration.');
+            } else {
+              log('Possible Cause: Unknown backend issue, check server logs.');
+            }
+          } else {
+            log(`Checklist Result:\n${JSON.stringify(response.result, null, 2)}`);
+          }
+        } catch (err) {
+          log(`Troubleshoot Error: ${err.message}\nTraceback: ${err.stack}`, true);
+          errorDiv.textContent = `Troubleshoot Failed: ${err.message}`;
+          errorDiv.style.textShadow = '0 0 5px #ff3333';
+          setTimeout(() => errorDiv.style.textShadow = '0 0 2px #ff3333', 300);
+        }
+      });
 
       commandInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && commandInput.value.trim()) {
