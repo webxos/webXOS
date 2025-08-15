@@ -1,85 +1,87 @@
 # main/server/mcp/agents/library_agent.py
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from pymongo import MongoClient
 from ..utils.mcp_error_handler import MCPError
-from ..agents.global_mcp_agents import GlobalMCPAgents
+from ..utils.performance_metrics import PerformanceMetrics
+from ..utils.cache_manager import CacheManager
+import logging
 import os
-import requests
+import aiohttp
+import json
 
-class LibraryResource(BaseModel):
-    resource_id: str
-    name: str
-    uri: str
-    type: str
-    metadata: Dict[str, Any]
+logger = logging.getLogger("mcp")
 
 class LibraryAgent:
     def __init__(self):
+        self.metrics = PerformanceMetrics()
         self.client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
         self.db = self.client["vial_mcp"]
-        self.collection = self.db["library_resources"]
-        self.global_agents = GlobalMCPAgents()
-        self.resource_api_url = os.getenv("RESOURCE_API_URL", "https://api.example.com/resources")
+        self.resources = self.db["resources"]
+        self.cache = CacheManager()
+        self.github_api_url = "https://api.github.com"
+        self.github_token = os.getenv("GITHUB_TOKEN", "")
 
-    async def add_resource(self, agent_id: str, name: str, uri: str, resource_type: str, metadata: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    @self.metrics.track_request("list_resources")
+    async def list_resources(self, agent_id: str, user_id: str) -> List[Dict[str, Any]]:
         try:
-            # Validate agent and user
-            agents = await self.global_agents.list_agents(user_id)
-            agent = next((a for a in agents if a["agent_id"] == agent_id), None)
-            if not agent:
-                raise MCPError(code=-32003, message="Agent not found or access denied")
+            if not agent_id or not user_id:
+                raise MCPError(code=-32602, message="Agent ID and user ID are required")
             
-            # Validate input
-            if not name or not uri or not resource_type:
-                raise MCPError(code=-32602, message="Name, URI, and resource type are required")
-            if resource_type not in ["dataset", "model", "document"]:
-                raise MCPError(code=-32602, message="Unsupported resource type")
-
-            # Verify resource accessibility (mocked for simplicity)
-            response = requests.head(uri)
-            if response.status_code != 200:
-                raise MCPError(code=-32603, message="Resource URI is not accessible")
-
-            resource = {
-                "agent_id": agent_id,
-                "user_id": user_id,
-                "name": name,
-                "uri": uri,
-                "type": resource_type,
-                "metadata": metadata
-            }
-            result = self.collection.insert_one(resource)
-            return {
-                "status": "success",
-                "resource_id": str(result.inserted_id)
-            }
+            cached = await self.cache.get_cache(f"resources:{user_id}:{agent_id}")
+            if cached:
+                logger.info(f"Cache hit for resources: {user_id}:{agent_id}")
+                return cached
+            
+            resources = list(self.resources.find({"user_id": user_id, "agent_id": agent_id}))
+            for resource in resources:
+                resource["_id"] = str(resource["_id"])
+            
+            await self.cache.set_cache(f"resources:{user_id}:{agent_id}", resources, ttl=300)
+            logger.info(f"Listed {len(resources)} resources for user {user_id}, agent {agent_id}")
+            return resources
         except MCPError as e:
             raise e
         except Exception as e:
-            raise MCPError(code=-32603, message=f"Failed to add resource: {str(e)}")
-
-    async def list_resources(self, agent_id: str, user_id: str, resource_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        try:
-            agents = await self.global_agents.list_agents(user_id)
-            if not any(a["agent_id"] == agent_id for a in agents):
-                raise MCPError(code=-32003, message="Agent not found or access denied")
-            
-            query = {"agent_id": agent_id, "user_id": user_id}
-            if resource_type:
-                query["type"] = resource_type
-            resources = self.collection.find(query).limit(100)
-            return [
-                {
-                    "resource_id": str(r["_id"]),
-                    "name": r["name"],
-                    "uri": r["uri"],
-                    "type": r["type"],
-                    "metadata": r["metadata"]
-                }
-                for r in resources
-            ]
-        except Exception as e:
+            logger.error(f"Failed to list resources: {str(e)}")
             raise MCPError(code=-32603, message=f"Failed to list resources: {str(e)}")
+
+    @self.metrics.track_request("sync_github_resource")
+    async def sync_github_resource(self, user_id: str, repo_name: str) -> Dict[str, Any]:
+        try:
+            if not user_id or not repo_name:
+                raise MCPError(code=-32602, message="User ID and repository name are required")
+            
+            async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {self.github_token}"}
+                async with session.get(
+                    f"{self.github_api_url}/repos/{repo_name}", headers=headers
+                ) as response:
+                    if response.status != 200:
+                        raise MCPError(code=-32603, message=f"GitHub API error: {response.status}")
+                    repo_data = await response.json()
+            
+            resource = {
+                "user_id": user_id,
+                "agent_id": secrets.token_hex(16),
+                "type": "github_repo",
+                "uri": repo_data["html_url"],
+                "metadata": {
+                    "name": repo_data["name"],
+                    "description": repo_data.get("description", ""),
+                    "last_updated": repo_data["updated_at"]
+                },
+                "created_at": datetime.utcnow()
+            }
+            self.resources.insert_one(resource)
+            await self.cache.delete_cache(f"resources:{user_id}:*")
+            logger.info(f"Synced GitHub resource {repo_name} for user {user_id}")
+            return {"resource_id": str(resource["_id"]), "status": "synced"}
+        except MCPError as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Failed to sync GitHub resource: {str(e)}")
+            raise MCPError(code=-32603, message=f"Failed to sync GitHub resource: {str(e)}")
 
     def close(self):
         self.client.close()
+        self.cache.close()
