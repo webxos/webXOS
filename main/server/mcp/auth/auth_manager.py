@@ -2,10 +2,11 @@
 import jwt
 import datetime
 import logging
-from typing import Dict, Optional
+import os
+from typing import Dict, Optional, List
 from ..utils.mcp_error_handler import MCPError
 from ..utils.cache_manager import CacheManager
-import os
+from pathlib import Path
 
 logger = logging.getLogger("mcp")
 cache = CacheManager()
@@ -15,12 +16,21 @@ class AuthManager:
     def __init__(self, user_data: Dict[str, Any]):
         self.user_data = user_data
         self.cache = cache
+        self.required_files = [
+            "main/server/mcp/unified_server.py",
+            "main/server/mcp/auth/auth_manager.py",
+            "main/server/mcp/api_gateway/service_registry.py",
+            "main/server/mcp/utils/error_handler.py",
+            "main/server/mcp/utils/cache_manager.py"
+        ]
 
     async def authenticate(self, username: str, password: str) -> Dict[str, str]:
         try:
             if not username or not password:
                 raise MCPError(code=-32602, message="Username and password are required")
-            # Simulate authentication (replace with actual logic, e.g., database check)
+            checklist = await self.validate_checklist()
+            if not checklist["all_files_present"]:
+                raise MCPError(code=-32003, message="Missing required files", data={"checklist": checklist})
             if username == "test_user" and password == "test_pass":
                 token = jwt.encode({
                     "user_id": username,
@@ -59,3 +69,20 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Logout error: {str(e)}", exc_info=True)
             raise MCPError(code=-32603, message=f"Logout failed: {str(e)}")
+
+    async def validate_checklist(self) -> Dict[str, Any]:
+        missing_files = []
+        for file_path in self.required_files:
+            if not Path(file_path).is_file():
+                missing_files.append(file_path)
+        fix_steps = [
+            "1. Ensure all listed files are present in the main/server/mcp directory.",
+            "2. Run 'git clone https://github.com/your-repo/vial-mcp.git' to restore missing files.",
+            "3. Install dependencies with 'pip install -r requirements.txt' or 'npm install' as needed.",
+            "4. Restart the server with 'docker-compose up -d'."
+        ] if missing_files else []
+        return {
+            "all_files_present": len(missing_files) == 0,
+            "missing_files": missing_files,
+            "fix_steps": fix_steps
+        }
