@@ -1,50 +1,50 @@
-import pytest
+# main/server/mcp/agents/test_global_mcp_agents.py
+import unittest
 from fastapi.testclient import TestClient
-from main.server.mcp.agents.global_mcp_agents import GlobalMCPAgents, AgentTaskRequest
-from main.server.mcp.db.db_manager import DatabaseManager
-from main.server.mcp.security_manager import SecurityManager
-from main.server.mcp.error_handler import ErrorHandler
-from main.server.unified_server import app
+from unittest.mock import patch
+from .global_mcp_agents import app, db_manager
+from datetime import datetime
 
-@pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+class TestGlobalMCPAgents(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
 
-@pytest.fixture
-def agent_manager():
-    """Create a GlobalMCPAgents instance."""
-    db_manager = DatabaseManager()
-    security_manager = SecurityManager()
-    error_handler = ErrorHandler()
-    return GlobalMCPAgents(db_manager, security_manager, error_handler)
+    @patch.object(db_manager, 'insert_one')
+    def test_create_task(self, mock_insert):
+        mock_insert.return_value = "123"
+        token = "mock_token"
+        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
+            response = self.client.post(
+                "/agents/tasks",
+                json={"task_id": "task1", "type": "quantum", "parameters": {"qubits": 2}, "user_id": "test_user"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["task_id"], "task1")
+        self.assertEqual(response.json()["user_id"], "test_user")
 
-@pytest.mark.asyncio
-async def test_execute_task_success(agent_manager, mocker):
-    """Test successful task execution."""
-    mocker.patch.object(agent_manager.security_manager, 'validate_token', return_value={"wallet_id": "wallet_123"})
-    mocker.patch.object(agent_manager.agents["translator"], 'process_task', return_value={"translated": "Hello"})
-    mocker.patch.object(agent_manager.db_manager, 'log_task', return_value="task_123")
-    request = AgentTaskRequest(wallet_id="wallet_123", task_type="translator", parameters={"text": "Hola"})
-    response = await agent_manager.execute_task(request, "mocked_token")
-    assert response == {"task_id": "task_123", "result": {"translated": "Hello"}}
+    @patch.object(db_manager, 'find_many')
+    def test_get_tasks(self, mock_find):
+        mock_find.return_value = [
+            {"task_id": "task1", "type": "quantum", "status": "pending", "parameters": {"qubits": 2}, "user_id": "test_user", "created_at": datetime.utcnow(), "updated_at": datetime.utcnow()}
+        ]
+        token = "mock_token"
+        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
+            response = self.client.get("/agents/tasks/test_user", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["task_id"], "task1")
 
-@pytest.mark.asyncio
-async def test_execute_task_unauthorized(agent_manager, mocker):
-    """Test task execution with unauthorized wallet."""
-    mocker.patch.object(agent_manager.security_manager, 'validate_token', return_value={"wallet_id": "wrong_wallet"})
-    request = AgentTaskRequest(wallet_id="wallet_123", task_type="translator", parameters={"text": "Hola"})
-    with pytest.raises(HTTPException) as exc:
-        await agent_manager.execute_task(request, "mocked_token")
-    assert exc.value.status_code == 500
-    assert "Unauthorized wallet access" in exc.value.detail
+    @patch.object(db_manager, 'find_one')
+    @patch.object(db_manager, 'update_one')
+    def test_execute_task(self, mock_update, mock_find):
+        mock_find.return_value = {"task_id": "task1", "type": "quantum", "status": "pending", "parameters": {"qubits": 2}, "user_id": "test_user"}
+        mock_update.return_value = 1
+        token = "mock_token"
+        with patch('main.server.mcp.utils.performance_metrics.PerformanceMetrics.verify_token', return_value={"sub": "test_user"}):
+            response = self.client.post("/agents/tasks/task1/execute", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
 
-@pytest.mark.asyncio
-async def test_execute_task_unknown_agent(agent_manager, mocker):
-    """Test task execution with unknown agent type."""
-    mocker.patch.object(agent_manager.security_manager, 'validate_token', return_value={"wallet_id": "wallet_123"})
-    request = AgentTaskRequest(wallet_id="wallet_123", task_type="unknown", parameters={"text": "Hola"})
-    with pytest.raises(HTTPException) as exc:
-        await agent_manager.execute_task(request, "mocked_token")
-    assert exc.value.status_code == 500
-    assert "Unknown agent type: unknown" in exc.value.detail
+if __name__ == "__main__":
+    unittest.main()
