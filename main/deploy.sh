@@ -64,7 +64,7 @@ echo "Backend deployed at: $BACKEND_URL"
 # Update netlify.toml with backend URL
 cd "$FRONTEND_REPO"
 echo "Updating netlify.toml with backend URL: $BACKEND_URL"
-sed -i "s|http://localhost:8000|$BACKEND_URL|g" netlify.toml
+sed -i "s|http://localhost:8000|$BACKEND_URL|g" main/netlify.toml
 
 # Deploy frontend
 if ! command -v netlify &> /dev/null; then
@@ -76,14 +76,19 @@ netlify deploy --prod --dir=dist
 
 # Test backend connectivity
 echo "Testing backend health check..."
-curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q 200 && echo "Backend health check: OK" || echo "Backend health check: FAILED"
+curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q 200 && echo "Backend health check: OK" || {
+  echo "Backend health check: FAILED"
+  echo "Error: JSON parse errors will persist until the backend is reachable. Update main/netlify.toml with the correct BACKEND_URL ($BACKEND_URL) and redeploy."
+  exit 1
+}
 
 # Verify SQLite logging
 echo "Checking SQLite error logs..."
-if [ -f "$BACKEND_REPO/errors.db" ]; then
-  sqlite3 "$BACKEND_REPO/errors.db" "SELECT * FROM error_logs LIMIT 5"
+if [ -f "$BACKEND_REPO/main/errors.db" ]; then
+  sqlite3 "$BACKEND_REPO/main/errors.db" "SELECT * FROM error_logs LIMIT 5"
 else
   echo "No error logs found. Backend may not have logged errors yet."
 fi
 
 echo "Deployment complete. Frontend: https://api.webxos.netlify.app | Backend: $BACKEND_URL"
+echo "Test endpoints with: curl -H 'Authorization: Bearer <token>' $BACKEND_URL/v1/wallet"
