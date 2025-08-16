@@ -45,9 +45,9 @@ async def mcp_endpoint(request: MCPRequest):
         methods = {
             "initialize": lambda params: {
                 "capabilities": {
-                    "tools": ["completion", "wallet", "quantum_link"],
-                    "resources": ["mongodb", "sqlite"],
-                    "prompts": ["claude", "grok", "gemini"],
+                    "tools": ["wallet", "quantum_link"],
+                    "resources": ["mongodb", "sqlite", "redis"],
+                    "prompts": ["claude", "grok", "gemini", "openai"],
                     "logging": True
                 }
             },
