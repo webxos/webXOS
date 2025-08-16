@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from ...security.authentication import verify_token
-from ...providers import get_provider
+from ...config.providers import get_provider
 from typing import Dict, Any
 
 router = APIRouter()
