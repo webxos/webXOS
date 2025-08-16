@@ -4,10 +4,11 @@ from fastapi_events.handlers.local import local_handler
 from fastapi_events.typing import Event
 from starlette.middleware.cors import CORS
 from starlette.responses import StreamingResponse
-from .routes import wallet, oauth, troubleshoot, quantum_link, mcp_endpoints, mcp_protocol
+from .routes import wallet, oauth, troubleshoot, quantum_link, mcp_endpoints
 from ..security.authentication import verify_token
 from ..utils.logging import log_error, log_info
 from ..config.redis_config import get_redis
+from .mcp_protocol import router as mcp_router
 import asyncio
 import json
 
@@ -33,7 +34,7 @@ app.include_router(oauth.router)
 app.include_router(troubleshoot.router, dependencies=[Depends(verify_token)])
 app.include_router(quantum_link.router, dependencies=[Depends(verify_token)])
 app.include_router(mcp_endpoints.router, dependencies=[Depends(verify_token)])
-app.include_router(mcp_protocol.router, dependencies=[Depends(verify_token)])
+app.include_router(mcp_router)
 
 # Health check endpoint
 @app.get("/health")
