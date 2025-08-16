@@ -38,6 +38,7 @@ class VialMCPConfig(BaseSettings):
     database: DatabaseConfig = DatabaseConfig()
     quantum: QuantumConfig = QuantumConfig()
     ml: MLConfig = MLConfig()
+    jwt_secret_key: str = Field(..., env="JWT_SECRET_KEY")
 
     class Config:
         env_file = ".env"
