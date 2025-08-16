@@ -1,25 +1,29 @@
-from datetime import datetime, timedelta
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from pymongo import MongoClient
-from ..config.settings import settings
-from fastapi import HTTPException
+from ...config.settings import settings
+from ...utils.logging import log_error
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=60)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm="HS256")
+security = HTTPBearer()
 
-def verify_token(token: str):
+def create_jwt_token(payload: dict) -> str:
+    """Create JWT token."""
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
-        return payload
-    except JWTError:
-        return None
+        token = jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+        return token
+    except Exception as e:
+        log_error(f"JWT creation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-def verify_credentials(api_key: str, api_secret: str):
-    client = MongoClient(settings.database.url)
-    db = client[settings.database.db_name]
-    credentials = db.credentials.find_one({"api_key": api_key, "api_secret": api_secret})
-    client.close()
-    return credentials
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Verify JWT token and return user_id."""
+    try:
+        payload = jwt.decode(credentials.credentials, settings.JWT_SECRET, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if not user_id:
+            log_error("Invalid JWT: Missing sub claim")
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user_id
+    except JWTError as e:
+        log_error(f"JWT verification failed: {str(e)}")
+        raise HTTPException(status_code=401, detail=str(e))
