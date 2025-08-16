@@ -10,12 +10,13 @@ async def quantum_link(data: dict, token: str = Depends(verify_token)):
     try:
         client = MongoClient(settings.database.url)
         db = client[settings.database.db_name]
+        quantum_state = {"qubits": [], "entanglement": data.get("state", "synced")}
         result = db.quantum_states.update_one(
             {"user_id": token["sub"]},
-            {"$set": {"quantum_state": {"qubits": [], "entanglement": "synced"}}},
+            {"$set": {"quantum_state": quantum_state}},
             upsert=True
         )
         client.close()
-        return {"message": "Quantum sync complete", "quantumState": {"qubits": [], "entanglement": "synced"}}
+        return {"message": "Quantum sync complete", "quantumState": quantum_state}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
