@@ -1,26 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from ...security.authentication import verify_token
-from ...config.providers import get_provider
-from typing import Dict, Any
+from ...utils.logging import log_error, log_info
+from ...config.redis_config import get_redis
 
-router = APIRouter()
+router = APIRouter(prefix="/v1/mcp", tags=["MCP Endpoints"])
 
-@router.get("/api-config")
-async def api_config(token: str = Depends(verify_token)):
-    return {"rateLimit": 1000, "enabled": True}
+class ConfigResponse(BaseModel):
+    rate_limit: int
+    enabled: bool
 
-@router.post("/void")
-async def void_transaction(token: str = Depends(verify_token)):
-    return {"message": "Transaction voided"}
-
-@router.post("/mcp/completion")
-async def mcp_completion(data: Dict[str, Any], token: str = Depends(verify_token)):
-    provider_name = data.get("provider", "xai")
-    provider = get_provider(provider_name)
-    if not provider:
-        raise HTTPException(status_code=400, detail="Invalid provider")
+@router.get("/config", response_model=ConfigResponse)
+async def get_mcp_config(user_id: str = Depends(verify_token), redis=Depends(get_redis)):
+    """Retrieve MCP configuration."""
     try:
-        result = await provider.completion(data.get("prompt", ""), **data.get("params", {}))
-        return result
+        cached_config = await redis.get(f"config:{user_id}")
+        if cached_config:
+            log_info(f"MCP config cache hit for user {user_id}")
+            return ConfigResponse(**json.loads(cached_config))
+        
+        config = {"rate_limit": 1000, "enabled": True}
+        await redis.set(f"config:{user_id}", json.dumps(config), ex=3600)
+        log_info(f"MCP config fetched for user {user_id}")
+        return ConfigResponse(**config)
     except Exception as e:
+        log_error(f"MCP config fetch failed for {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
