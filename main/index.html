@@ -174,6 +174,7 @@
             <button onclick="apiAccess()">API Access</button>
             <button onclick="showDashboard()">Dashboard</button>
             <button onclick="checkBackendHealth()">Check Backend</button>
+            <button onclick="mcpInitialize()">MCP Initialize</button>
         </div>
         <div class="footer">
             <p>WebXOS Vial MCP Gateway | Testing Mode (BETA) | 2025 | v2.7</p>
@@ -200,13 +201,20 @@
             quantumState: null
         };
 
+        // Sanitize input to prevent XSS
+        function sanitizeInput(input) {
+            const div = document.createElement('div');
+            div.textContent = input;
+            return div.innerHTML;
+        }
+
         // Terminal output handling
         const terminalOutput = document.getElementById('terminal-output');
         const terminalInput = document.getElementById('terminal-input');
 
         function logToTerminal(message, isError = false) {
             const div = document.createElement('div');
-            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${sanitizeInput(message)}`;
             if (isError) div.className = 'error';
             terminalOutput.appendChild(div);
             terminalOutput.scrollTop = terminalOutput.scrollHeight;
@@ -215,7 +223,7 @@
         // Handle terminal commands
         terminalInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                const command = terminalInput.value.trim();
+                const command = sanitizeInput(terminalInput.value.trim());
                 terminalInput.value = '';
                 if (command === '/help') {
                     logToTerminal('Available commands:');
@@ -223,6 +231,7 @@
                     logToTerminal('/status - Check wallet status');
                     logToTerminal('/clear - Clear terminal');
                     logToTerminal('/health - Check backend connectivity');
+                    logToTerminal('/mcp-initialize - Initialize MCP protocol');
                 } else if (command === '/status') {
                     logToTerminal(`Balance: ${wallet.balance.toFixed(4)}, Reputation: ${wallet.reputation}, Access Token: ${wallet.accessToken || 'None'}`);
                     logToTerminal(`Wallet Key: ${wallet.walletKey || 'None'}, Address: ${wallet.address || 'None'}`);
@@ -230,6 +239,8 @@
                     terminalOutput.innerHTML = '';
                 } else if (command === '/health') {
                     checkBackendHealth();
+                } else if (command === '/mcp-initialize') {
+                    mcpInitialize();
                 } else {
                     logToTerminal(`Unknown command: ${command}. Type /help for commands.`);
                 }
@@ -292,6 +303,26 @@
             } catch (error) {
                 logToTerminal(`Backend health check failed: ${error.message}. Ensure backend is running and netlify.toml is configured with the correct backend URL.`, true);
                 logToTerminal(`Endpoint: ${HEALTH_CHECK_URL}`, true);
+            }
+        }
+
+        // MCP Initialize
+        async function mcpInitialize() {
+            try {
+                const response = await fetchWithBackoff(`${API_BASE_URL}/mcp/rpc`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'initialize',
+                        params: { tools: ['completion', 'wallet'], resources: ['mongodb'] },
+                        id: 1
+                    })
+                });
+                const data = await parseJSONResponse(response);
+                logToTerminal(`MCP Initialize: ${JSON.stringify(data.result || data)}`);
+            } catch (error) {
+                logToTerminal(`MCP Initialize failed: ${error.message}. Check /mcp/rpc endpoint.`, true);
             }
         }
 
@@ -443,16 +474,16 @@
             try {
                 const mdContent = `# WebXOS Vial and Wallet Export\n\n` +
                     `## Wallet\n` +
-                    `- Wallet Key: ${wallet.walletKey || 'N/A'}\n` +
+                    `- Wallet Key: ${sanitizeInput(wallet.walletKey || 'N/A')}\n` +
                     `- Session Balance: ${wallet.balance.toFixed(4)} $WEBXOS\n` +
-                    `- Address: ${wallet.address || 'N/A'}\n` +
-                    `- Hash: ${wallet.hash || 'N/A'}\n\n` +
+                    `- Address: ${sanitizeInput(wallet.address || 'N/A')}\n` +
+                    `- Hash: ${sanitizeInput(wallet.hash || 'N/A')}\n\n` +
                     `## API Credentials\n` +
-                    `- Key: ${wallet.apiKey}\n` +
-                    `- Secret: ${wallet.apiSecret}\n\n` +
+                    `- Key: ${sanitizeInput(wallet.apiKey)}\n` +
+                    `- Secret: ${sanitizeInput(wallet.apiSecret)}\n\n` +
                     `## Vials\n` +
                     `# Vial Agent: vial1\n` +
-                    `- Status: ${wallet.vialStatus || 'N/A'}\n` +
+                    `- Status: ${sanitizeInput(wallet.vialStatus || 'N/A')}\n` +
                     `- Quantum State: ${JSON.stringify(wallet.quantumState || { qubits: [], entanglement: 'N/A' })}\n`;
                 const blob = new Blob([mdContent], { type: 'text/markdown' });
                 const url = URL.createObjectURL(blob);
@@ -498,7 +529,7 @@
                         if (line.startsWith('## ')) {
                             currentSection = line.slice(3).trim();
                         } else if (currentSection === 'Wallet' && line.startsWith('- ')) {
-                            const [key, value] = line.slice(2).split(':').map(s => s.trim());
+                            const [key, value] = line.slice(2).split(':').map(s => sanitizeInput(s.trim()));
                             if (key === 'Session Balance') {
                                 importedWallet.balance = parseFloat(value) || 0;
                             } else if (key === 'Wallet Key') {
@@ -516,10 +547,11 @@
                             const stateStr = line.split(':').slice(1).join(':').trim();
                             try {
                                 if (stateStr && stateStr !== 'N/A') {
-                                    importedWallet.quantumState = JSON.parse(stateStr);
-                                    if (!importedWallet.quantumState.entanglement) {
+                                    const parsed = JSON.parse(stateStr);
+                                    if (!parsed.entanglement) {
                                         throw new Error('Invalid quantum state: missing entanglement');
                                     }
+                                    importedWallet.quantumState = parsed;
                                 } else {
                                     importedWallet.quantumState = { qubits: [], entanglement: 'N/A' };
                                 }
