@@ -16,5 +16,15 @@ class DatabaseResource:
             upsert=True
         )
     
+    def get_quantum_state(self, user_id: str):
+        return self.db.quantum_states.find_one({"user_id": user_id})
+    
+    def update_quantum_state(self, user_id: str, quantum_data: dict):
+        self.db.quantum_states.update_one(
+            {"user_id": user_id},
+            {"$set": quantum_data},
+            upsert=True
+        )
+    
     def close(self):
         self.client.close()
