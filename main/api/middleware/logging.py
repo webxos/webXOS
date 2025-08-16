@@ -1,11 +1,24 @@
-import logging
 from fastapi import Request
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("vial_mcp")
+from ...utils.logging import log_info
+import time
 
 async def logging_middleware(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
+    """Log request details for audit trails."""
+    start_time = time.time()
+    user_id = getattr(request.state, "user_id", "anonymous")
+    log_info(
+        f"Request: {request.method} {request.url.path} from {request.client.host} by {user_id}",
+        endpoint=request.url.path,
+        user_id=user_id
+    )
+    
     response = await call_next(request)
-    logger.info(f"Response: {response.status_code}")
+    
+    duration = time.time() - start_time
+    log_info(
+        f"Response: {request.method} {request.url.path} status {response.status_code} in {duration:.3f}s",
+        endpoint=request.url.path,
+        user_id=user_id
+    )
+    
     return response
