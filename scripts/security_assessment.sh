@@ -1,57 +1,92 @@
 #!/bin/bash
 
-# Quarterly Security Assessment Script for vial-mcp
-# Run this script manually or schedule via cron for quarterly execution
+# Security Assessment Script for vial-mcp
 
-set -e
+# Configuration
+DATABASE_URL=${DATABASE_URL:-"postgres://localhost:5432/vial_mcp"}
+REPORT_FILE="security_assessment_$(date +%Y%m%d_%H%M%S).txt"
+ALERT_EMAIL=${ALERT_EMAIL:-"security@webxos.netlify.app"}
+SMTP_SERVER=${SMTP_SERVER:-"smtp.gmail.com"}
+SMTP_PORT=${SMTP_PORT:-587}
+SMTP_USER=${SMTP_USER}
+SMTP_PASSWORD=${SMTP_PASSWORD}
 
-echo "Starting quarterly security assessment for vial-mcp..."
+# Function to send email report
+send_email() {
+    local subject=$1
+    local body=$2
+    echo -e "Subject: $subject\n\n$body" | sendmail -f "$SMTP_USER" -t "$ALERT_EMAIL"
+}
 
-# 1. Dependency Vulnerability Scanning
-echo "Scanning Python dependencies..."
-pip install --upgrade safety
-safety check -r main/api/mcp/requirements.txt > security_assessment_deps.txt
-if grep -q "vulnerabilities found" security_assessment_deps.txt; then
-  echo "WARNING: Vulnerabilities found in dependencies. Check security_assessment_deps.txt"
-else
-  echo "No dependency vulnerabilities found."
+# Function to query database
+query_db() {
+    local query=$1
+    psql "$DATABASE_URL" -t -A -c "$query"
+}
+
+# Initialize report
+echo "Security Assessment Report - $(date)" > "$REPORT_FILE"
+echo "=====================================" >> "$REPORT_FILE"
+
+# 1. Check for outdated sessions
+echo "Checking for outdated sessions..." >> "$REPORT_FILE"
+outdated_sessions=$(query_db "SELECT COUNT(*) FROM sessions WHERE expires_at < CURRENT_TIMESTAMP;")
+echo "Outdated sessions found: $outdated_sessions" >> "$REPORT_FILE"
+if [ "$outdated_sessions" -gt 0 ]; then
+    echo "Cleaning up outdated sessions..." >> "$REPORT_FILE"
+    query_db "DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP;"
+    echo "Outdated sessions cleaned." >> "$REPORT_FILE"
 fi
+echo "" >> "$REPORT_FILE"
 
-echo "Scanning Node.js dependencies..."
-npm install -g npm-audit
-npm audit --prefix main/frontend > security_assessment_npm.txt
-if grep -q "vulnerabilities found" security_assessment_npm.txt; then
-  echo "WARNING: Vulnerabilities found in npm dependencies. Check security_assessment_npm.txt"
-else
-  echo "No npm vulnerabilities found."
+# 2. Check for recent anomalies
+echo "Checking for recent anomalies..." >> "$REPORT_FILE"
+anomalies=$(query_db "SELECT COUNT(*) FROM security_events WHERE event_type = 'anomaly_detected' AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours';")
+echo "Anomalies detected in last 24 hours: $anomalies" >> "$REPORT_FILE"
+if [ "$anomalies" -gt 0 ]; then
+    echo "Recent anomalies:" >> "$REPORT_FILE"
+    query_db "SELECT details FROM security_events WHERE event_type = 'anomaly_detected' AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours';" >> "$REPORT_FILE"
 fi
+echo "" >> "$REPORT_FILE"
 
-# 2. Security Log Review
-echo "Reviewing security logs for the last 90 days..."
-export PGPASSWORD=$DATABASE_URL_PASSWORD
-psql $DATABASE_URL -c "SELECT event_type, COUNT(*) as count FROM security_events WHERE created_at > NOW() - INTERVAL '90 days' GROUP BY event_type ORDER BY count DESC;" > security_assessment_logs.txt
-if grep -q "anomaly_detected" security_assessment_logs.txt; then
-  echo "WARNING: Anomalies detected in logs. Review security_assessment_logs.txt"
-else
-  echo "No anomalies detected in logs."
+# 3. Analyze audit logs
+echo "Analyzing audit logs..." >> "$REPORT_FILE"
+audit_log_count=$(query_db "SELECT COUNT(*) FROM audit_logs WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours';")
+echo "Audit log entries in last 24 hours: $audit_log_count" >> "$REPORT_FILE"
+if [ "$audit_log_count" -gt 0 ]; then
+    echo "Top user actions:" >> "$REPORT_FILE"
+    query_db "SELECT action, COUNT(*) as count FROM audit_logs WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours' GROUP BY action ORDER BY count DESC LIMIT 5;" >> "$REPORT_FILE"
+    
+    suspicious_actions=$(query_db "SELECT COUNT(*) FROM audit_logs WHERE action IN ('data_erasure', 'anomaly_detected') AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours';")
+    echo "Suspicious actions (data erasure, anomalies): $suspicious_actions" >> "$REPORT_FILE"
+    if [ "$suspicious_actions" -gt 0 ]; then
+        echo "Details of suspicious actions:" >> "$REPORT_FILE"
+        query_db "SELECT user_id, action, details, created_at FROM audit_logs WHERE action IN ('data_erasure', 'anomaly_detected') AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours';" >> "$REPORT_FILE"
+    fi
 fi
+echo "" >> "$REPORT_FILE"
 
-# 3. OWASP ZAP Full Scan
-echo "Running OWASP ZAP full scan..."
-docker run -u zap -t owasp/zap2docker-stable zap-full-scan.py -t https://webxos.netlify.app -r security_assessment_zap.html
-echo "OWASP ZAP scan completed. Report saved to security_assessment_zap.html"
-
-# 4. Code Quality Analysis
-echo "Running code quality analysis..."
-pip install --upgrade flake8
-flake8 main/api/mcp --max-line-length=120 --output-file=security_assessment_flake8.txt
-if [ -s security_assessment_flake8.txt ]; then
-  echo "WARNING: Code quality issues found. Check security_assessment_flake8.txt"
-else
-  echo "No code quality issues found."
+# 4. Check for high authentication failure rates
+echo "Checking authentication failure rates..." >> "$REPORT_FILE"
+auth_failures=$(query_db "SELECT COUNT(*) FROM security_events WHERE event_type = 'auth_error' AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour';")
+if [ "$auth_failures" -gt 5 ]; then
+    echo "High authentication failure rate detected: $auth_failures failures in last hour" >> "$REPORT_FILE"
+    send_email "Security Alert: High Authentication Failure Rate" "Detected $auth_failures authentication failures in the last hour. Please review the attached report."
 fi
+echo "Authentication failures in last hour: $auth_failures" >> "$REPORT_FILE"
+echo "" >> "$REPORT_FILE"
 
-# 5. Archive Results
-echo "Archiving assessment results..."
-tar -czf security_assessment_$(date +%Y%m%d).tar.gz security_assessment_*.txt security_assessment_zap.html
-echo "Assessment completed. Results archived in security_assessment_$(date +%Y%m%d).tar.gz"
+# 5. Check for API credential leaks
+echo "Checking for exposed API credentials..." >> "$REPORT_FILE"
+exposed_credentials=$(query_db "SELECT COUNT(*) FROM users WHERE api_key IS NOT NULL AND api_secret IS NOT NULL;")
+if [ "$exposed_credentials" -gt 0 ]; then
+    echo "WARNING: Found $exposed_credentials users with active API credentials" >> "$REPORT_FILE"
+    send_email "Security Alert: Active API Credentials Detected" "Found $exposed_credentials users with active API credentials. Please review and revoke unnecessary credentials."
+fi
+echo "" >> "$REPORT_FILE"
+
+# Finalize report
+echo "Assessment completed at $(date)" >> "$REPORT_FILE"
+
+# Send report via email
+send_email "Vial MCP Security Assessment Report" "$(cat $REPORT_FILE)"
