@@ -1,67 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from ...security.authentication import verify_token
+from jose import jwt
+from ...config.mcp_config import config
 from ...utils.logging import log_error, log_info
-from ...config.redis_config import get_redis
-import tensorflow as tf
-import numpy as np
+import torch
+import dspy
 
-router = APIRouter(prefix="/v1/wallet", tags=["Wallet"])
+router = APIRouter()
 
 class WalletResponse(BaseModel):
     balance: float
+    session_balance: float
     wallet_key: str
     address: str
-    reputation: int
+    vial_agent: str
+    quantum_state: dict
 
-class TransactionRequest(BaseModel):
-    amount: float
-    recipient: str
-
-# Mock fraud detection model (replace with trained TensorFlow model)
-fraud_model = tf.keras.Sequential([
-    tf.keras.layers.Dense(64, activation='relu', input_shape=(3,)),
-    tf.keras.layers.Dense(32, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
-])
-
-@router.get("/", response_model=WalletResponse)
-async def get_wallet(user_id: str = Depends(verify_token), redis=Depends(get_redis)):
-    """Retrieve wallet details."""
+def authenticate_token(authorization: str = None):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    token = authorization.split(" ")[1]
     try:
-        cached_wallet = await redis.get(f"wallet:{user_id}")
-        if cached_wallet:
-            log_info(f"Wallet cache hit for user {user_id}")
-            return WalletResponse(**json.loads(cached_wallet))
-        
-        # Mock wallet data (replace with MongoDB query)
+        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        return payload
+    except Exception as e:
+        log_error(f"Traceback: Token validation failed: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@router.get("/wallet", response_model=WalletResponse)
+async def get_wallet(payload: dict = Depends(authenticate_token)):
+    try:
+        # Mock wallet data with PyTorch/DSPy processing
+        balance = torch.tensor([0.0]).item()
+        dspy_model = dspy.LM('gpt-3.5-turbo')
+        quantum_state = dspy_model.predict({"input": "Generate quantum state"}).output
         wallet_data = {
-            "balance": 0.0000,
-            "wallet_key": f"wk_{user_id}_{np.random.bytes(16).hex()}",
-            "address": f"addr_{user_id}_{np.random.bytes(8).hex()}",
-            "reputation": 0
+            "balance": balance,
+            "session_balance": 0.0,
+            "wallet_key": "WEBXOS-WALLET-KEY-123",
+            "address": "0xWEBXOS1234567890",
+            "vial_agent": "VialAgent-001",
+            "quantum_state": {"state": quantum_state}
         }
-        await redis.set(f"wallet:{user_id}", json.dumps(wallet_data), ex=3600)
-        log_info(f"Wallet fetched for user {user_id}")
-        return WalletResponse(**wallet_data)
+        log_info(f"Wallet data retrieved for client_id: {payload['sub']}")
+        return wallet_data
     except Exception as e:
-        log_error(f"Wallet fetch failed for {user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/transaction")
-async def create_transaction(request: TransactionRequest, user_id: str = Depends(verify_token)):
-    """Process a transaction with fraud detection."""
-    try:
-        # Mock fraud detection
-        input_data = np.array([[request.amount, len(request.recipient), np.random.random()]])
-        fraud_score = fraud_model.predict(input_data)[0][0]
-        if fraud_score > 0.7:
-            log_error(f"Fraud detected for transaction by {user_id}: score {fraud_score}")
-            raise HTTPException(status_code=400, detail="Transaction flagged as fraudulent")
-        
-        # Mock transaction logic (replace with MongoDB update)
-        log_info(f"Transaction processed: {request.amount} to {request.recipient} by {user_id}")
-        return {"message": "Transaction successful", "amount": request.amount}
-    except Exception as e:
-        log_error(f"Transaction failed for {user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"Traceback: Wallet retrieval failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Wallet error: {str(e)}")
