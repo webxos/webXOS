@@ -1,5 +1,6 @@
 from config.config import DatabaseConfig
 from lib.errors import ValidationError
+from tools.agent_templates import get_all_agents
 import logging
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -7,6 +8,8 @@ from typing import Dict, Any, List
 import hashlib
 import re
 import uuid
+from datetime import datetime
+import json
 
 logger = logging.getLogger("mcp.wallet")
 logger.setLevel(logging.INFO)
@@ -75,6 +78,18 @@ class WalletQuantumLinkOutput(BaseModel):
 class WalletTool:
     def __init__(self, db: DatabaseConfig):
         self.db = db
+        self.agents = {agent.get_metadata()["vial_id"]: agent.get_metadata() for agent in get_all_agents()}
+
+    async def initialize_new_wallet(self, user_id: str, wallet_address: str, api_key: str, api_secret: str):
+        await self.db.query(
+            "INSERT INTO users (user_id, balance, wallet_address, api_key, api_secret, reputation) VALUES ($1, $2, $3, $4, $5, $6)",
+            [user_id, 0.0, wallet_address, api_key, api_secret, 0]
+        )
+        for agent in self.agents.values():
+            await self.db.query(
+                "INSERT INTO vials (user_id, vial_id, code, wallet_address, webxos_hash) VALUES ($1, $2, $3, $4, $5)",
+                [user_id, agent["vial_id"], agent["code"], agent["wallet_address"], agent["webxos_hash"]]
+            )
 
     async def execute(self, input: Dict[str, Any]) -> Any:
         try:
@@ -114,9 +129,10 @@ class WalletTool:
             user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
-            balance = float(user.rows[0]["balance"])
-            logger.info(f"Retrieved vial balance for {input.user_id}, vial {input.vial_id}: {balance}")
-            return WalletBalanceOutput(vial_id=input.vial_id, balance=balance)
+            total_balance = float(user.rows[0]["balance"])
+            vial_balance = total_balance / 4  # Split evenly across 4 vials
+            logger.info(f"Retrieved vial balance for {input.user_id}, vial {input.vial_id}: {vial_balance}")
+            return WalletBalanceOutput(vial_id=input.vial_id, balance=vial_balance)
         except Exception as e:
             logger.error(f"Get vial balance error: {str(e)}")
             raise HTTPException(400, str(e))
@@ -132,9 +148,20 @@ class WalletTool:
                 raise ValidationError(f"User not found: {input.user_id}")
             
             balances = []
-            for line in input.markdown.splitlines():
-                if match := re.match(r".*balance\s*=\s*(\d+\.\d+)", line):
+            vials = []
+            for section in input.markdown.split("---"):
+                if match := re.search(r"Wallet Balance: (\d+\.\d{4}) \$WEBXOS", section):
                     balances.append(float(match.group(1)))
+                if match := re.search(r"# Vial Agent: (vial\d+)", section):
+                    vials.append(match.group(1))
+                if match := re.search(r"```python\n([\s\S]+?)\n```", section):
+                    code = match.group(1)
+                    vial_id = section.split("Vial Agent: ")[1].split("\n")[0]
+                    webxos_hash = hashlib.sha256(f"{vial_id}{uuid.uuid4()}".encode()).hexdigest()
+                    await self.db.query(
+                        "UPDATE vials SET code = $1, webxos_hash = $2 WHERE user_id = $3 AND vial_id = $4",
+                        [code, webxos_hash, input.user_id, vial_id]
+                    )
             
             total_balance = sum(balances)
             current_balance = float(user.rows[0]["balance"])
@@ -147,7 +174,7 @@ class WalletTool:
             
             logger.info(f"Imported wallet for {input.user_id}, new balance: {new_balance}")
             return WalletImportOutput(
-                imported_vials=[f"vial{i+1}" for i in range(len(balances))],
+                imported_vials=vials,
                 total_balance=new_balance
             )
         except Exception as e:
@@ -162,6 +189,8 @@ class WalletTool:
             
             current_balance = float(user.rows[0]["balance"])
             results = []
+            import_vials = []
+            mining_ops = []
             
             for op in input.operations:
                 if op["method"] == "importWallet":
@@ -171,30 +200,52 @@ class WalletTool:
                         continue
                     
                     balances = []
-                    for line in op["markdown"].splitlines():
-                        if match := re.match(r".*balance\s*=\s*(\d+\.\d+)", line):
+                    vials = []
+                    for section in op["markdown"].split("---"):
+                        if match := re.search(r"Wallet Balance: (\d+\.\d{4}) \$WEBXOS", section):
                             balances.append(float(match.group(1)))
+                        if match := re.search(r"# Vial Agent: (vial\d+)", section):
+                            vials.append(match.group(1))
+                        if match := re.search(r"```python\n([\s\S]+?)\n```", section):
+                            code = match.group(1)
+                            vial_id = section.split("Vial Agent: ")[1].split("\n")[0]
+                            webxos_hash = hashlib.sha256(f"{vial_id}{uuid.uuid4()}".encode()).hexdigest()
+                            await self.db.query(
+                                "UPDATE vials SET code = $1, webxos_hash = $2 WHERE user_id = $3 AND vial_id = $4",
+                                [code, webxos_hash, input.user_id, vial_id]
+                            )
                     
                     total_balance = sum(balances)
-                    current_balance += total_balance
-                    results.append({"imported_vials": [f"vial{i+1}" for i in range(len(balances))], "total_balance": current_balance})
+                    import_vials.append((total_balance, vials))
                 
                 elif op["method"] == "mineVial":
-                    data = f"{input.user_id}{op['vial_id']}{op['nonce']}"
-                    hash_value = hashlib.sha256(data.encode()).hexdigest()
-                    difficulty = 2
-                    reward = 0.0
-                    
-                    if hash_value.startswith("0" * difficulty):
-                        reward = 1.0
-                        current_balance += reward
-                    
-                    results.append({"hash": hash_value, "reward": reward, "balance": current_balance})
+                    mining_ops.append((op["vial_id"], op["nonce"]))
             
-            await self.db.query(
-                "UPDATE users SET balance = $1 WHERE user_id = $2",
-                [current_balance, input.user_id]
-            )
+            if import_vials:
+                total_import_balance = sum(v[0] for v in import_vials)
+                current_balance += total_import_balance
+                await self.db.query(
+                    "UPDATE users SET balance = $1 WHERE user_id = $2",
+                    [current_balance, input.user_id]
+                )
+                for total_balance, vials in import_vials:
+                    results.append({"imported_vials": vials, "total_balance": current_balance})
+            
+            for vial_id, nonce in mining_ops:
+                data = f"{input.user_id}{vial_id}{nonce}"
+                hash_value = hashlib.sha256(data.encode()).hexdigest()
+                difficulty = 2
+                reward = 0.0
+                
+                if hash_value.startswith("0" * difficulty):
+                    reward = 1.0
+                    current_balance += reward
+                    await self.db.query(
+                        "UPDATE users SET balance = $1 WHERE user_id = $2",
+                        [current_balance, input.user_id]
+                    )
+                
+                results.append({"hash": hash_value, "reward": reward, "balance": current_balance})
             
             logger.info(f"Batch synced operations for {input.user_id}, new balance: {current_balance}")
             return WalletBatchSyncOutput(results=results)
@@ -204,18 +255,81 @@ class WalletTool:
 
     async def export_vials(self, input: WalletBalanceInput) -> WalletExportOutput:
         try:
-            user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
+            user = await self.db.query("SELECT user_id, balance, wallet_address, api_key, api_secret, reputation FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
-            balance = float(user.rows[0]["balance"])
-            markdown = f"""# Wallet Export for {input.user_id}
-## Vial Balances
-- {input.vial_id}: {balance}
+            total_balance = float(user.rows[0]["balance"])
+            wallet_address = user.rows[0]["wallet_address"]
+            api_key = user.rows[0]["api_key"]
+            api_secret = user.rows[0]["api_secret"]
+            reputation = user.rows[0]["reputation"]
+            network_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-3]
+            vial_balance = total_balance / 4  # Split evenly across 4 vials
+            blocks = 1958  # Static for demo
+            hash_value = hashlib.sha256(f"{input.user_id}{wallet_address}{timestamp}".encode()).hexdigest()
+            
+            vials = await self.db.query("SELECT vial_id, code, wallet_address, webxos_hash FROM vials WHERE user_id = $1", [input.user_id])
+            vial_data = {row["vial_id"]: row for row in vials.rows} if vials.rows else self.agents
+            
+            markdown = f"""# WebXOS Vial and Wallet Export
+
+## Agentic Network
+- Network ID: {network_id}
+- Session Start: {timestamp}
+- Session Duration: 0.00 seconds
+- Reputation: {reputation}
+
+## Wallet
+- Wallet Key: {str(uuid.uuid4())}
+- Session Balance: {total_balance:.4f} $WEBXOS
+- Address: {wallet_address}
+- Hash: {hash_value}
+
+## API Credentials
+- Key: {api_key}
+- Secret: {api_secret}
+
+## Blockchain
+- Blocks: {blocks}
+- Last Hash: {hash_value}
+
+## Vials
 """
-            hash_value = hashlib.sha256(markdown.encode()).hexdigest()
+            for vial_id in ["vial1", "vial2", "vial3", "vial4"]:
+                agent = vial_data.get(vial_id, self.agents[vial_id])
+                markdown += f"""# Vial Agent: {vial_id}
+- Status: running
+- Language: Python
+- Code Length: {agent["code_length"]} bytes
+- $WEBXOS Hash: {agent["webxos_hash"]}
+- Wallet Balance: {vial_balance:.4f} $WEBXOS
+- Wallet Address: {agent["wallet_address"]}
+- Wallet Hash: {hash_value}
+- Tasks: none
+- Quantum State: {json.dumps(agent["quantum_state"], indent=6)}
+- Training Data: {json.dumps(agent["training_data"], indent=6)}
+- Config: {{}}
+
+```python
+{agent["code"]}
+```
+
+---
+"""
+            markdown += """## Instructions
+- **Reuse**: Import this .md file via the "Import" button to resume training.
+- **Extend**: Modify agent code externally, then reimport.
+- **Share**: Send this .md file to others to continue training with the same wallet.
+- **API**: Use API credentials with LangChain to train vials (online mode only).
+- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification (online mode only).
+
+Generated by Vial MCP Controller
+"""
+            final_hash = hashlib.sha256(markdown.encode()).hexdigest()
             logger.info(f"Exported vials for {input.user_id}")
-            return WalletExportOutput(markdown=markdown, hash=hash_value)
+            return WalletExportOutput(markdown=markdown, hash=final_hash)
         except Exception as e:
             logger.error(f"Export vials error: {str(e)}")
             raise HTTPException(400, str(e))
@@ -295,8 +409,8 @@ class WalletTool:
             
             link_id = str(uuid.uuid4())
             await self.db.query(
-                "INSERT INTO quantum_links (link_id, user_id) VALUES ($1, $2)",
-                [link_id, input.user_id]
+                "INSERT INTO quantum_links (link_id, user_id, quantum_state) VALUES ($1, $2, $3)",
+                [link_id, input.user_id, json.dumps({"qubits": [], "entanglement": "synced"})]
             )
             logger.info(f"Established quantum link for {input.user_id}: {link_id}")
             return WalletQuantumLinkOutput(link_id=link_id)
