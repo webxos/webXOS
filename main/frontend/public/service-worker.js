@@ -33,30 +33,50 @@ self.addEventListener('message', event => {
 
 self.addEventListener('sync', event => {
   if (event.tag === 'sync-pending-import') {
-    event.waitUntil(
-      caches.open(CACHE_NAME).then(cache =>
-        cache.match('/pending-import').then(response =>
-          response ? response.json().then(data => {
-            fetch('http://localhost:8000/mcp/execute', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'wallet.importWallet',
-                params: data,
-                id: Math.floor(Math.random() * 1000)
-              })
-            }).then(res => res.json()).then(result => {
-              if (!result.error) {
-                cache.delete('/pending-import');
-              }
-            });
-          }) : Promise.resolve()
-        )
-      )
-    );
+    event.waitUntil(syncWithRetry());
   }
 });
+
+async function syncWithRetry(maxRetries = 3, retryDelay = 5000) {
+  let attempts = 0;
+  while (attempts < maxRetries) {
+    try {
+      const cache = await caches.open(CACHE_NAME);
+      const response = await cache.match('/pending-import');
+      if (!response) return;
+      
+      const data = await response.json();
+      const res = await fetch('http://localhost:8000/mcp/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'wallet.importWallet',
+          params: data,
+          id: Math.floor(Math.random() * 1000)
+        })
+      });
+      const result = await res.json();
+      if (!result.error) {
+        await cache.delete('/pending-import');
+        self.clients.matchAll().then(clients => {
+          clients.forEach(client => client.postMessage({ action: 'sync-complete', data }));
+        });
+        return;
+      }
+      throw new Error(result.error.message);
+    } catch (error) {
+      attempts++;
+      if (attempts < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        continue;
+      }
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => client.postMessage({ action: 'sync-failed', error: error.message }));
+      });
+    }
+  }
+}
 
 self.addEventListener('activate', event => {
   const cacheWhitelist = [CACHE_NAME];
