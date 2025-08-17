@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Security
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
 from config.config import DatabaseConfig, APIConfig
@@ -14,7 +15,6 @@ from lib.logger import logger
 from lib.errors import ValidationError
 from neondatabase import AsyncClient
 import redis.asyncio as redis
-import json
 import os
 
 app = FastAPI()
@@ -25,6 +25,15 @@ vial_tool = VialManagementTool(db_client)
 wallet_tool = WalletTool(db_client)
 security_handler = SecurityHandler(db_client)
 mcp_transport = MCPTransport()
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://webxos.netlify.app"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "X-Session-ID", "Content-Type"]
+)
 
 class JSONRPCRequest(BaseModel):
     jsonrpc: str = "2.0"
