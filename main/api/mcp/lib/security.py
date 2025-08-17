@@ -47,6 +47,26 @@ class SecurityHandler:
         except Exception as e:
             logger.error(f"Error logging security event: {str(e)}")
 
+    async def log_user_action(self, user_id: str, action: str, details: Dict[str, Any], ip_address: Optional[str] = None):
+        """Log user actions for auditing purposes."""
+        try:
+            await self.db.query(
+                """
+                INSERT INTO audit_logs (user_id, action, details, ip_address, created_at)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                [
+                    user_id,
+                    action,
+                    json.dumps(details),
+                    ip_address,
+                    datetime.utcnow()
+                ]
+            )
+            logger.info(f"Logged user action: {action} for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error logging user action: {str(e)}")
+
     def send_alert_email(self, subject: str, body: str):
         try:
             msg = MIMEText(body)
@@ -75,6 +95,11 @@ class SecurityHandler:
                 user_id=user_id,
                 details={"session_id": session_id}
             )
+            await self.log_user_action(
+                user_id=user_id,
+                action="session_create",
+                details={"session_id": session_id}
+            )
             return session_id
         except Exception as e:
             logger.error(f"Error creating session: {str(e)}")
@@ -98,6 +123,11 @@ class SecurityHandler:
                     details={"session_id": session_id, "reason": "expired or not found"}
                 )
                 return None
+            await self.log_user_action(
+                user_id=session.rows[0]["user_id"],
+                action="session_validate",
+                details={"session_id": session_id}
+            )
             return {"user_id": session.rows[0]["user_id"], "session_id": session_id}
         except Exception as e:
             logger.error(f"Error validating session: {str(e)}")
@@ -124,6 +154,11 @@ class SecurityHandler:
                     user_id=user_id,
                     details={"max_sessions": max_sessions}
                 )
+                await self.log_user_action(
+                    user_id=user_id,
+                    action="session_limit_enforce",
+                    details={"max_sessions": max_sessions}
+                )
         except Exception as e:
             logger.error(f"Error enforcing session limit: {str(e)}")
             await self.log_event(
@@ -146,6 +181,11 @@ class SecurityHandler:
                         user_id=user_id,
                         details={"type": "auth_failure_rate", "count": events.rows[0]["count"], "ip_address": ip_address}
                     )
+                    await self.log_user_action(
+                        user_id=user_id,
+                        action="anomaly_detected",
+                        details={"type": "auth_failure_rate", "count": events.rows[0]["count"]}
+                    )
                     self.send_alert_email(
                         subject="Security Alert: High Authentication Failure Rate",
                         body=f"User {user_id} exceeded {self.anomaly_thresholds['auth_failure_rate']} auth failures in 1 hour. Count: {events.rows[0]['count']}, IP: {ip_address}"
@@ -164,6 +204,11 @@ class SecurityHandler:
                         user_id=user_id,
                         details={"type": "api_request_rate", "count": events.rows[0]["count"], "ip_address": ip_address}
                     )
+                    await self.log_user_action(
+                        user_id=user_id,
+                        action="anomaly_detected",
+                        details={"type": "api_request_rate", "count": events.rows[0]["count"]}
+                    )
                     self.send_alert_email(
                         subject="Security Alert: High API Request Rate",
                         body=f"User {user_id} exceeded {self.anomaly_thresholds['api_request_rate']} API requests in 1 minute. Count: {events.rows[0]['count']}, IP: {ip_address}"
@@ -180,6 +225,11 @@ class SecurityHandler:
                         event_type="anomaly_detected",
                         user_id=user_id,
                         details={"type": "cash_out_attempts", "count": events.rows[0]["count"], "ip_address": ip_address}
+                    )
+                    await self.log_user_action(
+                        user_id=user_id,
+                        action="anomaly_detected",
+                        details={"type": "cash_out_attempts", "count": events.rows[0]["count"]}
                     )
                     self.send_alert_email(
                         subject="Security Alert: High Cash-Out Attempts",
