@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from config.config import DatabaseConfig
 from lib.security import SecurityHandler
 from datetime import datetime, timedelta
 from typing import Dict, Any
 import logging
+import json
 
 logger = logging.getLogger("mcp.monitoring")
 logger.setLevel(logging.INFO)
@@ -71,6 +72,26 @@ class MonitoringHandler:
             )
             raise HTTPException(status_code=500, detail=str(e))
 
+    async def stream_kpis(self, websocket: WebSocket):
+        await websocket.accept()
+        try:
+            while True:
+                kpis = await self.get_security_kpis(time_window_hours=1)
+                await websocket.send_json({"type": "kpi_update", "data": kpis})
+                await asyncio.sleep(60)  # Update every minute
+        except Exception as e:
+            logger.error(f"Error streaming KPIs: {str(e)}")
+            await self.security_handler.log_event(
+                event_type="kpi_stream_error",
+                user_id=None,
+                details={"error": str(e)}
+            )
+            await websocket.close()
+
 @router.get("/monitoring/kpis")
 async def get_kpis(time_window_hours: int = 24, handler: MonitoringHandler = Depends(lambda: MonitoringHandler(DatabaseConfig()))):
     return await handler.get_security_kpis(time_window_hours)
+
+@router.websocket("/monitoring/kpis/stream")
+async def stream_kpis(websocket: WebSocket, handler: MonitoringHandler = Depends(lambda: MonitoringHandler(DatabaseConfig()))):
+    await handler.stream_kpis(websocket)
