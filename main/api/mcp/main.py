@@ -1,106 +1,83 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel
+from typing import Dict, Any, List
+from config.config import DatabaseConfig, APIConfig
 from tools.auth_tool import AuthTool
 from tools.vial_management import VialManagementTool
-from tools.health import HealthTool
-from tools.blockchain import BlockchainTool
-from tools.claude_tool import ClaudeTool
 from tools.wallet import WalletTool
-from config.config import DatabaseConfig, ServerConfig, limiter, batch_sync_limiter
-from lib.notifications import NotificationHandler
-from fastapi.responses import JSONResponse
-import uvicorn
+from lib.mcp_transport import MCPTransport
+from lib.logger import logger
+from lib.errors import ValidationError
+from neondatabase import AsyncClient
+import json
 import os
-from typing import Dict
 
 app = FastAPI()
-app.state.config = ServerConfig()
-app.state.db = DatabaseConfig()
-app.state.notification_handler = NotificationHandler()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+db_client = AsyncClient(DatabaseConfig().database_url)
+auth_tool = AuthTool(db_client)
+vial_tool = VialManagementTool(db_client)
+wallet_tool = WalletTool(db_client)
+mcp_transport = MCPTransport()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class JSONRPCRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    method: str
+    params: Dict[str, Any]
+    id: int
 
-class MCPServer:
-    def __init__(self):
-        self.tools = {
-            "authentication": AuthTool(app.state.config),
-            "vial_management": VialManagementTool(app.state.db),
-            "health": HealthTool(),
-            "blockchain": BlockchainTool(app.state.db),
-            "claude": ClaudeTool(app.state.db),
-            "wallet": WalletTool(app.state.db),
-        }
+class JSONRPCResponse(BaseModel):
+    jsonrpc: str = "2.0"
+    result: Any = None
+    error: Any = None
+    id: int
 
-    async def execute(self, request: Dict) -> Dict:
-        try:
-            if request.get("jsonrpc") != "2.0":
-                raise HTTPException(400, "Invalid JSON-RPC request")
-            
-            method = request.get("method")
-            if not method:
-                raise HTTPException(400, "Method not specified")
-            
-            tool_name, method_name = method.split(".", 1) if "." in method else (method, "")
-            tool = self.tools.get(tool_name)
-            if not tool:
-                raise HTTPException(400, "Invalid tool")
-            
-            params = request.get("params", {})
-            params["method"] = method_name
-            result = await tool.execute(params)
-            
-            # Send notification for wallet operations
-            if tool_name == "wallet":
-                await app.state.notification_handler.send_notification(
-                    params.get("user_id"), {"method": method, "params": result.dict()}
-                )
-            
-            return {"jsonrpc": "2.0", "result": result.dict(), "id": request.get("id")}
-        except Exception as e:
-            return {"jsonrpc": "2.0", "error": {"message": str(e)}, "id": request.get("id")}
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    user = await auth_tool.verify_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user
 
-server = MCPServer()
+@app.on_event("startup")
+async def startup_event():
+    await db_client.connect()
+    logger.info("Connected to Neon Postgres database")
 
-@app.get("/mcp/health")
-async def health_check(request: Request):
-    if request.headers.get("X-Forwarded-Proto", "http") != "https":
-        raise HTTPException(400, "HTTPS required")
-    return {"status": "healthy"}
+@app.on_event("shutdown")
+async def shutdown_event():
+    await db_client.disconnect()
+    logger.info("Disconnected from Neon Postgres database")
 
-@app.post("/mcp/execute")
-@limiter.limit("10/minute")  # General rate limit
-async def execute(request: Request, body: Dict):
-    if request.headers.get("X-Forwarded-Proto", "http") != "https":
-        raise HTTPException(400, "HTTPS required")
-    return await server.execute(body)
-
-@app.post("/mcp/execute/wallet.batchSync")
-@batch_sync_limiter
-async def batch_sync(request: Request, body: Dict):
-    if request.headers.get("X-Forwarded-Proto", "http") != "https":
-        raise HTTPException(400, "HTTPS required")
-    return await server.execute(body)
-
-@app.websocket("/mcp/notifications")
-async def websocket_endpoint(websocket, client_id: str):
-    await app.state.notification_handler.connect(websocket, client_id)
+@app.post("/mcp/execute", response_model=JSONRPCResponse)
+async def execute(request: JSONRPCRequest, user: Dict[str, Any] = Depends(get_current_user)):
     try:
-        while True:
-            await websocket.receive_text()
-    except Exception:
-        await app.state.notification_handler.disconnect(client_id)
+        method = request.method
+        params = request.params
+        params["user_id"] = user["user_id"]
+        
+        if method.startswith("auth."):
+            result = await auth_tool.execute(params)
+        elif method.startswith("vial_management."):
+            result = await vial_tool.execute(params)
+        elif method.startswith("wallet."):
+            result = await wallet_tool.execute(params)
+        else:
+            raise ValidationError(f"Unknown method: {method}")
+        
+        return JSONRPCResponse(jsonrpc="2.0", result=result, id=request.id)
+    except Exception as e:
+        logger.error(f"Error executing {method}: {str(e)}")
+        return JSONRPCResponse(
+            jsonrpc="2.0",
+            error={"code": -32603, "message": str(e)},
+            id=request.id
+        )
 
-if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host=app.state.config.host,
-        port=app.state.config.port,
-        ssl_keyfile=app.state.config.ssl_key_path,
-        ssl_certfile=app.state.config.ssl_cert_path
-    )
+@app.get("/openapi.json")
+async def get_openapi():
+    return app.openapi()
+
+@app.get("/docs")
+async def get_docs():
+    return app.openapi()
