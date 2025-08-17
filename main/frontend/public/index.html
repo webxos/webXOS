@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://github.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://webxos.netlify.app https://api.github.com; img-src 'self';">
+  <meta http-equiv="X-Frame-Options" content="DENY">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
   <title>Vial MCP Controller</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/css/tailwind.min.css">
@@ -41,6 +45,16 @@
     </div>
 
     <div class="mb-4">
+      <h2 class="text-xl font-bold mb-2">Security KPIs</h2>
+      <div id="kpi-dashboard" class="bg-white p-4 rounded shadow">
+        <p><strong>Auth Success Rate:</strong> <span id="kpi-auth-success">N/A</span>%</p>
+        <p><strong>Auth Failures:</strong> <span id="kpi-auth-failures">N/A</span></p>
+        <p><strong>Active Sessions:</strong> <span id="kpi-sessions">N/A</span></p>
+        <p><strong>Anomalies Detected:</strong> <span id="kpi-anomalies">N/A</span></p>
+      </div>
+    </div>
+
+    <div class="mb-4">
       <textarea id="claude-code" class="w-full h-32 p-2 border rounded" placeholder="Enter Claude-generated code" disabled></textarea>
       <textarea id="wallet-import" class="w-full h-32 p-2 border rounded" placeholder="Paste wallet markdown to import"></textarea>
       <textarea id="agent-code" class="w-full h-32 p-2 border rounded" placeholder="Enter custom agent code for Git push"></textarea>
@@ -50,6 +64,7 @@
       <button id="execute-claude-btn" class="bg-indigo-500 text-white px-4 py-2 rounded" disabled>Execute Claude Code</button>
       <button id="import-wallet-btn" class="bg-teal-500 text-white px-4 py-2 rounded">Import Wallet</button>
       <button id="auth-btn" class="bg-blue-500 text-white px-4 py-2 rounded">Authenticate with GitHub</button>
+      <button id="logout-btn" class="bg-red-500 text-white px-4 py-2 rounded" disabled>Logout</button>
       <button id="api-credentials-btn" class="bg-purple-500 text-white px-4 py-2 rounded" disabled>Generate API Credentials</button>
       <button id="git-push-btn" class="bg-green-600 text-white px-4 py-2 rounded" disabled>Git Push Agent Code</button>
       <button id="void-btn" class="bg-gray-500 text-white px-4 py-2 rounded">Void</button>
@@ -58,6 +73,7 @@
       <button id="export-btn" class="bg-green-500 text-white px-4 py-2 rounded" disabled>Export</button>
       <button id="mine-btn" class="bg-orange-500 text-white px-4 py-2 rounded" disabled>Mine Vial</button>
       <button id="cash-out-btn" class="bg-red-500 text-white px-4 py-2 rounded" disabled>Cash Out</button>
+      <button id="data-erasure-btn" class="bg-red-600 text-white px-4 py-2 rounded" disabled>Request Data Erasure</button>
     </div>
 
     <div id="output" class="bg-white p-4 rounded shadow"></div>
@@ -68,6 +84,7 @@
   <script type="module" src="/js/vial_controller.js"></script>
   <script type="module">
     import { updateNetworkStatus } from '/js/vial_controller.js';
+    import { wsHandler } from '/js/websocket_handler.js';
 
     updateNetworkStatus();
     window.addEventListener('online', updateNetworkStatus);
@@ -81,30 +98,91 @@
       document.getElementById('api-credentials-btn').disabled = !navigator.onLine;
       document.getElementById('git-push-btn').disabled = !navigator.onLine;
       document.getElementById('cash-out-btn').disabled = !navigator.onLine;
+      document.getElementById('logout-btn').disabled = false;
+      document.getElementById('data-erasure-btn').disabled = false;
     });
 
-    document.getElementById('api-credentials-btn').addEventListener('click', async () => {
+    document.getElementById('logout-btn').addEventListener('click', async () => {
       const userId = document.getElementById('user-id').innerText;
       if (userId === 'Not logged in') {
-        document.getElementById('output').innerText = 'Error: Please authenticate first';
+        document.getElementById('output').innerText = 'Error: Not authenticated';
         return;
       }
       try {
-        const res = await fetch('https://<your-netlify-site>.netlify.app/mcp/execute', {
+        const accessToken = localStorage.getItem('access_token');
+        const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+        const res = await fetch('https://webxos.netlify.app/mcp/execute', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Session-ID': sessionId
+          },
           body: JSON.stringify({
             jsonrpc: '2.0',
-            method: 'auth.generateAPICredentials',
-            params: { user_id: userId },
+            method: 'auth.revokeToken',
+            params: { user_id: userId, access_token: accessToken },
             id: Math.floor(Math.random() * 1000)
           })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error.message);
-        document.getElementById('output').innerText = `API Credentials:\nKey: ${data.result.api_key}\nSecret: ${data.result.api_secret}`;
+        localStorage.removeItem('access_token');
+        document.cookie = 'session_id=; Max-Age=0; path=/;';
+        document.getElementById('user-id').innerText = 'Not logged in';
+        document.getElementById('output').innerText = 'Logged out successfully';
+        document.getElementById('execute-claude-btn').disabled = true;
+        document.getElementById('quantum-link-btn').disabled = true;
+        document.getElementById('mine-btn').disabled = true;
+        document.getElementById('export-btn').disabled = true;
+        document.getElementById('api-credentials-btn').disabled = true;
+        document.getElementById('git-push-btn').disabled = true;
+        document.getElementById('cash-out-btn').disabled = true;
+        document.getElementById('logout-btn').disabled = true;
+        document.getElementById('data-erasure-btn').disabled = true;
       } catch (error) {
-        document.getElementById('output').innerText = `Error generating API credentials: ${error.message}`;
+        document.getElementById('output').innerText = `Logout error: ${error.message}`;
+      }
+    });
+
+    document.getElementById('data-erasure-btn').addEventListener('click', async () => {
+      const userId = document.getElementById('user-id').innerText;
+      if (userId === 'Not logged in') {
+        document.getElementById('output').innerText = 'Error: Please authenticate first';
+        return;
+      }
+      if (!confirm('Are you sure you want to permanently delete all your data? This action cannot be undone.')) {
+        return;
+      }
+      try {
+        const accessToken = localStorage.getItem('access_token');
+        const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+        const res = await fetch('https://webxos.netlify.app/privacy/erase', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Session-ID': sessionId
+          },
+          body: JSON.stringify({ user_id: userId })
+        });
+        const data = await res.json();
+        if (res.status !== 200) throw new Error(data.detail || 'Data erasure failed');
+        localStorage.removeItem('access_token');
+        document.cookie = 'session_id=; Max-Age=0; path=/;';
+        document.getElementById('user-id').innerText = 'Not logged in';
+        document.getElementById('output').innerText = 'Data erasure request successful. All data deleted.';
+        document.getElementById('execute-claude-btn').disabled = true;
+        document.getElementById('quantum-link-btn').disabled = true;
+        document.getElementById('mine-btn').disabled = true;
+        document.getElementById('export-btn').disabled = true;
+        document.getElementById('api-credentials-btn').disabled = true;
+        document.getElementById('git-push-btn').disabled = true;
+        document.getElementById('cash-out-btn').disabled = true;
+        document.getElementById('logout-btn').disabled = true;
+        document.getElementById('data-erasure-btn').disabled = true;
+      } catch (error) {
+        document.getElementById('output').innerText = `Data erasure error: ${error.message}`;
       }
     });
   </script>
