@@ -106,6 +106,13 @@
     button:hover {
       background-color: #0c0;
     }
+    button.disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    button.disabled:hover {
+      background-color: #666;
+    }
     .popup {
       display: none;
       position: fixed;
@@ -188,13 +195,13 @@
       <input type="text" id="command-input" placeholder="Enter command..." onkeypress="if(event.key === 'Enter') sendCommand(this.value)">
     </div>
     <div class="button-container">
-      <button onclick="showAPIPopup()">API</button>
-      <button onclick="oauthStartup()">OAUTH</button>
-      <button onclick="voidTransaction()">Void</button>
-      <button onclick="troubleshoot()">Troubleshoot</button>
-      <button onclick="quantumLink()">Quantum Link</button>
-      <button onclick="exportData()">Export</button>
-      <button onclick="importData()">Import</button>
+      <button id="oauth-btn" onclick="oauthStartup()">OAUTH</button>
+      <button id="api-btn" onclick="showAPIPopup()" disabled class="disabled">API</button>
+      <button id="void-btn" onclick="voidTransaction()" disabled class="disabled">Void</button>
+      <button id="troubleshoot-btn" onclick="troubleshoot()" disabled class="disabled">Troubleshoot</button>
+      <button id="quantum-link-btn" onclick="quantumLink()" disabled class="disabled">Quantum Link</button>
+      <button id="export-btn" onclick="exportData()" disabled class="disabled">Export</button>
+      <button id="import-btn" onclick="importData()" disabled class="disabled">Import</button>
     </div>
     <div id="api-popup" class="popup">
       <div class="popup-content">
@@ -206,7 +213,7 @@
       </div>
     </div>
     <div class="footer">
-      <p>WebXOS Vial MCP Gateway | Testing Mode (BETA) | 2025 | v2.7.6</p>
+      <p>WebXOS Vial MCP Gateway | Testing Mode (BETA) | 2025 | v2.7.7</p>
       <p>WARNING: $webxos token is in development under MIT license. @WEBXOS claims no liability for token loss. Info: webxos.netlify.app & github.com/webxos/webxos</p>
     </div>
   </div>
@@ -229,10 +236,35 @@
         this.dashboard = document.getElementById('dashboard');
         this.commandInput = document.getElementById('command-input');
         this.apiPopup = document.getElementById('api-popup');
+        this.oauthBtn = document.getElementById('oauth-btn');
+        this.apiBtn = document.getElementById('api-btn');
+        this.voidBtn = document.getElementById('void-btn');
+        this.troubleshootBtn = document.getElementById('troubleshoot-btn');
+        this.quantumLinkBtn = document.getElementById('quantum-link-btn');
+        this.exportBtn = document.getElementById('export-btn');
+        this.importBtn = document.getElementById('import-btn');
         this.isOnline = navigator.onLine;
         this.cache = {};
+        this.isAuthenticated = !!localStorage.getItem('access_token');
+        this.updateButtonStates();
         this.checkStatus();
         setInterval(() => this.checkStatus(), 5000);
+      }
+
+      updateButtonStates() {
+        const isEnabled = this.isAuthenticated;
+        this.apiBtn.disabled = !isEnabled;
+        this.voidBtn.disabled = !isEnabled;
+        this.troubleshootBtn.disabled = !isEnabled;
+        this.quantumLinkBtn.disabled = !isEnabled;
+        this.exportBtn.disabled = !isEnabled;
+        this.importBtn.disabled = !isEnabled;
+        this.apiBtn.classList.toggle('disabled', !isEnabled);
+        this.voidBtn.classList.toggle('disabled', !isEnabled);
+        this.troubleshootBtn.classList.toggle('disabled', !isEnabled);
+        this.quantumLinkBtn.classList.toggle('disabled', !isEnabled);
+        this.exportBtn.classList.toggle('disabled', !isEnabled);
+        this.importBtn.classList.toggle('disabled', !isEnabled);
       }
 
       async checkStatus() {
@@ -242,13 +274,13 @@
           return;
         }
         try {
-          const response = await fetch('https://api.webxos.netlify.app/v1/health');
+          const response = await fetch('https://vial-mcp-backend.onrender.com/v1/health');
           if (!response.ok) throw new Error(`Traceback: Backend health check failed - Status: ${response.status}\nResponse: ${await response.text()}`);
           const data = await response.json();
           this.logError('Backend healthy.');
           this.updateDashboard(data);
         } catch (error) {
-          this.logError(`Traceback: ${error.message}\nFix: Check backend deployment and netlify.toml proxy.`);
+          this.logError(`Traceback: ${error.message}\nFix: Check backend deployment.`);
         }
       }
 
@@ -274,7 +306,7 @@
       }
 
       showAPIPopup() {
-        if (!localStorage.getItem('access_token')) {
+        if (!this.isAuthenticated) {
           this.logError('Traceback: OAuth required before API access.\nFix: Use OAUTH button first.');
           return;
         }
@@ -285,28 +317,13 @@
         this.apiPopup.style.display = 'none';
       }
 
-      async sendCommand(command) {
+      async sendCommand(endpoint, method = 'GET', body = null) {
         if (!this.isOnline) {
           this.logError('Traceback: Offline. Command not sent.');
           return;
         }
         try {
-          let endpoint = '/wallet'; // Default endpoint
-          let method = 'GET';
-          let body = null;
-          switch (command.toLowerCase()) {
-            case '/help': this.logError('Available commands: /help, /wallet, /health, /oauth, /void, /troubleshoot, /quantum-link, /export, /import'); break;
-            case '/wallet': endpoint = '/wallet'; break;
-            case '/health': endpoint = '/health'; break;
-            case '/oauth': endpoint = '/oauth/token'; method = 'POST'; body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' }; break;
-            case '/void': endpoint = '/void'; break;
-            case '/troubleshoot': endpoint = '/troubleshoot'; break;
-            case '/quantum-link': endpoint = '/quantum-link'; break;
-            case '/export': endpoint = '/export'; break;
-            case '/import': endpoint = '/import'; method = 'POST'; body = { file: 'vial_wallet_export_2025-08-16T23-46-34-377Z.md' }; break;
-            default: this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands.`); return;
-          }
-          const response = await fetch(`https://api.webxos.netlify.app/v1${endpoint}`, {
+          const response = await fetch(`https://vial-mcp-backend.onrender.com/v1${endpoint}`, {
             method,
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
             body: body ? JSON.stringify(body) : null
@@ -320,8 +337,12 @@
             this.apiKey.value = data.key || 'N/A';
             this.apiSecret.value = data.secret || 'N/A';
           }
-          if (endpoint === '/oauth/token') localStorage.setItem('access_token', data.access_token);
-          this.logError(`Command executed: ${command}`);
+          if (endpoint === '/oauth/token') {
+            localStorage.setItem('access_token', data.access_token);
+            this.isAuthenticated = true;
+            this.updateButtonStates();
+          }
+          this.logError(`Command executed: ${endpoint}`);
         } catch (error) {
           this.logError(`Traceback: ${error.message}\nFix: Check backend and retry.`);
         }
@@ -329,7 +350,7 @@
       }
 
       generateCredentials() {
-        if (!localStorage.getItem('access_token')) {
+        if (!this.isAuthenticated) {
           this.logError('Traceback: OAuth required before generating credentials.\nFix: Use OAUTH button first.');
           return;
         }
@@ -337,7 +358,7 @@
       }
 
       oauthStartup() {
-        this.sendCommand('/oauth');
+        this.sendCommand('/oauth/token', 'POST', { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' });
         this.sendCommand('/health');
         this.sendCommand('/mcp/rpc');
       }
@@ -346,7 +367,7 @@
       troubleshoot() { this.sendCommand('/troubleshoot'); }
       quantumLink() { this.sendCommand('/quantum-link'); }
       exportData() { this.sendCommand('/export'); }
-      importData() { this.sendCommand('/import'); }
+      importData() { this.sendCommand('/import', 'POST', { file: 'vial_wallet_export_2025-08-16T23-46-34-377Z.md' }); }
     }
 
     document.addEventListener('DOMContentLoaded', () => new MCPGateway());
