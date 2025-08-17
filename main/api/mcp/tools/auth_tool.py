@@ -12,6 +12,7 @@ import base64
 import os
 import secrets
 from datetime import datetime, timedelta
+import pyotp
 
 logger = logging.getLogger("mcp.auth")
 logger.setLevel(logging.INFO)
@@ -27,6 +28,7 @@ class AuthTokenInput(BaseModel):
     code: str
     redirect_uri: str
     code_verifier: str
+    totp_code: Optional[str] = None
 
 class AuthTokenOutput(BaseModel):
     access_token: str
@@ -44,11 +46,26 @@ class AuthRevokeOutput(BaseModel):
 class AuthRefreshInput(BaseModel):
     user_id: str
     refresh_token: str
+    totp_code: Optional[str] = None
 
 class AuthRefreshOutput(BaseModel):
     access_token: str
     refresh_token: str
     session_id: str
+
+class AuthEnable2FAInput(BaseModel):
+    user_id: str
+
+class AuthEnable2FAOutput(BaseModel):
+    secret: str
+    qr_code_url: str
+
+class AuthVerify2FAInput(BaseModel):
+    user_id: str
+    totp_code: str
+
+class AuthVerify2FAOutput(BaseModel):
+    status: str
 
 class AuthTool:
     def __init__(self, db: DatabaseConfig):
@@ -72,6 +89,12 @@ class AuthTool:
             elif method == "refreshToken":
                 refresh_input = AuthRefreshInput(**input)
                 return await self.refresh_token(refresh_input)
+            elif method == "enable2FA":
+                enable_2fa_input = AuthEnable2FAInput(**input)
+                return await self.enable_2fa(enable_2fa_input)
+            elif method == "verify2FA":
+                verify_2fa_input = AuthVerify2FAInput(**input)
+                return await self.verify_2fa(verify_2fa_input)
             else:
                 raise ValidationError(f"Unknown method: {method}")
         except Exception as e:
@@ -103,12 +126,88 @@ class AuthTool:
                 user_id=input.user_id,
                 details={"api_key": api_key}
             )
+            await self.security_handler.log_user_action(
+                user_id=input.user_id,
+                action="generate_api_credentials",
+                details={"api_key": api_key}
+            )
             logger.info(f"Generated API credentials for {input.user_id}")
             return AuthGenerateOutput(api_key=api_key, api_secret=api_secret)
         except Exception as e:
             logger.error(f"Generate API credentials error: {str(e)}")
             await self.security_handler.log_event(
                 event_type="api_credentials_error",
+                user_id=input.user_id,
+                details={"error": str(e)}
+            )
+            raise HTTPException(400, str(e))
+
+    async def enable_2fa(self, input: AuthEnable2FAInput) -> AuthEnable2FAOutput:
+        try:
+            user = await self.db.query("SELECT user_id FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
+            totp_secret = pyotp.random_base32()
+            totp = pyotp.TOTP(totp_secret)
+            qr_code_url = totp.provisioning_uri(name=input.user_id, issuer_name="Vial MCP")
+            
+            await self.db.query(
+                "UPDATE users SET totp_secret = $1 WHERE user_id = $2",
+                [totp_secret, input.user_id]
+            )
+            
+            await self.security_handler.log_event(
+                event_type="2fa_enabled",
+                user_id=input.user_id,
+                details={"secret": totp_secret[:8] + "..."}
+            )
+            await self.security_handler.log_user_action(
+                user_id=input.user_id,
+                action="enable_2fa",
+                details={"secret": totp_secret[:8] + "..."}
+            )
+            logger.info(f"Enabled 2FA for user {input.user_id}")
+            return AuthEnable2FAOutput(secret=totp_secret, qr_code_url=qr_code_url)
+        except Exception as e:
+            logger.error(f"Enable 2FA error: {str(e)}")
+            await self.security_handler.log_event(
+                event_type="2fa_enable_error",
+                user_id=input.user_id,
+                details={"error": str(e)}
+            )
+            raise HTTPException(400, str(e))
+
+    async def verify_2fa(self, input: AuthVerify2FAInput) -> AuthVerify2FAOutput:
+        try:
+            user = await self.db.query("SELECT totp_secret FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
+            totp_secret = user.rows[0]["totp_secret"]
+            if not totp_secret:
+                raise ValidationError("2FA not enabled for this user")
+            
+            totp = pyotp.TOTP(totp_secret)
+            if not totp.verify(input.totp_code):
+                raise ValidationError("Invalid 2FA code")
+            
+            await self.security_handler.log_event(
+                event_type="2fa_verified",
+                user_id=input.user_id,
+                details={}
+            )
+            await self.security_handler.log_user_action(
+                user_id=input.user_id,
+                action="verify_2fa",
+                details={}
+            )
+            logger.info(f"Verified 2FA for user {input.user_id}")
+            return AuthVerify2FAOutput(status="verified")
+        except Exception as e:
+            logger.error(f"Verify 2FA error: {str(e)}")
+            await self.security_handler.log_event(
+                event_type="2fa_verify_error",
                 user_id=input.user_id,
                 details={"error": str(e)}
             )
@@ -147,12 +246,11 @@ class AuthTool:
                 user_data = user_response.json()
                 user_id = str(user_data["id"])
                 
-                # Validate token audience
                 if user_data.get("aud") != self.api_config.github_client_id:
                     raise ValidationError("Invalid token audience")
                 
                 existing_user = await self.db.query(
-                    "SELECT user_id FROM users WHERE user_id = $1",
+                    "SELECT user_id, totp_secret FROM users WHERE user_id = $1",
                     [user_id]
                 )
                 if not existing_user.rows:
@@ -164,8 +262,14 @@ class AuthTool:
                     from tools.wallet import WalletTool
                     wallet_tool = WalletTool(self.db)
                     await wallet_tool.initialize_new_wallet(user_id, wallet_address, str(uuid.uuid4()), str(uuid.uuid4()))
+                else:
+                    if existing_user.rows[0]["totp_secret"] and not input.totp_code:
+                        raise ValidationError("2FA code required")
+                    if existing_user.rows[0]["totp_secret"]:
+                        totp = pyotp.TOTP(existing_user.rows[0]["totp_secret"])
+                        if not totp.verify(input.totp_code):
+                            raise ValidationError("Invalid 2FA code")
                 
-                # Create secure session
                 session_id = f"{user_id}:{secrets.token_urlsafe(32)}"
                 expires_at = datetime.utcnow() + timedelta(minutes=15)
                 await self.db.query(
@@ -181,6 +285,11 @@ class AuthTool:
                 await self.security_handler.log_event(
                     event_type="auth_success",
                     user_id=user_id,
+                    details={"access_token": access_token[:8] + "...", "session_id": session_id}
+                )
+                await self.security_handler.log_user_action(
+                    user_id=user_id,
+                    action="auth_exchange_token",
                     details={"access_token": access_token[:8] + "...", "session_id": session_id}
                 )
                 logger.info(f"Exchanged OAuth token for user {user_id}")
@@ -203,13 +312,11 @@ class AuthTool:
             if not user.rows:
                 raise ValidationError("Invalid user or token")
             
-            # Revoke access token
             await self.db.query(
                 "UPDATE users SET access_token = NULL, refresh_token = NULL WHERE user_id = $1",
                 [input.user_id]
             )
             
-            # Terminate session
             await self.db.query(
                 "DELETE FROM sessions WHERE user_id = $1",
                 [input.user_id]
@@ -218,6 +325,11 @@ class AuthTool:
             await self.security_handler.log_event(
                 event_type="token_revoked",
                 user_id=input.user_id,
+                details={"access_token": input.access_token[:8] + "..."}
+            )
+            await self.security_handler.log_user_action(
+                user_id=input.user_id,
+                action="revoke_token",
                 details={"access_token": input.access_token[:8] + "..."}
             )
             logger.info(f"Revoked token for user {input.user_id}")
@@ -234,11 +346,18 @@ class AuthTool:
     async def refresh_token(self, input: AuthRefreshInput) -> AuthRefreshOutput:
         try:
             user = await self.db.query(
-                "SELECT user_id, refresh_token FROM users WHERE user_id = $1 AND refresh_token = $2",
+                "SELECT user_id, refresh_token, totp_secret FROM users WHERE user_id = $1 AND refresh_token = $2",
                 [input.user_id, input.refresh_token]
             )
             if not user.rows:
                 raise ValidationError("Invalid user or refresh token")
+            
+            if user.rows[0]["totp_secret"] and not input.totp_code:
+                raise ValidationError("2FA code required")
+            if user.rows[0]["totp_secret"]:
+                totp = pyotp.TOTP(user.rows[0]["totp_secret"])
+                if not totp.verify(input.totp_code):
+                    raise ValidationError("Invalid 2FA code")
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -260,7 +379,6 @@ class AuthTool:
                 new_access_token = data["access_token"]
                 new_refresh_token = data.get("refresh_token", str(uuid.uuid4()))
                 
-                # Create new session
                 session_id = f"{input.user_id}:{secrets.token_urlsafe(32)}"
                 expires_at = datetime.utcnow() + timedelta(minutes=15)
                 await self.db.query(
@@ -278,6 +396,11 @@ class AuthTool:
                     user_id=input.user_id,
                     details={"access_token": new_access_token[:8] + "...", "session_id": session_id}
                 )
+                await self.security_handler.log_user_action(
+                    user_id=input.user_id,
+                    action="refresh_token",
+                    details={"access_token": new_access_token[:8] + "...", "session_id": session_id}
+                )
                 logger.info(f"Refreshed token for user {input.user_id}")
                 return AuthRefreshOutput(access_token=new_access_token, refresh_token=new_refresh_token, session_id=session_id)
         except Exception as e:
@@ -291,7 +414,6 @@ class AuthTool:
 
     async def verify_token(self, token: str, session_id: str) -> Dict[str, Any]:
         try:
-            # Verify session
             session = await self.db.query(
                 "SELECT session_key, user_id, expires_at FROM sessions WHERE session_key = $1",
                 [session_id]
@@ -309,6 +431,11 @@ class AuthTool:
             await self.security_handler.log_event(
                 event_type="token_verified",
                 user_id=user.rows[0]["user_id"],
+                details={"session_id": session_id}
+            )
+            await self.security_handler.log_user_action(
+                user_id=user.rows[0]["user_id"],
+                action="verify_token",
                 details={"session_id": session_id}
             )
             return {"user_id": user.rows[0]["user_id"]}
