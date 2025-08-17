@@ -1,38 +1,44 @@
-from fastapi import HTTPException
+from typing import Dict, Any
 from ...utils.logging import log_error, log_info
-from ..mcp_schemas import MCPTask
-import uuid
+from ...config.redis_config import get_redis
 
 class TaskHandler:
-    def __init__(self):
-        self.tasks = {}
+    async def create_task(self, task_id: str, task_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            redis = await get_redis()
+            task = {"id": task_id, "type": task_type, "params": params, "status": "pending"}
+            await redis.set(f"task:{task_id}", json.dumps(task), ex=86400)
+            log_info(f"Task created: {task_id}")
+            return task
+        except Exception as e:
+            log_error(f"Task creation failed: {str(e)}")
+            raise
 
-    def create_task(self, name: str, description: str, priority: int = 0, dependencies: List[str] = []) -> MCPTask:
-        task_id = str(uuid.uuid4())
-        task = MCPTask(
-            task_id=task_id,
-            name=name,
-            description=description,
-            priority=priority,
-            dependencies=dependencies
-        )
-        self.tasks[task_id] = task
-        log_info(f"Task created: {task_id}")
-        return task
+    async def get_task(self, task_id: str) -> Dict[str, Any]:
+        try:
+            redis = await get_redis()
+            task_data = await redis.get(f"task:{task_id}")
+            if not task_data:
+                log_error(f"Task not found: {task_id}")
+                raise ValueError(f"Task not found: {task_id}")
+            log_info(f"Task retrieved: {task_id}")
+            return json.loads(task_data)
+        except Exception as e:
+            log_error(f"Task retrieval failed: {str(e)}")
+            raise
 
-    async def handle_task(self, task_id: str, action: str) -> MCPTask:
-        if task_id not in self.tasks:
-            log_error(f"Task {task_id} not found")
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        task = self.tasks[task_id]
-        if action == "start":
-            task.status = "running"
-        elif action == "complete":
-            task.status = "completed"
-        elif action == "cancel":
-            task.status = "cancelled"
-        else:
-            log_error(f"Invalid task action: {action}")
-            raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
-        log_info(f"Task {task_id} updated to {task.status}")
-        return task
+    async def update_task_status(self, task_id: str, status: str) -> Dict[str, Any]:
+        try:
+            redis = await get_redis()
+            task_data = await redis.get(f"task:{task_id}")
+            if not task_data:
+                log_error(f"Task not found: {task_id}")
+                raise ValueError(f"Task not found: {task_id}")
+            task = json.loads(task_data)
+            task["status"] = status
+            await redis.set(f"task:{task_id}", json.dumps(task), ex=86400)
+            log_info(f"Task status updated: {task_id} to {status}")
+            return task
+        except Exception as e:
+            log_error(f"Task status update failed: {str(e)}")
+            raise
