@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WEBXOS MCP GATEWAY (BETA)</title>
+  <style>
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #1a1a1a;
+      color: #0f0;
+      margin: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background-color: #222;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      margin: 10px 0;
+    }
+    .status {
+      background-color: #333;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .status p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    .credentials {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .credentials input {
+      width: calc(100% - 16px);
+      padding: 6px;
+      margin: 5px 0;
+      background-color: #444;
+      border: none;
+      color: #0f0;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+    .terminal {
+      background-color: #000;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .terminal .error {
+      color: #f00;
+    }
+    .terminal input {
+      background: none;
+      border: none;
+      color: #0f0;
+      width: 100%;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+    }
+    .dashboard {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      display: none;
+    }
+    .dashboard.active {
+      display: block;
+    }
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #0c0;
+    }
+    button.disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    button.disabled:hover {
+      background-color: #666;
+    }
+    .popup {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+    .popup-content {
+      background-color: #222;
+      margin: 15% auto;
+      padding: 20px;
+      width: 70%;
+      max-width: 500px;
+      position: relative;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+    .close {
+      color: #0f0;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .close:hover {
+      color: #0c0;
+    }
+    .footer {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #888;
+    }
+    @media (max-width: 600px) {
+      .container {
+        padding: 10px;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      button {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+      .terminal {
+        height: 100px;
+        font-size: 10px;
+      }
+      .terminal input {
+        font-size: 10px;
+      }
+      .dashboard {
+        font-size: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>WEBXOS MCP GATEWAY (BETA)</h1>
+    <div class="status">
+      <p>Vial MCP Gateway initialized. Use /help for API commands.</p>
+      <p>$WEBXOS Balance: <span id="balance">0.0000</span> | Reputation: <span id="reputation">0</span></p>
+    </div>
+    <div class="dashboard" id="dashboard">
+      <p>Wallet Key: <span id="wallet-key">N/A</span></p>
+      <p>Session Balance: <span id="session-balance">0.0000 $WEBXOS</span></p>
+      <p>Address: <span id="address">N/A</span></p>
+      <p>Vial Agent: <span id="vial-agent">N/A</span></p>
+      <p>Quantum State: <span id="quantum-state">N/A</span></p>
+    </div>
+    <div class="credentials">
+      <input type="text" id="api-key" placeholder="API Key: N/A" readonly>
+      <input type="text" id="api-secret" placeholder="API Secret: N/A" readonly>
+    </div>
+    <div class="terminal" id="error-console">
+      <p id="error-message" class="error">No errors yet.</p>
+      <input type="text" id="command-input" placeholder="Enter command..." onkeypress="if(event.key === 'Enter') gateway.sendCommand(this.value)">
+    </div>
+    <div class="button-container">
+      <button id="fastmcp-btn" onclick="gateway.fastMCPStartup()">FastMCP</button>
+      <button id="api-btn" onclick="gateway.showAPIPopup()" disabled class="disabled">API</button>
+      <button id="void-btn" onclick="gateway.voidTransaction()" disabled class="disabled">Void</button>
+      <button id="troubleshoot-btn" onclick="gateway.troubleshoot()" disabled class="disabled">Troubleshoot</button>
+      <button id="quantum-link-btn" onclick="gateway.quantumLink()" disabled class="disabled">Quantum Link</button>
+      <button id="export-btn" onclick="gateway.exportData()" disabled class="disabled">Export</button>
+      <button id="import-btn" onclick="gateway.importData()" disabled class="disabled">Import</button>
+    </div>
+    <div id="api-popup" class="popup">
+      <div class="popup-content">
+        <span class="close" onclick="gateway.hideAPIPopup()">&times;</span>
+        <h1>Generate API Credentials</h1>
+        <button onclick="gateway.generateCredentials()">Generate Credentials</button>
+        <p>Key: <input type="text" id="popup-api-key" placeholder="API Key: N/A" readonly></p>
+        <p>Secret: <input type="text" id="popup-api-secret" placeholder="API Secret: N/A" readonly></p>
+      </div>
+    </div>
+    <div class="footer">
+      <p>WebXOS Vial MCP Gateway | Testing Mode (BETA) | 2025 | v2.7.8</p>
+      <p>WARNING: $webxos token is in development under MIT license. @WEBXOS claims no liability for token loss. Info: webxos.netlify.app & github.com/webxos/webxos</p>
+    </div>
+  </div>
+  <script>
+    class MCPGateway {
+      constructor() {
+        this.errorConsole = document.getElementById('error-console');
+        this.errorMessage = document.getElementById('error-message');
+        this.balance = document.getElementById('balance');
+        this.reputation = document.getElementById('reputation');
+        this.walletKey = document.getElementById('wallet-key');
+        this.sessionBalance = document.getElementById('session-balance');
+        this.address = document.getElementById('address');
+        this.vialAgent = document.getElementById('vial-agent');
+        this.quantumState = document.getElementById('quantum-state');
+        this.apiKey = document.getElementById('api-key');
+        this.apiSecret = document.getElementById('api-secret');
+        this.popupApiKey = document.getElementById('popup-api-key');
+        this.popupApiSecret = document.getElementById('popup-api-secret');
+        this.dashboard = document.getElementById('dashboard');
+        this.commandInput = document.getElementById('command-input');
+        this.apiPopup = document.getElementById('api-popup');
+        this.fastMCPBtn = document.getElementById('fastmcp-btn');
+        this.apiBtn = document.getElementById('api-btn');
+        this.voidBtn = document.getElementById('void-btn');
+        this.troubleshootBtn = document.getElementById('troubleshoot-btn');
+        this.quantumLinkBtn = document.getElementById('quantum-link-btn');
+        this.exportBtn = document.getElementById('export-btn');
+        this.importBtn = document.getElementById('import-btn');
+        this.isOnline = navigator.onLine;
+        this.cache = {};
+        this.isAuthenticated = !!localStorage.getItem('access_token');
+        this.baseUrl = 'https://webxos-mcp-gateway.onrender.com/v1';
+        this.fallbackUrl = 'http://localhost:8000/v1';
+        this.retryAttempts = 3;
+        this.retryDelay = 2000;
+        this.updateButtonStates();
+        this.checkStatus();
+        setInterval(() => this.checkStatus(), 5000);
+      }
+
+      updateButtonStates() {
+        const isEnabled = this.isAuthenticated;
+        this.apiBtn.disabled = !isEnabled;
+        this.voidBtn.disabled = !isEnabled;
+        this.troubleshootBtn.disabled = !isEnabled;
+        this.quantumLinkBtn.disabled = !isEnabled;
+        this.exportBtn.disabled = !isEnabled;
+        this.importBtn.disabled = !isEnabled;
+        this.apiBtn.classList.toggle('disabled', !isEnabled);
+        this.voidBtn.classList.toggle('disabled', !isEnabled);
+        this.troubleshootBtn.classList.toggle('disabled', !isEnabled);
+        this.quantumLinkBtn.classList.toggle('disabled', !isEnabled);
+        this.exportBtn.classList.toggle('disabled', !isEnabled);
+        this.importBtn.classList.toggle('disabled', !isEnabled);
+      }
+
+      async fetchWithRetry(url, options, attempts = this.retryAttempts) {
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`Status: ${response.status}\nResponse: ${await response.text()}`);
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+              throw new Error(`JSON.parse: unexpected character at line 1 column 1\nResponse: ${await response.text()}`);
+            }
+            return await response.json();
+          } catch (error) {
+            if (i < attempts - 1) {
+              this.logError(`Traceback: Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+              continue;
+            }
+            throw error;
+          }
+        }
+      }
+
+      async checkStatus() {
+        if (!this.isOnline) {
+          this.logError('Traceback: Offline mode. Using cached data.');
+          this.updateFromCache();
+          return;
+        }
+        try {
+          const data = await this.fetchWithRetry(`${this.baseUrl}/health`, {
+            headers: { 'Content-Type': 'application/json' }
+          });
+          this.logError('Backend healthy.');
+          this.updateDashboard(data);
+        } catch (error) {
+          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Verify Render deployment at ${this.baseUrl}/health`);
+          try {
+            this.logError(`Attempting fallback URL: ${this.fallbackUrl}/health`);
+            const data = await this.fetchWithRetry(`${this.fallbackUrl}/health`, {
+              headers: { 'Content-Type': 'application/json' }
+            });
+            this.logError('Fallback backend healthy.');
+            this.updateDashboard(data);
+          } catch (fallbackError) {
+            this.logError(`Traceback: Fallback failed\nError: ${fallbackError.message}\nFix: Check Docker container deployment at ${this.fallbackUrl}/health`);
+          }
+        }
+      }
+
+      updateDashboard(data) {
+        this.balance.textContent = data.balance || '0.0000';
+        this.reputation.textContent = data.reputation || '0';
+        this.walletKey.textContent = data.wallet_key || 'N/A';
+        this.sessionBalance.textContent = `${data.session_balance || 0.0000} $WEBXOS`;
+        this.address.textContent = data.address || 'N/A';
+        this.vialAgent.textContent = data.vial_agent || 'N/A';
+        this.quantumState.textContent = JSON.stringify(data.quantum_state || 'N/A');
+        this.cache = data;
+        this.dashboard.classList.add('active');
+      }
+
+      updateFromCache() {
+        this.updateDashboard(this.cache);
+      }
+
+      logError(message) {
+        this.errorMessage.textContent = message;
+        this.errorConsole.scrollTop = this.errorConsole.scrollHeight;
+      }
+
+      showAPIPopup() {
+        if (!this.isAuthenticated) {
+          this.logError('Traceback: FastMCP authentication required before API access.\nFix: Use FastMCP button first.');
+          return;
+        }
+        this.apiPopup.style.display = 'block';
+      }
+
+      hideAPIPopup() {
+        this.apiPopup.style.display = 'none';
+      }
+
+      async sendCommand(command) {
+        if (!this.isOnline) {
+          this.logError('Traceback: Offline. Command not sent.');
+          return;
+        }
+        try {
+          let endpoint = '/wallet';
+          let method = 'GET';
+          let body = null;
+          let url = this.baseUrl;
+          switch (command.toLowerCase()) {
+            case '/help': this.logError('Available commands: /help, /wallet, /health, /fastmcp, /void, /troubleshoot, /quantum-link, /export, /import'); return;
+            case '/wallet': endpoint = '/wallet'; break;
+            case '/health': endpoint = '/health'; break;
+            case '/fastmcp': endpoint = '/oauth/token'; method = 'POST'; body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' }; break;
+            case '/void': endpoint = '/void'; method = 'POST'; break;
+            case '/troubleshoot': endpoint = '/troubleshoot'; break;
+            case '/quantum-link': endpoint = '/quantum-link'; break;
+            case '/export': endpoint = '/export'; break;
+            case '/import': endpoint = '/import'; method = 'POST'; body = { file: 'vial_wallet_export_2025-08-16T23-46-34-377Z.md' }; break;
+            default: this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands.`); return;
+          }
+          let data;
+          try {
+            data = await this.fetchWithRetry(`${url}${endpoint}`, {
+              method,
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
+              body: body ? JSON.stringify(body) : null
+            });
+          } catch (error) {
+            this.logError(`Traceback: Primary request failed for ${url}${endpoint}\nError: ${error.message}\nAttempting fallback...`);
+            url = this.fallbackUrl;
+            data = await this.fetchWithRetry(`${url}${endpoint}`, {
+              method,
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
+              body: body ? JSON.stringify(body) : null
+            });
+          }
+          if (endpoint === '/wallet') this.updateDashboard(data);
+          if (endpoint === '/generate-credentials') {
+            this.popupApiKey.value = data.key || 'N/A';
+            this.apiSecret.value = data.secret || 'N/A';
+            this.apiKey.value = data.key || 'N/A';
+            this.apiSecret.value = data.secret || 'N/A';
+          }
+          if (endpoint === '/oauth/token') {
+            localStorage.setItem('access_token', data.access_token);
+            this.isAuthenticated = true;
+            this.updateButtonStates();
+            this.logError('FastMCP authentication successful. Buttons enabled.');
+          }
+          this.logError(`Command executed: ${endpoint}`);
+        } catch (error) {
+          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Check Render deployment at ${url}${endpoint}`);
+        }
+        this.commandInput.value = '';
+      }
+
+      generateCredentials() {
+        if (!this.isAuthenticated) {
+          this.logError('Traceback: FastMCP authentication required before generating credentials.\nFix: Use FastMCP button first.');
+          return;
+        }
+        this.sendCommand('/generate-credentials');
+      }
+
+      fastMCPStartup() {
+        this.sendCommand('/fastmcp');
+        this.sendCommand('/health');
+        this.sendCommand('/mcp/rpc');
+      }
+
+      voidTransaction() { this.sendCommand('/void'); }
+      troubleshoot() { this.sendCommand('/troubleshoot'); }
+      quantumLink() { this.sendCommand('/quantum-link'); }
+      exportData() { this.sendCommand('/export'); }
+      importData() { this.sendCommand('/import'); }
+    }
+
+    let gateway;
+    document.addEventListener('DOMContentLoaded', () => {
+      gateway = new MCPGateway();
+    });
+  </script>
+</body>
+</html>
