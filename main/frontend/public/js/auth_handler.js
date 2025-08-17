@@ -1,32 +1,6 @@
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Set in environment or replace
 const API_URL = 'http://localhost:8000/mcp';
 
-async function initGoogleSignIn() {
-  await new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.onload = resolve;
-    document.head.appendChild(script);
-  });
-
-  google.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: handleGoogleResponse,
-    state: generateCsrfToken()
-  });
-
-  google.accounts.id.renderButton(
-    document.getElementById('google-login-btn'),
-    { theme: 'outline', size: 'large' }
-  );
-}
-
-function generateCsrfToken() {
-  return Math.random().toString(36).substring(2);
-}
-
-async function handleGoogleResponse(response) {
+async function authenticateWithGoogle(credential) {
   try {
     const res = await fetch(`${API_URL}/execute`, {
       method: 'POST',
@@ -34,58 +8,50 @@ async function handleGoogleResponse(response) {
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'authentication',
-        params: { oauth_token: response.credential, provider: 'google' },
-        id: 1
+        params: { oauth_token: credential, provider: 'google' },
+        id: Math.floor(Math.random() * 1000)
       })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
-    updateUI(data.result);
-    // Dispatch auth-success event for WebSocket connection
-    const event = new CustomEvent('auth-success', { detail: { user_id: data.result.user_id } });
+    
+    const userId = data.result.user_id;
+    document.getElementById('user-id').innerText = userId;
+    document.getElementById('output').innerText = 'Authentication successful!';
+    
+    // Dispatch auth-success event to trigger WebSocket connection and wallet sync
+    const event = new CustomEvent('auth-success', { detail: { user_id: userId } });
     document.dispatchEvent(event);
-  } catch (error) {
-    document.getElementById('output').innerText = `Error: ${error.message}`;
-  }
-}
-
-async function fetchUserData(token) {
-  try {
-    const res = await fetch(`${API_URL}/execute`, {
+    
+    // Fetch initial wallet data
+    const walletRes = await fetch(`${API_URL}/execute`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        method: 'vial-management.getUserData',
-        params: {},
-        id: 2
+        method: 'wallet.getVialBalance',
+        params: { user_id: userId, vial_id: 'vial1' },
+        id: Math.floor(Math.random() * 1000)
       })
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    return data.result;
+    const walletData = await walletRes.json();
+    if (walletData.error) throw new Error(walletData.error.message);
+    
+    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: walletData.result.balance }));
+    document.getElementById('balance').innerText = `${walletData.result.balance} $WEBXOS`;
+    document.getElementById('wallet-address').innerText = `wallet_${userId}`; // Simplified for demo
   } catch (error) {
-    document.getElementById('output').innerText = `Error: ${error.message}`;
-    throw error;
+    document.getElementById('output').innerText = `Authentication error: ${error.message}`;
   }
 }
 
-function updateUI(authData) {
-  document.getElementById('user-id').innerText = authData.user_id;
-  document.getElementById('status').innerText = 'Authenticated';
-  document.getElementById('mode').innerText = 'Online';
-  fetchUserData(authData.access_token).then(userData => {
-    document.getElementById('balance').innerText = `${userData.balance} $WEBXOS`;
-    document.getElementById('reputation').innerText = userData.reputation;
-    document.getElementById('wallet-address').innerText = userData.wallet_address;
-  });
-}
-
-document.getElementById('auth-btn').addEventListener('click', () => {
-  google.accounts.id.prompt();
+document.getElementById('google-login-btn').addEventListener('click', () => {
+  // Placeholder for Google OAuth popup
+  // In a real implementation, use Google Sign-In SDK
+  const mockCredential = 'mock_google_token';
+  authenticateWithGoogle(mockCredential);
 });
 
-initGoogleSignIn();
+document.getElementById('auth-btn').addEventListener('click', () => {
+  document.getElementById('output').innerText = 'Please use Google Login for authentication';
+});
