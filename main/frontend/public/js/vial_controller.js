@@ -1,10 +1,13 @@
 import { JSONRPCRequest, JSONRPCResponse, WalletBalanceOutput, VialGitPushOutput, AuthTokenOutput } from '../../src/types/api.ts';
 
-const API_URL = 'https://<your-netlify-site>.netlify.app/mcp/execute';
+const API_URL = 'https://webxos.netlify.app/mcp/execute';
 
 async function executeAPI<T>(request: JSONRPCRequest): Promise<T> {
   const accessToken = localStorage.getItem('access_token');
-  if (!accessToken) {
+  const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+  if (!accessToken || !sessionId) {
+    document.getElementById('output').innerText = 'Session expired. Please re-authenticate.';
+    triggerReauthentication();
     throw new Error('Not authenticated');
   }
   
@@ -12,16 +15,36 @@ async function executeAPI<T>(request: JSONRPCRequest): Promise<T> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
+      'Authorization': `Bearer ${accessToken}`,
+      'X-Session-ID': sessionId
     },
     body: JSON.stringify(request)
   });
   
   const data: JSONRPCResponse = await response.json();
   if (data.error) {
+    if (data.error.message.includes("Invalid token or session")) {
+      document.getElementById('output').innerText = 'Session expired. Please re-authenticate.';
+      triggerReauthentication();
+    }
     throw new Error(data.error.message);
   }
   return data.result as T;
+}
+
+function triggerReauthentication() {
+  localStorage.removeItem('access_token');
+  document.cookie = 'session_id=; Max-Age=0; path=/;';
+  document.getElementById('user-id').innerText = 'Not logged in';
+  document.getElementById('execute-claude-btn').disabled = true;
+  document.getElementById('quantum-link-btn').disabled = true;
+  document.getElementById('mine-btn').disabled = true;
+  document.getElementById('export-btn').disabled = true;
+  document.getElementById('api-credentials-btn').disabled = true;
+  document.getElementById('git-push-btn').disabled = true;
+  document.getElementById('cash-out-btn').disabled = true;
+  document.getElementById('logout-btn').disabled = true;
+  document.getElementById('auth-btn').click(); // Trigger OAuth flow
 }
 
 async function updateVialBalances(userId: string) {
@@ -58,6 +81,12 @@ async function handleGitPush(userId: string, vialId: string, code: string, commi
 
 async function handleCashOut(userId: string, amount: number, destinationAddress: string) {
   try {
+    if (!/^\d+(\.\d{1,4})?$/.test(amount.toString())) {
+      throw new Error('Invalid amount: Must be a positive number with up to 4 decimal places');
+    }
+    if (!/^[a-f0-9]{64}$/.test(destinationAddress)) {
+      throw new Error('Invalid destination address: Must be a 64-character hexadecimal string');
+    }
     const result = await executeAPI({
       jsonrpc: '2.0',
       method: 'wallet.cashOut',
