@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi import FastAPI, Depends, HTTPException, Security, WebSocket
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
@@ -11,6 +11,8 @@ from tools.vial_management import VialManagementTool
 from tools.wallet import WalletTool
 from lib.security import SecurityHandler
 from lib.mcp_transport import MCPTransport
+from lib.monitoring import MonitoringHandler
+from lib.data_privacy import DataPrivacyHandler
 from lib.logger import logger
 from lib.errors import ValidationError
 from neondatabase import AsyncClient
@@ -27,13 +29,15 @@ vial_tool = VialManagementTool(db_client)
 wallet_tool = WalletTool(db_client)
 security_handler = SecurityHandler(db_client)
 mcp_transport = MCPTransport()
+monitoring_handler = MonitoringHandler(db_client)
+data_privacy_handler = DataPrivacyHandler(db_client)
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://webxos.netlify.app"],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Authorization", "X-Session-ID", "Content-Type"]
 )
 
@@ -46,7 +50,6 @@ class JSONRPCRequest(BaseModel):
 def sanitize_input(value: Any) -> Any:
     """Sanitize input to prevent injection attacks."""
     if isinstance(value, str):
-        # Remove potentially malicious characters and escape HTML
         value = re.sub(r'[<>;{}]', '', value)
         return escape(value)
     elif isinstance(value, dict):
@@ -84,13 +87,11 @@ async def shutdown_event():
 @app.post("/mcp/execute", response_model=JSONRPCRequest, dependencies=[Depends(RateLimiter(times=100, seconds=900))])
 async def execute(request: JSONRPCRequest, user: Dict[str, Any] = Depends(get_current_user)):
     try:
-        # Sanitize request parameters
         sanitized_params = sanitize_input(request.params)
         method = request.method
         params = sanitized_params
         params["user_id"] = user["user_id"]
         
-        # Apply stricter rate limiting for cash-out
         if method == "wallet.cashOut":
             await RateLimiter(times=5, seconds=900)(request)
         
@@ -121,6 +122,18 @@ async def execute(request: JSONRPCRequest, user: Dict[str, Any] = Depends(get_cu
             error={"code": -32603, "message": str(e)},
             id=request.id
         )
+
+@app.get("/monitoring/kpis", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
+async def get_kpis(time_window_hours: int = 24, handler: MonitoringHandler = Depends(lambda: MonitoringHandler(DatabaseConfig()))):
+    return await handler.get_security_kpis(time_window_hours)
+
+@app.websocket("/monitoring/kpis/stream")
+async def stream_kpis(websocket: WebSocket, handler: MonitoringHandler = Depends(lambda: MonitoringHandler(DatabaseConfig()))):
+    await handler.stream_kpis(websocket)
+
+@app.post("/privacy/erase", dependencies=[Depends(RateLimiter(times=3, seconds=3600))])
+async def erase_data(input: DataErasureInput, handler: DataPrivacyHandler = Depends(lambda: DataPrivacyHandler(DatabaseConfig()))):
+    return await handler.erase_user_data(input)
 
 @app.get("/openapi.json")
 async def get_openapi():
