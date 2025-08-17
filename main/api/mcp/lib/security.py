@@ -4,7 +4,9 @@ from typing import Dict, Any, Optional
 from config.config import DatabaseConfig
 import json
 import hashlib
-import statistics
+import smtplib
+from email.mime.text import MIMEText
+import os
 
 logger = logging.getLogger("mcp.security")
 logger.setLevel(logging.INFO)
@@ -17,6 +19,11 @@ class SecurityHandler:
             "api_request_rate": 50,  # Max API requests per minute
             "cash_out_attempts": 3   # Max cash-out attempts per hour
         }
+        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+        self.smtp_port = int(os.getenv("SMTP_PORT", 587))
+        self.smtp_user = os.getenv("SMTP_USER")
+        self.smtp_password = os.getenv("SMTP_PASSWORD")
+        self.alert_email = os.getenv("ALERT_EMAIL", "security@webxos.netlify.app")
 
     async def log_event(self, event_type: str, user_id: Optional[str], details: Dict[str, Any], ip_address: Optional[str] = None, user_agent: Optional[str] = None):
         try:
@@ -36,9 +43,24 @@ class SecurityHandler:
                 ]
             )
             logger.info(f"Logged security event: {event_type} for user {user_id}")
-            await self.detect_anomalies(event_type, user_id, ip_address)
+            await self.detect_anomalies(event_type, user_id, ip_address, details)
         except Exception as e:
             logger.error(f"Error logging security event: {str(e)}")
+
+    def send_alert_email(self, subject: str, body: str):
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = self.smtp_user
+            msg["To"] = self.alert_email
+
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"Sent alert email: {subject}")
+        except Exception as e:
+            logger.error(f"Error sending alert email: {str(e)}")
 
     async def create_session(self, user_id: str) -> str:
         session_id = f"{user_id}:{secrets.token_urlsafe(32)}"
@@ -110,7 +132,7 @@ class SecurityHandler:
                 details={"error": str(e)}
             )
 
-    async def detect_anomalies(self, event_type: str, user_id: Optional[str], ip_address: Optional[str]):
+    async def detect_anomalies(self, event_type: str, user_id: Optional[str], ip_address: Optional[str], details: Dict[str, Any]):
         try:
             time_window = datetime.utcnow() - timedelta(hours=1)
             if event_type == "auth_error":
@@ -123,6 +145,10 @@ class SecurityHandler:
                         event_type="anomaly_detected",
                         user_id=user_id,
                         details={"type": "auth_failure_rate", "count": events.rows[0]["count"], "ip_address": ip_address}
+                    )
+                    self.send_alert_email(
+                        subject="Security Alert: High Authentication Failure Rate",
+                        body=f"User {user_id} exceeded {self.anomaly_thresholds['auth_failure_rate']} auth failures in 1 hour. Count: {events.rows[0]['count']}, IP: {ip_address}"
                     )
                     logger.warning(f"Anomaly detected: High auth failure rate for user {user_id}")
 
@@ -138,6 +164,10 @@ class SecurityHandler:
                         user_id=user_id,
                         details={"type": "api_request_rate", "count": events.rows[0]["count"], "ip_address": ip_address}
                     )
+                    self.send_alert_email(
+                        subject="Security Alert: High API Request Rate",
+                        body=f"User {user_id} exceeded {self.anomaly_thresholds['api_request_rate']} API requests in 1 minute. Count: {events.rows[0]['count']}, IP: {ip_address}"
+                    )
                     logger.warning(f"Anomaly detected: High API request rate for user {user_id}")
 
             elif event_type == "wallet.cashOut":
@@ -150,6 +180,10 @@ class SecurityHandler:
                         event_type="anomaly_detected",
                         user_id=user_id,
                         details={"type": "cash_out_attempts", "count": events.rows[0]["count"], "ip_address": ip_address}
+                    )
+                    self.send_alert_email(
+                        subject="Security Alert: High Cash-Out Attempts",
+                        body=f"User {user_id} exceeded {self.anomaly_thresholds['cash_out_attempts']} cash-out attempts in 1 hour. Count: {events.rows[0]['count']}, IP: {ip_address}"
                     )
                     logger.warning(f"Anomaly detected: High cash-out attempts for user {user_id}")
         except Exception as e:
