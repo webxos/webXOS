@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WEBXOS MCP Controller</title>
+  <style>
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #1a1a1a;
+      color: #0f0;
+      margin: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background-color: #222;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      margin: 10px 0;
+    }
+    .status {
+      background-color: #333;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .status p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    .credentials {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .credentials input {
+      width: calc(100% - 16px);
+      padding: 6px;
+      margin: 5px 0;
+      background-color: #444;
+      border: none;
+      color: #0f0;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+    .terminal {
+      background-color: #000;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .terminal .error {
+      color: #f00;
+    }
+    .terminal input {
+      background: none;
+      border: none;
+      color: #0f0;
+      width: 100%;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+    }
+    .dashboard {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      display: none;
+    }
+    .dashboard.active {
+      display: block;
+    }
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 14px;
+      transition: background-color 0.3s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:hover {
+      background-color: #0c0;
+    }
+    button.disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    button.disabled:hover {
+      background-color: #666;
+    }
+    .footer {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #888;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 10px; }
+      h1 { font-size: 18px; }
+      button { padding: 6px 12px; font-size: 12px; }
+      .terminal { height: 100px; font-size: 10px; }
+      .terminal input { font-size: 10px; }
+      .dashboard { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>WEBXOS MCP Controller</h1>
+    <div class="status">
+      <p>Vial MCP Controller initialized. Use /help for API commands.</p>
+      <p>$WEBXOS Balance: <span id="balance">0.0000</span> | Reputation: <span id="reputation">0</span></p>
+    </div>
+    <div class="dashboard" id="dashboard">
+      <p>Wallet Key: <span id="wallet-key">N/A</span></p>
+      <p>Session Balance: <span id="session-balance">0.0000 $WEBXOS</span></p>
+      <p>Address: <span id="address">N/A</span></p>
+      <p>Vial Agent: <span id="vial-agent">N/A</span></p>
+      <p>Task Status: <span id="task-status">Idle</span></p>
+    </div>
+    <div class="credentials">
+      <input type="text" id="api-key" placeholder="API Key: N/A" readonly>
+      <input type="text" id="api-secret" placeholder="API Secret: N/A" readonly>
+    </div>
+    <div class="terminal" id="error-console">
+      <p id="error-message" class="error">No errors yet.</p>
+      <input type="text" id="command-input" placeholder="Enter command...">
+    </div>
+    <div class="button-container">
+      <button id="auth-btn">Authenticate</button>
+      <button id="health-btn" disabled class="disabled">Health Check</button>
+    </div>
+    <div class="footer">
+      <p>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.7.8</p>
+      <p>WARNING: $webxos token is in development under MIT license. @WEBXOS claims no liability for token loss. Info: webxos.netlify.app</p>
+    </div>
+  </div>
+  <script type="module">
+    class MCPClient {
+      constructor(baseUrl) {
+        this.baseUrl = baseUrl;
+        this.token = localStorage.getItem('access_token') || null;
+        this.offline = !navigator.onLine;
+        this.retryAttempts = 3;
+        this.retryDelay = 2000;
+        this.offlineForced = false;
+        this.offlineAttempts = 0;
+        this.maxOfflineAttempts = 5;
+      }
+      async request(endpoint, httpMethod = 'POST', body = null) {
+        try {
+          if (this.offline || this.offlineForced) return this.mockResponse(endpoint);
+          const url = `${this.baseUrl}${endpoint}`;
+          const response = await this.fetchWithRetry(url, {
+            method: httpMethod,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
+            },
+            body: body ? JSON.stringify(body) : null
+          });
+          this.offlineAttempts = 0;
+          return response;
+        } catch (error) {
+          this.handleError(error, endpoint, httpMethod);
+          throw error;
+        }
+      }
+      async fetchWithRetry(url, options, attempts = this.retryAttempts) {
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`HTTP ${response.status}: ${text}\nFix: Verify ${url} in /main/api/routes/${endpointToFile(url)}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+              const text = await response.text();
+              throw new Error(`JSON.parse: unexpected character\nResponse: ${text}\nFix: Ensure ${url} returns JSON (check /main/api/routes/${endpointToFile(url)})`);
+            }
+            return await response.json();
+          } catch (error) {
+            this.offlineAttempts++;
+            if (this.offlineAttempts >= this.maxOfflineAttempts) {
+              this.offlineForced = true;
+              this.handleError(new Error(`Forcing offline mode after ${this.offlineAttempts} failed attempts`), url, 'fetch', options.method);
+              return this.mockResponse(url.replace(this.baseUrl, ''));
+            }
+            if (i < attempts - 1) {
+              this.handleError(new Error(`Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms`), url, 'fetch', options.method);
+              await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+              continue;
+            }
+            throw error;
+          }
+        }
+      }
+      mockResponse(endpoint) {
+        const mocks = {
+          '/health': {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            balance: 38940.0000,
+            reputation: 1200983581,
+            user_id: 'a1d57580-d88b-4c90-a0f8-6f2c8511b1e4',
+            address: 'e8aa2491-f9a4-4541-ab68-fe7a32fb8f1d',
+            vial_agent: 'vial1',
+            task_status: 'Idle',
+            metrics: { cpu_usage_percent: 10, memory_usage_mb: 500 }
+          },
+          '/oauth/token': { access_token: 'mock_token', token_type: 'bearer' }
+        };
+        if (mocks[endpoint]) return mocks[endpoint];
+        throw new Error(`No mock for ${endpoint} in offline mode\nFix: Add mock response in MCPClient.mockResponse`);
+      }
+      handleError(error, endpoint, httpMethod) {
+        const stack = [
+          `Traceback: ${error.message}`,
+          `Endpoint: ${endpoint}`,
+          `Method: ${httpMethod}`,
+          `Timestamp: ${new Date().toISOString()}`,
+          `Stack: ${error.stack || 'No stack trace available'}`,
+          `Fix: Check /main/api/routes/${endpointToFile(endpoint)} or .env configuration`
+        ].join('\n');
+        document.getElementById('error-message').textContent = stack;
+        document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
+        console.error(stack);
+      }
+    }
+
+    class Gateway {
+      constructor() {
+        this.client = new MCPClient('http://localhost:8000/v1');
+        this.isAuthenticated = !!localStorage.getItem('access_token');
+        this.cache = {};
+        this.elements = {
+          errorConsole: document.getElementById('error-console'),
+          errorMessage: document.getElementById('error-message'),
+          balance: document.getElementById('balance'),
+          reputation: document.getElementById('reputation'),
+          walletKey: document.getElementById('wallet-key'),
+          sessionBalance: document.getElementById('session-balance'),
+          address: document.getElementById('address'),
+          vialAgent: document.getElementById('vial-agent'),
+          taskStatus: document.getElementById('task-status'),
+          apiKey: document.getElementById('api-key'),
+          apiSecret: document.getElementById('api-secret'),
+          dashboard: document.getElementById('dashboard'),
+          commandInput: document.getElementById('command-input'),
+          authBtn: document.getElementById('auth-btn'),
+          healthBtn: document.getElementById('health-btn')
+        };
+        this.setupEventListeners();
+        this.updateButtonStates();
+        this.checkStatus();
+        setInterval(() => this.checkStatus(), 30000);
+      }
+      setupEventListeners() {
+        this.elements.authBtn.addEventListener('click', () => this.authenticate());
+        this.elements.healthBtn.addEventListener('click', () => this.checkStatus());
+        this.elements.commandInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') this.sendCommand(e.target.value);
+        });
+      }
+      updateButtonStates() {
+        this.elements.healthBtn.disabled = !this.isAuthenticated;
+        this.elements.healthBtn.classList.toggle('disabled', !this.isAuthenticated);
+      }
+      async checkStatus() {
+        try {
+          const data = await this.client.request('/health', 'GET');
+          this.logError('Backend healthy: /main/api/routes/health.py');
+          this.updateDashboard(data);
+        } catch (error) {
+          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Verify /main/api/routes/health.py or ensure backend is running at ${this.client.baseUrl}`);
+          if (this.cache) this.updateFromCache();
+        }
+      }
+      updateDashboard(data) {
+        this.elements.balance.textContent = data.balance || '0.0000';
+        this.elements.reputation.textContent = data.reputation || '0';
+        this.elements.walletKey.textContent = data.user_id || 'N/A';
+        this.elements.sessionBalance.textContent = `${data.balance || 0.0000} $WEBXOS`;
+        this.elements.address.textContent = data.address || 'N/A';
+        this.elements.vialAgent.textContent = data.vial_agent || 'N/A';
+        this.elements.taskStatus.textContent = data.task_status || 'Idle';
+        this.cache = data;
+        this.elements.dashboard.classList.add('active');
+      }
+      updateFromCache() {
+        if (this.cache) this.updateDashboard(this.cache);
+      }
+      logError(message) {
+        const timestamp = new Date().toISOString();
+        this.elements.errorMessage.textContent = `[${timestamp}] ${message}`;
+        this.elements.errorConsole.scrollTop = this.elements.errorConsole.scrollHeight;
+      }
+      async authenticate() {
+        try {
+          const data = await this.client.request('/oauth/token', 'POST', {
+            grant_type: 'client_credentials',
+            client_id: 'WEBXOS-MOCKKEY',
+            client_secret: 'MOCKSECRET1234567890'
+          });
+          this.client.token = data.access_token;
+          localStorage.setItem('access_token', data.access_token);
+          this.isAuthenticated = true;
+          this.updateButtonStates();
+          this.logError('Authentication successful: /main/api/routes/oauth.py');
+          await this.checkStatus();
+        } catch (error) {
+          this.logError(`Traceback: Authentication failed\nError: ${error.message}\nFix: Check /main/api/routes/oauth.py or .env`);
+        }
+      }
+      async sendCommand(command) {
+        if (!this.isAuthenticated && command !== '/auth' && command !== '/help') {
+          this.logError('Traceback: Authentication required\nFix: Use /auth or Authenticate button (check /main/api/routes/oauth.py)');
+          return;
+        }
+        try {
+          let endpoint = '/health';
+          let httpMethod = 'GET';
+          let body = null;
+          switch (command.toLowerCase()) {
+            case '/help':
+              this.logError('Available commands: /help, /auth, /health');
+              return;
+            case '/auth':
+              endpoint = '/oauth/token';
+              httpMethod = 'POST';
+              body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' };
+              break;
+            case '/health':
+              endpoint = '/health';
+              httpMethod = 'GET';
+              break;
+            default:
+              this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands`);
+              return;
+          }
+          const data = await this.client.request(endpoint, httpMethod, body);
+          if (endpoint === '/oauth/token') {
+            this.client.token = data.access_token;
+            localStorage.setItem('access_token', data.access_token);
+            this.isAuthenticated = true;
+            this.updateButtonStates();
+            this.logError('Authentication successful: /main/api/routes/oauth.py');
+            await this.checkStatus();
+          } else {
+            this.updateDashboard(data);
+            this.logError(`Command executed: ${endpoint} (${httpMethod})`);
+          }
+        } catch (error) {
+          this.logError(`Traceback: Command failed\nError: ${error.message}\nFix: Check /main/api/routes/${endpointToFile(endpoint)} or .env`);
+        }
+        this.elements.commandInput.value = '';
+      }
+    }
+
+    function endpointToFile(endpoint) {
+      const mapping = {
+        '/health': 'health.py',
+        '/oauth/token': 'oauth.py'
+      };
+      return mapping[endpoint] || 'unknown.py';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const gateway = new Gateway();
+    });
+  </script>
+</body>
+</html>
