@@ -114,7 +114,15 @@ async function exportVials(userId) {
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
-    document.getElementById('output').innerText = `Exported vials: ${data.result.markdown}`;
+    document.getElementById('output').innerText = `Exported vials:\n${data.result.markdown}`;
+    // Trigger download of markdown file
+    const blob = new Blob([data.result.markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vial_wallet_export_${new Date().toISOString()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   } catch (error) {
     document.getElementById('output').innerText = `Error exporting vials: ${error.message}`;
   }
@@ -236,13 +244,25 @@ async function batchSync(userId) {
       }
     });
   } catch (error) {
-    document.getElementById('output').innerText = `Error syncing operations: ${error.message}`;
+    document.getElementById('output').innerText = `Sync failed: ${error.message}. Retrying on next connection.`;
+    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Sync failed: ${error.message}` } }));
   }
 }
 
 function updateVialStatus(vialId, balance) {
   document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${balance})`;
 }
+
+// Handle service worker messages for sync feedback
+navigator.serviceWorker.addEventListener('message', event => {
+  if (event.data.action === 'sync-failed') {
+    document.getElementById('output').innerText = `Sync failed: ${event.data.error}. Retrying on next connection.`;
+    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Sync failed: ${event.data.error}` } }));
+  } else if (event.data.action === 'sync-complete') {
+    document.getElementById('output').innerText = `Sync completed for import`;
+    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: 'No pending operations' } }));
+  }
+});
 
 document.addEventListener('auth-success', (event) => {
   const userId = event.detail.user_id;
