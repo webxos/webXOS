@@ -1,4 +1,4 @@
-const WS_URL = 'ws://localhost:8000/mcp/notifications';
+const WS_URL = 'wss://localhost:8000/mcp/notifications';
 
 let websocket = null;
 
@@ -9,9 +9,59 @@ function connectWebSocket(userId) {
   
   websocket = new WebSocket(`${WS_URL}?client_id=${userId}`);
   
-  websocket.onopen = () => {
+  websocket.onopen = async () => {
     document.getElementById('websocket-status').innerText = 'Connected';
     console.log('WebSocket connected for user:', userId);
+    
+    // Sync offline changes
+    const pendingImport = localStorage.getItem(`pending_import_${userId}`);
+    if (pendingImport) {
+      const { markdown, hash } = JSON.parse(pendingImport);
+      try {
+        const res = await fetch('http://localhost:8000/mcp/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'wallet.importWallet',
+            params: { user_id: userId, markdown, hash },
+            id: Math.floor(Math.random() * 1000)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        localStorage.removeItem(`pending_import_${userId}`);
+        localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.total_balance }));
+        document.getElementById('output').innerText = `Synced offline import: ${data.result.imported_vials.length} vials, new balance: ${data.result.total_balance}`;
+      } catch (error) {
+        document.getElementById('output').innerText = `Error syncing offline import: ${error.message}`;
+      }
+    }
+    
+    const cachedWallet = localStorage.getItem(`wallet_${userId}`);
+    if (cachedWallet) {
+      const wallet = JSON.parse(cachedWallet);
+      try {
+        const res = await fetch('http://localhost:8000/mcp/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'wallet.getVialBalance',
+            params: { user_id: userId, vial_id: 'vial1' },
+            id: Math.floor(Math.random() * 1000)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        if (data.result.balance !== wallet.balance) {
+          localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.balance }));
+          document.getElementById('output').innerText = `Synced wallet balance: ${data.result.balance}`;
+        }
+      } catch (error) {
+        document.getElementById('output').innerText = `Error syncing wallet: ${error.message}`;
+      }
+    }
   };
   
   websocket.onmessage = (event) => {
@@ -32,6 +82,7 @@ function connectWebSocket(userId) {
       });
     } else if (data.method === 'wallet.mineVial') {
       document.getElementById('output').innerText = `Notification: Mining result: Hash=${data.params.hash}, Reward=${data.params.reward}`;
+      document.getElementById('vial1-status').innerText = `Running (Balance: ${data.params.balance})`;
     } else if (data.method === 'claude.executeCode') {
       document.getElementById('output').innerText = `Notification: Claude code executed: ${data.params.output}`;
     }
