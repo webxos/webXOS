@@ -7,6 +7,7 @@ import aiohttp
 from pydantic import BaseModel
 from typing import Dict
 import uuid
+import hashlib
 
 logger = logging.getLogger("mcp.auth")
 logger.setLevel(logging.INFO)
@@ -18,6 +19,7 @@ class AuthInput(BaseModel):
 class AuthOutput(BaseModel):
     user_id: str
     jwt_token: str
+    wallet_created: bool
 
 class APICredentialInput(BaseModel):
     user_id: str
@@ -27,8 +29,9 @@ class APICredentialOutput(BaseModel):
     api_secret: str
 
 class AuthTool:
-    def __init__(self, config: ServerConfig):
+    def __init__(self, config: ServerConfig, db: DatabaseConfig):
         self.config = config
+        self.db = db
 
     async def execute(self, input: Dict) -> Dict:
         try:
@@ -63,6 +66,22 @@ class AuthTool:
                     if not user_id:
                         raise ValidationError("No user ID found in token")
                     
+                    # Check if user exists
+                    user = await self.db.query("SELECT user_id FROM users WHERE user_id = $1", [user_id])
+                    wallet_created = False
+                    
+                    if not user.rows:
+                        # Create new wallet with four vials
+                        wallet_address = str(uuid.uuid4())
+                        api_key = str(uuid.uuid4())
+                        api_secret = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()
+                        await self.db.query(
+                            "INSERT INTO users (user_id, balance, wallet_address, api_key, api_secret, reputation) VALUES ($1, $2, $3, $4, $5, $6)",
+                            [user_id, 0.0, wallet_address, api_key, api_secret, 0]
+                        )
+                        wallet_created = True
+                        logger.info(f"Created new wallet for user: {user_id}")
+                    
                     # Generate JWT
                     jwt_token = jwt.encode(
                         {"user_id": user_id},
@@ -71,27 +90,25 @@ class AuthTool:
                     )
                     
                     logger.info(f"Authenticated user: {user_id}")
-                    return AuthOutput(user_id=user_id, jwt_token=jwt_token)
+                    return AuthOutput(user_id=user_id, jwt_token=jwt_token, wallet_created=wallet_created)
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             raise HTTPException(400, str(e))
 
     async def generate_api_credentials(self, input: APICredentialInput) -> APICredentialOutput:
         try:
-            # Verify user exists
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"https://api.x.ai/v1/verify_user?user_id={input.user_id}",
-                    headers={"Authorization": f"Bearer {self.config.jwt_secret}"}
-                ) as response:
-                    if response.status != 200:
-                        raise ValidationError("User verification failed")
+            user = await self.db.query("SELECT user_id FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
             
-            # Generate API key and secret
             api_key = str(uuid.uuid4())
-            api_secret = str(uuid.uuid4())
+            api_secret = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()
             
-            # Store credentials (simplified for demo; in production, store securely in DB)
+            await self.db.query(
+                "UPDATE users SET api_key = $1, api_secret = $2 WHERE user_id = $3",
+                [api_key, api_secret, input.user_id]
+            )
+            
             logger.info(f"Generated API credentials for user: {input.user_id}")
             return APICredentialOutput(api_key=api_key, api_secret=api_secret)
         except Exception as e:
