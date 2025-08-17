@@ -1,339 +1,132 @@
-const API_URL = 'http://localhost:8000/mcp';
+import { JSONRPCRequest, JSONRPCResponse, WalletBalanceOutput, VialGitPushOutput, AuthTokenOutput } from '../../src/types/api.ts';
 
-async function fetchVialBalance(userId, vialId) {
-  try {
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+const API_URL = 'https://<your-netlify-site>.netlify.app/mcp/execute';
+
+async function executeAPI<T>(request: JSONRPCRequest): Promise<T> {
+  const accessToken = localStorage.getItem('access_token');
+  if (!accessToken) {
+    throw new Error('Not authenticated');
+  }
+  
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(request)
+  });
+  
+  const data: JSONRPCResponse = await response.json();
+  if (data.error) {
+    throw new Error(data.error.message);
+  }
+  return data.result as T;
+}
+
+async function updateVialBalances(userId: string) {
+  const vialIds = ['vial1', 'vial2', 'vial3', 'vial4'];
+  for (const vialId of vialIds) {
+    try {
+      const result: WalletBalanceOutput = await executeAPI({
         jsonrpc: '2.0',
         method: 'wallet.getVialBalance',
         params: { user_id: userId, vial_id: vialId },
         id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    return data.result;
-  } catch (error) {
-    document.getElementById('output').innerText = `Error fetching vial balance: ${error.message}`;
-    throw error;
-  }
-}
-
-async function voidVial(userId, vialId) {
-  try {
-    if (!navigator.onLine) {
-      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
-      if (!cachedWallet) throw new Error('No wallet data available offline');
-      localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: 0 }));
-      document.getElementById('output').innerText = `Vial ${vialId} voided offline`;
-      updateVialStatus(vialId, 0);
-      return;
+      });
+      document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${result.balance.toFixed(4)})`;
+    } catch (error) {
+      document.getElementById('output').innerText = `Error fetching balance for ${vialId}: ${error.message}`;
     }
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.voidVial',
-        params: { user_id: userId, vial_id: vialId },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: 0 }));
-    document.getElementById('output').innerText = `Vial ${vialId} voided successfully`;
-    updateVialStatus(vialId, 0);
-  } catch (error) {
-    document.getElementById('output').innerText = `Error voiding vial: ${error.message}`;
   }
 }
 
-async function troubleshootVial(userId, vialId) {
+async function handleGitPush(userId: string, vialId: string, code: string, commitMessage: string) {
   try {
-    if (!navigator.onLine) {
-      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
-      if (!cachedWallet) throw new Error('No wallet data available offline');
-      const wallet = JSON.parse(cachedWallet);
-      document.getElementById('output').innerText = `Offline troubleshoot for ${vialId}: Balance=${wallet.balance}, Active=${wallet.balance > 0}`;
-      return;
-    }
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.troubleshootVial',
-        params: { user_id: userId, vial_id: vialId },
-        id: Math.floor(Math.random() * 1000)
-      })
+    const result: VialGitPushOutput = await executeAPI({
+      jsonrpc: '2.0',
+      method: 'vial_management.gitPush',
+      params: { user_id: userId, vial_id: vialId, commit_message: commitMessage },
+      id: Math.floor(Math.random() * 1000)
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    document.getElementById('output').innerText = `Troubleshoot result for ${vialId}: ${data.result.status}\nDiagnostics: ${JSON.stringify(data.result.diagnostics)}`;
+    document.getElementById('output').innerText = `Git push successful: Commit ${result.commit_hash}, New Balance: ${result.balance}`;
+    document.getElementById('balance').innerText = `${result.balance} $WEBXOS`;
   } catch (error) {
-    document.getElementById('output').innerText = `Error troubleshooting vial: ${error.message}`;
+    document.getElementById('output').innerText = `Error pushing code: ${error.message}`;
   }
 }
 
-async function quantumLink(userId) {
+async function handleCashOut(userId: string, amount: number, destinationAddress: string) {
   try {
-    if (!navigator.onLine) throw new Error('Quantum Link requires online connection');
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.quantumLink',
-        params: { user_id: userId },
-        id: Math.floor(Math.random() * 1000)
-      })
+    const result = await executeAPI({
+      jsonrpc: '2.0',
+      method: 'wallet.cashOut',
+      params: { user_id: userId, amount, destination_address: destinationAddress },
+      id: Math.floor(Math.random() * 1000)
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    document.getElementById('output').innerText = `Quantum Link established: ${data.result.link_id}`;
+    document.getElementById('output').innerText = `Cash-out successful: Transaction ${result.transaction_id}, New Balance: ${result.new_balance}`;
+    document.getElementById('balance').innerText = `${result.new_balance} $WEBXOS`;
+    await updateTransactionHistory(userId);
   } catch (error) {
-    document.getElementById('output').innerText = `Error establishing Quantum Link: ${error.message}`;
+    document.getElementById('output').innerText = `Cash-out error: ${error.message}`;
   }
 }
 
-async function exportVials(userId) {
+async function updateTransactionHistory(userId: string) {
   try {
-    if (!navigator.onLine) throw new Error('Export requires online connection');
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.exportVials',
-        params: { user_id: userId, vial_id: 'vial1' },
-        id: Math.floor(Math.random() * 1000)
-      })
+    const result = await executeAPI({
+      jsonrpc: '2.0',
+      method: 'wallet.getTransactions',
+      params: { user_id: userId },
+      id: Math.floor(Math.random() * 1000)
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    document.getElementById('output').innerText = `Exported vials:\n${data.result.markdown}`;
-    // Trigger download of markdown file
-    const blob = new Blob([data.result.markdown], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `vial_wallet_export_${new Date().toISOString()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const transactions = result.transactions || [];
+    const historyDiv = document.getElementById('transaction-history');
+    historyDiv.innerHTML = transactions.map(tx => `
+      <div class="p-2 border-b">
+        <p><strong>Transaction ID:</strong> ${tx.transaction_id}</p>
+        <p><strong>Amount:</strong> ${tx.amount} $WEBXOS</p>
+        <p><strong>Destination:</strong> ${tx.destination_address}</p>
+        <p><strong>Timestamp:</strong> ${new Date(tx.timestamp).toLocaleString()}</p>
+      </div>
+    `).join('');
   } catch (error) {
-    document.getElementById('output').innerText = `Error exporting vials: ${error.message}`;
+    document.getElementById('output').innerText = `Error fetching transaction history: ${error.message}`;
   }
 }
 
-async function importWallet(userId, markdown) {
-  try {
-    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(markdown));
-    const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    if (!navigator.onLine) {
-      const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
-      pendingOperations.push({ method: 'importWallet', markdown, hash: hashHex });
-      localStorage.setItem(`pending_operations_${userId}`, JSON.stringify(pendingOperations));
-      self.postMessage({ action: 'cachePendingImport', data: { user_id: userId, markdown, hash: hashHex } });
-      document.getElementById('output').innerText = 'Wallet import queued for next online session';
-      document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Pending operations: ${pendingOperations.length}` } }));
-      return;
-    }
-    
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.importWallet',
-        params: { user_id: userId, markdown, hash: hashHex },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.total_balance }));
-    document.getElementById('output').innerText = `Imported ${data.result.imported_vials.length} vials, new balance: ${data.result.total_balance}`;
-    data.result.imported_vials.forEach(vialId => {
-      updateVialStatus(vialId, data.result.total_balance);
-    });
-  } catch (error) {
-    document.getElementById('output').innerText = `Error importing wallet: ${error.message}`;
-  }
-}
-
-async function mineVial(userId, vialId) {
-  try {
-    const nonce = Math.floor(Math.random() * 1000000);
-    if (!navigator.onLine) {
-      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
-      if (!cachedWallet) throw new Error('No wallet data available offline');
-      const wallet = JSON.parse(cachedWallet);
-      const data = `${userId}${vialId}${nonce}`;
-      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
-      const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-      let reward = 0;
-      if (hashHex.startsWith('00')) {
-        reward = 1.0;
-        wallet.balance += reward;
-        localStorage.setItem(`wallet_${userId}`, JSON.stringify(wallet));
-        const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
-        pendingOperations.push({ method: 'mineVial', vial_id: vialId, nonce });
-        localStorage.setItem(`pending_operations_${userId}`, JSON.stringify(pendingOperations));
-        document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Pending operations: ${pendingOperations.length}` } }));
-      }
-      document.getElementById('output').innerText = `Offline mining result: Hash=${hashHex}, Reward=${reward}`;
-      updateVialStatus(vialId, wallet.balance);
-      return;
-    }
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.mineVial',
-        params: { user_id: userId, vial_id: vialId, nonce },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.balance }));
-    document.getElementById('output').innerText = `Mining result: Hash=${data.result.hash}, Reward=${data.result.reward}`;
-    updateVialStatus(vialId, data.result.balance);
-  } catch (error) {
-    document.getElementById('output').innerText = `Error mining vial: ${error.message}`;
-  }
-}
-
-async function batchSync(userId) {
-  try {
-    const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
-    if (!pendingOperations.length) return;
-    
-    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Syncing ${pendingOperations.length} operations...` } }));
-    
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.batchSync',
-        params: { user_id: userId, operations: pendingOperations },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    
-    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.results[data.result.results.length - 1].total_balance || data.result.results[data.result.results.length - 1].balance }));
-    localStorage.removeItem(`pending_operations_${userId}`);
-    document.getElementById('output').innerText = `Synced ${data.result.results.length} operations`;
-    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: 'No pending operations' } }));
-    
-    data.result.results.forEach(result => {
-      if (result.imported_vials) {
-        result.imported_vials.forEach(vialId => {
-          updateVialStatus(vialId, result.total_balance);
-        });
-      } else if (result.balance) {
-        updateVialStatus('vial1', result.balance);
-      }
-    });
-  } catch (error) {
-    document.getElementById('output').innerText = `Sync failed: ${error.message}. Retrying on next connection.`;
-    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Sync failed: ${error.message}` } }));
-  }
-}
-
-function updateVialStatus(vialId, balance) {
-  document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${balance})`;
-}
-
-// Handle service worker messages for sync feedback
-navigator.serviceWorker.addEventListener('message', event => {
-  if (event.data.action === 'sync-failed') {
-    document.getElementById('output').innerText = `Sync failed: ${event.data.error}. Retrying on next connection.`;
-    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Sync failed: ${event.data.error}` } }));
-  } else if (event.data.action === 'sync-complete') {
-    document.getElementById('output').innerText = `Sync completed for import`;
-    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: 'No pending operations' } }));
-  }
+document.addEventListener('auth-success', async (event: CustomEvent) => {
+  const userId: string = event.detail.user_id;
+  await updateVialBalances(userId);
+  await updateTransactionHistory(userId);
 });
 
-document.addEventListener('auth-success', (event) => {
-  const userId = event.detail.user_id;
-  ['vial1', 'vial2', 'vial3', 'vial4'].forEach(vialId => {
-    fetchVialBalance(userId, vialId).then(data => {
-      localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.balance }));
-      updateVialStatus(vialId, data.balance);
-    }).catch(() => {
-      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
-      if (cachedWallet) {
-        const wallet = JSON.parse(cachedWallet);
-        updateVialStatus(vialId, wallet.balance);
-      }
-    });
-  });
-  if (navigator.onLine) {
-    batchSync(userId);
-  }
-});
-
-document.getElementById('void-btn').addEventListener('click', () => {
+document.getElementById('git-push-btn').addEventListener('click', async () => {
   const userId = document.getElementById('user-id').innerText;
   if (userId === 'Not logged in') {
     document.getElementById('output').innerText = 'Error: Please authenticate first';
     return;
   }
-  voidVial(userId, 'vial1');
+  const code = document.getElementById('agent-code').value;
+  const commitMessage = document.getElementById('commit-message').value || 'Update agent code';
+  if (!code) {
+    document.getElementById('output').innerText = 'Error: No agent code provided';
+    return;
+  }
+  await handleGitPush(userId, 'vial1', code, commitMessage);
 });
 
-document.getElementById('troubleshoot-btn').addEventListener('click', () => {
+document.getElementById('cash-out-btn').addEventListener('click', async () => {
   const userId = document.getElementById('user-id').innerText;
   if (userId === 'Not logged in') {
     document.getElementById('output').innerText = 'Error: Please authenticate first';
     return;
   }
-  troubleshootVial(userId, 'vial1');
-});
-
-document.getElementById('quantum-link-btn').addEventListener('click', () => {
-  const userId = document.getElementById('user-id').innerText;
-  if (userId === 'Not logged in') {
-    document.getElementById('output').innerText = 'Error: Please authenticate first';
+  const amount = parseFloat(document.getElementById('cash-out-amount').value);
+  const destinationAddress = document.getElementById('cash-out-address').value;
+  if (!amount || !destinationAddress) {
+    document.getElementById('output').innerText = 'Error: Please provide amount and destination address';
     return;
   }
-  quantumLink(userId);
-});
-
-document.getElementById('export-btn').addEventListener('click', () => {
-  const userId = document.getElementById('user-id').innerText;
-  if (userId === 'Not logged in') {
-    document.getElementById('output').innerText = 'Error: Please authenticate first';
-    return;
-  }
-  exportVials(userId);
-});
-
-document.getElementById('import-wallet-btn').addEventListener('click', () => {
-  const userId = document.getElementById('user-id').innerText;
-  if (userId === 'Not logged in') {
-    document.getElementById('output').innerText = 'Error: Please authenticate first';
-    return;
-  }
-  const markdown = document.getElementById('wallet-import').value;
-  importWallet(userId, markdown);
-});
-
-document.getElementById('mine-btn').addEventListener('click', () => {
-  const userId = document.getElementById('user-id').innerText;
-  if (userId === 'Not logged in') {
-    document.getElementById('output').innerText = 'Error: Please authenticate first';
-    return;
-  }
-  mineVial(userId, 'vial1');
+  await handleCashOut(userId, amount, destinationAddress);
 });
