@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vial MCP Controller</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <link rel="stylesheet" href="/css/tailwind.min.css">
 </head>
 <body class="bg-gray-100 font-sans">
   <div class="container mx-auto p-4">
@@ -19,7 +19,8 @@
     <div class="mb-4">
       <p><strong>User ID:</strong> <span id="user-id">Not logged in</span></p>
       <p><strong>Balance:</strong> <span id="balance">0 $WEBXOS</span></p>
-      <p><strong>Reputation:</strong> <span id="reputation">0</span></p>
+      <p><strong>Reputation:</strong> <sp
+an id="reputation">0</span></p>
       <p><strong>Wallet Address:</strong> <span id="wallet-address">None</span></p>
     </div>
 
@@ -31,6 +32,8 @@
     </div>
 
     <div class="mb-4">
+      <textarea id="claude-code" class="w-full h-32 p-2 border rounded" placeholder="Enter Claude-generated code"></textarea>
+      <button id="execute-claude-btn" class="bg-indigo-500 text-white px-4 py-2 rounded">Execute Claude Code</button>
       <button id="auth-btn" class="bg-blue-500 text-white px-4 py-2 rounded">Authenticate</button>
       <button id="google-login-btn" class="bg-red-500 text-white px-4 py-2 rounded">Login with Google</button>
       <button id="void-btn" class="bg-gray-500 text-white px-4 py-2 rounded">Void</button>
@@ -42,93 +45,33 @@
     <div id="output" class="bg-white p-4 rounded shadow"></div>
   </div>
 
+  <script src="/js/auth_handler.js"></script>
   <script>
-    const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Set in environment or replace
-    const API_URL = 'http://localhost:8000/mcp';
-
-    async function initGoogleSignIn() {
-      await new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://accounts.google.com/gsi/client';
-        script.async = true;
-        script.onload = resolve;
-        document.head.appendChild(script);
-      });
-
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleResponse,
-        state: generateCsrfToken()
-      });
-
-      google.accounts.id.renderButton(
-        document.getElementById('google-login-btn'),
-        { theme: 'outline', size: 'large' }
-      );
-    }
-
-    function generateCsrfToken() {
-      return Math.random().toString(36).substring(2);
-    }
-
-    async function handleGoogleResponse(response) {
+    document.getElementById('execute-claude-btn').addEventListener('click', async () => {
+      const code = document.getElementById('claude-code').value;
+      const userId = document.getElementById('user-id').innerText;
+      if (!userId || userId === 'Not logged in') {
+        document.getElementById('output').innerText = 'Error: Please authenticate first';
+        return;
+      }
       try {
-        const res = await fetch(`${API_URL}/execute`, {
+        const res = await fetch('http://localhost:8000/mcp/execute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jsonrpc: '2.0',
-            method: 'authentication',
-            params: { oauth_token: response.credential, provider: 'google' },
-            id: 1
+            method: 'claude.executeCode',
+            params: { code, user_id: userId },
+            id: 3
           })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error.message);
-        updateUI(data.result);
+        document.getElementById('output').innerText = `Claude Output: ${data.result.output || 'No output'}${data.result.error ? '\nError: ' + data.result.error : ''}`;
       } catch (error) {
         document.getElementById('output').innerText = `Error: ${error.message}`;
       }
-    }
-
-    function updateUI(authData) {
-      document.getElementById('user-id').innerText = authData.user_id;
-      document.getElementById('status').innerText = 'Authenticated';
-      document.getElementById('mode').innerText = 'Online';
-      // Fetch additional user data (balance, reputation, etc.) from MCP server
-      fetchUserData(authData.access_token);
-    }
-
-    async function fetchUserData(token) {
-      try {
-        const res = await fetch(`${API_URL}/execute`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'vial-management.getUserData',
-            params: {},
-            id: 2
-          })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        document.getElementById('balance').innerText = `${data.result.balance} $WEBXOS`;
-        document.getElementById('reputation').innerText = data.result.reputation;
-        document.getElementById('wallet-address').innerText = data.result.wallet_address;
-      } catch (error) {
-        document.getElementById('output').innerText = `Error: ${error.message}`;
-      }
-    }
-
-    document.getElementById('auth-btn').addEventListener('click', () => {
-      google.accounts.id.prompt();
     });
-
-    initGoogleSignIn();
   </script>
 </body>
 </html>
