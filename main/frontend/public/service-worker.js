@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vial-mcp-v1';
+const CACHE_NAME = 'vial-mcp-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -21,6 +21,41 @@ self.addEventListener('fetch', event => {
     caches.match(event.request)
       .then(response => response || fetch(event.request))
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data.action === 'cachePendingImport') {
+    caches.open(CACHE_NAME).then(cache => {
+      cache.put('/pending-import', new Response(JSON.stringify(event.data.data)));
+    });
+  }
+});
+
+self.addEventListener('sync', event => {
+  if (event.tag === 'sync-pending-import') {
+    event.waitUntil(
+      caches.open(CACHE_NAME).then(cache =>
+        cache.match('/pending-import').then(response =>
+          response ? response.json().then(data => {
+            fetch('http://localhost:8000/mcp/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'wallet.importWallet',
+                params: data,
+                id: Math.floor(Math.random() * 1000)
+              })
+            }).then(res => res.json()).then(result => {
+              if (!result.error) {
+                cache.delete('/pending-import');
+              }
+            });
+          }) : Promise.resolve()
+        )
+      )
+    );
+  }
 });
 
 self.addEventListener('activate', event => {
