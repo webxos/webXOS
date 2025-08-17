@@ -13,6 +13,7 @@
         .button-group { display: flex; gap: 10px; margin: 10px 0; }
         button { background: #0f0; color: #000; border: none; padding: 8px 16px; cursor: pointer; font-size: 14px; }
         button:hover { background: #0c0; }
+        button.auth-active { background: #ff0000; }
         #status { width: 90%; max-width: 900px; margin: 10px 0; }
         .status-bar { display: flex; align-items: center; margin: 5px 0; }
         .status-bar div { flex: 1; height: 10px; background: #0f0; }
@@ -23,7 +24,7 @@
     <div id="terminal"></div>
     <input id="input" placeholder="Enter git commands (e.g., /prompt vial1 train dataset)">
     <div class="button-group">
-        <button onclick="authenticate()">Authenticate</button>
+        <button id="auth-btn" onclick="authenticate()">Authenticate</button>
         <button onclick="voidVials()">Void</button>
         <button onclick="troubleshoot()">Troubleshoot</button>
         <button onclick="quantumLink()">Quantum Link</button>
@@ -36,14 +37,17 @@
     <script>
         const terminal = document.getElementById('terminal');
         const input = document.getElementById('input');
+        const authBtn = document.getElementById('auth-btn');
         let logs = [];
         let isAuthenticated = false;
         let accessToken = null;
         let userId = null;
         let vials = ['vial1', 'vial2', 'vial3', 'vial4'].map(id => ({ id, status: 'stopped', tasks: [] }));
 
-        function log(message, isError = false) {
-            logs.push(`<div${isError ? ' class="error"' : ''}>${new Date().toISOString()} - ${message}</div>`);
+        function log(message, isError = false, file = '', line = '', id = '') {
+            const timestamp = new Date().toISOString();
+            const errorDetails = isError ? ` [${file}:${line}] [ID:${id}]` : '';
+            logs.push(`<div${isError ? ' class="error"' : ''}>${timestamp} - ${message}${errorDetails}</div>`);
             if (logs.length > 100) logs.shift();
             terminal.innerHTML = logs.join('');
             terminal.scrollTop = terminal.scrollHeight;
@@ -55,9 +59,13 @@
             ).join('');
         }
 
+        function updateAuthButton() {
+            authBtn.classList.toggle('auth-active', isAuthenticated);
+        }
+
         async function handleCommand(command) {
             if (!isAuthenticated && command !== '/help') {
-                log('Error: Not authenticated. Please authenticate first.', true);
+                log('Error: Not authenticated. Please authenticate first.', true, 'vial2.html', '50', 'cmd_unauth');
                 return;
             }
             command = command.trim();
@@ -66,13 +74,14 @@
 - /prompt <vial> <text> - Send prompt to vial
 - /task <vial> <task> - Assign task to vial
 - /config <vial> <key> <value> - Set vial config
-- /status - Show vial statuses`, false);
+- /status - Show vial statuses
+- /git <command> - Run git commands (e.g., /git push)`, false);
                 return;
             }
 
             try {
                 const [cmd, vialId, ...args] = command.split(' ');
-                const response = await fetch('/vial/mcp/api/endpoints', {
+                const response = await fetch('/main/api/mcp/api/endpoints', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({ command: cmd.slice(1), vialId, args, userId })
@@ -89,25 +98,35 @@
                     updateStatus();
                 }
             } catch (error) {
-                log(`Command ${command} failed: ${error.message}`, true);
+                log(`Command ${command} failed: ${error.message}`, true, 'vial2.html', '70', 'cmd_error');
             }
         }
 
         async function authenticate() {
             try {
-                const response = await fetch('/vial/mcp/api/auth', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ method: 'oauth_login' })
-                });
-                const result = await response.json();
-                if (result.error) throw new Error(result.error);
-                accessToken = result.access_token;
-                userId = result.user_id;
-                isAuthenticated = true;
-                log('Authentication successful');
+                const codeVerifier = btoa(String.fromCharCode(...new Uint8Array(32).map(() => Math.floor(Math.random() * 256))));
+                const codeChallenge = btoa(sha256(codeVerifier)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                const authUrl = `https://github.com/login/oauth/authorize?client_id=your_github_oauth_client_id&redirect_uri=https://webxos.netlify.app/vial2/callback&scope=user&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+                const popup = window.open(authUrl, '_blank');
+                window.addEventListener('message', async (event) => {
+                    if (event.origin !== 'https://webxos.netlify.app') return;
+                    const { code } = event.data;
+                    popup.close();
+                    const response = await fetch('/main/api/mcp/api/auth', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ method: 'oauth_login', code, code_verifier: codeVerifier })
+                    });
+                    const result = await response.json();
+                    if (result.error) throw new Error(result.error);
+                    accessToken = result.access_token;
+                    userId = result.user_id;
+                    isAuthenticated = true;
+                    updateAuthButton();
+                    log('Authentication successful');
+                }, { once: true });
             } catch (error) {
-                log(`Authentication failed: ${error.message}`, true);
+                log(`Authentication failed: ${error.message}`, true, 'vial2.html', '90', 'auth_error');
             }
         }
 
@@ -116,26 +135,30 @@
             isAuthenticated = false;
             accessToken = null;
             userId = null;
-            log('All vials voided');
+            logs = [];
+            terminal.innerHTML = '';
+            updateAuthButton();
             updateStatus();
+            window.location.reload();
+            log('All vials voided and session cleared');
         }
 
         async function troubleshoot() {
             try {
-                const response = await fetch('/vial/mcp/api/health', {
+                const response = await fetch('/main/api/mcp/api/health', {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 const result = await response.json();
                 log(`Health check: ${JSON.stringify(result)}`);
             } catch (error) {
-                log(`Troubleshoot failed: ${error.message}`, true);
+                log(`Troubleshoot failed: ${error.message}`, true, 'vial2.html', '110', 'troubleshoot_error');
             }
         }
 
         async function quantumLink() {
             try {
-                const response = await fetch('/vial/mcp/api/vials', {
+                const response = await fetch('/main/api/mcp/api/vials', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({ method: 'createVial', userId })
@@ -146,13 +169,17 @@
                 vials.forEach(vial => vial.status = 'running');
                 updateStatus();
             } catch (error) {
-                log(`Quantum link failed: ${error.message}`, true);
+                log(`Quantum link failed: ${error.message}`, true, 'vial2.html', '130', 'quantum_error');
             }
         }
 
         async function exportVials() {
+            if (!isAuthenticated) {
+                log('Export failed: Not authenticated', true, 'vial2.html', '140', 'export_unauth');
+                return;
+            }
             try {
-                const response = await fetch('/vial/mcp/api/wallet', {
+                const response = await fetch('/main/api/mcp/api/wallet', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({ method: 'export', userId })
@@ -168,20 +195,24 @@
                 URL.revokeObjectURL(url);
                 log('Vials exported successfully');
             } catch (error) {
-                log(`Export failed: ${error.message}`, true);
+                log(`Export failed: ${error.message}`, true, 'vial2.html', '150', 'export_error');
             }
         }
 
         async function importVials() {
+            if (!isAuthenticated) {
+                log('Import failed: Not authenticated', true, 'vial2.html', '160', 'import_unauth');
+                return;
+            }
             const fileInput = document.getElementById('file-input');
             if (!fileInput.files.length) {
-                log('No file selected', true);
+                log('No file selected', true, 'vial2.html', '170', 'import_nofile');
                 return;
             }
             try {
                 const file = fileInput.files[0];
                 const text = await file.text();
-                const response = await fetch('/vial/mcp/api/wallet', {
+                const response = await fetch('/main/api/mcp/api/wallet', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({ method: 'import', userId, markdown: text })
@@ -192,13 +223,17 @@
                 log('Vials imported successfully');
                 updateStatus();
             } catch (error) {
-                log(`Import failed: ${error.message}`, true);
+                log(`Import failed: ${error.message}`, true, 'vial2.html', '180', 'import_error');
             }
         }
 
         async function showApiCredentials() {
+            if (!isAuthenticated) {
+                log('API Credentials failed: Not authenticated', true, 'vial2.html', '190', 'creds_unauth');
+                return;
+            }
             try {
-                const response = await fetch('/vial/mcp/api/auth', {
+                const response = await fetch('/main/api/mcp/api/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({ method: 'generateAPICredentials', userId })
@@ -207,8 +242,20 @@
                 if (result.error) throw new Error(result.error);
                 log(`API Credentials: Key=${result.key}, Secret=${result.secret}`);
             } catch (error) {
-                log(`API Credentials failed: ${error.message}`, true);
+                log(`API Credentials failed: ${error.message}`, true, 'vial2.html', '200', 'creds_error');
             }
+        }
+
+        function sha256(str) {
+            const buffer = new TextEncoder().encode(str);
+            return crypto.subtle.digest('SHA-256', buffer).then(hash => {
+                const view = new DataView(hash);
+                let result = '';
+                for (let i = 0; i < hash.byteLength; i++) {
+                    result += String.fromCharCode(view.getUint8(i));
+                }
+                return result;
+            });
         }
 
         input.addEventListener('keydown', e => {
@@ -219,7 +266,7 @@
         });
 
         document.getElementById('file-input').addEventListener('change', importVials);
-        log('Vial MCP Terminal initialized. Use /help for commands.');
+        log('Vial MCP Terminal initialized. Use /help for commands.', false, 'vial2.html', '220', 'init');
         updateStatus();
     </script>
 </body>
