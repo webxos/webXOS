@@ -1,4 +1,14 @@
 const API_URL = 'http://localhost:8000/mcp';
+const GOOGLE_CLIENT_ID = 'your_google_client_id'; // Replace with actual client ID from .env
+
+// Load Google Sign-In SDK
+function loadGoogleSignIn() {
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
+}
 
 async function authenticateWithGoogle(credential) {
   try {
@@ -39,17 +49,28 @@ async function authenticateWithGoogle(credential) {
     
     localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: walletData.result.balance }));
     document.getElementById('balance').innerText = `${walletData.result.balance} $WEBXOS`;
-    document.getElementById('wallet-address').innerText = `wallet_${userId}`; // Simplified for demo
+    document.getElementById('wallet-address').innerText = `wallet_${userId}`;
   } catch (error) {
     document.getElementById('output').innerText = `Authentication error: ${error.message}`;
   }
 }
 
-document.getElementById('google-login-btn').addEventListener('click', () => {
-  // Placeholder for Google OAuth popup
-  // In a real implementation, use Google Sign-In SDK
-  const mockCredential = 'mock_google_token';
-  authenticateWithGoogle(mockCredential);
+document.addEventListener('DOMContentLoaded', () => {
+  loadGoogleSignIn();
+  
+  // Initialize Google Sign-In
+  window.google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: (response) => {
+      authenticateWithGoogle(response.credential);
+    }
+  });
+  
+  // Render Google Sign-In button
+  window.google.accounts.id.renderButton(
+    document.getElementById('google-login-btn'),
+    { theme: 'outline', size: 'large' }
+  );
 });
 
 document.getElementById('auth-btn').addEventListener('click', () => {
