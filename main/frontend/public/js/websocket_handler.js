@@ -26,39 +26,51 @@ class WebSocketHandler {
     this.ws.onopen = () => {
       document.getElementById('websocket-status').innerText = 'Connected';
       this.reconnectAttempts = 0;
+      this.sendMessage({ type: 'subscribe', channel: 'kpi_updates' });
     };
 
     this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'session_expired') {
-        document.getElementById('output').innerText = 'Session expired. Please re-authenticate.';
-        this.ws?.close();
-        this.handleSessionExpiration();
-      } else if (data.type === 'transaction_update') {
-        document.getElementById('transaction-history').innerHTML += `
-          <div class="p-2 border-b">
-            <p><strong>Transaction ID:</strong> ${data.transaction_id}</p>
-            <p><strong>Amount:</strong> ${data.amount} $WEBXOS</p>
-            <p><strong>Destination:</strong> ${data.destination_address}</p>
-            <p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
-          </div>
-        `;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'session_expired') {
+          document.getElementById('output').innerText = 'Session expired. Please re-authenticate.';
+          this.ws?.close();
+          this.handleSessionExpiration();
+        } else if (data.type === 'transaction_update') {
+          document.getElementById('transaction-history').innerHTML += `
+            <div class="p-2 border-b">
+              <p><strong>Transaction ID:</strong> ${data.transaction_id}</p>
+              <p><strong>Amount:</strong> ${data.amount} $WEBXOS</p>
+              <p><strong>Destination:</strong> ${data.destination_address}</p>
+              <p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+            </div>
+          `;
+        } else if (data.type === 'kpi_update') {
+          document.getElementById('kpi-auth-success').innerText = data.data.auth_success_rate.toFixed(2);
+          document.getElementById('kpi-auth-failures').innerText = data.data.auth_failure_count;
+          document.getElementById('kpi-sessions').innerText = data.data.active_sessions;
+          document.getElementById('kpi-anomalies').innerText = data.data.anomalies_detected;
+        }
+      } catch (error) {
+        document.getElementById('output').innerText = `WebSocket message error: ${error.message}`;
       }
     };
 
-    this.ws.onclose = () => {
-      document.getElementById('websocket-status').innerText = 'Disconnected';
+    this.ws.onclose = (event) => {
+      document.getElementById('websocket-status').innerText = `Disconnected: ${event.reason || 'Unknown reason'}`;
       this.handleReconnect(userId);
     };
 
-    this.ws.onerror = () => {
-      document.getElementById('websocket-status').innerText = 'Error';
+    this.ws.onerror = (error) => {
+      document.getElementById('websocket-status').innerText = `WebSocket Error: ${error.type || 'Unknown error'}`;
+      document.getElementById('output').innerText = `WebSocket connection failed. Retrying...`;
       this.ws?.close();
     };
   }
 
   handleSessionExpiration() {
     localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     document.cookie = 'session_id=; Max-Age=0; path=/;';
     document.getElementById('user-id').innerText = 'Not logged in';
     document.getElementById('execute-claude-btn').disabled = true;
@@ -69,6 +81,7 @@ class WebSocketHandler {
     document.getElementById('git-push-btn').disabled = true;
     document.getElementById('cash-out-btn').disabled = true;
     document.getElementById('logout-btn').disabled = true;
+    document.getElementById('data-erasure-btn').disabled = true;
     document.getElementById('auth-btn').click();
   }
 
@@ -81,6 +94,7 @@ class WebSocketHandler {
       }, this.reconnectInterval);
     } else {
       document.getElementById('websocket-status').innerText = 'Disconnected: Max reconnect attempts reached';
+      document.getElementById('output').innerText = 'WebSocket connection failed after max retries. Please re-authenticate.';
       this.handleSessionExpiration();
     }
   }
@@ -88,6 +102,8 @@ class WebSocketHandler {
   sendMessage(message: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
+    } else {
+      document.getElementById('output').innerText = 'Cannot send message: WebSocket is not connected';
     }
   }
 }
