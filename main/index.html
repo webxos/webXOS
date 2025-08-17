@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WEBXOS MCP Controller</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jupyterlite@0.3.0/dist/jupyterlite.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
   <style>
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -113,6 +112,8 @@
       font-weight: bold;
       font-size: 14px;
       transition: background-color 0.3s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     button:hover {
       background-color: #0c0;
@@ -189,34 +190,34 @@
     </div>
     <div class="terminal" id="error-console">
       <p id="error-message" class="error">No errors yet.</p>
-      <input type="text" id="command-input" placeholder="Enter command..." onkeypress="if(event.key === 'Enter') gateway.sendCommand(this.value)">
+      <input type="text" id="command-input" placeholder="Enter command...">
     </div>
     <div class="jupyter-container" id="jupyter-container">
       <iframe id="jupyter-iframe" src="/main/static/jupyterlite/index.html" width="100%" height="400px"></iframe>
     </div>
     <div class="button-container">
-      <button id="fastmcp-btn" onclick="gateway.fastMCPStartup()">Authenticate</button>
-      <button id="git-btn" onclick="gateway.showGitPopup()" disabled class="disabled">Git Control</button>
-      <button id="jupyter-btn" onclick="gateway.toggleJupyter()" disabled class="disabled">Jupyter Notebook</button>
-      <button id="void-btn" onclick="gateway.voidTransaction()" disabled class="disabled">Void</button>
-      <button id="troubleshoot-btn" onclick="gateway.troubleshoot()" disabled class="disabled">Troubleshoot</button>
-      <button id="quantum-link-btn" onclick="gateway.quantumLink()" disabled class="disabled">Quantum Link</button>
-      <button id="export-btn" onclick="gateway.exportData()" disabled class="disabled">Export</button>
-      <button id="import-btn" onclick="gateway.importData()" disabled class="disabled">Import</button>
-      <button id="api-btn" onclick="gateway.showAPIPopup()" disabled class="disabled">API Access</button>
+      <button id="fastmcp-btn">Authenticate</button>
+      <button id="git-btn" disabled class="disabled">Git Control</button>
+      <button id="jupyter-btn" disabled class="disabled">Jupyter Notebook</button>
+      <button id="void-btn" disabled class="disabled">Void</button>
+      <button id="troubleshoot-btn" disabled class="disabled">Troubleshoot</button>
+      <button id="quantum-link-btn" disabled class="disabled">Quantum Link</button>
+      <button id="export-btn" disabled class="disabled">Export</button>
+      <button id="import-btn" disabled class="disabled">Import</button>
+      <button id="api-btn" disabled class="disabled">API Access</button>
     </div>
     <div id="api-popup" class="popup">
       <div class="popup-content">
-        <span class="close" onclick="gateway.hideAPIPopup()">&times;</span>
+        <span class="close">&times;</span>
         <h1>Generate API Credentials</h1>
-        <button onclick="gateway.generateCredentials()">Generate New Credentials</button>
+        <button id="generate-credentials-btn">Generate New Credentials</button>
         <p>Key: <input type="text" id="popup-api-key" placeholder="API Key: N/A" readonly></p>
         <p>Secret: <input type="text" id="popup-api-secret" placeholder="API Secret: N/A" readonly></p>
       </div>
     </div>
     <div id="git-popup" class="popup">
       <div class="popup-content">
-        <span class="close" onclick="gateway.hideGitPopup()">&times;</span>
+        <span class="close">&times;</span>
         <h1>Git Repository Control</h1>
         <input type="text" id="repo-url" placeholder="Repository URL">
         <select id="git-action">
@@ -228,7 +229,7 @@
           <option value="checkout">Checkout</option>
         </select>
         <input type="text" id="git-branch" placeholder="Branch (e.g., main)">
-        <button onclick="gateway.executeGitAction()">Execute</button>
+        <button id="execute-git-btn">Execute</button>
         <p>Output: <span id="git-output">N/A</span></p>
       </div>
     </div>
@@ -237,297 +238,421 @@
       <p>WARNING: $webxos token is in development under MIT license. @WEBXOS claims no liability for token loss. Info: webxos.netlify.app</p>
     </div>
   </div>
-  <script>
-    class MCPGateway {
-      constructor() {
-        this.errorConsole = document.getElementById('error-console');
-        this.errorMessage = document.getElementById('error-message');
-        this.balance = document.getElementById('balance');
-        this.reputation = document.getElementById('reputation');
-        this.walletKey = document.getElementById('wallet-key');
-        this.sessionBalance = document.getElementById('session-balance');
-        this.address = document.getElementById('address');
-        this.vialAgent = document.getElementById('vial-agent');
-        this.quantumState = document.getElementById('quantum-state');
-        this.taskStatus = document.getElementById('task-status');
-        this.apiKey = document.getElementById('api-key');
-        this.apiSecret = document.getElementById('api-secret');
-        this.popupApiKey = document.getElementById('popup-api-key');
-        this.popupApiSecret = document.getElementById('popup-api-secret');
-        this.repoUrl = document.getElementById('repo-url');
-        this.gitAction = document.getElementById('git-action');
-        this.gitBranch = document.getElementById('git-branch');
-        this.gitOutput = document.getElementById('git-output');
-        this.dashboard = document.getElementById('dashboard');
-        this.jupyterContainer = document.getElementById('jupyter-container');
-        this.commandInput = document.getElementById('command-input');
-        this.apiPopup = document.getElementById('api-popup');
-        this.gitPopup = document.getElementById('git-popup');
-        this.fastMCPBtn = document.getElementById('fastmcp-btn');
-        this.apiBtn = document.getElementById('api-btn');
-        this.gitBtn = document.getElementById('git-btn');
-        this.jupyterBtn = document.getElementById('jupyter-btn');
-        this.voidBtn = document.getElementById('void-btn');
-        this.troubleshootBtn = document.getElementById('troubleshoot-btn');
-        this.quantumLinkBtn = document.getElementById('quantum-link-btn');
-        this.exportBtn = document.getElementById('export-btn');
-        this.importBtn = document.getElementById('import-btn');
-        this.isOnline = navigator.onLine;
-        this.cache = {};
-        this.isAuthenticated = !!localStorage.getItem('access_token');
-        this.baseUrl = 'https://webxos-mcp-gateway.onrender.com/v1';
-        this.fallbackUrl = 'http://localhost:8000/v1';
+  <script type="module">
+    // Embedded MCPClient
+    class MCPClient {
+      constructor(baseUrl, fallbackUrl) {
+        this.baseUrl = baseUrl;
+        this.fallbackUrl = fallbackUrl;
+        this.token = localStorage.getItem('access_token') || null;
+        this.offline = !navigator.onLine;
         this.retryAttempts = 3;
         this.retryDelay = 2000;
-        this.socket = io(this.baseUrl, { autoConnect: false });
-        this.setupSocket();
-        this.updateButtonStates();
-        this.checkStatus();
-        setInterval(() => this.checkStatus(), 30000);
       }
-
-      setupSocket() {
-        this.socket.on('connect', () => this.logError('WebSocket connected'));
-        this.socket.on('disconnect', () => this.logError('WebSocket disconnected'));
-        this.socket.on('update', (data) => this.handleStreamUpdate(data));
-        if (this.isAuthenticated) this.socket.connect();
+      async request(method, params, endpoint, httpMethod = 'POST') {
+        try {
+          if (this.offline) return this.mockResponse(method, params, endpoint);
+          const url = `${this.baseUrl}${endpoint}`;
+          const response = await this.fetchWithRetry(url, {
+            method: httpMethod,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
+            },
+            body: httpMethod !== 'GET' ? JSON.stringify({ jsonrpc: '2.0', method, params, id: Date.now() }) : null
+          });
+          if (response.error) throw new Error(`MCP Error: ${response.error.message} (${method}) at ${endpoint}`);
+          return response.result || response;
+        } catch (error) {
+          this.handleError(error, endpoint, method, httpMethod);
+          throw error;
+        }
       }
-
-      handleStreamUpdate(data) {
-        this.updateDashboard(data);
-        this.taskStatus.textContent = data.task_status || 'Idle';
-        this.logError(`Stream update received: ${JSON.stringify(data)}`);
-      }
-
-      updateButtonStates() {
-        const isEnabled = this.isAuthenticated;
-        this.apiBtn.disabled = !isEnabled;
-        this.gitBtn.disabled = !isEnabled;
-        this.jupyterBtn.disabled = !isEnabled;
-        this.voidBtn.disabled = !isEnabled;
-        this.troubleshootBtn.disabled = !isEnabled;
-        this.quantumLinkBtn.disabled = !isEnabled;
-        this.exportBtn.disabled = !isEnabled;
-        this.importBtn.disabled = !isEnabled;
-        this.apiBtn.classList.toggle('disabled', !isEnabled);
-        this.gitBtn.classList.toggle('disabled', !isEnabled);
-        this.jupyterBtn.classList.toggle('disabled', !isEnabled);
-        this.voidBtn.classList.toggle('disabled', !isEnabled);
-        this.troubleshootBtn.classList.toggle('disabled', !isEnabled);
-        this.quantumLinkBtn.classList.toggle('disabled', !isEnabled);
-        this.exportBtn.classList.toggle('disabled', !isEnabled);
-        this.importBtn.classList.toggle('disabled', !isEnabled);
-      }
-
       async fetchWithRetry(url, options, attempts = this.retryAttempts) {
         for (let i = 0; i < attempts; i++) {
           try {
             const response = await fetch(url, options);
             if (!response.ok) {
               const text = await response.text();
-              throw new Error(`Status: ${response.status}\nResponse: ${text}\nFix: Verify Render deployment at ${url}`);
+              throw new Error(`HTTP ${response.status}: ${text}\nFix: Verify ${url} in /main/api/routes/${endpointToFile(url)}`);
             }
             const contentType = response.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
               const text = await response.text();
-              throw new Error(`JSON.parse: unexpected character\nResponse: ${text}\nFix: Ensure ${url} returns JSON`);
+              throw new Error(`JSON.parse: unexpected character\nResponse: ${text}\nFix: Ensure ${url} returns JSON (check /main/api/routes/${endpointToFile(url)})`);
             }
             return await response.json();
           } catch (error) {
             if (i < attempts - 1) {
-              this.logError(`Traceback: Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms...`);
+              this.handleError(new Error(`Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms`), url, 'fetch', options.method);
               await new Promise(resolve => setTimeout(resolve, this.retryDelay));
               continue;
             }
-            throw error;
+            try {
+              const fallbackUrl = url.replace(this.baseUrl, this.fallbackUrl);
+              this.handleError(new Error(`Switching to fallback: ${fallbackUrl}`), url, 'fetch', options.method);
+              const response = await fetch(fallbackUrl, options);
+              if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}\nFix: Verify ${fallbackUrl} in /main/api/routes/${endpointToFile(fallbackUrl)}`);
+              return await response.json();
+            } catch (fallbackError) {
+              throw new Error(`Fallback failed: ${fallbackError.message}\nFix: Check Docker container at ${this.fallbackUrl} or /main/api/routes/${endpointToFile(url)}`);
+            }
           }
         }
       }
+      mockResponse(method, params, endpoint) {
+        const mocks = {
+          '/health': { status: 'healthy', timestamp: new Date().toISOString() },
+          '/wallet': { user_id: 'WEBXOS-MOCKKEY', balance: 0, currency: 'USD' },
+          '/generate-credentials': { key: 'mock_key', secret: 'mock_secret' },
+          '/void': { status: 'success', message: 'Transaction voided' },
+          '/troubleshoot': { status: 'success', diagnostics: { cpu_usage_percent: 10, memory_usage_mb: 500, memory_total_mb: 16000, disk_usage_percent: 20, process_memory_mb: 100 } },
+          '/quantum-link': { status: 'success', quantum_state: { qubits: [], entanglement: 'none' } },
+          '/git/push': { status: 'success', output: 'Mock push to repository' },
+          '/git/pull': { status: 'success', output: 'Mock pull from repository' },
+          '/git/diff': { status: 'success', output: 'Mock diff output' },
+          '/git/commit': { status: 'success', output: 'Mock commit completed' },
+          '/git/log': { status: 'success', output: 'Mock commit log' },
+          '/git/checkout': { status: 'success', output: 'Mock checkout completed' },
+          '/mcp': {
+            'tools/list': ['get_wallet_info', 'generate_credentials'],
+            'prompts/get': `Mock response for ${params.name}`,
+            'initialize': { serverName: 'webxos-mcp-gateway', serverVersion: '2.7.8', protocolVersion: '2024-11-05', capabilities: ['tools', 'resources', 'prompts', 'tasks', 'notifications'] }
+          }
+        };
+        if (endpoint === '/mcp' && mocks[endpoint][method]) return mocks[endpoint][method];
+        if (mocks[endpoint]) return mocks[endpoint];
+        throw new Error(`No mock for ${method} at ${endpoint} in offline mode\nFix: Add mock response in MCPClient.mockResponse`);
+      }
+      handleError(error, endpoint, method, httpMethod) {
+        const stack = [
+          `Traceback: ${error.message}`,
+          `Endpoint: ${endpoint}`,
+          `Method: ${method} (${httpMethod})`,
+          `Timestamp: ${new Date().toISOString()}`,
+          `Stack: ${error.stack || 'No stack trace available'}`,
+          `Fix: Check /main/api/routes/${endpointToFile(endpoint)} or .env configuration`
+        ].join('\n');
+        document.getElementById('error-message').textContent = stack;
+        document.getElementById('error-console').scrollTop = document.getElementById('error-console').scrollHeight;
+        console.error(stack);
+      }
+    }
 
-      async checkStatus() {
-        if (!this.isOnline) {
-          this.logError('Traceback: Offline mode. Using cached data.');
-          this.updateFromCache();
+    // Embedded Gateway
+    class Gateway {
+      constructor() {
+        this.client = new MCPClient('https://webxos-mcp-gateway.onrender.com/v1', 'http://localhost:8000/v1');
+        this.socket = null;
+        this.isAuthenticated = !!localStorage.getItem('access_token');
+        this.cache = {};
+        this.elements = {
+          errorConsole: document.getElementById('error-console'),
+          errorMessage: document.getElementById('error-message'),
+          balance: document.getElementById('balance'),
+          reputation: document.getElementById('reputation'),
+          walletKey: document.getElementById('wallet-key'),
+          sessionBalance: document.getElementById('session-balance'),
+          address: document.getElementById('address'),
+          vialAgent: document.getElementById('vial-agent'),
+          quantumState: document.getElementById('quantum-state'),
+          taskStatus: document.getElementById('task-status'),
+          apiKey: document.getElementById('api-key'),
+          apiSecret: document.getElementById('api-secret'),
+          popupApiKey: document.getElementById('popup-api-key'),
+          popupApiSecret: document.getElementById('popup-api-secret'),
+          repoUrl: document.getElementById('repo-url'),
+          gitAction: document.getElementById('git-action'),
+          gitBranch: document.getElementById('git-branch'),
+          gitOutput: document.getElementById('git-output'),
+          dashboard: document.getElementById('dashboard'),
+          jupyterContainer: document.getElementById('jupyter-container'),
+          commandInput: document.getElementById('command-input'),
+          apiPopup: document.getElementById('api-popup'),
+          gitPopup: document.getElementById('git-popup'),
+          fastmcpBtn: document.getElementById('fastmcp-btn'),
+          apiBtn: document.getElementById('api-btn'),
+          gitBtn: document.getElementById('git-btn'),
+          jupyterBtn: document.getElementById('jupyter-btn'),
+          voidBtn: document.getElementById('void-btn'),
+          troubleshootBtn: document.getElementById('troubleshoot-btn'),
+          quantumLinkBtn: document.getElementById('quantum-link-btn'),
+          exportBtn: document.getElementById('export-btn'),
+          importBtn: document.getElementById('import-btn'),
+          generateCredentialsBtn: document.getElementById('generate-credentials-btn'),
+          executeGitBtn: document.getElementById('execute-git-btn')
+        };
+        this.setupEventListeners();
+        this.setupSocket();
+        this.updateButtonStates();
+        this.checkStatus();
+        setInterval(() => this.checkStatus(), 30000);
+      }
+      setupEventListeners() {
+        this.elements.fastmcpBtn.addEventListener('click', () => this.fastMCPStartup());
+        this.elements.apiBtn.addEventListener('click', () => this.showAPIPopup());
+        this.elements.gitBtn.addEventListener('click', () => this.showGitPopup());
+        this.elements.jupyterBtn.addEventListener('click', () => this.toggleJupyter());
+        this.elements.voidBtn.addEventListener('click', () => this.voidTransaction());
+        this.elements.troubleshootBtn.addEventListener('click', () => this.troubleshoot());
+        this.elements.quantumLinkBtn.addEventListener('click', () => this.quantumLink());
+        this.elements.exportBtn.addEventListener('click', () => this.exportData());
+        this.elements.importBtn.addEventListener('click', () => this.importData());
+        this.elements.generateCredentialsBtn.addEventListener('click', () => this.generateCredentials());
+        this.elements.executeGitBtn.addEventListener('click', () => this.executeGitAction());
+        this.elements.commandInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') this.sendCommand(e.target.value);
+        });
+        document.querySelectorAll('.close').forEach(close => {
+          close.addEventListener('click', () => {
+            this.hideAPIPopup();
+            this.hideGitPopup();
+          });
+        });
+      }
+      setupSocket() {
+        if (this.client.offline) {
+          this.logError('Offline mode: WebSocket disabled');
           return;
         }
+        if (typeof io === 'undefined') {
+          this.client.handleError(new Error('Socket.IO library failed to load'), '/ws', 'WebSocket', 'CONNECT');
+          return;
+        }
+        this.socket = io(this.client.baseUrl, { autoConnect: false });
+        this.socket.on('connect', () => this.logError('WebSocket connected'));
+        this.socket.on('disconnect', () => this.logError('WebSocket disconnected'));
+        this.socket.on('update', (data) => this.handleStreamUpdate(data));
+        if (this.isAuthenticated) this.socket.connect();
+      }
+      handleStreamUpdate(data) {
+        this.updateDashboard(data);
+        this.elements.taskStatus.textContent = data.task_status || 'Idle';
+        this.logError(`Stream update: ${JSON.stringify(data)}`);
+      }
+      updateButtonStates() {
+        const isEnabled = this.isAuthenticated;
+        ['apiBtn', 'gitBtn', 'jupyterBtn', 'voidBtn', 'troubleshootBtn', 'quantumLinkBtn', 'exportBtn', 'importBtn'].forEach(id => {
+          this.elements[id].disabled = !isEnabled;
+          this.elements[id].classList.toggle('disabled', !isEnabled);
+        });
+      }
+      async checkStatus() {
         try {
-          const data = await this.fetchWithRetry(`${this.baseUrl}/health`, {
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-          });
-          this.logError('Backend healthy.');
+          const data = await this.client.request(null, {}, '/health', 'GET');
+          this.logError('Backend healthy: /main/api/health.py');
           this.updateDashboard(data);
         } catch (error) {
-          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Verify Render deployment at ${this.baseUrl}/health`);
-          try {
-            this.logError(`Attempting fallback URL: ${this.fallbackUrl}/health`);
-            const data = await this.fetchWithRetry(`${this.fallbackUrl}/health`, {
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-            });
-            this.logError('Fallback backend healthy.');
-            this.updateDashboard(data);
-          } catch (fallbackError) {
-            this.logError(`Traceback: Fallback failed\nError: ${fallbackError.message}\nFix: Check Docker container at ${this.fallbackUrl}/health`);
-          }
+          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Verify /main/api/health.py or Render deployment at ${this.client.baseUrl}/health`);
+          if (this.cache) this.updateFromCache();
         }
       }
-
       updateDashboard(data) {
-        this.balance.textContent = data.balance || '0.0000';
-        this.reputation.textContent = data.reputation || '0';
-        this.walletKey.textContent = data.wallet_key || 'N/A';
-        this.sessionBalance.textContent = `${data.session_balance || 0.0000} $WEBXOS`;
-        this.address.textContent = data.address || 'N/A';
-        this.vialAgent.textContent = data.vial_agent || 'N/A';
-        this.quantumState.textContent = JSON.stringify(data.quantum_state || 'N/A');
-        this.taskStatus.textContent = data.task_status || 'Idle';
+        this.elements.balance.textContent = data.balance || '0.0000';
+        this.elements.reputation.textContent = data.reputation || '0';
+        this.elements.walletKey.textContent = data.user_id || data.wallet_key || 'N/A';
+        this.elements.sessionBalance.textContent = `${data.balance || 0.0000} $WEBXOS`;
+        this.elements.address.textContent = data.address || 'N/A';
+        this.elements.vialAgent.textContent = data.vial_agent || 'N/A';
+        this.elements.quantumState.textContent = JSON.stringify(data.quantum_state || 'N/A');
+        this.elements.taskStatus.textContent = data.task_status || 'Idle';
         this.cache = data;
-        this.dashboard.classList.add('active');
+        this.elements.dashboard.classList.add('active');
       }
-
       updateFromCache() {
-        this.updateDashboard(this.cache);
+        if (this.cache) this.updateDashboard(this.cache);
       }
-
       logError(message) {
         const timestamp = new Date().toISOString();
-        this.errorMessage.textContent = `[${timestamp}] ${message}`;
-        this.errorConsole.scrollTop = this.errorConsole.scrollHeight;
+        this.elements.errorMessage.textContent = `[${timestamp}] ${message}`;
+        this.elements.errorConsole.scrollTop = this.elements.errorConsole.scrollHeight;
       }
-
       showAPIPopup() {
         if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required.\nFix: Use Authenticate button first.');
+          this.logError('Traceback: Authentication required\nFix: Use Authenticate button first (check /main/api/routes/oauth.py)');
           return;
         }
-        this.apiPopup.style.display = 'block';
+        this.elements.apiPopup.style.display = 'block';
       }
-
       hideAPIPopup() {
-        this.apiPopup.style.display = 'none';
+        this.elements.apiPopup.style.display = 'none';
       }
-
       showGitPopup() {
         if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required.\nFix: Use Authenticate button first.');
+          this.logError('Traceback: Authentication required\nFix: Use Authenticate button first (check /main/api/routes/oauth.py)');
           return;
         }
-        this.gitPopup.style.display = 'block';
+        this.elements.gitPopup.style.display = 'block';
       }
-
       hideGitPopup() {
-        this.gitPopup.style.display = 'none';
+        this.elements.gitPopup.style.display = 'none';
       }
-
       toggleJupyter() {
         if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required.\nFix: Use Authenticate button first.');
+          this.logError('Traceback: Authentication required\nFix: Use Authenticate button first (check /main/api/routes/oauth.py)');
           return;
         }
-        this.jupyterContainer.classList.toggle('active');
+        this.elements.jupyterContainer.classList.toggle('active');
       }
-
       async sendCommand(command) {
-        if (!this.isOnline) {
-          this.logError('Traceback: Offline. Command not sent.');
+        if (!this.client.offline && !this.isAuthenticated && command !== '/fastmcp' && command !== '/help') {
+          this.logError('Traceback: Authentication required\nFix: Use /fastmcp or Authenticate button (check /main/api/routes/oauth.py)');
           return;
         }
         try {
           let endpoint = '/wallet';
           let method = 'GET';
-          let body = null;
-          let url = this.baseUrl;
+          let params = {};
+          let httpMethod = 'POST';
           switch (command.toLowerCase()) {
-            case '/help': this.logError('Available commands: /help, /wallet, /health, /fastmcp, /void, /troubleshoot, /quantum-link, /export, /import, /git, /jupyter'); return;
-            case '/wallet': endpoint = '/wallet'; break;
-            case '/health': endpoint = '/health'; break;
-            case '/fastmcp': endpoint = '/oauth/token'; method = 'POST'; body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' }; break;
-            case '/void': endpoint = '/void'; method = 'POST'; break;
-            case '/troubleshoot': endpoint = '/troubleshoot'; break;
-            case '/quantum-link': endpoint = '/quantum-link'; break;
-            case '/export': endpoint = '/export'; break;
-            case '/import': endpoint = '/import'; method = 'POST'; body = { file: 'vial_wallet_export_2025-08-17T00-22-00Z.md' }; break;
-            case '/git': this.showGitPopup(); return;
-            case '/jupyter': this.toggleJupyter(); return;
-            default: this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands.`); return;
+            case '/help':
+              this.logError('Available commands: /help, /wallet, /health, /fastmcp, /void, /troubleshoot, /quantum-link, /export, /import, /git, /jupyter');
+              return;
+            case '/wallet':
+              endpoint = '/wallet';
+              params = { user_id: 'WEBXOS-MOCKKEY' };
+              break;
+            case '/health':
+              endpoint = '/health';
+              break;
+            case '/fastmcp':
+              endpoint = '/oauth/token';
+              params = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' };
+              break;
+            case '/void':
+              endpoint = '/void';
+              params = {};
+              break;
+            case '/troubleshoot':
+              endpoint = '/troubleshoot';
+              params = {};
+              break;
+            case '/quantum-link':
+              endpoint = '/quantum-link';
+              params = {};
+              break;
+            case '/export':
+              endpoint = '/export';
+              params = {};
+              break;
+            case '/import':
+              endpoint = '/import';
+              params = { file: 'vial_wallet_export_2025-08-17T00-22-00Z.md' };
+              break;
+            case '/git':
+              this.showGitPopup();
+              return;
+            case '/jupyter':
+              this.toggleJupyter();
+              return;
+            default:
+              this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands`);
+              return;
           }
-          let data;
-          try {
-            data = await this.fetchWithRetry(`${url}${endpoint}`, {
-              method,
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
-              body: body ? JSON.stringify(body) : null
-            });
-          } catch (error) {
-            this.logError(`Traceback: Primary request failed for ${url}${endpoint}\nError: ${error.message}\nAttempting fallback...`);
-            url = this.fallbackUrl;
-            data = await this.fetchWithRetry(`${url}${endpoint}`, {
-              method,
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
-              body: body ? JSON.stringify(body) : null
-            });
-          }
+          const data = await this.client.request(null, params, endpoint, httpMethod);
           if (endpoint === '/wallet') this.updateDashboard(data);
-          if (endpoint === '/generate-credentials') {
-            this.popupApiKey.value = data.key || 'N/A';
-            this.apiSecret.value = data.secret || 'N/A';
-            this.apiKey.value = data.key || 'N/A';
-            this.apiSecret.value = data.secret || 'N/A';
-          }
           if (endpoint === '/oauth/token') {
+            this.client.token = data.access_token;
             localStorage.setItem('access_token', data.access_token);
             this.isAuthenticated = true;
             this.updateButtonStates();
-            this.socket.connect();
-            this.logError('Authentication successful. API access enabled.');
+            this.socket?.connect();
+            this.logError('Authentication successful: /main/api/routes/oauth.py');
           }
-          this.logError(`Command executed: ${endpoint}`);
+          if (endpoint === '/generate-credentials') {
+            this.elements.popupApiKey.value = data.key || 'N/A';
+            this.elements.apiKey.value = data.key || 'N/A';
+            this.elements.apiSecret.value = data.secret || 'N/A';
+          }
+          this.logError(`Command executed: ${endpoint} (${httpMethod})`);
         } catch (error) {
-          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Ensure ${url}${endpoint} returns JSON`);
+          this.logError(`Traceback: Command failed\nError: ${error.message}\nFix: Check /main/api/routes/${endpointToFile(endpoint)} or .env`);
         }
-        this.commandInput.value = '';
+        this.elements.commandInput.value = '';
       }
-
       async generateCredentials() {
-        if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required.\nFix: Use Authenticate button first.');
-          return;
-        }
-        this.sendCommand('/generate-credentials');
-      }
-
-      async executeGitAction() {
-        if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required.\nFix: Use Authenticate button first.');
-          return;
-        }
-        const action = this.gitAction.value;
-        const repoUrl = this.repoUrl.value;
-        const branch = this.gitBranch.value || 'main';
         try {
-          const data = await this.fetchWithRetry(`${this.baseUrl}/git/${action}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ repo_url: repoUrl, branch })
-          });
-          this.gitOutput.textContent = JSON.stringify(data);
-          this.logError(`Git ${action} successful: ${JSON.stringify(data)}`);
+          const data = await this.client.request('generate_credentials', { user_id: 'WEBXOS-MOCKKEY' }, '/generate-credentials', 'GET');
+          this.elements.popupApiKey.value = data.key || 'N/A';
+          this.elements.apiKey.value = data.key || 'N/A';
+          this.elements.apiSecret.value = data.secret || 'N/A';
+          this.logError('Credentials generated: /main/api/routes/credentials.py');
         } catch (error) {
-          this.logError(`Traceback: Git ${action} failed\nError: ${error.message}\nFix: Verify REPO_URL and REPO_TOKEN in .env`);
-          this.gitOutput.textContent = `Error: ${error.message}`;
+          this.logError(`Traceback: Credentials generation failed\nError: ${error.message}\nFix: Check /main/api/routes/credentials.py or /main/api/mcp/handlers/tools.py`);
         }
       }
-
+      async executeGitAction() {
+        try {
+          const action = this.elements.gitAction.value;
+          const repoUrl = this.elements.repoUrl.value || 'https://github.com/webxos/webxos-mcp-gateway.git';
+          const branch = this.elements.gitBranch.value || 'main';
+          const data = await this.client.request(null, { repo_url: repoUrl, branch }, `/git/${action}`, 'POST');
+          this.elements.gitOutput.textContent = JSON.stringify(data.output || data);
+          this.logError(`Git ${action} successful: /main/api/routes/git.py`);
+        } catch (error) {
+          this.elements.gitOutput.textContent = `Error: ${error.message}`;
+          this.logError(`Traceback: Git ${action} failed\nError: ${error.message}\nFix: Check /main/api/routes/git.py or /main/.env (REPO_URL, REPO_TOKEN)`);
+        }
+      }
+      async quantumLink() {
+        try {
+          const data = await this.client.request(null, {}, '/quantum-link', 'GET');
+          this.updateDashboard({ quantum_state: data.quantum_state });
+          this.logError('Quantum link successful: /main/api/routes/quantum_link.py');
+        } catch (error) {
+          this.logError(`Traceback: Quantum link failed\nError: ${error.message}\nFix: Check /main/api/routes/quantum_link.py or /main/api/mcp/handlers/resources.py`);
+        }
+      }
       fastMCPStartup() { this.sendCommand('/fastmcp'); }
       voidTransaction() { this.sendCommand('/void'); }
       troubleshoot() { this.sendCommand('/troubleshoot'); }
-      quantumLink() { this.sendCommand('/quantum-link'); }
       exportData() { this.sendCommand('/export'); }
       importData() { this.sendCommand('/import'); }
     }
 
-    let gateway;
+    // Embedded QuantumInterface
+    class QuantumInterface {
+      constructor() {
+        this.client = new MCPClient('https://webxos-mcp-gateway.onrender.com/v1', 'http://localhost:8000/v1');
+      }
+      async getQuantumState() {
+        try {
+          const data = await this.client.request(null, {}, '/quantum-link', 'GET');
+          return data.quantum_state || { qubits: [], entanglement: 'none' };
+        } catch (error) {
+          this.client.handleError(error, '/quantum-link', 'GET', 'GET');
+          throw error;
+        }
+      }
+    }
+
+    // Helper function to map endpoints to backend files
+    function endpointToFile(endpoint) {
+      const mapping = {
+        '/health': 'health.py',
+        '/oauth/token': 'oauth.py',
+        '/wallet': 'wallet.py',
+        '/generate-credentials': 'credentials.py',
+        '/void': 'void.py',
+        '/troubleshoot': 'troubleshoot.py',
+        '/quantum-link': 'quantum_link.py',
+        '/mcp': 'mcp_protocol.py',
+        '/git/push': 'git.py',
+        '/git/pull': 'git.py',
+        '/git/diff': 'git.py',
+        '/git/commit': 'git.py',
+        '/git/log': 'git.py',
+        '/git/checkout': 'git.py',
+        '/export': 'void.py',
+        '/import': 'void.py'
+      };
+      return mapping[endpoint] || 'unknown.py';
+    }
+
+    // Initialize
     document.addEventListener('DOMContentLoaded', () => {
-      gateway = new MCPGateway();
+      const gateway = new Gateway();
     });
   </script>
 </body>
