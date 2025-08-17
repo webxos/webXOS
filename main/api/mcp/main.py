@@ -1,101 +1,106 @@
-from fastapi import FastAPI, HTTPException, WebSocket
-from pydantic import BaseModel
-from typing import Dict, Any
-import uvicorn
-from tools.auth_tool import AuthenticationTool
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from tools.auth_tool import AuthTool
 from tools.vial_management import VialManagementTool
 from tools.health import HealthTool
 from tools.blockchain import BlockchainTool
 from tools.claude_tool import ClaudeTool
 from tools.wallet import WalletTool
-from lib.mcp_transport import MCPTransport
+from config.config import DatabaseConfig, ServerConfig, limiter, batch_sync_limiter
 from lib.notifications import NotificationHandler
-from config.config import DatabaseConfig
-import logging
+from fastapi.responses import JSONResponse
+import uvicorn
+import os
+from typing import Dict
 
 app = FastAPI()
-logger = logging.getLogger("mcp")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
+app.state.config = ServerConfig()
+app.state.db = DatabaseConfig()
+app.state.notification_handler = NotificationHandler()
 
-class MCPRequest(BaseModel):
-    jsonrpc: str = "2.0"
-    method: str
-    params: Dict[str, Any]
-    id: int
-
-class MCPResponse(BaseModel):
-    jsonrpc: str = "2.0"
-    result: Any = None
-    error: Any = None
-    id: int
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class MCPServer:
     def __init__(self):
-        self.db = DatabaseConfig()
-        self.notification_handler = NotificationHandler()
         self.tools = {
-            "authentication": AuthenticationTool(self.db),
-            "vial-management": VialManagementTool(self.db),
-            "health": HealthTool(self.db, self.tools),
-            "blockchain": BlockchainTool(self.db),
-            "claude": ClaudeTool(self.db),
-            "wallet": WalletTool(self.db)
+            "authentication": AuthTool(app.state.config),
+            "vial_management": VialManagementTool(app.state.db),
+            "health": HealthTool(),
+            "blockchain": BlockchainTool(app.state.db),
+            "claude": ClaudeTool(app.state.db),
+            "wallet": WalletTool(app.state.db),
         }
-        self.transport = MCPTransport(self.handle_request)
 
-    async def start(self):
-        await self.db.connect()
-        logger.info("MCP Server started on port 8000")
-
-    async def handle_request(self, request: MCPRequest) -> MCPResponse:
+    async def execute(self, request: Dict) -> Dict:
         try:
-            tool_name, *method_parts = request.method.split(".")
-            if tool_name not in self.tools:
-                raise HTTPException(404, f"Unknown tool: {tool_name}")
-            tool = self.tools[tool_name]
-            result = await tool.execute(request.params)
-            # Send notification for wallet and Claude operations
-            if tool_name in ["claude", "wallet"]:
-                notification_method = f"{tool_name}.{method_parts[0] if method_parts else 'operationComplete'}"
-                await self.notification_handler.send_notification(
-                    request.params.get("user_id", "default"),
-                    {"jsonrpc": "2.0", "method": notification_method, "params": result}
+            if request.get("jsonrpc") != "2.0":
+                raise HTTPException(400, "Invalid JSON-RPC request")
+            
+            method = request.get("method")
+            if not method:
+                raise HTTPException(400, "Method not specified")
+            
+            tool_name, method_name = method.split(".", 1) if "." in method else (method, "")
+            tool = self.tools.get(tool_name)
+            if not tool:
+                raise HTTPException(400, "Invalid tool")
+            
+            params = request.get("params", {})
+            params["method"] = method_name
+            result = await tool.execute(params)
+            
+            # Send notification for wallet operations
+            if tool_name == "wallet":
+                await app.state.notification_handler.send_notification(
+                    params.get("user_id"), {"method": method, "params": result.dict()}
                 )
-            return MCPResponse(id=request.id, result=result, error=None)
+            
+            return {"jsonrpc": "2.0", "result": result.dict(), "id": request.get("id")}
         except Exception as e:
-            logger.error(f"Request error: {str(e)}")
-            return MCPResponse(
-                id=request.id,
-                error={"code": -32000, "message": str(e)},
-                result=None
-            )
+            return {"jsonrpc": "2.0", "error": {"message": str(e)}, "id": request.get("id")}
 
 server = MCPServer()
 
-@app.on_event("startup")
-async def startup_event():
-    await server.start()
+@app.get("/mcp/health")
+async def health_check(request: Request):
+    if request.headers.get("X-Forwarded-Proto", "http") != "https":
+        raise HTTPException(400, "HTTPS required")
+    return {"status": "healthy"}
 
 @app.post("/mcp/execute")
-async def execute(request: MCPRequest):
-    return await server.transport.handle(request)
+@limiter.limit("10/minute")  # General rate limit
+async def execute(request: Request, body: Dict):
+    if request.headers.get("X-Forwarded-Proto", "http") != "https":
+        raise HTTPException(400, "HTTPS required")
+    return await server.execute(body)
 
-@app.get("/mcp/health")
-async def health_check():
-    return await server.tools["health"].execute({})
+@app.post("/mcp/execute/wallet.batchSync")
+@batch_sync_limiter
+async def batch_sync(request: Request, body: Dict):
+    if request.headers.get("X-Forwarded-Proto", "http") != "https":
+        raise HTTPException(400, "HTTPS required")
+    return await server.execute(body)
 
 @app.websocket("/mcp/notifications")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await server.notification_handler.connect(websocket, client_id)
+async def websocket_endpoint(websocket, client_id: str):
+    await app.state.notification_handler.connect(websocket, client_id)
     try:
         while True:
-            await websocket.receive_text()  # Keep connection alive
-    except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
-        await server.notification_handler.disconnect(client_id)
+            await websocket.receive_text()
+    except Exception:
+        await app.state.notification_handler.disconnect(client_id)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        host=app.state.config.host,
+        port=app.state.config.port,
+        ssl_keyfile=app.state.config.ssl_key_path,
+        ssl_certfile=app.state.config.ssl_cert_path
+    )
