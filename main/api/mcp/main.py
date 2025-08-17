@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel
 from typing import Dict, Any
 import uvicorn
@@ -8,6 +8,7 @@ from tools.health import HealthTool
 from tools.blockchain import BlockchainTool
 from tools.claude_tool import ClaudeTool
 from lib.mcp_transport import MCPTransport
+from lib.notifications import NotificationHandler
 from config.config import DatabaseConfig
 import logging
 
@@ -33,6 +34,7 @@ class MCPResponse(BaseModel):
 class MCPServer:
     def __init__(self):
         self.db = DatabaseConfig()
+        self.notification_handler = NotificationHandler()
         self.tools = {
             "authentication": AuthenticationTool(self.db),
             "vial-management": VialManagementTool(self.db),
@@ -53,6 +55,12 @@ class MCPServer:
                 raise HTTPException(404, f"Unknown tool: {tool_name}")
             tool = self.tools[tool_name]
             result = await tool.execute(request.params)
+            # Send notification for Claude code execution
+            if tool_name == "claude":
+                await self.notification_handler.send_notification(
+                    request.params.get("user_id", "default"),
+                    {"jsonrpc": "2.0", "method": "claude.executionComplete", "params": result}
+                )
             return MCPResponse(id=request.id, result=result, error=None)
         except Exception as e:
             logger.error(f"Request error: {str(e)}")
@@ -75,6 +83,16 @@ async def execute(request: MCPRequest):
 @app.get("/mcp/health")
 async def health_check():
     return await server.tools["health"].execute({})
+
+@app.websocket("/mcp/notifications")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await server.notification_handler.connect(websocket, client_id)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep connection alive
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        await server.notification_handler.disconnect(client_id)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
