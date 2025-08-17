@@ -1,0 +1,76 @@
+sources:
+  neon-postgres:
+    kind: postgres
+    host: ${NEON_HOST}
+    port: 5432
+    database: ${NEON_DATABASE}
+    user: ${NEON_USER}
+    password: ${NEON_PASSWORD}
+    ssl: require
+  redis-cache:
+    kind: redis
+    url: ${REDIS_URL}
+tools:
+  authenticate-user:
+    kind: postgres-sql
+    source: neon-postgres
+    description: Authenticate user with OAuth and 2FA
+    parameters:
+      - name: oauth_token
+        type: string
+        description: OAuth token from GitHub
+      - name: totp_code
+        type: string
+        description: TOTP code for 2FA
+    statement: |
+      SELECT user_id, access_token 
+      FROM users 
+      WHERE oauth_token = $1 AND totp_verified = true
+  get-wallet-balance:
+    kind: postgres-sql
+    source: neon-postgres
+    description: Retrieve user wallet balance and transaction history
+    parameters:
+      - name: user_id
+        type: string
+        description: User identifier
+    statement: |
+      SELECT u.balance, u.wallet_address, 
+             json_agg(al.action ORDER BY al.created_at DESC) as recent_actions
+      FROM users u
+      LEFT JOIN audit_logs al ON u.user_id = al.user_id
+      WHERE u.user_id = $1
+      GROUP BY u.user_id, u.balance, u.wallet_address
+  manage-vials:
+    kind: postgres-sql
+    source: neon-postgres
+    description: Manage vial states and training operations
+    parameters:
+      - name: vial_id
+        type: string
+        description: Vial identifier (e.g., vial1)
+      - name: action
+        type: string
+        description: Action to perform (start, stop, train)
+      - name: dataset
+        type: string
+        description: Dataset for training (optional)
+        optional: true
+    statement: |
+      UPDATE vials 
+      SET status = CASE 
+        WHEN $2 = 'start' THEN 'running'
+        WHEN $2 = 'stop' THEN 'stopped'
+        WHEN $2 = 'train' THEN 'training'
+      END,
+      training_data = CASE 
+        WHEN $2 = 'train' THEN COALESCE($3, training_data)
+        ELSE training_data 
+      END
+      WHERE vial_id = $1
+      RETURNING vial_id, status, training_data
+toolsets:
+  vial-management:
+    - authenticate-user
+    - get-wallet-balance
+    - manage-vials
