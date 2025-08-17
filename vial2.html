@@ -75,7 +75,7 @@
 - /task <vial> <task> - Assign task to vial
 - /config <vial> <key> <value> - Set vial config
 - /status - Show vial statuses
-- /git <command> - Run git commands (e.g., /git push)`, false);
+- /git <command> - Run git commands (e.g., /git push origin main)`, false);
                 return;
             }
 
@@ -105,8 +105,8 @@
         async function authenticate() {
             try {
                 const codeVerifier = btoa(String.fromCharCode(...new Uint8Array(32).map(() => Math.floor(Math.random() * 256))));
-                const codeChallenge = btoa(sha256(codeVerifier)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-                const authUrl = `https://github.com/login/oauth/authorize?client_id=your_github_oauth_client_id&redirect_uri=https://webxos.netlify.app/vial2/callback&scope=user&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+                const codeChallenge = await sha256(codeVerifier).then(hash => btoa(hash).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''));
+                const authUrl = `https://api.stack-auth.com/api/v1/projects/142ad169-5d57-4be3-bf41-6f3cd0a9ae1d/authorize?client_id=your_stack_auth_client_id&redirect_uri=https://webxos.netlify.app/vial2/callback&response_type=code&scope=profile&code_challenge=${codeChallenge}&code_challenge_method=S256`;
                 const popup = window.open(authUrl, '_blank');
                 window.addEventListener('message', async (event) => {
                     if (event.origin !== 'https://webxos.netlify.app') return;
@@ -123,7 +123,7 @@
                     userId = result.user_id;
                     isAuthenticated = true;
                     updateAuthButton();
-                    log('Authentication successful');
+                    log('Authentication successful: User profile created');
                 }, { once: true });
             } catch (error) {
                 log(`Authentication failed: ${error.message}`, true, 'vial2.html', '90', 'auth_error');
@@ -140,7 +140,7 @@
             updateAuthButton();
             updateStatus();
             window.location.reload();
-            log('All vials voided and session cleared');
+            log('All vials voided and session cleared', false, 'vial2.html', '110', 'void_success');
         }
 
         async function troubleshoot() {
@@ -152,7 +152,7 @@
                 const result = await response.json();
                 log(`Health check: ${JSON.stringify(result)}`);
             } catch (error) {
-                log(`Troubleshoot failed: ${error.message}`, true, 'vial2.html', '110', 'troubleshoot_error');
+                log(`Troubleshoot failed: ${error.message}`, true, 'vial2.html', '120', 'troubleshoot_error');
             }
         }
 
@@ -165,7 +165,7 @@
                 });
                 const result = await response.json();
                 if (result.error) throw new Error(result.error);
-                log('Quantum link established');
+                log('Quantum link established: Agents synced');
                 vials.forEach(vial => vial.status = 'running');
                 updateStatus();
             } catch (error) {
@@ -246,16 +246,10 @@
             }
         }
 
-        function sha256(str) {
+        async function sha256(str) {
             const buffer = new TextEncoder().encode(str);
-            return crypto.subtle.digest('SHA-256', buffer).then(hash => {
-                const view = new DataView(hash);
-                let result = '';
-                for (let i = 0; i < hash.byteLength; i++) {
-                    result += String.fromCharCode(view.getUint8(i));
-                }
-                return result;
-            });
+            const hash = await crypto.subtle.digest('SHA-256', buffer);
+            return Array.from(new Uint8Array(hash)).map(b => String.fromCharCode(b)).join('');
         }
 
         input.addEventListener('keydown', e => {
