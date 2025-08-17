@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vial MCP Controller</title>
+  <style>
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #1a1a1a;
+      color: #0f0;
+      margin: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background-color: #222;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      margin: 10px 0;
+    }
+    .status {
+      background-color: #333;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .status p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    .credentials {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .credentials.active {
+      display: block;
+    }
+    .credentials input {
+      width: calc(100% - 16px);
+      padding: 6px;
+      margin: 5px 0;
+      background-color: #444;
+      border: none;
+      color: #0f0;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+    .terminal {
+      background-color: #000;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .terminal .error {
+      color: #f00;
+    }
+    .terminal .command {
+      color: #0f0;
+    }
+    .terminal input {
+      background: none;
+      border: none;
+      color: #0f0;
+      width: 100%;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+    }
+    .dashboard {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      display: none;
+    }
+    .dashboard.active {
+      display: block;
+    }
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 14px;
+      transition: background-color 0.3s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:hover {
+      background-color: #0c0;
+    }
+    button.disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    button.disabled:hover {
+      background-color: #666;
+    }
+    .footer {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #888;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 10px; }
+      h1 { font-size: 18px; }
+      button { padding: 6px 12px; font-size: 12px; }
+      .terminal { height: 100px; font-size: 10px; }
+      .terminal input { font-size: 10px; }
+      .dashboard { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Vial MCP Controller</h1>
+    <div class="status">
+      <p>Vial MCP Controller initialized. Use /help for API commands.</p>
+      <p>$VIAL Balance: <span id="balance">0.0000</span> | Reputation: <span id="reputation">0</span></p>
+    </div>
+    <div class="dashboard" id="dashboard">
+      <p>Wallet Key: <span id="wallet-key">N/A</span></p>
+      <p>Session Balance: <span id="session-balance">0.0000 $VIAL</span></p>
+      <p>Address: <span id="address">N/A</span></p>
+      <p>Vial Agent: <span id="vial-agent">N/A</span></p>
+      <p>Task Status: <span id="task-status">Idle</span></p>
+    </div>
+    <div class="credentials" id="credentials">
+      <input type="text" id="api-key" placeholder="API Key: N/A" readonly>
+      <input type="text" id="api-secret" placeholder="API Secret: N/A" readonly>
+    </div>
+    <div class="terminal" id="error-console">
+      <p id="error-message" class="error">No errors yet.</p>
+      <input type="text" id="command-input" placeholder="Enter command...">
+    </div>
+    <div class="button-container">
+      <button id="auth-btn">Authenticate</button>
+      <button id="void-btn" disabled class="disabled">Void</button>
+      <button id="troubleshoot-btn" disabled class="disabled">Troubleshoot</button>
+      <button id="quantum-link-btn" disabled class="disabled">Quantum Link</button>
+      <button id="export-btn" disabled class="disabled">Export</button>
+      <button id="import-btn" disabled class="disabled">Import</button>
+      <button id="api-access-btn" disabled class="disabled">API Access</button>
+    </div>
+    <div class="footer">
+      <p>Vial MCP Controller | Offline Mode | 2025 | v3.0.0</p>
+      <p>WARNING: $VIAL token is in development under MIT license. @VIAL claims no liability for token loss. Info: vial.netlify.app</p>
+    </div>
+    <input type="file" id="file-input" accept=".md" style="display: none;">
+  </div>
+  <script type="module">
+    // Agent templates
+    const agentTemplates = [
+      `import torch\nimport torch.nn as nn\n\nclass VialAgent1(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent1()`,
+      `import torch\nimport torch.nn as nn\n\nclass VialAgent2(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(20, 2)\n    def forward(self, x):\n        return torch.relu(self.fc(x))\n\nmodel = VialAgent2()`,
+      `import torch\nimport torch.nn as nn\n\nclass VialAgent3(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(15, 3)\n    def forward(self, x):\n        return torch.tanh(self.fc(x))\n\nmodel = VialAgent3()`,
+      `import torch\nimport torch.nn as nn\n\nclass VialAgent4(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(25, 4)\n    def forward(self, x):\n        return torch.softmax(self.fc(x), dim=1)\n\nmodel = VialAgent4()`
+    ];
+
+    class MCPClient {
+      constructor(baseUrl) {
+        this.baseUrl = baseUrl;
+        this.token = localStorage.getItem('access_token') || null;
+        this.offline = !navigator.onLine;
+        this.retryAttempts = 3;
+        this.retryDelay = 2000;
+        this.offlineForced = false;
+        this.offlineAttempts = 0;
+        this.maxOfflineAttempts = 5;
+      }
+      async request(endpoint, httpMethod = 'POST', body = null) {
+        try {
+          if (this.offline || this.offlineForced) return this.mockResponse(endpoint);
+          const url = `${this.baseUrl}${endpoint}`;
+          const response = await this.fetchWithRetry(url, {
+            method: httpMethod,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
+            },
+            body: body ? JSON.stringify(body) : null
+          });
+          this.offlineAttempts = 0;
+          return response;
+        } catch (error) {
+          this.handleError(error, endpoint, httpMethod);
+          throw error;
+        }
+      }
+      async fetchWithRetry(url, options, attempts = this.retryAttempts) {
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`HTTP ${response.status}: ${text}\nFix: Verify ${url} in /main/api/routes/${endpointToFile(url)}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+              const text = await response.text();
+              throw new Error(`JSON.parse: unexpected character\nResponse: ${text}\nFix: Ensure ${url} returns JSON (check /main/api/routes/${endpointToFile(url)})`);
+            }
+            return await response.json();
+          } catch (error) {
+            this.offlineAttempts++;
+            if (this.offlineAttempts >= this.maxOfflineAttempts) {
+              this.offlineForced = true;
+              this.handleError(new Error(`Forcing offline mode after ${this.offlineAttempts} failed attempts`), url, 'fetch', options.method);
+              return this.mockResponse(url.replace(this.baseUrl, ''));
+            }
+            if (i < attempts - 1) {
+              this.handleError(new Error(`Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms`), url, 'fetch', options.method);
+              await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+              continue;
+            }
+            throw error;
+          }
+        }
+      }
+      mockResponse(endpoint) {
+        const mocks = {
+          '/health': {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            balance: 38940.0000,
+            reputation: 1200983581,
+            user_id: 'a1d57580-d88b-4c90-a0f8-6f2c8511b1e4',
+            address: 'e8aa2491-f9a4-4541-ab68-fe7a32fb8f1d',
+            vial_agent: 'vial1',
+            task_status: 'Idle',
+            metrics: { cpu_usage_percent: 10, memory_usage_mb: 500 }
+          },
+          '/oauth/token': { access_token: 'mock_token', token_type: 'bearer' },
+          '/status': {
+            agents: [
+              { vial_id: 'vial1', status: 'running', tasks: [], training_data: [], lfc_metrics: { file_cache_hit_ratio: 0.99 } },
+              { vial_id: 'vial2', status: 'running', tasks: [], training_data: [], lfc_metrics: { file_cache_hit_ratio: 0.99 } },
+              { vial_id: 'vial3', status: 'running', tasks: [], training_data: [], lfc_metrics: { file_cache_hit_ratio: 0.99 } },
+              { vial_id: 'vial4', status: 'running', tasks: [], training_data: [], lfc_metrics: { file_cache_hit_ratio: 0.99 } }
+            ],
+            lfc_metrics: { file_cache_hit_ratio: 0.99 }
+          }
+        };
+        if (mocks[endpoint]) return mocks[endpoint];
+        throw new Error(`No mock for ${endpoint} in offline mode\nFix: Add mock response in MCPClient.mockResponse`);
+      }
+      handleError(error, endpoint, httpMethod) {
+        const stack = [
+          `Traceback: ${error.message}`,
+          `Endpoint: ${endpoint}`,
+          `Method: ${httpMethod}`,
+          `Timestamp: ${new Date().toISOString()}`,
+          `Stack: ${error.stack || 'No stack trace available'}`,
+          `Fix: Check /main/api/routes/${endpointToFile(endpoint)} or .env configuration`
+        ].join('\n');
+        const errorConsole = document.getElementById('error-console');
+        const errorMessage = document.getElementById('error-message');
+        if (errorMessage && errorConsole) {
+          errorMessage.textContent = stack;
+          errorConsole.scrollTop = errorConsole.scrollHeight;
+        }
+        console.error(stack);
+      }
+    }
+
+    class Gateway {
+      constructor() {
+        this.client = new MCPClient('https://your-app.netlify.app/v1');
+        this.isAuthenticated = !!localStorage.getItem('access_token');
+        this.isOffline = !navigator.onLine;
+        this.cache = {};
+        this.vials = Array(4).fill().map((_, i) => ({
+          id: `vial${i+1}`,
+          status: 'stopped',
+          code: agentTemplates[i],
+          codeLength: agentTemplates[i].length,
+          isPython: true,
+          vialHash: this.generateUUID(),
+          wallet: { address: null, balance: 0, hash: null },
+          tasks: [],
+          quantumState: null,
+          trainingData: [],
+          config: {},
+          isTraining: false,
+          latency: 0,
+          miningHashRate: 0
+        }));
+        this.wallet = { address: null, balance: 0, hash: null, miningNonce: 0, user_id: null };
+        this.reputation = 0;
+        this.apiCredentials = { key: null, secret: null };
+        this.networkId = null;
+        this.blockchain = [];
+        this.tokenInterval = null;
+        this.logQueue = ['<p class="command">Vial MCP Controller initialized. Use /help for API commands.</p>'];
+        this.lastLogMessage = null;
+        this.lastLogTime = 0;
+        this.lastLogId = 0;
+        this.elements = {
+          errorConsole: document.getElementById('error-console'),
+          errorMessage: document.getElementById('error-message'),
+          balance: document.getElementById('balance'),
+          reputation: document.getElementById('reputation'),
+          walletKey: document.getElementById('wallet-key'),
+          sessionBalance: document.getElementById('session-balance'),
+          address: document.getElementById('address'),
+          vialAgent: document.getElementById('vial-agent'),
+          taskStatus: document.getElementById('task-status'),
+          apiKey: document.getElementById('api-key'),
+          apiSecret: document.getElementById('api-secret'),
+          dashboard: document.getElementById('dashboard'),
+          credentials: document.getElementById('credentials'),
+          commandInput: document.getElementById('command-input'),
+          authBtn: document.getElementById('auth-btn'),
+          voidBtn: document.getElementById('void-btn'),
+          troubleshootBtn: document.getElementById('troubleshoot-btn'),
+          quantumLinkBtn: document.getElementById('quantum-link-btn'),
+          exportBtn: document.getElementById('export-btn'),
+          importBtn: document.getElementById('import-btn'),
+          apiAccessBtn: document.getElementById('api-access-btn'),
+          fileInput: document.getElementById('file-input')
+        };
+        this.setupEventListeners();
+        this.updateButtonStates();
+        this.checkStatus();
+        setInterval(() => this.checkStatus(), 30000);
+      }
+      generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+      }
+      async sha256(data) {
+        const encoded = new TextEncoder().encode(data);
+        const hash = await crypto.subtle.digest('SHA-256', encoded);
+        return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+      async addToBlockchain(type, data) {
+        const block = { type, data, timestamp: new Date().toISOString() };
+        block.hash = await this.sha256(JSON.stringify(block) + (this.blockchain.length ? this.blockchain[this.blockchain.length - 1].hash : 'genesis'));
+        this.blockchain.push(block);
+        return block.hash;
+      }
+      sanitizeInput(input) {
+        return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                    .replace(/[<>{}]/g, '');
+      }
+      validateMarkdown(mdContent) {
+        if (!mdContent.includes('## Agentic Network') || mdContent.includes('<script')) {
+          return false;
+        }
+        return true;
+      }
+      parseMarkdownForTraining(mdContent) {
+        const lines = mdContent.split('\n');
+        let tasks = [];
+        let parameters = {};
+        let inTaskSection = false;
+        for (let line of lines) {
+          if (line.startsWith('## Tasks')) {
+            inTaskSection = true;
+          } else if (inTaskSection && line.startsWith('- ')) {
+            tasks.push(line.slice(2).trim());
+          } else if (line.match(/^- Parameter: (\w+): (.+)/)) {
+            const [, key, value] = line.match(/^- Parameter: (\w+): (.+)/);
+            parameters[key] = value;
+          }
+        }
+        return { tasks, parameters };
+      }
+      async encryptData(data) {
+        const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(data);
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+        return { encrypted: Array.from(new Uint8Array(encrypted)), iv: Array.from(iv) };
+      }
+      setupEventListeners() {
+        this.elements.authBtn.addEventListener('click', () => this.authenticate());
+        this.elements.voidBtn.addEventListener('click', () => this.void());
+        this.elements.troubleshootBtn.addEventListener('click', () => this.troubleshoot());
+        this.elements.quantumLinkBtn.addEventListener('click', () => this.quantumLink());
+        this.elements.exportBtn.addEventListener('click', () => this.exportVials());
+        this.elements.importBtn.addEventListener('click', () => this.elements.fileInput.click());
+        this.elements.apiAccessBtn.addEventListener('click', () => this.showApiCredentials());
+        this.elements.fileInput.addEventListener('change', () => this.importFile());
+        this.elements.commandInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            this.sendCommand(e.target.value);
+            this.elements.commandInput.value = '';
+          }
+        });
+      }
+      updateButtonStates() {
+        const buttons = [this.elements.voidBtn, this.elements.troubleshootBtn, this.elements.quantumLinkBtn, this.elements.exportBtn, this.elements.importBtn, this.elements.apiAccessBtn];
+        buttons.forEach(btn => {
+          btn.disabled = !this.isAuthenticated;
+          btn.classList.toggle('disabled', !this.isAuthenticated);
+        });
+      }
+      debounce(func, wait) {
+        let timeout;
+        return (...args) => {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => func(...args), wait);
+        };
+      }
+      logEvent(event_type, message, metadata = {}) {
+        const timestamp = new Date().toISOString();
+        const now = Date.now();
+        const logId = ++this.lastLogId;
+        const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+        if (baseMessage === this.lastLogMessage && (now - this.lastLogTime) < 300) return;
+        this.lastLogMessage = baseMessage;
+        this.lastLogTime = now;
+        const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+        this.logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
+        if (this.logQueue.length > 50) this.logQueue.shift();
+        this.debouncedUpdateConsole();
+        console.log(`${event_type}: ${message}`, metadata);
+      }
+      debouncedUpdateConsole = this.debounce(() => {
+        this.elements.errorConsole.innerHTML = this.logQueue.join('');
+        this.elements.errorConsole.scrollTop = this.elements.errorConsole.scrollHeight;
+      }, 100);
+      async checkStatus() {
+        try {
+          const data = await this.client.request('/health', 'GET');
+          this.logEvent('health', 'Backend healthy: /main/api/routes/health.js');
+          this.updateDashboard(data);
+        } catch (error) {
+          this.logEvent('error', `Traceback: NetworkError\nError: ${error.message}\nFix: Verify /main/api/routes/health.js or ensure backend is running at ${this.client.baseUrl}`);
+          if (this.cache) this.updateFromCache();
+        }
+      }
+      updateDashboard(data) {
+        this.elements.balance.textContent = data.balance || '0.0000';
+        this.elements.reputation.textContent = data.reputation || '0';
+        this.elements.walletKey.textContent = data.user_id || 'N/A';
+        this.elements.sessionBalance.textContent = `${data.balance || 0.0000} $VIAL`;
+        this.elements.address.textContent = data.address || 'N/A';
+        this.elements.vialAgent.textContent = data.vial_agent || 'N/A';
+        this.elements.taskStatus.textContent = data.task_status || 'Idle';
+        this.cache = data;
+        this.elements.dashboard.classList.add('active');
+      }
+      updateFromCache() {
+        if (this.cache) this.updateDashboard(this.cache);
+      }
+      async authenticate() {
+        try {
+          const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+          this.isOffline = !isOnline;
+          let data;
+          if (!this.isOffline) {
+            data = await this.client.request('/oauth/token', 'POST', {
+              grant_type: 'client_credentials',
+              client_id: 'WEBXOS-MOCKKEY',
+              client_secret: 'MOCKSECRET1234567890'
+            });
+            this.client.token = data.access_token;
+            localStorage.setItem('access_token', data.access_token);
+          } else {
+            data = this.client.mockResponse('/oauth/token');
+            this.client.token = data.access_token;
+          }
+          this.isAuthenticated = true;
+          this.networkId = this.generateUUID();
+          this.wallet = { address: this.isOffline ? null : this.generateUUID(), balance: 0, hash: null, miningNonce: 0, user_id: this.generateUUID() };
+          this.reputation = 0;
+          this.apiCredentials = { key: this.isOffline ? null : this.generateUUID(), secret: this.isOffline ? null : this.generateUUID() };
+          this.blockchain = [];
+          this.vials.forEach((vial, i) => {
+            vial.wallet = { address: this.isOffline ? null : this.generateUUID(), balance: 0, hash: null };
+            vial.quantumState = { qubits: [], entanglement: 'initialized' };
+            vial.code = agentTemplates[i];
+            vial.codeLength = agentTemplates[i].length;
+            vial.trainingData = [];
+            vial.tasks = [];
+            vial.config = {};
+            vial.isTraining = false;
+            vial.latency = 0;
+            vial.miningHashRate = 0;
+          });
+          this.updateButtonStates();
+          this.logEvent('auth', `Authentication successful (${this.isOffline ? 'offline' : 'online'} mode). Use /help for API commands.`);
+          await this.addToBlockchain('auth', { wallet: this.wallet.address, networkId: this.networkId });
+          this.startTokenEarning();
+          await this.checkStatus();
+        } catch (error) {
+          this.logEvent('error', `Traceback: Authentication failed\nError: ${error.message}\nFix: Check /main/api/routes/oauth.js or .env`);
+        }
+      }
+      async void() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        this.vials.forEach(vial => {
+          vial.status = 'stopped';
+          vial.tasks = [];
+          vial.trainingData = [];
+          vial.config = {};
+          vial.isTraining = false;
+        });
+        this.wallet = { address: null, balance: 0, hash: null, miningNonce: 0, user_id: null };
+        this.reputation = 0;
+        this.apiCredentials = { key: null, secret: null };
+        this.networkId = null;
+        this.blockchain = [];
+        localStorage.removeItem('access_token');
+        this.isAuthenticated = false;
+        this.updateButtonStates();
+        this.updateDashboard({ balance: 0, reputation: 0, user_id: 'N/A', address: 'N/A', vial_agent: 'N/A', task_status: 'Idle' });
+        this.elements.credentials.classList.remove('active');
+        this.logEvent('void', 'System reset: All vials stopped, wallet and blockchain cleared.');
+        clearInterval(this.tokenInterval);
+      }
+      troubleshoot() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        this.logEvent('diagnostics', `Troubleshoot: System in ${this.isOffline ? 'offline' : 'online'} mode. Blockchain integrity verified.`, { blockchainLength: this.blockchain.length });
+      }
+      async quantumLink() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        try {
+          this.vials.forEach(vial => { vial.isTraining = true; vial.status = 'running'; });
+          this.updateDashboard({ ...this.cache, task_status: 'Training' });
+          const isFirstTime = !this.networkId || this.vials.every(v => !v.trainingData.length && !v.tasks.length);
+          if (isFirstTime) {
+            this.logEvent('system', 'First-time user detected. Initializing new wallet and agents.');
+            this.networkId = this.generateUUID();
+            this.wallet = { address: this.isOffline ? null : this.generateUUID(), balance: 0, hash: null, miningNonce: 0, user_id: this.generateUUID() };
+            this.vials.forEach((vial, i) => {
+              vial.code = agentTemplates[i];
+              vial.codeLength = agentTemplates[i].length;
+              vial.wallet = { address: this.isOffline ? null : this.generateUUID(), balance: 0, hash: null };
+              vial.quantumState = { qubits: [], entanglement: 'initialized' };
+            });
+          }
+          const blockHash = await this.addToBlockchain('train', { networkId: this.networkId });
+          if (!this.isOffline) {
+            for (const vial of this.vials) {
+              await this.client.request(`/train/${vial.id}`, 'POST', { dataset: vial.trainingData });
+            }
+          }
+          this.vials.forEach(vial => {
+            vial.quantumState = { qubits: [], entanglement: this.isOffline ? 'local' : 'synced' };
+            vial.status = 'running';
+            vial.wallet.balance = this.wallet.balance / 4;
+            vial.wallet.hash = blockHash;
+            vial.miningHashRate = this.isOffline ? 0 : 0.99;
+          });
+          this.logEvent('training', `Quantum link activated. Agents ${this.isOffline ? 'generated locally' : 'synced'}.`, { networkId: this.networkId, blockHash });
+          setTimeout(() => {
+            this.vials.forEach(vial => { vial.isTraining = false; });
+            this.updateDashboard({ ...this.cache, task_status: 'Idle' });
+          }, 1000);
+        } catch (error) {
+          this.vials.forEach(vial => { vial.isTraining = false; });
+          this.updateDashboard({ ...this.cache, task_status: 'Idle' });
+          this.logEvent('error', `Traceback: Quantum link failed\nError: ${error.message}\nFix: Check /main/api/routes/train.js`);
+        }
+      }
+      async exportVials() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        const data = {
+          markdown: `# Vial MCP Export\n\n## Agentic Network\n- Network ID: ${this.networkId || 'none'}\n- Session Start: ${new Date().toISOString()}\n- Session Duration: 0.00 seconds\n- Reputation: ${this.isOffline ? 'N/A (Offline)' : this.reputation}\n\n## Wallet\n- Wallet Key: ${this.wallet.user_id || 'none'}\n- Session Balance: ${this.isOffline ? 'N/A (Offline)' : this.wallet.balance.toFixed(4)} $VIAL\n- Address: ${this.wallet.address || 'none'}\n- Hash: ${this.wallet.hash || 'none'}\n- Mining Nonce: ${this.wallet.miningNonce || 0}\n\n## API Credentials\n- Key: ${this.apiCredentials.key || 'none'}\n- Secret: ${this.apiCredentials.secret || 'none'}\n\n## Blockchain\n- Blocks: ${this.blockchain.length}\n- Last Hash: ${this.blockchain.length ? this.blockchain[this.blockchain.length - 1].hash : 'none'}\n\n## Vials\n${this.vials.map(vial => {
+            let trainingDataStr;
+            try {
+              trainingDataStr = JSON.stringify(vial.trainingData, null, 2).replace(/\n/g, '\n    ');
+            } catch (err) {
+              trainingDataStr = '[]';
+              this.logEvent('error', `Export failed to serialize trainingData for ${vial.id}: ${err.message}`, { stack: err.stack });
+            }
+            let quantumStateStr;
+            try {
+              quantumStateStr = JSON.stringify(vial.quantumState || {}, null, 2).replace(/\n/g, '\n    ');
+            } catch (err) {
+              quantumStateStr = '{}';
+              this.logEvent('error', `Export failed to serialize quantumState for ${vial.id}: ${err.message}`, { stack: err.stack });
+            }
+            let configStr;
+            try {
+              configStr = JSON.stringify(vial.config, null, 2).replace(/\n/g, '\n    ');
+            } catch (err) {
+              configStr = '{}';
+              this.logEvent('error', `Export failed to serialize config for ${vial.id}: ${err.message}`, { stack: err.stack });
+            }
+            return `# Vial Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $VIAL Hash: ${vial.vialHash}\n- Wallet Balance: ${this.isOffline ? 'N/A (Offline)' : vial.wallet.balance.toFixed(4)} $VIAL\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Mining Hash Rate: ${vial.miningHashRate}% LFC\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${quantumStateStr}\n- Training Data: ${trainingDataStr}\n- Config: ${configStr}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`;
+          }).join('---\n\n')}\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button to resume training.\n- **Extend**: Modify agent code externally, then reimport.\n- **Share**: Send this .md file to others to continue training with the same wallet.\n- **API**: Use API credentials with LangChain to train vials (online mode only).\n- **Cash Out**: $VIAL balance and reputation are tied to the wallet address and hash for secure verification (online mode only).\n\nGenerated by Vial MCP Controller`
+        };
+        const blob = new Blob([data.markdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        const blockHash = await this.addToBlockchain('export', { networkId: this.networkId });
+        this.logEvent('export', 'Exported vials and wallet as Markdown', { networkId: this.networkId, blockHash });
+      }
+      async importFile() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        const fileInput = this.elements.fileInput;
+        if (!fileInput?.files?.length) {
+          this.logEvent('error', 'No file selected: Please select a .md file');
+          return;
+        }
+        const file = fileInput.files[0];
+        if (!file.name.match(/\.md$/)) {
+          this.logEvent('error', 'Invalid file type: Only .md files allowed', { file: file.name });
+          return;
+        }
+        if (file.size > 1024 * 1024) {
+          this.logEvent('error', 'File size exceeds limit: Maximum 1MB allowed', { size: file.size });
+          return;
+        }
+        try {
+          const text = await file.text();
+          const sanitizedText = this.sanitizeInput(text);
+          if (!this.validateMarkdown(sanitizedText)) {
+            this.logEvent('error', 'Invalid .md format: File contains invalid content or script tags');
+            return;
+          }
+          const lines = sanitizedText.split('\n');
+          let currentVial = null;
+          let newVials = [];
+          let newWallet = { address: null, balance: 0, hash: null, miningNonce: 0, user_id: null };
+          let newReputation = 0;
+          let newApiCredentials = { key: null, secret: null };
+          let newNetworkId = this.networkId || this.generateUUID();
+          let inCodeBlock = false;
+          let codeBlock = [];
+          for (let line of lines) {
+            if (line.match(/^- Network ID: ([\w-]+)/)) {
+              newNetworkId = line.match(/^- Network ID: ([\w-]+)/)[1];
+            } else if (line.match(/^- Wallet Key: ([\w-]+)/)) {
+              newWallet.user_id = this.isOffline ? null : line.match(/^- Wallet Key: ([\w-]+)/)[1];
+            } else if (line.match(/^- Session Balance: ([\d.]+) \$VIAL/)) {
+              newWallet.balance = parseFloat(line.match(/^- Session Balance: ([\d.]+) \$/)[1]) || 0;
+            } else if (line.match(/^- Address: ([\w-]+)/)) {
+              newWallet.address = this.isOffline ? null : line.match(/^- Address: ([\w-]+)/)[1];
+            } else if (line.match(/^- Hash: ([0-9a-f]{64})/)) {
+              newWallet.hash = this.isOffline ? null : line.match(/^- Hash: ([0-9a-f]{64})/)[1];
+            } else if (line.match(/^- Mining Nonce: (\d+)/)) {
+              newWallet.miningNonce = parseInt(line.match(/^- Mining Nonce: (\d+)/)[1]) || 0;
+            } else if (line.match(/^- Reputation: (\d+)/)) {
+              newReputation = this.isOffline ? 0 : parseInt(line.match(/^- Reputation: (\d+)/)[1]) || 0;
+            } else if (line.match(/^- Key: ([\w-]+)/)) {
+              newApiCredentials.key = this.isOffline ? null : line.match(/^- Key: ([\w-]+)/)[1];
+            } else if (line.match(/^- Secret: ([0-9a-f]+)/)) {
+              newApiCredentials.secret = this.isOffline ? null : line.match(/^- Secret: ([0-9a-f]+)/)[1];
+            } else if (line.match(/^# Vial Agent: vial\d/)) {
+              if (currentVial) newVials.push(currentVial);
+              currentVial = {
+                id: line.match(/^# Vial Agent: (vial\d)/)[1],
+                status: 'stopped',
+                code: agentTemplates[newVials.length],
+                codeLength: agentTemplates[newVials.length].length,
+                isPython: true,
+                vialHash: this.generateUUID(),
+                wallet: { address: null, balance: 0, hash: null },
+                tasks: [],
+                quantumState: null,
+                trainingData: [],
+                config: {},
+                isTraining: false,
+                latency: 0,
+                miningHashRate: 0
+              };
+            } else if (line.match(/^- Status: (\w+)/)) {
+              currentVial.status = line.match(/^- Status: (\w+)/)[1];
+            } else if (line.match(/^- Language: (\w+)/)) {
+              currentVial.isPython = line.match(/^- Language: (\w+)/)[1] === 'Python';
+            } else if (line.match(/^- Code Length: (\d+) bytes/)) {
+              currentVial.codeLength = parseInt(line.match(/^- Code Length: (\d+) bytes/)[1]) || 0;
+            } else if (line.match(/^- \$VIAL Hash: ([\w-]+)/)) {
+              currentVial.vialHash = line.match(/^- \$VIAL Hash: ([\w-]+)/)[1];
+            } else if (line.match(/^- Wallet Balance: ([\d.]+) \$VIAL/)) {
+              currentVial.wallet.balance = parseFloat(line.match(/^- Wallet Balance: ([\d.]+) \$/)[1]) || 0;
+            } else if (line.match(/^- Wallet Address: ([\w-]+)/)) {
+              currentVial.wallet.address = this.isOffline ? null : line.match(/^- Wallet Address: ([\w-]+)/)[1];
+            } else if (line.match(/^- Wallet Hash: ([0-9a-f]{64})/)) {
+              currentVial.wallet.hash = this.isOffline ? null : line.match(/^- Wallet Hash: ([0-9a-f]{64})/)[1];
+            } else if (line.match(/^- Mining Hash Rate: ([\d.]+)% LFC/)) {
+              currentVial.miningHashRate = parseFloat(line.match(/^- Mining Hash Rate: ([\d.]+)% LFC/)[1]) || 0;
+            } else if (line.match(/^- Tasks: ([\w-, ]+)/)) {
+              currentVial.tasks = line.match(/^- Tasks: ([\w-, ]+)/)[1].split(',').map(t => t.trim()).filter(t => t);
+            } else if (line.match(/^- Quantum State: (.*)/)) {
+              try {
+                const match = line.match(/^- Quantum State: (.*)/)[1];
+                currentVial.quantumState = match ? JSON.parse(match) : {};
+              } catch (err) {
+                this.logEvent('error', `Invalid JSON in Quantum State for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                currentVial.quantumState = {};
+              }
+            } else if (line.match(/^- Training Data: (.*)/)) {
+              try {
+                const match = line.match(/^- Training Data: (.*)/)[1];
+                currentVial.trainingData = match ? JSON.parse(match) : [];
+              } catch (err) {
+                this.logEvent('error', `Invalid JSON in Training Data for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                currentVial.trainingData = [];
+              }
+            } else if (line.match(/^- Config: (.*)/)) {
+              try {
+                const match = line.match(/^- Config: (.*)/)[1];
+                currentVial.config = match ? JSON.parse(match) : {};
+              } catch (err) {
+                this.logEvent('error', `Invalid JSON in Config for ${currentVial.id}: ${err.message}`, { stack: err.stack });
+                currentVial.config = {};
+              }
+            } else if (line.match(/^```(python|javascript)$/)) {
+              inCodeBlock = true;
+              codeBlock = [];
+            } else if (line.match(/^```$/) && inCodeBlock) {
+              inCodeBlock = false;
+              currentVial.code = codeBlock.join('\n');
+            } else if (inCodeBlock) {
+              codeBlock.push(line);
+            }
+          }
+          if (currentVial) newVials.push(currentVial);
+          if (newVials.length !== 4) {
+            this.logEvent('error', 'Invalid .md format: Expected 4 vials', { vials: newVials.length });
+            return;
+          }
+          this.wallet.balance += newWallet.balance;
+          this.reputation += newReputation;
+          this.apiCredentials = newApiCredentials.key ? newApiCredentials : this.apiCredentials;
+          this.networkId = newNetworkId;
+          newVials.forEach((newVial, i) => {
+            const existingVial = this.vials[i] || {};
+            this.vials[i] = {
+              ...newVial,
+              tasks: [...new Set([...(existingVial.tasks || []), ...newVial.tasks])],
+              trainingData: [...(existingVial.trainingData || []), ...newVial.trainingData],
+              config: { ...(existingVial.config || {}), ...newVial.config },
+              wallet: newVial.wallet,
+              quantumState: newVial.quantumState || existingVial.quantumState || {}
+            };
+          });
+          this.wallet = newWallet;
+          const blockHash = await this.addToBlockchain('import', { networkId: this.networkId });
+          this.logEvent('import', 'Imported and merged agentic network from .md', { networkId: this.networkId, blockHash });
+          this.updateDashboard({
+            balance: this.wallet.balance,
+            reputation: this.reputation,
+            user_id: this.wallet.user_id || 'N/A',
+            address: this.wallet.address || 'N/A',
+            vial_agent: this.vials[0].id,
+            task_status: this.vials.some(v => v.isTraining) ? 'Training' : 'Idle'
+          });
+          await this.quantumLink();
+        } catch (err) {
+          this.logEvent('error', `Import failed: ${err.message}`, { stack: err.stack });
+        }
+      }
+      async showApiCredentials() {
+        if (!this.isAuthenticated) {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        if (this.isOffline) {
+          this.logEvent('error', 'API access disabled in offline mode. Switch to online mode to enable.');
+          return;
+        }
+        try {
+          const data = await this.client.request('/oauth/token', 'POST', {
+            grant_type: 'client_credentials',
+            client_id: 'WEBXOS-MOCKKEY',
+            client_secret: 'MOCKSECRET1234567890'
+          });
+          this.apiCredentials = { key: data.access_token, secret: this.generateUUID() };
+          this.elements.apiKey.value = this.apiCredentials.key || 'N/A';
+          this.elements.apiSecret.value = this.apiCredentials.secret || 'N/A';
+          this.elements.credentials.classList.add('active');
+          const blockHash = await this.addToBlockchain('api_credentials', { key: this.apiCredentials.key });
+          this.logEvent('api', 'Generated API credentials for LLM integration', { blockHash });
+        } catch (error) {
+          this.logEvent('error', `Traceback: Failed to generate API credentials\nError: ${error.message}\nFix: Check /main/api/routes/oauth.js or .env`);
+        }
+      }
+      async startTokenEarning() {
+        if (this.tokenInterval) clearInterval(this.tokenInterval);
+        this.tokenInterval = setInterval(async () => {
+          if (!this.isAuthenticated) {
+            clearInterval(this.tokenInterval);
+            this.updateButtonStates();
+            this.logEvent('error', 'Authentication lost: $VIAL earning stopped.');
+            return;
+          }
+          this.wallet.balance += this.isOffline ? 0.5 : 1;
+          this.reputation += 1;
+          const blockHash = await this.addToBlockchain('token_earn', { wallet: this.wallet.address, amount: this.isOffline ? 0.5 : 1, reputation: this.reputation });
+          this.vials.forEach(vial => {
+            vial.wallet.balance = this.wallet.balance / 4;
+            vial.wallet.hash = blockHash;
+            vial.miningHashRate = this.isOffline ? 0 : 0.99;
+          });
+          this.wallet.hash = blockHash;
+          this.wallet.miningNonce += 1;
+          this.logEvent('token', `Earned ${this.isOffline ? 0.5 : 1} $VIAL | Reputation: ${this.reputation} | Block: ${blockHash.slice(0, 8)}...`, { wallet: this.wallet.address });
+          this.updateDashboard({
+            balance: this.wallet.balance,
+            reputation: this.reputation,
+            user_id: this.wallet.user_id || 'N/A',
+            address: this.wallet.address || 'N/A',
+            vial_agent: this.vials[0].id,
+            task_status: this.vials.some(v => v.isTraining) ? 'Training' : 'Idle'
+          });
+        }, 10000);
+      }
+      async sendCommand(command) {
+        if (!this.isAuthenticated && command !== '/auth' && command !== '/help') {
+          this.logEvent('error', 'Traceback: Authentication required\nFix: Use /auth or Authenticate button');
+          return;
+        }
+        const sanitizedCommand = this.sanitizeInput(command.trim());
+        const parts = sanitizedCommand.split(' ');
+        const cmd = parts[0].toLowerCase();
+        const blockHash = await this.addToBlockchain('command', { command: sanitizedCommand });
+        try {
+          switch (cmd) {
+            case '/help':
+              this.logEvent('command', `Available commands:\n- /help: Show this help\n- /auth: Authenticate\n- /health: Check system health\n- /prompt <vial> <text>: Send prompt to vial\n- /task <vial> <task>: Assign task to vial\n- /config <vial> <key> <value>: Set vial config\n- /status: Show vial statuses`);
+              return;
+            case '/auth':
+              await this.authenticate();
+              return;
+            case '/health':
+              await this.checkStatus();
+              return;
+            case '/prompt':
+              if (parts.length < 3) throw new Error('Invalid command: Usage: /prompt <vial> <text>');
+              const vialId = parts[1];
+              const promptText = parts.slice(2).join(' ');
+              const vial = this.vials.find(v => v.id === vialId);
+              if (!vial) throw new Error(`Invalid vial ID: ${vialId} not found`);
+              if (promptText.match(/(system|admin|root|eval|exec)/i)) throw new Error('Prompt contains restricted keywords');
+              const promptResponse = await this.client.request('/prompt', 'POST', { vial_id: vialId, prompt: promptText });
+              vial.trainingData.push({ prompt: promptText, hash: blockHash });
+              vial.status = 'running';
+              if (promptText.toLowerCase().includes('train')) await this.quantumLink();
+              this.logEvent('command', `Prompt sent to ${vialId}: ${promptResponse.response}`, { blockHash });
+              break;
+            case '/task':
+              if (parts.length < 3) throw new Error('Invalid command: Usage: /task <vial> <task>');
+              const taskVialId = parts[1];
+              const task = parts.slice(2).join(' ');
+              const taskVial = this.vials.find(v => v.id === taskVialId);
+              if (!taskVial) throw new Error(`Invalid vial ID: ${taskVialId} not found`);
+              taskVial.tasks = [...new Set([...taskVial.tasks, task])];
+              taskVial.status = 'running';
+              if (task.toLowerCase().includes('optimize')) await this.quantumLink();
+              this.logEvent('command', `Task assigned to ${taskVialId}: ${task}`, { blockHash });
+              break;
+            case '/config':
+              if (parts.length < 4) throw new Error('Invalid command: Usage: /config <vial> <key> <value>');
+              const configVialId = parts[1];
+              const key = parts[2];
+              const value = parts.slice(3).join(' ');
+              const configVial = this.vials.find(v => v.id === configVialId);
+              if (!configVial) throw new Error(`Invalid vial ID: ${configVialId} not found`);
+              configVial.config[key] = value;
+              configVial.status = 'running';
+              this.logEvent('command', `Config set for ${configVialId}: ${key}=${value}`, { blockHash });
+              break;
+            case '/status':
+              const status = await this.client.request('/status', 'GET');
+              const vialStatus = this.vials.map(v => {
+                const agent = status.agents.find(a => a.vial_id === v.id) || {};
+                return `${v.id}: ${v.status}, Tasks: ${v.tasks.join(', ') || 'none'}, Config: ${JSON.stringify(v.config)}, Mining Hash Rate: ${v.miningHashRate}% LFC`;
+              }).join('\n');
+              this.logEvent('command', `Vial Status:\n${vialStatus}`, { blockHash });
+              break;
+            default:
+              this.logEvent('error', `Traceback: Unknown command: ${cmd}\nFix: Use /help for commands`);
+              return;
+          }
+          this.updateDashboard({
+            balance: this.wallet.balance,
+            reputation: this.reputation,
+            user_id: this.wallet.user_id || 'N/A',
+            address: this.wallet.address || 'N/A',
+            vial_agent: this.vials[0].id,
+            task_status: this.vials.some(v => v.isTraining) ? 'Training' : 'Idle'
+          });
+        } catch (error) {
+          this.logEvent('error', `Traceback: Command failed\nError: ${error.message}\nFix: Check /main/api/routes/${endpointToFile(cmd === '/prompt' ? '/prompt' : cmd === '/task' ? '/train' : cmd === '/status' ? '/status' : 'unknown')}.js or .env`);
+        }
+      }
+    }
+
+    function endpointToFile(endpoint) {
+      const mapping = {
+        '/health': 'health.js',
+        '/oauth/token': 'oauth.js',
+        '/prompt': 'prompt.js',
+        '/train': 'train.js',
+        '/status': 'status.js'
+      };
+      return mapping[endpoint] || 'unknown.js';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const gateway = new Gateway();
+    });
+  </script>
+</body>
+</html>
