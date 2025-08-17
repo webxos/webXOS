@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Vial MCP Controller for $WEBXOS blockchain">
+  <meta name="theme-color" content="#0f0">
+  <title>Vial MCP Controller v3.0</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>">
+  <style>
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #1a1a1a;
+      color: #0f0;
+      margin: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background-color: #222;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      margin: 10px 0;
+    }
+    .status {
+      background-color: #333;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .status p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    .vials {
+      background-color: #333;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .vials.active {
+      display: block;
+    }
+    .credentials {
+      background-color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .credentials.active {
+      display: block;
+    }
+    .credentials input {
+      width: calc(100% - 16px);
+      padding: 6px;
+      margin: 5px 0;
+      background-color: #444;
+      border: none;
+      color: #0f0;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+    .terminal {
+      background-color: #000;
+      padding: 8px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      height: 150px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .terminal .error {
+      color: #f00;
+    }
+    .terminal .command {
+      color: #0f0;
+    }
+    .terminal .loading {
+      color: #ff9900;
+    }
+    .terminal input {
+      background: none;
+      border: none;
+      color: #0f0;
+      width: 100%;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+    }
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #0c0;
+    }
+    button.disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    button.disabled:hover {
+      background-color: #666;
+    }
+    .footer {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #888;
+    }
+    .offline {
+      color: #ff9900;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 10px; }
+      h1 { font-size: 18px; }
+      button { padding: 6px 12px; font-size: 12px; }
+      .terminal { height: 100px; font-size: 10px; }
+      .terminal input { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Vial MCP Controller v3.0</h1>
+    <div class="status">
+      <p>Status: <span id="status">Initializing...</span> <span id="offline-indicator" class="offline"></span></p>
+      <p>$WEBXOS Balance: <span id="balance">0.0000</span> | Reputation: <span id="reputation">0</span></p>
+      <p>User ID: <span id="user-id">N/A</span> | Wallet Address: <span id="wallet-address">N/A</span></p>
+    </div>
+    <div class="vials" id="vials">
+      <p>Vial 1: <span id="vial1-status">Stopped</span> | Balance: <span id="vial1-balance">0.0000</span></p>
+      <p>Vial 2: <span id="vial2-status">Stopped</span> | Balance: <span id="vial2-balance">0.0000</span></p>
+      <p>Vial 3: <span id="vial3-status">Stopped</span> | Balance: <span id="vial3-balance">0.0000</span></p>
+      <p>Vial 4: <span id="vial4-status">Stopped</span> | Balance: <span id="vial4-balance">0.0000</span></p>
+    </div>
+    <div class="credentials" id="credentials">
+      <p>API Access Credentials</p>
+      <input type="text" id="api-key" placeholder="API Key: N/A" readonly>
+      <input type="text" id="api-secret" placeholder="API Secret: N/A" readonly>
+      <button id="generate-credentials">Generate New Credentials</button>
+      <button id="close-credentials">Close</button>
+    </div>
+    <div class="terminal" id="terminal">
+      <p class="command">Initializing Vial MCP...</p>
+      <input type="text" id="command-input" placeholder="Enter command...">
+    </div>
+    <div class="button-container">
+      <button id="auth-btn">Authenticate</button>
+      <button id="void-btn" class="disabled" disabled>Void</button>
+      <button id="troubleshoot-btn" class="disabled" disabled>Troubleshoot</button>
+      <button id="quantum-link-btn" class="disabled" disabled>Quantum Link</button>
+      <button id="export-btn" class="disabled" disabled>Export</button>
+      <button id="import-btn" class="disabled" disabled>Import</button>
+      <button id="api-access-btn" class="disabled" disabled>API Access</button>
+    </div>
+    <div class="footer">
+      <p>Vial MCP Controller | <span id="mode">Offline Mode</span> | 2025 | v3.0.0</p>
+      <p>WARNING: $WEBXOS token is in development under MIT license.</p>
+    </div>
+    <input type="file" id="file-input" accept=".md" style="display: none;">
+  </div>
+  <script type="module">
+    const agentTemplates = [
+      `import torch\nclass VialAgent1:\n    def __init__(self):\n        self.model = torch.nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.model(x))`,
+      `import torch\nclass VialAgent2:\n    def __init__(self):\n        self.model = torch.nn.Linear(20, 2)\n    def forward(self, x):\n        return torch.relu(self.model(x))`,
+      `import torch\nclass VialAgent3:\n    def __init__(self):\n        self.model = torch.nn.Linear(15, 3)\n    def forward(self, x):\n        return torch.tanh(self.model(x))`,
+      `import torch\nclass VialAgent4:\n    def __init__(self):\n        self.model = torch.nn.Linear(25, 4)\n    def forward(self, x):\n        return torch.softmax(self.model(x), dim=1)`
+    ];
+
+    class MCPClient {
+      constructor() {
+        this.environment = this.detectEnvironment();
+        this.baseUrl = this.environment === 'production' ? '/.netlify/functions' : 
+                      this.environment === 'local' ? 'http://localhost:8888/.netlify/functions' : 
+                      '/api/mock';
+        this.token = localStorage.getItem('access_token') || null;
+        this.offline = !navigator.onLine || this.environment === 'demo';
+        this.retryAttempts = 3;
+        this.retryDelay = 2000;
+        this.indexedDB = null;
+        this.initIndexedDB();
+      }
+
+      detectEnvironment() {
+        const hostname = window.location.hostname;
+        if (hostname.includes('netlify.app')) return 'production';
+        if (hostname === 'localhost' || hostname === '127.0.0.1') return 'local';
+        return 'demo';
+      }
+
+      async initIndexedDB() {
+        try {
+          const request = indexedDB.open('VialMCP', 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            db.createObjectStore('wallet', { keyPath: 'user_id' });
+            db.createObjectStore('vials', { keyPath: 'id' });
+            db.createObjectStore('transactions', { keyPath: 'transaction_id' });
+          };
+          request.onsuccess = () => {
+            this.indexedDB = request.result;
+            this.log('IndexedDB initialized');
+          };
+          request.onerror = () => this.log('IndexedDB initialization failed');
+        } catch (error) {
+          this.log(`IndexedDB error: ${error.message}`);
+        }
+      }
+
+      async request(endpoint, method = 'GET', body = null) {
+        try {
+          if (this.offline || this.environment === 'demo') return this.offlineResponse(endpoint);
+          this.log(`Requesting ${endpoint}...`);
+          const response = await this.fetchWithRetry(`${this.baseUrl}${endpoint}`, {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
+            },
+            body: body ? JSON.stringify(body) : null
+          });
+          await this.cacheResponse(endpoint, response);
+          return response;
+        } catch (error) {
+          this.log(`Request failed: ${error.message} at ${endpoint}`);
+          return this.offlineResponse(endpoint);
+        }
+      }
+
+      async fetchWithRetry(url, options, attempts = this.retryAttempts) {
+        let delay = this.retryDelay;
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            return await response.json();
+          } catch (error) {
+            if (i < attempts - 1) {
+              this.log(`Retry ${i + 1} for ${url}: ${error.message}`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 2; // Exponential backoff
+              continue;
+            }
+            throw error;
+          }
+        }
+      }
+
+      async cacheResponse(endpoint, data) {
+        if (!this.indexedDB) return;
+        try {
+          const tx = this.indexedDB.transaction(['wallet', 'vials', 'transactions'], 'readwrite');
+          if (endpoint === '/health') {
+            tx.objectStore('wallet').put({ user_id: data.user_id, ...data });
+            data.vials?.forEach(vial => tx.objectStore('vials').put(vial));
+          } else if (endpoint === '/blockchain') {
+            data.transactions?.forEach(tx => tx.objectStore('transactions').put(tx));
+          }
+          tx.oncomplete = () => this.log(`Cached response for ${endpoint}`);
+        } catch (error) {
+          this.log(`Cache error: ${error.message}`);
+        }
+      }
+
+      async offlineResponse(endpoint) {
+        if (!this.indexedDB) return this.mockResponse(endpoint);
+        try {
+          const tx = this.indexedDB.transaction(['wallet', 'vials', 'transactions'], 'readonly');
+          if (endpoint === '/health') {
+            const wallet = await new Promise(resolve => {
+              tx.objectStore('wallet').get('vial_user').onsuccess = e => resolve(e.target.result);
+            });
+            const vials = await new Promise(resolve => {
+              tx.objectStore('vials').getAll().onsuccess = e => resolve(e.target.result);
+            });
+            return {
+              status: 'healthy',
+              balance: wallet?.balance || 38940.0000,
+              reputation: wallet?.reputation || 1200983581,
+              user_id: wallet?.user_id || 'a1d57580-d88b-4c90-a0f8-6f2c8511b1e4',
+              address: wallet?.address || 'e8aa2491-f9a4-4541-ab68-fe7a32fb8f1d',
+              vials
+            };
+          } else if (endpoint === '/blockchain') {
+            const transactions = await new Promise(resolve => {
+              tx.objectStore('transactions').getAll().onsuccess = e => resolve(e.target.result);
+            });
+            return { transactions };
+          }
+          return this.mockResponse(endpoint);
+        } catch (error) {
+          this.log(`Offline response error: ${error.message}`);
+          return this.mockResponse(endpoint);
+        }
+      }
+
+      mockResponse(endpoint) {
+        const mocks = {
+          '/health': {
+            status: 'healthy',
+            balance: 38940.0000,
+            reputation: 1200983581,
+            user_id: 'a1d57580-d88b-4c90-a0f8-6f2c8511b1e4',
+            address: 'e8aa2491-f9a4-4541-ab68-fe7a32fb8f1d',
+            vials: Array(4).fill().map((_, i) => ({
+              id: `vial${i+1}`,
+              status: 'Stopped',
+              balance: 0
+            }))
+          },
+          '/auth': { access_token: 'mock_token', token_type: 'bearer', expires_in: 86400 },
+          '/credentials': { api_key: 'WEBXOS-MOCKKEY', api_secret: 'MOCKSECRET1234567890' },
+          '/blockchain': { transactions: [] }
+        };
+        return mocks[endpoint] || { error: `No mock for ${endpoint}` };
+      }
+
+      log(message) {
+        const terminal = document.getElementById('terminal');
+        const messageEl = document.createElement('p');
+        messageEl.className = message.includes('Error') ? 'error' : message.includes('Loading') ? 'loading' : 'command';
+        messageEl.textContent = `[${new Date().toISOString()}] ${message}`;
+        terminal.appendChild(messageEl);
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+    }
+
+    class Gateway {
+      constructor() {
+        this.client = new MCPClient();
+        this.isAuthenticated = !!this.client.token;
+        this.vials = Array(4).fill().map((_, i) => ({
+          id: `vial${i+1}`,
+          status: 'Stopped',
+          balance: 0,
+          code: agentTemplates[i],
+          wallet: { address: null, balance: 0 }
+        }));
+        this.wallet = { balance: 0, address: null, user_id: null };
+        this.reputation = 0;
+        this.apiCredentials = { key: null, secret: null };
+        this.elements = {
+          status: document.getElementById('status'),
+          balance: document.getElementById('balance'),
+          reputation: document.getElementById('reputation'),
+          userId: document.getElementById('user-id'),
+          walletAddress: document.getElementById('wallet-address'),
+          vials: document.getElementById('vials'),
+          vialStatuses: Array(4).fill().map((_, i) => document.getElementById(`vial${i+1}-status`)),
+          vialBalances: Array(4).fill().map((_, i) => document.getElementById(`vial${i+1}-balance`)),
+          apiKey: document.getElementById('api-key'),
+          apiSecret: document.getElementById('api-secret'),
+          credentials: document.getElementById('credentials'),
+          terminal: document.getElementById('terminal'),
+          commandInput: document.getElementById('command-input'),
+          authBtn: document.getElementById('auth-btn'),
+          voidBtn: document.getElementById('void-btn'),
+          troubleshootBtn: document.getElementById('troubleshoot-btn'),
+          quantumLinkBtn: document.getElementById('quantum-link-btn'),
+          exportBtn: document.getElementById('export-btn'),
+          importBtn: document.getElementById('import-btn'),
+          apiAccessBtn: document.getElementById('api-access-btn'),
+          generateCredentials: document.getElementById('generate-credentials'),
+          closeCredentials: document.getElementById('close-credentials'),
+          fileInput: document.getElementById('file-input'),
+          mode: document.getElementById('mode'),
+          offlineIndicator: document.getElementById('offline-indicator')
+        };
+        this.setupEventListeners();
+        this.setupPWA();
+        this.updateButtonStates();
+        this.checkStatus();
+        setInterval(() => this.checkStatus(), 30000);
+      }
+
+      setupPWA() {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('/service-worker.js').then(reg => {
+            this.client.log('Service Worker registered');
+          }).catch(err => this.client.log(`Service Worker error: ${err.message}`));
+        }
+        window.addEventListener('online', () => {
+          this.client.offline = this.client.environment === 'demo' ? true : false;
+          this.elements.offlineIndicator.textContent = this.client.offline ? '(Offline)' : '';
+          this.elements.mode.textContent = this.client.offline ? 'Offline Mode' : 'Online Mode';
+          this.client.log('Online mode activated');
+        });
+        window.addEventListener('offline', () => {
+          this.client.offline = true;
+          this.elements.offlineIndicator.textContent = '(Offline)';
+          this.elements.mode.textContent = 'Offline Mode';
+          this.client.log('Offline mode activated');
+        });
+      }
+
+      setupEventListeners() {
+        this.elements.authBtn.addEventListener('click', () => this.authenticate());
+        this.elements.voidBtn.addEventListener('click', () => this.void());
+        this.elements.troubleshootBtn.addEventListener('click', () => this.troubleshoot());
+        this.elements.quantumLinkBtn.addEventListener('click', () => this.quantumLink());
+        this.elements.exportBtn.addEventListener('click', () => this.exportVials());
+        this.elements.importBtn.addEventListener('click', () => this.elements.fileInput.click());
+        this.elements.apiAccessBtn.addEventListener('click', () => this.showApiCredentials());
+        this.elements.generateCredentials.addEventListener('click', () => this.generateCredentials());
+        this.elements.closeCredentials.addEventListener('click', () => this.elements.credentials.classList.remove('active'));
+        this.elements.commandInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            this.sendCommand(e.target.value);
+            this.elements.commandInput.value = '';
+          }
+        });
+        this.elements.fileInput.addEventListener('change', () => this.importFile());
+      }
+
+      updateButtonStates() {
+        const buttons = [this.elements.voidBtn, this.elements.troubleshootBtn, this.elements.quantumLinkBtn, this.elements.exportBtn, this.elements.importBtn, this.elements.apiAccessBtn];
+        buttons.forEach(btn => {
+          btn.disabled = !this.isAuthenticated;
+          btn.classList.toggle('disabled', !this.isAuthenticated);
+        });
+      }
+
+      async checkStatus() {
+        try {
+          this.client.log('Checking system status...');
+          const data = await this.client.request('/health');
+          this.wallet = { balance: data.balance, address: data.address, user_id: data.user_id };
+          this.reputation = data.reputation;
+          this.vials = data.vials || this.vials.map((vial, i) => ({
+            ...vial,
+            status: data.vials?.[i]?.status || 'Stopped',
+            balance: data.vials?.[i]?.balance || 0,
+            wallet: { address: data.address, balance: data.vials?.[i]?.balance || 0 }
+          }));
+          this.updateUI();
+          this.elements.vials.classList.add('active');
+          this.client.log('Status updated successfully');
+        } catch (error) {
+          this.client.log(`Status check failed: ${error.message}`);
+        }
+      }
+
+      updateUI() {
+        this.elements.status.textContent = this.client.offline ? 'Offline' : 'Online';
+        this.elements.balance.textContent = this.wallet.balance.toFixed(4);
+        this.elements.reputation.textContent = this.reputation;
+        this.elements.userId.textContent = this.wallet.user_id || 'N/A';
+        this.elements.walletAddress.textContent = this.wallet.address || 'N/A';
+        this.vials.forEach((vial, i) => {
+          this.elements.vialStatuses[i].textContent = vial.status;
+          this.elements.vialBalances[i].textContent = vial.balance.toFixed(4);
+        });
+        this.elements.mode.textContent = this.client.offline ? 'Offline Mode' : 'Online Mode';
+        this.elements.offlineIndicator.textContent = this.client.offline ? '(Offline)' : '';
+      }
+
+      async authenticate() {
+        try {
+          this.client.log('Authenticating...');
+          const data = await this.client.request('/auth', 'POST', {
+            api_key: 'api-bd9d62ec-a074-4548-8c83-fb054715a870'
+          });
+          this.client.token = data.access_token;
+          localStorage.setItem('access_token', data.access_token);
+          this.isAuthenticated = true;
+          this.updateButtonStates();
+          this.client.log('Authentication successful');
+          this.checkStatus();
+        } catch (error) {
+          this.client.log(`Authentication failed: ${error.message}`);
+        }
+      }
+
+      async void() {
+        try {
+          this.client.log('Initiating system reset...');
+          await this.client.request('/void', 'POST');
+          this.vials.forEach(vial => {
+            vial.status = 'Stopped';
+            vial.balance = 0;
+            vial.wallet = { address: null, balance: 0 };
+          });
+          this.wallet = { balance: 0, address: null, user_id: null };
+          this.reputation = 0;
+          this.apiCredentials = { key: null, secret: null };
+          this.isAuthenticated = false;
+          localStorage.removeItem('access_token');
+          await this.cacheState();
+          this.updateButtonStates();
+          this.updateUI();
+          this.elements.vials.classList.remove('active');
+          this.elements.credentials.classList.remove('active');
+          this.client.log('System reset completed');
+        } catch (error) {
+          this.client.log(`Void failed: ${error.message}`);
+        }
+      }
+
+      async troubleshoot() {
+        try {
+          this.client.log('Running diagnostics...');
+          const data = await this.client.request('/troubleshoot');
+          this.client.log(`Troubleshoot: ${data.status}, Vials: ${data.vials_count}`);
+        } catch (error) {
+          this.client.log(`Troubleshoot failed: ${error.message}`);
+        }
+      }
+
+      async quantumLink() {
+        try {
+          this.client.log('Activating quantum link...');
+          await this.client.request('/quantum-link', 'POST', {
+            vial_id: 'vial1',
+            work: 'mock_work_data'
+          });
+          this.vials.forEach(vial => {
+            vial.status = 'Training';
+            vial.balance += 10;
+            vial.wallet.balance += 10;
+          });
+          this.wallet.balance += 40;
+          this.reputation += 100;
+          await this.cacheState();
+          this.updateUI();
+          this.client.log('Quantum link activated');
+          setTimeout(() => {
+            this.vials.forEach(vial => vial.status = 'Running');
+            this.updateUI();
+            this.client.log('Quantum link completed');
+          }, 1000);
+        } catch (error) {
+          this.client.log(`Quantum link failed: ${error.message}`);
+        }
+      }
+
+      async exportVials() {
+        try {
+          this.client.log('Exporting vials...');
+          const data = `# Vial MCP Export\n\n## Wallet\n- Balance: ${this.wallet.balance.toFixed(4)} $WEBXOS\n- Address: ${this.wallet.address || 'none'}\n- User ID: ${this.wallet.user_id || 'none'}\n\n## Vials\n${this.vials.map(vial => `# Vial ${vial.id}\n- Status: ${vial.status}\n- Balance: ${vial.balance.toFixed(4)} $WEBXOS\n- Wallet Address: ${vial.wallet.address || 'none'}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`).join('---\n')}`;
+          const blob = new Blob([data], { type: 'text/markdown' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `vial_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+          a.click();
+          URL.revokeObjectURL(url);
+          this.client.log('Vials exported successfully');
+        } catch (error) {
+          this.client.log(`Export failed: ${error.message}`);
+        }
+      }
+
+      async importFile() {
+        const file = this.elements.fileInput.files[0];
+        if (!file || !file.name.match(/\.md$/)) {
+          this.client.log('Invalid file: Only .md files allowed');
+          return;
+        }
+        try {
+          this.client.log('Importing vials...');
+          const text = await file.text();
+          const lines = text.split('\n');
+          let currentVial = null;
+          this.vials = [];
+          for (let line of lines) {
+            if (line.match(/^- Balance: ([\d.]+) \$WEBXOS/)) {
+              this.wallet.balance = parseFloat(line.match(/^- Balance: ([\d.]+) \$/)[1]) || 0;
+            } else if (line.match(/^- Address: ([\w-]+)/)) {
+              this.wallet.address = line.match(/^- Address: ([\w-]+)/)[1];
+            } else if (line.match(/^- User ID: ([\w-]+)/)) {
+              this.wallet.user_id = line.match(/^- User ID: ([\w-]+)/)[1];
+            } else if (line.match(/^# Vial (vial\d)/)) {
+              if (currentVial) this.vials.push(currentVial);
+              currentVial = {
+                id: line.match(/^# Vial (vial\d)/)[1],
+                status: 'Stopped',
+                balance: 0,
+                code: agentTemplates[this.vials.length],
+                wallet: { address: null, balance: 0 }
+              };
+            } else if (line.match(/^- Status: (\w+)/)) {
+              currentVial.status = line.match(/^- Status: (\w+)/)[1];
+            } else if (line.match(/^- Balance: ([\d.]+) \$WEBXOS/)) {
+              currentVial.balance = parseFloat(line.match(/^- Balance: ([\d.]+) \$/)[1]) || 0;
+              currentVial.wallet.balance = currentVial.balance;
+            } else if (line.match(/^- Wallet Address: ([\w-]+)/)) {
+              currentVial.wallet.address = line.match(/^- Wallet Address: ([\w-]+)/)[1];
+            }
+          }
+          if (currentVial) this.vials.push(currentVial);
+          await this.cacheState();
+          this.updateUI();
+          this.elements.vials.classList.add('active');
+          this.client.log('Vials imported successfully');
+        } catch (error) {
+          this.client.log(`Import failed: ${error.message}`);
+        }
+      }
+
+      async cacheState() {
+        if (!this.client.indexedDB) return;
+        try {
+          const tx = this.client.indexedDB.transaction(['wallet', 'vials'], 'readwrite');
+          tx.objectStore('wallet').put({ user_id: this.wallet.user_id, ...this.wallet });
+          this.vials.forEach(vial => tx.objectStore('vials').put(vial));
+          tx.oncomplete = () => this.client.log('State cached');
+        } catch (error) {
+          this.client.log(`Cache state error: ${error.message}`);
+        }
+      }
+
+      async showApiCredentials() {
+        try {
+          this.client.log('Fetching API credentials...');
+          const data = await this.client.request('/credentials');
+          this.apiCredentials = { key: data.api_key, secret: data.api_secret };
+          this.elements.apiKey.value = this.apiCredentials.key;
+          this.elements.apiSecret.value = this.apiCredentials.secret;
+          this.elements.credentials.classList.add('active');
+          this.client.log('API credentials displayed');
+        } catch (error) {
+          this.client.log(`API credentials failed: ${error.message}`);
+        }
+      }
+
+      async generateCredentials() {
+        try {
+          this.client.log('Generating new API credentials...');
+          const data = await this.client.request('/credentials');
+          this.apiCredentials = { key: data.api_key, secret: data.api_secret };
+          this.elements.apiKey.value = this.apiCredentials.key;
+          this.elements.apiSecret.value = this.apiCredentials.secret;
+          this.client.log('New API credentials generated');
+        } catch (error) {
+          this.client.log(`Credentials generation failed: ${error.message}`);
+        }
+      }
+
+      async sendCommand(command) {
+        command = command.trim();
+        if (command === '/help') {
+          this.client.log('Commands: /auth, /void, /troubleshoot, /quantum_link, /export, /import, /api_access');
+        } else if (command === '/auth') {
+          this.authenticate();
+        } else if (command === '/void') {
+          this.void();
+        } else if (command === '/troubleshoot') {
+          this.troubleshoot();
+        } else if (command === '/quantum_link') {
+          this.quantumLink();
+        } else if (command === '/export') {
+          this.exportVials();
+        } else if (command === '/import') {
+          this.elements.fileInput.click();
+        } else if (command === '/api_access') {
+          this.showApiCredentials();
+        } else {
+          this.client.log(`Unknown command: ${command}`);
+        }
+      }
+    }
+
+    new Gateway();
+  </script>
+</body>
+</html>
