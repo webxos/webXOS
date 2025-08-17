@@ -1,5 +1,6 @@
 from config.config import DatabaseConfig
 from lib.errors import ValidationError
+from tools.agent_templates import get_all_agents
 import logging
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -77,56 +78,18 @@ class WalletQuantumLinkOutput(BaseModel):
 class WalletTool:
     def __init__(self, db: DatabaseConfig):
         self.db = db
-        self.default_vial_code = {
-            "vial1": """import torch
-import torch.nn as nn
+        self.agents = {agent.get_metadata()["vial_id"]: agent.get_metadata() for agent in get_all_agents()}
 
-class VialAgent1(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(10, 1)
-    def forward(self, x):
-        return torch.sigmoid(self.fc(x))
-
-model = VialAgent1()
-""",
-            "vial2": """import torch
-import torch.nn as nn
-
-class VialAgent2(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(12, 2)
-    def forward(self, x):
-        return torch.tanh(self.fc(x))
-
-model = VialAgent2()
-""",
-            "vial3": """import torch
-import torch.nn as nn
-
-class VialAgent3(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(15, 3)
-    def forward(self, x):
-        return torch.tanh(self.fc(x))
-
-model = VialAgent3()
-""",
-            "vial4": """import torch
-import torch.nn as nn
-
-class VialAgent4(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc = nn.Linear(25, 4)
-    def forward(self, x):
-        return torch.softmax(self.fc(x), dim=1)
-
-model = VialAgent4()
-"""
-        }
+    async def initialize_new_wallet(self, user_id: str, wallet_address: str, api_key: str, api_secret: str):
+        await self.db.query(
+            "INSERT INTO users (user_id, balance, wallet_address, api_key, api_secret, reputation) VALUES ($1, $2, $3, $4, $5, $6)",
+            [user_id, 0.0, wallet_address, api_key, api_secret, 0]
+        )
+        for agent in self.agents.values():
+            await self.db.query(
+                "INSERT INTO vials (user_id, vial_id, code, wallet_address, webxos_hash) VALUES ($1, $2, $3, $4, $5)",
+                [user_id, agent["vial_id"], agent["code"], agent["wallet_address"], agent["webxos_hash"]]
+            )
 
     async def execute(self, input: Dict[str, Any]) -> Any:
         try:
@@ -191,6 +154,14 @@ model = VialAgent4()
                     balances.append(float(match.group(1)))
                 if match := re.search(r"# Vial Agent: (vial\d+)", section):
                     vials.append(match.group(1))
+                if match := re.search(r"```python\n([\s\S]+?)\n```", section):
+                    code = match.group(1)
+                    vial_id = section.split("Vial Agent: ")[1].split("\n")[0]
+                    webxos_hash = hashlib.sha256(f"{vial_id}{uuid.uuid4()}".encode()).hexdigest()
+                    await self.db.query(
+                        "UPDATE vials SET code = $1, webxos_hash = $2 WHERE user_id = $3 AND vial_id = $4",
+                        [code, webxos_hash, input.user_id, vial_id]
+                    )
             
             total_balance = sum(balances)
             current_balance = float(user.rows[0]["balance"])
@@ -235,6 +206,14 @@ model = VialAgent4()
                             balances.append(float(match.group(1)))
                         if match := re.search(r"# Vial Agent: (vial\d+)", section):
                             vials.append(match.group(1))
+                        if match := re.search(r"```python\n([\s\S]+?)\n```", section):
+                            code = match.group(1)
+                            vial_id = section.split("Vial Agent: ")[1].split("\n")[0]
+                            webxos_hash = hashlib.sha256(f"{vial_id}{uuid.uuid4()}".encode()).hexdigest()
+                            await self.db.query(
+                                "UPDATE vials SET code = $1, webxos_hash = $2 WHERE user_id = $3 AND vial_id = $4",
+                                [code, webxos_hash, input.user_id, vial_id]
+                            )
                     
                     total_balance = sum(balances)
                     import_vials.append((total_balance, vials))
@@ -276,7 +255,7 @@ model = VialAgent4()
 
     async def export_vials(self, input: WalletBalanceInput) -> WalletExportOutput:
         try:
-            user = await self.db.query("SELECT user_id, balance, wallet_address, api_key, api_secret FROM users WHERE user_id = $1", [input.user_id])
+            user = await self.db.query("SELECT user_id, balance, wallet_address, api_key, api_secret, reputation FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
@@ -284,21 +263,15 @@ model = VialAgent4()
             wallet_address = user.rows[0]["wallet_address"]
             api_key = user.rows[0]["api_key"]
             api_secret = user.rows[0]["api_secret"]
+            reputation = user.rows[0]["reputation"]
             network_id = str(uuid.uuid4())
             timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-3]
             vial_balance = total_balance / 4  # Split evenly across 4 vials
-            reputation = 1200987188  # Static for demo
             blocks = 1958  # Static for demo
             hash_value = hashlib.sha256(f"{input.user_id}{wallet_address}{timestamp}".encode()).hexdigest()
-            training_data = [
-                {"tasks": [], "parameters": {}, "hash": "886ec7d3bd933f76fa5a15d4babb98b92a2235a814afde714fea91bbae04bbbf"},
-                {"tasks": [], "parameters": {}, "hash": "66cb438f9e70d8b6a70c4ea81e3cf97b8eb95beee50a87388ff44887e77eeeca"},
-                {"tasks": [], "parameters": {}, "hash": "7d1c2ab735cf65cbaf377be2f15cf31106a47c9b9bcf2e2a6d1a4121c423fe27"},
-                {"tasks": [], "parameters": {}, "hash": "853b8f7cc661fd56c9c1cec4ae86d1cdf4890864da73e8397a5843e9ae86e47f"},
-                {"tasks": [], "parameters": {}, "hash": "033f357083c958bbb0168f8a6f6761c5673ffdd038b2a090e39412b245d4a8cb"}
-            ]
-            vial_addresses = [str(uuid.uuid4()) for _ in range(4)]
-            vial_hashes = [hashlib.sha256(f"{input.vial_id}{i+1}".encode()).hexdigest() for i in range(4)]
+            
+            vials = await self.db.query("SELECT vial_id, code, wallet_address, webxos_hash FROM vials WHERE user_id = $1", [input.user_id])
+            vial_data = {row["vial_id"]: row for row in vials.rows} if vials.rows else self.agents
             
             markdown = f"""# WebXOS Vial and Wallet Export
 
@@ -323,81 +296,29 @@ model = VialAgent4()
 - Last Hash: {hash_value}
 
 ## Vials
-# Vial Agent: vial1
+"""
+            for vial_id in ["vial1", "vial2", "vial3", "vial4"]:
+                agent = vial_data.get(vial_id, self.agents[vial_id])
+                markdown += f"""# Vial Agent: {vial_id}
 - Status: running
 - Language: Python
-- Code Length: {len(self.default_vial_code["vial1"].encode())} bytes
-- $WEBXOS Hash: {vial_hashes[0]}
+- Code Length: {agent["code_length"]} bytes
+- $WEBXOS Hash: {agent["webxos_hash"]}
 - Wallet Balance: {vial_balance:.4f} $WEBXOS
-- Wallet Address: {vial_addresses[0]}
+- Wallet Address: {agent["wallet_address"]}
 - Wallet Hash: {hash_value}
 - Tasks: none
-- Quantum State: {json.dumps({"qubits": [], "entanglement": "synced"}, indent=6)}
-- Training Data: {json.dumps(training_data, indent=6)}
+- Quantum State: {json.dumps(agent["quantum_state"], indent=6)}
+- Training Data: {json.dumps(agent["training_data"], indent=6)}
 - Config: {{}}
 
 ```python
-{self.default_vial_code["vial1"]}
+{agent["code"]}
 ```
 
 ---
-
-# Vial Agent: vial2
-- Status: running
-- Language: Python
-- Code Length: {len(self.default_vial_code["vial2"].encode())} bytes
-- $WEBXOS Hash: {vial_hashes[1]}
-- Wallet Balance: {vial_balance:.4f} $WEBXOS
-- Wallet Address: {vial_addresses[1]}
-- Wallet Hash: {hash_value}
-- Tasks: none
-- Quantum State: {json.dumps({"qubits": [], "entanglement": "synced"}, indent=6)}
-- Training Data: {json.dumps(training_data, indent=6)}
-- Config: {{}}
-
-```python
-{self.default_vial_code["vial2"]}
-```
-
----
-
-# Vial Agent: vial3
-- Status: running
-- Language: Python
-- Code Length: {len(self.default_vial_code["vial3"].encode())} bytes
-- $WEBXOS Hash: {vial_hashes[2]}
-- Wallet Balance: {vial_balance:.4f} $WEBXOS
-- Wallet Address: {vial_addresses[2]}
-- Wallet Hash: {hash_value}
-- Tasks: none
-- Quantum State: {json.dumps({"qubits": [], "entanglement": "synced"}, indent=6)}
-- Training Data: {json.dumps(training_data, indent=6)}
-- Config: {{}}
-
-```python
-{self.default_vial_code["vial3"]}
-```
-
----
-
-# Vial Agent: vial4
-- Status: running
-- Language: Python
-- Code Length: {len(self.default_vial_code["vial4"].encode())} bytes
-- $WEBXOS Hash: {vial_hashes[3]}
-- Wallet Balance: {vial_balance:.4f} $WEBXOS
-- Wallet Address: {vial_addresses[3]}
-- Wallet Hash: {hash_value}
-- Tasks: none
-- Quantum State: {json.dumps({"qubits": [], "entanglement": "synced"}, indent=6)}
-- Training Data: {json.dumps(training_data, indent=6)}
-- Config: {{}}
-
-```python
-{self.default_vial_code["vial4"]}
-```
-
-## Instructions
+"""
+            markdown += """## Instructions
 - **Reuse**: Import this .md file via the "Import" button to resume training.
 - **Extend**: Modify agent code externally, then reimport.
 - **Share**: Send this .md file to others to continue training with the same wallet.
