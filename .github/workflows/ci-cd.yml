@@ -1,0 +1,69 @@
+name: Vial MCP CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -r main/api/mcp/requirements.txt
+      - name: Run tests
+        run: |
+          cd main/api/mcp
+          pytest tests/
+      - name: Lint frontend
+        run: |
+          cd main/frontend
+          npm install
+          npm run lint
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Log in to AWS ECR
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          registry-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          region: ${{ secrets.AWS_REGION }}
+      - name: Build and push backend image
+        run: |
+          docker build -t vial-mcp-backend ./main/api
+          docker tag vial-mcp-backend:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/vial-mcp-backend:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/vial-mcp-backend:latest
+      - name: Build and push frontend image
+        run: |
+          docker build -t vial-mcp-frontend ./main/frontend
+          docker tag vial-mcp-frontend:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/vial-mcp-frontend:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/vial-mcp-frontend:latest
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: main/api/task-definition.json
+          service: vial-mcp-backend
+          cluster: vial-mcp-cluster
+          wait-for-service-stability: true
+          region: ${{ secrets.AWS_REGION }}
+      - name: Deploy frontend to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: main/frontend/task-definition.json
+          service: vial-mcp-frontend
+          cluster: vial-mcp-cluster
+          wait-for-service-stability: true
+          region: ${{ secrets.AWS_REGION }}
