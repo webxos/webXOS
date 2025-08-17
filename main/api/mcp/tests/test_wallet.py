@@ -158,6 +158,46 @@ async def test_wallet_mine_offline_sync(client, mock_db):
     assert result["balance"] >= 100.0
 
 @pytest.mark.asyncio
+async def test_wallet_batch_sync_success(client, mock_db):
+    markdown = "class VialAgent1:\n    def __init__(self):\n        self.balance = 50.0"
+    hash_value = hashlib.sha256(markdown.encode()).hexdigest()
+    
+    mock_db.query.side_effect = [
+        type("Result", (), {"rows": [{"user_id": "user_12345", "balance": 100.0}] }),  # User exists
+        type("Result", (), {"rows": [{}]} )  # Balance updated
+    ]
+    
+    server = MCPServer()
+    server.tools["wallet"] = WalletTool(mock_db)
+    
+    response = client.post("/mcp/execute", json={
+        "jsonrpc": "2.0",
+        "method": "wallet.batchSync",
+        "params": {
+            "user_id": "user_12345",
+            "operations": [
+                {
+                    "method": "importWallet",
+                    "markdown": markdown,
+                    "hash": hash_value
+                },
+                {
+                    "method": "mineVial",
+                    "vial_id": "vial1",
+                    "nonce": 12345
+                }
+            ]
+        },
+        "id": 1
+    })
+    
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert len(result["results"]) == 2
+    assert result["results"][0]["total_balance"] == 150.0
+    assert "hash" in result["results"][1]
+
+@pytest.mark.asyncio
 async def test_wallet_void_success(client, mock_db):
     mock_db.query.side_effect = [
         type("Result", (), {"rows": [{"user_id": "user_12345", "balance": 100.0}] }),  # User exists
