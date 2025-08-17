@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-{{nonce}}' https://github.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://webxos.netlify.app https://api.github.com; img-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-{{nonce}}' https://github.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://webxos.netlify.app https://api.github.com; img-src 'self' data:;">
   <meta http-equiv="X-Frame-Options" content="DENY">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
@@ -40,6 +40,16 @@
     </div>
 
     <div class="mb-4">
+      <h2 class="text-xl font-bold mb-2">Two-Factor Authentication</h2>
+      <div id="2fa-setup" class="bg-white p-4 rounded shadow">
+        <img id="2fa-qr-code" class="hidden" src="" alt="2FA QR Code">
+        <input id="2fa-code" class="w-full p-2 border rounded mb-2" placeholder="Enter 2FA code">
+        <button id="enable-2fa-btn" class="bg-blue-500 text-white px-4 py-2 rounded" disabled>Enable 2FA</button>
+        <button id="verify-2fa-btn" class="bg-green-500 text-white px-4 py-2 rounded" disabled>Verify 2FA</button>
+      </div>
+    </div>
+
+    <div class="mb-4">
       <h2 class="text-xl font-bold mb-2">Transaction History</h2>
       <div id="transaction-history" class="bg-white p-4 rounded shadow"></div>
     </div>
@@ -57,7 +67,12 @@
     <div class="mb-4">
       <h2 class="text-xl font-bold mb-2">User Action History</h2>
       <div id="action-history" class="bg-white p-4 rounded shadow"></div>
-      <button id="load-actions-btn" class="bg-blue-500 text-white px-4 py-2 rounded" disabled>Load Action History</button>
+      <div class="flex space-x-2">
+        <button id="load-actions-btn" class="bg-blue-500 text-white px-4 py-2 rounded" disabled>Load Action History</button>
+        <button id="prev-page-btn" class="bg-gray-500 text-white px-4 py-2 rounded" disabled>Previous Page</button>
+        <button id="next-page-btn" class="bg-gray-500 text-white px-4 py-2 rounded" disabled>Next Page</button>
+        <span id="page-info" class="p-2">Page 1</span>
+      </div>
     </div>
 
     <div class="mb-4">
@@ -92,6 +107,9 @@
     import { updateNetworkStatus } from '/js/vial_controller.js';
     import { wsHandler } from '/js/websocket_handler.js';
 
+    let currentPage = 1;
+    let totalPages = 1;
+
     updateNetworkStatus();
     window.addEventListener('online', updateNetworkStatus);
     window.addEventListener('offline', updateNetworkStatus);
@@ -107,6 +125,59 @@
       document.getElementById('logout-btn').disabled = false;
       document.getElementById('data-erasure-btn').disabled = false;
       document.getElementById('load-actions-btn').disabled = false;
+      document.getElementById('enable-2fa-btn').disabled = false;
+    });
+
+    async function loadActionHistory(page) {
+      const userId = document.getElementById('user-id').innerText;
+      if (userId === 'Not logged in') {
+        document.getElementById('output').innerText = 'Error: Please authenticate first';
+        return;
+      }
+      try {
+        const accessToken = localStorage.getItem('access_token');
+        const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+        const res = await fetch('https://webxos.netlify.app/mcp/execute', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Session-ID': sessionId
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'security.getUserActions',
+            params: { user_id: userId, page, page_size: 50 },
+            id: Math.floor(Math.random() * 1000)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        const actions = data.result.actions;
+        totalPages = data.result.total_pages;
+        currentPage = data.result.current_page;
+        const actionHistory = document.getElementById('action-history');
+        actionHistory.innerHTML = actions.map(action => `
+          <div class="p-2 border-b">
+            <p><strong>Action:</strong> ${action.action}</p>
+            <p><strong>Details:</strong> ${JSON.stringify(action.details)}</p>
+            <p><strong>Timestamp:</strong> ${new Date(action.created_at).toLocaleString()}</p>
+          </div>
+        `).join('');
+        document.getElementById('page-info').innerText = `Page ${currentPage}`;
+        document.getElementById('prev-page-btn').disabled = currentPage === 1;
+        document.getElementById('next-page-btn').disabled = currentPage === totalPages;
+      } catch (error) {
+        document.getElementById('output').innerText = `Error loading action history: ${error.message}`;
+      }
+    }
+
+    document.getElementById('load-actions-btn').addEventListener('click', () => loadActionHistory(1));
+    document.getElementById('prev-page-btn').addEventListener('click', () => {
+      if (currentPage > 1) loadActionHistory(currentPage - 1);
+    });
+    document.getElementById('next-page-btn').addEventListener('click', () => {
+      if (currentPage < totalPages) loadActionHistory(currentPage + 1);
     });
 
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -149,6 +220,8 @@
         document.getElementById('logout-btn').disabled = true;
         document.getElementById('data-erasure-btn').disabled = true;
         document.getElementById('load-actions-btn').disabled = true;
+        document.getElementById('enable-2fa-btn').disabled = true;
+        document.getElementById('verify-2fa-btn').disabled = true;
       } catch (error) {
         document.getElementById('output').innerText = `Logout error: ${error.message}`;
       }
@@ -192,12 +265,14 @@
         document.getElementById('logout-btn').disabled = true;
         document.getElementById('data-erasure-btn').disabled = true;
         document.getElementById('load-actions-btn').disabled = true;
+        document.getElementById('enable-2fa-btn').disabled = true;
+        document.getElementById('verify-2fa-btn').disabled = true;
       } catch (error) {
         document.getElementById('output').innerText = `Data erasure error: ${error.message}`;
       }
     });
 
-    document.getElementById('load-actions-btn').addEventListener('click', async () => {
+    document.getElementById('enable-2fa-btn').addEventListener('click', async () => {
       const userId = document.getElementById('user-id').innerText;
       if (userId === 'Not logged in') {
         document.getElementById('output').innerText = 'Error: Please authenticate first';
@@ -215,24 +290,52 @@
           },
           body: JSON.stringify({
             jsonrpc: '2.0',
-            method: 'security.getUserActions',
+            method: 'auth.enable2FA',
             params: { user_id: userId },
             id: Math.floor(Math.random() * 1000)
           })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error.message);
-        const actions = data.result.actions;
-        const actionHistory = document.getElementById('action-history');
-        actionHistory.innerHTML = actions.map(action => `
-          <div class="p-2 border-b">
-            <p><strong>Action:</strong> ${action.action}</p>
-            <p><strong>Details:</strong> ${JSON.stringify(action.details)}</p>
-            <p><strong>Timestamp:</strong> ${new Date(action.created_at).toLocaleString()}</p>
-          </div>
-        `).join('');
+        document.getElementById('2fa-qr-code').src = data.result.qr_code_url;
+        document.getElementById('2fa-qr-code').classList.remove('hidden');
+        document.getElementById('verify-2fa-btn').disabled = false;
       } catch (error) {
-        document.getElementById('output').innerText = `Error loading action history: ${error.message}`;
+        document.getElementById('output').innerText = `2FA setup error: ${error.message}`;
+      }
+    });
+
+    document.getElementById('verify-2fa-btn').addEventListener('click', async () => {
+      const userId = document.getElementById('user-id').innerText;
+      const totpCode = document.getElementById('2fa-code').value;
+      if (!totpCode) {
+        document.getElementById('output').innerText = 'Error: Please enter 2FA code';
+        return;
+      }
+      try {
+        const accessToken = localStorage.getItem('access_token');
+        const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+        const res = await fetch('https://webxos.netlify.app/mcp/execute', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Session-ID': sessionId
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'auth.verify2FA',
+            params: { user_id: userId, totp_code: totpCode },
+            id: Math.floor(Math.random() * 1000)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        document.getElementById('output').innerText = '2FA verified successfully';
+        document.getElementById('2fa-qr-code').classList.add('hidden');
+        document.getElementById('verify-2fa-btn').disabled = true;
+      } catch (error) {
+        document.getElementById('output').innerText = `2FA verification error: ${error.message}`;
       }
     });
   </script>
