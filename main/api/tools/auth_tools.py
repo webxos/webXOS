@@ -1,70 +1,87 @@
 from config.config import DatabaseConfig
+from lib.errors import ValidationError
+from lib.security import Security
 import logging
+from pydantic import BaseModel
+from fastapi import HTTPException
+from typing import Dict, Any
 from google.oauth2 import id_token
 from google.auth.transport import requests
 import jwt
-from pydantic import BaseModel
-from fastapi import HTTPException
-import os
+import hashlib
+import time
 
 logger = logging.getLogger("mcp.auth")
 logger.setLevel(logging.INFO)
 
-class AuthInput(BaseModel):
+class AuthenticationInput(BaseModel):
     oauth_token: str
     provider: str
 
-class AuthOutput(BaseModel):
+class AuthenticationOutput(BaseModel):
+    user_id: str
     access_token: str
     expires_in: int
-    user_id: str
 
 class AuthenticationTool:
     def __init__(self, db: DatabaseConfig):
         self.db = db
-        self.client_id = os.getenv("GOOGLE_CLIENT_ID")
-        if not self.client_id:
-            raise ValueError("GOOGLE_CLIENT_ID not set")
+        self.security = Security(db)
 
-    async def execute(self, input: dict) -> AuthOutput:
+    async def execute(self, input: Dict[str, Any]) -> AuthenticationOutput:
         try:
-            auth_input = AuthInput(**input)
+            auth_input = AuthenticationInput(**input)
             if auth_input.provider != "google":
-                raise HTTPException(400, "Unsupported OAuth provider")
-
+                raise ValidationError("Unsupported OAuth provider")
+            
             # Verify Google OAuth token
-            idinfo = id_token.verify_oauth2_token(
-                auth_input.oauth_token, requests.Request(), self.client_id
+            user_info = id_token.verify_oauth2_token(
+                auth_input.oauth_token,
+                requests.Request(),
+                self.db.google_client_id
             )
-
-            if not idinfo.get("sub") or not idinfo.get("email"):
-                raise HTTPException(400, "Invalid OAuth token")
-
-            user_id = f"user_{idinfo['sub']}"
-            email = idinfo["email"]
-            username = idinfo.get("name", email.split("@")[0])
-
-            # Check if user exists, create if not
-            user = await self.db.query("SELECT user_id FROM users WHERE user_id = $1", [user_id])
+            
+            user_id = f"user_{user_info['sub']}"
+            username = user_info.get("name", user_info.get("email", "unknown"))
+            
+            # Check if user exists
+            user = await self.db.query(
+                "SELECT user_id, wallet_address FROM users WHERE user_id = $1",
+                [user_id]
+            )
+            
             if not user.rows:
+                # Create new user with auto-generated wallet
+                wallet_address = hashlib.sha256(
+                    f"{user_id}{int(time.time())}".encode()
+                ).hexdigest()
                 await self.db.query(
-                    """
-                    INSERT INTO users (user_id, username, wallet_address, balance, reputation, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                    """,
-                    [user_id, username, f"wallet_{user_id}", 0, 0, "now()"]
+                    "INSERT INTO users (user_id, username, wallet_address, balance, reputation) VALUES ($1, $2, $3, $4, $5)",
+                    [user_id, username, wallet_address, 0.0, 0]
                 )
-
+                logger.info(f"Created new user {user_id} with wallet {wallet_address}")
+            else:
+                wallet_address = user.rows[0]["wallet_address"]
+            
             # Generate JWT
-            jwt_secret = os.getenv("JWT_SECRET", "default_secret")
+            expires_in = 86400  # 24 hours
             access_token = jwt.encode(
-                {"user_id": user_id}, jwt_secret, algorithm="HS256"
+                {"sub": user_id, "exp": int(time.time()) + expires_in},
+                self.db.jwt_secret,
+                algorithm="HS256"
             )
-            logger.info(f"User authenticated: {user_id} via {auth_input.provider}")
-            return AuthOutput(
+            
+            # Store session
+            await self.db.query(
+                "INSERT INTO sessions (user_id, access_token, expires_at) VALUES ($1, $2, $3)",
+                [user_id, access_token, f"now() + interval '{expires_in} seconds'"]
+            )
+            
+            logger.info(f"Authenticated user: {user_id}")
+            return AuthenticationOutput(
+                user_id=user_id,
                 access_token=access_token,
-                expires_in=86400,
-                user_id=user_id
+                expires_in=expires_in
             )
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
