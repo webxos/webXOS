@@ -3,143 +3,132 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vial MCP</title>
-  <link rel="stylesheet" href="/styles.css">
+  <title>Vial MCP Controller</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/favicon.ico">
-  <script src="/auth-handler.js" type="module"></script>
-  <script src="/ui-updater.js" type="module"></script>
-  <script src="/config.js" type="module"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
 </head>
-<body>
-  <div class="container">
-    <h1>Vial MCP Controller</h1>
-    <div class="status">
-      <span>Status: <span id="status">Initializing</span></span>
-      <span id="offline-indicator"></span>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4">Vial MCP Controller</h1>
+    
+    <div class="mb-4">
+      <p><strong>Status:</strong> <span id="status">Initializing</span></p>
+      <p><strong>Mode:</strong> <span id="mode">Initializing</span></p>
     </div>
-    <div class="mode">Mode: Initializing</div>
-    <div class="wallet">
-      <p>User ID: <span id="user-id"></span></p>
-      <p>Balance: <span id="balance"></span> $WEBXOS</p>
-      <p>Reputation: <span id="reputation"></span></p>
-      <p>Wallet Address: <span id="wallet-address"></span></p>
+
+    <div class="mb-4">
+      <p><strong>User ID:</strong> <span id="user-id">Not logged in</span></p>
+      <p><strong>Balance:</strong> <span id="balance">0 $WEBXOS</span></p>
+      <p><strong>Reputation:</strong> <span id="reputation">0</span></p>
+      <p><strong>Wallet Address:</strong> <span id="wallet-address">None</span></p>
     </div>
-    <div class="vials">
-      <p>Vial 1: <span id="vial1-status">Stopped</span> (Balance: <span id="vial1-balance">0</span>)</p>
-      <p>Vial 2: <span id="vial2-status">Stopped</span> (Balance: <span id="vial2-balance">0</span>)</p>
-      <p>Vial 3: <span id="vial3-status">Stopped</span> (Balance: <span id="vial3-balance">0</span>)</p>
-      <p>Vial 4: <span id="vial4-status">Stopped</span> (Balance: <span id="vial4-balance">0</span>)</p>
+
+    <div class="mb-4">
+      <p><strong>Vial 1:</strong> <span id="vial1-status">Stopped (Balance: 0)</span></p>
+      <p><strong>Vial 2:</strong> <span id="vial2-status">Stopped (Balance: 0)</span></p>
+      <p><strong>Vial 3:</strong> <span id="vial3-status">Stopped (Balance: 0)</span></p>
+      <p><strong>Vial 4:</strong> <span id="vial4-status">Stopped (Balance: 0)</span></p>
     </div>
-    <div class="credentials">
-      <input type="text" id="api-key" readonly placeholder="API Key">
-      <input type="text" id="api-secret" readonly placeholder="API Secret">
+
+    <div class="mb-4">
+      <button id="auth-btn" class="bg-blue-500 text-white px-4 py-2 rounded">Authenticate</button>
+      <button id="google-login-btn" class="bg-red-500 text-white px-4 py-2 rounded">Login with Google</button>
+      <button id="void-btn" class="bg-gray-500 text-white px-4 py-2 rounded">Void</button>
+      <button id="troubleshoot-btn" class="bg-yellow-500 text-white px-4 py-2 rounded">Troubleshoot</button>
+      <button id="quantum-link-btn" class="bg-purple-500 text-white px-4 py-2 rounded">Quantum Link</button>
+      <button id="export-btn" class="bg-green-500 text-white px-4 py-2 rounded">Export</button>
     </div>
-    <div class="button-container">
-      <button id="auth-button">Authenticate</button>
-      <button id="oauth-button">Login with Google</button>
-      <button id="void-button" disabled>Void</button>
-      <button id="troubleshoot-button" disabled>Troubleshoot</button>
-      <button id="quantum-button" disabled>Quantum Link</button>
-      <button id="export-button" disabled>Export</button>
-      <input type="file" id="file-input" style="display: none;">
-    </div>
-    <div class="terminal">
-      <input type="text" id="command-input" placeholder="Enter command...">
-    </div>
+
+    <div id="output" class="bg-white p-4 rounded shadow"></div>
   </div>
-  <script type="module">
-    import { AuthHandler } from '/auth-handler.js';
-    import { UIUpdater } from '/ui-updater.js';
-    import { config } from '/config.js';
 
-    class MCPClient {
-      async request(endpoint: string, method: string = 'POST', body?: any) {
-        const token = localStorage.getItem('access_token');
-        const headers: any = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const response = await fetch(`http://localhost:8080${endpoint}`, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined
+  <script>
+    const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Set in environment or replace
+    const API_URL = 'http://localhost:8000/mcp';
+
+    async function initGoogleSignIn() {
+      await new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.onload = resolve;
+        document.head.appendChild(script);
+      });
+
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+        state: generateCsrfToken()
+      });
+
+      google.accounts.id.renderButton(
+        document.getElementById('google-login-btn'),
+        { theme: 'outline', size: 'large' }
+      );
+    }
+
+    function generateCsrfToken() {
+      return Math.random().toString(36).substring(2);
+    }
+
+    async function handleGoogleResponse(response) {
+      try {
+        const res = await fetch(`${API_URL}/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'authentication',
+            params: { oauth_token: response.credential, provider: 'google' },
+            id: 1
+          })
         });
-        if (!response.ok) throw new Error(`Request failed: ${response.statusText}`);
-        return response.json();
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        updateUI(data.result);
+      } catch (error) {
+        document.getElementById('output').innerText = `Error: ${error.message}`;
       }
     }
 
-    class Gateway {
-      elements: any;
-      isAuthenticated: boolean;
-      wallet: any;
-      vials: any[];
+    function updateUI(authData) {
+      document.getElementById('user-id').innerText = authData.user_id;
+      document.getElementById('status').innerText = 'Authenticated';
+      document.getElementById('mode').innerText = 'Online';
+      // Fetch additional user data (balance, reputation, etc.) from MCP server
+      fetchUserData(authData.access_token);
+    }
 
-      constructor() {
-        this.elements = {
-          status: document.getElementById('status')!,
-          offlineIndicator: document.getElementById('offline-indicator')!,
-          mode: document.querySelector('.mode')!,
-          balance: document.getElementById('balance')!,
-          reputation: document.getElementById('reputation')!,
-          userId: document.getElementById('user-id')!,
-          walletAddress: document.getElementById('wallet-address')!,
-          vials: document.querySelector('.vials')!,
-          vialStatuses: Array.from(document.querySelectorAll('.vials span[id$="-status"]')),
-          vialBalances: Array.from(document.querySelectorAll('.vials span[id$="-balance"]')),
-          credentials: document.querySelector('.credentials')!,
-          apiKey: document.getElementById('api-key')!,
-          apiSecret: document.getElementById('api-secret')!,
-          authButton: document.getElementById('auth-button')!,
-          oauthButton: document.getElementById('oauth-button')!,
-          voidButton: document.getElementById('void-button')!,
-          troubleshootButton: document.getElementById('troubleshoot-button')!,
-          quantumButton: document.getElementById('quantum-button')!,
-          exportButton: document.getElementById('export-button')!,
-          fileInput: document.getElementById('file-input')!,
-          terminal: document.querySelector('.terminal')!,
-          commandInput: document.getElementById('command-input')!
-        };
-        this.isAuthenticated = !!localStorage.getItem('access_token');
-        this.wallet = {};
-        this.vials = [];
-        this.setupEventListeners();
-      }
-
-      setupEventListeners() {
-        const client = new MCPClient();
-        const authHandler = new AuthHandler(client, this);
-        const uiUpdater = new UIUpdater(this);
-
-        this.elements.oauthButton.addEventListener('click', async () => {
-          const authWindow = window.open('/oauth/google', '_blank');
-          window.addEventListener('message', async (event) => {
-            if (event.data.oauth_token) {
-              await authHandler.login(event.data.oauth_token, 'google');
-              authWindow?.close();
-            }
-          });
+    async function fetchUserData(token) {
+      try {
+        const res = await fetch(`${API_URL}/execute`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'vial-management.getUserData',
+            params: {},
+            id: 2
+          })
         });
-
-        this.elements.commandInput.addEventListener('keypress', async (e: KeyboardEvent) => {
-          if (e.key === 'Enter') {
-            const command = this.elements.commandInput.value;
-            uiUpdater.addTerminalMessage(`Executing: ${command}`, 'command');
-            this.elements.commandInput.value = '';
-          }
-        });
-      }
-
-      updateButtonStates() {
-        this.elements.authButton.disabled = this.isAuthenticated;
-        this.elements.oauthButton.disabled = this.isAuthenticated;
-        this.elements.voidButton.disabled = !this.isAuthenticated;
-        this.elements.troubleshootButton.disabled = !this.isAuthenticated;
-        this.elements.quantumButton.disabled = !this.isAuthenticated;
-        this.elements.exportButton.disabled = !this.isAuthenticated;
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        document.getElementById('balance').innerText = `${data.result.balance} $WEBXOS`;
+        document.getElementById('reputation').innerText = data.result.reputation;
+        document.getElementById('wallet-address').innerText = data.result.wallet_address;
+      } catch (error) {
+        document.getElementById('output').innerText = `Error: ${error.message}`;
       }
     }
 
-    const gateway = new Gateway();
+    document.getElementById('auth-btn').addEventListener('click', () => {
+      google.accounts.id.prompt();
+    });
+
+    initGoogleSignIn();
   </script>
 </body>
 </html>
