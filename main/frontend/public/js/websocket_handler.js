@@ -10,7 +10,11 @@ function connectWebSocket(clientId) {
   websocket.onopen = () => {
     document.getElementById('websocket-status').innerText = 'Connected';
     document.getElementById('quantum-status').innerText = 'Synced';
+    document.getElementById('wallet-status').innerText = 'Enabled';
     reconnectAttempts = 0;
+    // Trigger batch sync on reconnect
+    const event = new CustomEvent('auth-success', { detail: { user_id: clientId } });
+    document.dispatchEvent(event);
   };
   
   websocket.onmessage = (event) => {
@@ -23,12 +27,19 @@ function connectWebSocket(clientId) {
       if (data.params.vial_id && data.params.balance) {
         document.getElementById(`${data.params.vial_id}-status`).innerText = `Running (Balance: ${data.params.balance})`;
       }
+      if (data.params.total_balance) {
+        document.getElementById('balance').innerText = `${data.params.total_balance} $WEBXOS`;
+      }
+      if (data.params.commit_hash) {
+        document.getElementById('output').innerText = `Git push successful: Commit ${data.params.commit_hash}`;
+      }
     }
   };
   
   websocket.onclose = () => {
     document.getElementById('websocket-status').innerText = 'Disconnected';
     document.getElementById('quantum-status').innerText = 'Disconnected';
+    document.getElementById('wallet-status').innerText = 'Disabled';
     if (reconnectAttempts < maxReconnectAttempts) {
       setTimeout(() => {
         reconnectAttempts++;
@@ -41,16 +52,19 @@ function connectWebSocket(clientId) {
   
   websocket.onerror = (error) => {
     document.getElementById('output').innerText = `WebSocket error: ${error}`;
+    document.getElementById('wallet-status').innerText = 'Disabled';
   };
+}
+
+function sendWebSocketMessage(message) {
+  if (websocket && websocket.readyState === WebSocket.OPEN) {
+    websocket.send(JSON.stringify(message));
+  } else {
+    document.getElementById('output').innerText = 'Error: Wallet disabled due to WebSocket disconnection';
+  }
 }
 
 document.addEventListener('auth-success', (event) => {
   const clientId = event.detail.user_id;
   connectWebSocket(clientId);
 });
-
-function sendWebSocketMessage(message) {
-  if (websocket && websocket.readyState === WebSocket.OPEN) {
-    websocket.send(JSON.stringify(message));
-  }
-}
