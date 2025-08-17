@@ -3,6 +3,9 @@ const urlsToCache = [
   '/',
   '/index.html',
   '/css/tailwind.min.css',
+  '/js/auth_handler.js',
+  '/js/websocket_handler.js',
+  '/js/vial_controller.js',
   '/manifest.json'
 ];
 
