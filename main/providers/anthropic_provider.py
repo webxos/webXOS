@@ -1,45 +1,38 @@
-import anthropic
-from .base_provider import BaseLLMProvider
-from typing import Dict, Any, List
+from fastapi import FastAPI
+from .routes import wallet, oauth, troubleshoot, quantum_link, mcp_endpoints
+from .health import router as health_router
+from ..utils.logging import log_error, log_info
+import asyncio
 
-class AnthropicProvider(BaseLLMProvider):
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
-        
-    async def completion(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        try:
-            response = await self.client.completions.create(
-                model=kwargs.get("model", "claude-3-sonnet"),
-                prompt=prompt,
-                max_tokens=kwargs.get("max_tokens", 1000),
-                temperature=kwargs.get("temperature", 0.7)
-            )
-            return {
-                "provider": "anthropic",
-                "model": response.model,
-                "response": response.completion,
-                "usage": response.usage.dict()
-            }
-        except Exception as e:
-            return {"error": str(e), "provider": "anthropic"}
-    
-    async def chat(self, messages: List[Dict], **kwargs) -> Dict[str, Any]:
-        try:
-            response = await self.client.messages.create(
-                model=kwargs.get("model", "claude-3-sonnet"),
-                messages=messages,
-                max_tokens=kwargs.get("max_tokens", 1000),
-                temperature=kwargs.get("temperature", 0.7)
-            )
-            return {
-                "provider": "anthropic",
-                "model": response.model,
-                "response": response.content[0].text,
-                "usage": response.usage.dict()
-            }
-        except Exception as e:
-            return {"error": str(e), "provider": "anthropic"}
-    
-    async def embedding(self, text: str) -> List[float]:
-        return []
+app = FastAPI(
+    title="WEBXOS MCP Gateway",
+    description="API Gateway for WEBXOS Vial MCP (BETA)",
+    version="2.7.6",
+    openapi_url="/v1/openapi.json"
+)
+
+# Include routers
+app.include_router(wallet.router, prefix="/v1")
+app.include_router(oauth.router, prefix="/v1")
+app.include_router(troubleshoot.router, prefix="/v1")
+app.include_router(quantum_link.router, prefix="/v1")
+app.include_router(mcp_endpoints.router, prefix="/v1")
+app.include_router(health_router, prefix="/v1")
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    log_info("WEBXOS MCP Gateway starting...")
+    # Add database or resource initialization here
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    log_info("WEBXOS MCP Gateway shutting down...")
+    # Add cleanup logic here
+
+# Error handling middleware
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    log_error(f"Traceback: Global error: {str(exc)}")
+    return {"error": "Internal Server Error", "detail": str(exc)}, 500
