@@ -11,6 +11,7 @@ import httpx
 import base64
 import os
 import secrets
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("mcp.auth")
 logger.setLevel(logging.INFO)
@@ -32,6 +33,13 @@ class AuthTokenOutput(BaseModel):
     user_id: str
     session_id: str
 
+class AuthRevokeInput(BaseModel):
+    user_id: str
+    access_token: str
+
+class AuthRevokeOutput(BaseModel):
+    status: str
+
 class AuthTool:
     def __init__(self, db: DatabaseConfig):
         self.db = db
@@ -48,6 +56,9 @@ class AuthTool:
             elif method == "exchangeToken":
                 token_input = AuthTokenInput(**input)
                 return await self.exchange_token(token_input)
+            elif method == "revokeToken":
+                revoke_input = AuthRevokeInput(**input)
+                return await self.revoke_token(revoke_input)
             else:
                 raise ValidationError(f"Unknown method: {method}")
         except Exception as e:
@@ -122,7 +133,7 @@ class AuthTool:
                 user_data = user_response.json()
                 user_id = str(user_data["id"])
                 
-                # Validate token audience (ensure issued to this app)
+                # Validate token audience
                 if user_data.get("aud") != self.api_config.github_client_id:
                     raise ValidationError("Invalid token audience")
                 
@@ -166,6 +177,43 @@ class AuthTool:
                 event_type="auth_error",
                 user_id=user_id,
                 details={"error": str(e), "redirect_uri": input.redirect_uri}
+            )
+            raise HTTPException(400, str(e))
+
+    async def revoke_token(self, input: AuthRevokeInput) -> AuthRevokeOutput:
+        try:
+            user = await self.db.query(
+                "SELECT user_id, access_token FROM users WHERE user_id = $1 AND access_token = $2",
+                [input.user_id, input.access_token]
+            )
+            if not user.rows:
+                raise ValidationError("Invalid user or token")
+            
+            # Revoke access token
+            await self.db.query(
+                "UPDATE users SET access_token = NULL WHERE user_id = $1",
+                [input.user_id]
+            )
+            
+            # Terminate session
+            await self.db.query(
+                "DELETE FROM sessions WHERE user_id = $1",
+                [input.user_id]
+            )
+            
+            await self.security_handler.log_event(
+                event_type="token_revoked",
+                user_id=input.user_id,
+                details={"access_token": input.access_token[:8] + "..."}
+            )
+            logger.info(f"Revoked token for user {input.user_id}")
+            return AuthRevokeOutput(status="revoked")
+        except Exception as e:
+            logger.error(f"Revoke token error: {str(e)}")
+            await self.security_handler.log_event(
+                event_type="revoke_token_error",
+                user_id=input.user_id,
+                details={"error": str(e)}
             )
             raise HTTPException(400, str(e))
 
