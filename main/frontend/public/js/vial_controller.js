@@ -23,6 +23,14 @@ async function fetchVialBalance(userId, vialId) {
 
 async function voidVial(userId, vialId) {
   try {
+    if (!navigator.onLine) {
+      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
+      if (!cachedWallet) throw new Error('No wallet data available offline');
+      localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: 0 }));
+      document.getElementById('output').innerText = `Vial ${vialId} voided offline`;
+      updateVialStatus(vialId, 0);
+      return;
+    }
     const res = await fetch(`${API_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,6 +43,7 @@ async function voidVial(userId, vialId) {
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
+    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: 0 }));
     document.getElementById('output').innerText = `Vial ${vialId} voided successfully`;
     updateVialStatus(vialId, 0);
   } catch (error) {
@@ -44,6 +53,13 @@ async function voidVial(userId, vialId) {
 
 async function troubleshootVial(userId, vialId) {
   try {
+    if (!navigator.onLine) {
+      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
+      if (!cachedWallet) throw new Error('No wallet data available offline');
+      const wallet = JSON.parse(cachedWallet);
+      document.getElementById('output').innerText = `Offline troubleshoot for ${vialId}: Balance=${wallet.balance}, Active=${wallet.balance > 0}`;
+      return;
+    }
     const res = await fetch(`${API_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,6 +80,7 @@ async function troubleshootVial(userId, vialId) {
 
 async function quantumLink(userId) {
   try {
+    if (!navigator.onLine) throw new Error('Quantum Link requires online connection');
     const res = await fetch(`${API_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -84,6 +101,7 @@ async function quantumLink(userId) {
 
 async function exportVials(userId) {
   try {
+    if (!navigator.onLine) throw new Error('Export requires online connection');
     const res = await fetch(`${API_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,6 +120,80 @@ async function exportVials(userId) {
   }
 }
 
+async function importWallet(userId, markdown) {
+  try {
+    // Calculate hash of markdown for validation
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(markdown));
+    const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    if (!navigator.onLine) {
+      localStorage.setItem(`pending_import_${userId}`, JSON.stringify({ markdown, hash: hashHex }));
+      document.getElementById('output').innerText = 'Wallet import queued for next online session';
+      return;
+    }
+    
+    const res = await fetch(`${API_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'wallet.importWallet',
+        params: { user_id: userId, markdown, hash: hashHex },
+        id: Math.floor(Math.random() * 1000)
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.total_balance }));
+    document.getElementById('output').innerText = `Imported ${data.result.imported_vials.length} vials, new balance: ${data.result.total_balance}`;
+    data.result.imported_vials.forEach(vialId => {
+      updateVialStatus(vialId, data.result.total_balance);
+    });
+  } catch (error) {
+    document.getElementById('output').innerText = `Error importing wallet: ${error.message}`;
+  }
+}
+
+async function mineVial(userId, vialId) {
+  try {
+    const nonce = Math.floor(Math.random() * 1000000);
+    if (!navigator.onLine) {
+      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
+      if (!cachedWallet) throw new Error('No wallet data available offline');
+      const wallet = JSON.parse(cachedWallet);
+      const data = `${userId}${vialId}${nonce}`;
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+      const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+      let reward = 0;
+      if (hashHex.startsWith('00')) {
+        reward = 1.0;
+        wallet.balance += reward;
+        localStorage.setItem(`wallet_${userId}`, JSON.stringify(wallet));
+      }
+      document.getElementById('output').innerText = `Offline mining result: Hash=${hashHex}, Reward=${reward}`;
+      updateVialStatus(vialId, wallet.balance);
+      return;
+    }
+    const res = await fetch(`${API_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'wallet.mineVial',
+        params: { user_id: userId, vial_id: vialId, nonce },
+        id: Math.floor(Math.random() * 1000)
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.balance }));
+    document.getElementById('output').innerText = `Mining result: Hash=${data.result.hash}, Reward=${data.result.reward}`;
+    updateVialStatus(vialId, data.result.balance);
+  } catch (error) {
+    document.getElementById('output').innerText = `Error mining vial: ${error.message}`;
+  }
+}
+
 function updateVialStatus(vialId, balance) {
   document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${balance})`;
 }
@@ -110,7 +202,14 @@ document.addEventListener('auth-success', (event) => {
   const userId = event.detail.user_id;
   ['vial1', 'vial2', 'vial3', 'vial4'].forEach(vialId => {
     fetchVialBalance(userId, vialId).then(data => {
+      localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.balance }));
       updateVialStatus(vialId, data.balance);
+    }).catch(() => {
+      const cachedWallet = localStorage.getItem(`wallet_${userId}`);
+      if (cachedWallet) {
+        const wallet = JSON.parse(cachedWallet);
+        updateVialStatus(vialId, wallet.balance);
+      }
     });
   });
 });
@@ -149,4 +248,23 @@ document.getElementById('export-btn').addEventListener('click', () => {
     return;
   }
   exportVials(userId);
+});
+
+document.getElementById('import-wallet-btn').addEventListener('click', () => {
+  const userId = document.getElementById('user-id').innerText;
+  if (userId === 'Not logged in') {
+    document.getElementById('output').innerText = 'Error: Please authenticate first';
+    return;
+  }
+  const markdown = document.getElementById('wallet-import').value;
+  importWallet(userId, markdown);
+});
+
+document.getElementById('mine-btn').addEventListener('click', () => {
+  const userId = document.getElementById('user-id').innerText;
+  if (userId === 'Not logged in') {
+    document.getElementById('output').innerText = 'Error: Please authenticate first';
+    return;
+  }
+  mineVial(userId, 'vial1');
 });
