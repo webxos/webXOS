@@ -1,53 +1,50 @@
 version: '3.8'
+
 services:
+  backend:
+    build:
+      context: ./main/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - NEON_DATABASE_URL=${NEON_DATABASE_URL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/mcp/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   frontend:
     build:
       context: ./main/frontend
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "8080:8080"
     environment:
-      - NODE_ENV=development
-    volumes:
-      - ./main/frontend/public:/app/public
-    networks:
-      - vial-mcp-network
-
-  backend:
-    build:
-      context: ./main/api/mcp
-      dockerfile: Dockerfile
-    ports:
-      - "8888:8888"
-    environment:
-      - NODE_ENV=development
-      - NEON_DATABASE_URL=${NEON_DATABASE_URL}
-      - JWT_SECRET=${JWT_SECRET}
-    volumes:
-      - ./main/api/mcp:/app
-      - ./main/api/mcp/logs:/app/logs
-    depends_on:
-      - db
-    networks:
-      - vial-mcp-network
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   db:
     image: postgres:15
     environment:
-      - POSTGRES_USER=vialmcp
-      - POSTGRES_PASSWORD=secret
-      - POSTGRES_DB=vialmcp
-    ports:
-      - "5432:5432"
+      - POSTGRES_DB=vial_mcp
+      - POSTGRES_USER=mcpuser
+      - POSTGRES_PASSWORD=mcppassword
     volumes:
       - ./main/api/mcp/database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - vial-mcp-network
-
-networks:
-  vial-mcp-network:
-    driver: bridge
-
-volumes:
-  pgdata:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcpuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
