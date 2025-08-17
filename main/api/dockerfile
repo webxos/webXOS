@@ -1,7 +1,24 @@
-FROM node:18
+FROM python:3.11-slim AS builder
+
 WORKDIR /app
-COPY package.json .
-RUN npm install
-COPY main/api/mcp/ ./mcp
-EXPOSE 8888
-CMD ["npx", "netlify", "dev", "--port", "8888"]
+COPY main/api/mcp/requirements.txt .
+RUN pip install --user -r requirements.txt
+
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+COPY --from=builder /root/.local /root/.local
+COPY main/api/mcp/ .
+
+RUN useradd -m mcpuser
+USER mcpuser
+
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/mcp/health || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
