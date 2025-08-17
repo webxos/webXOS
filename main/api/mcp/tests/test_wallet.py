@@ -137,6 +137,27 @@ async def test_wallet_mine_success(client, mock_db):
     assert "balance" in result
 
 @pytest.mark.asyncio
+async def test_wallet_mine_offline_sync(client, mock_db):
+    mock_db.query.side_effect = [
+        type("Result", (), {"rows": [{"user_id": "user_12345", "balance": 100.0}] }),  # User exists
+        type("Result", (), {"rows": [{}]} )  # Balance updated
+    ]
+    
+    server = MCPServer()
+    server.tools["wallet"] = WalletTool(mock_db)
+    
+    response = client.post("/mcp/execute", json={
+        "jsonrpc": "2.0",
+        "method": "wallet.mineVial",
+        "params": {"user_id": "user_12345", "vial_id": "vial1", "nonce": 12345},
+        "id": 1
+    })
+    
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["balance"] >= 100.0
+
+@pytest.mark.asyncio
 async def test_wallet_void_success(client, mock_db):
     mock_db.query.side_effect = [
         type("Result", (), {"rows": [{"user_id": "user_12345", "balance": 100.0}] }),  # User exists
