@@ -1,36 +1,22 @@
-const CACHE_NAME = 'vial-mcp-cache-v1';
+const CACHE_NAME = 'vial-mcp-v1';
 const urlsToCache = [
+  '/',
   '/index.html',
-  '/styles.css',
-  '/utils.js',
-  '/config.js',
-  '/vial-manager.js',
-  '/error-handler.js',
-  '/transaction-manager.js',
-  '/command-processor.js',
-  '/ui-updater.js',
-  '/offline-storage.js',
+  '/css/tailwind.min.css',
   '/manifest.json'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(urlsToCache);
-    })
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(urlsToCache))
   );
 });
 
 self.addEventListener('fetch', event => {
   event.respondWith(
-    caches.match(event.request).then(response => {
-      if (response) {
-        return response;
-      }
-      return fetch(event.request).catch(() => {
-        return caches.match('/index.html');
-      });
-    })
+    caches.match(event.request)
+      .then(response => response || fetch(event.request))
   );
 });
 
