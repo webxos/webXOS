@@ -16,6 +16,8 @@ from lib.errors import ValidationError
 from neondatabase import AsyncClient
 import redis.asyncio as redis
 import os
+import re
+from html import escape
 
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -41,11 +43,17 @@ class JSONRPCRequest(BaseModel):
     params: Dict[str, Any]
     id: int
 
-class JSONRPCResponse(BaseModel):
-    jsonrpc: str = "2.0"
-    result: Any = None
-    error: Any = None
-    id: int
+def sanitize_input(value: Any) -> Any:
+    """Sanitize input to prevent injection attacks."""
+    if isinstance(value, str):
+        # Remove potentially malicious characters and escape HTML
+        value = re.sub(r'[<>;{}]', '', value)
+        return escape(value)
+    elif isinstance(value, dict):
+        return {k: sanitize_input(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [sanitize_input(item) for item in value]
+    return value
 
 async def get_current_user(token: str = Depends(oauth2_scheme), session_id: str = Depends(lambda x: x.headers.get("X-Session-ID"))):
     user = await auth_tool.verify_token(token, session_id)
@@ -73,11 +81,13 @@ async def shutdown_event():
     await FastAPILimiter.close()
     logger.info("Disconnected from Neon Postgres database and closed rate limiter")
 
-@app.post("/mcp/execute", response_model=JSONRPCResponse, dependencies=[Depends(RateLimiter(times=100, seconds=900))])
+@app.post("/mcp/execute", response_model=JSONRPCRequest, dependencies=[Depends(RateLimiter(times=100, seconds=900))])
 async def execute(request: JSONRPCRequest, user: Dict[str, Any] = Depends(get_current_user)):
     try:
+        # Sanitize request parameters
+        sanitized_params = sanitize_input(request.params)
         method = request.method
-        params = request.params
+        params = sanitized_params
         params["user_id"] = user["user_id"]
         
         # Apply stricter rate limiting for cash-out
