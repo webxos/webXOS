@@ -1,18 +1,20 @@
-# Use official Node.js image
-FROM node:18-alpine
+FROM node:18-alpine AS builder
 
-# Set working directory
 WORKDIR /app
+COPY main/frontend/public/ .
+RUN npm install -g http-server
 
-# Copy frontend files
-COPY main/frontend/public /app/public
-COPY package.json /app/
+FROM node:18-alpine AS runtime
 
-# Install dependencies
-RUN npm install
+WORKDIR /app
+COPY --from=builder /app .
 
-# Expose port
-EXPOSE 80
+RUN addgroup -g 1001 -S nodejs && adduser -S frontend -u 1001
+USER frontend
 
-# Serve frontend with a simple static server
-CMD ["npx", "serve", "-s", "public", "-l", "80"]
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1
+
+CMD ["http-server", "-p", "8080"]
