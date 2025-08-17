@@ -57,9 +57,9 @@ class MCPServer:
                 raise HTTPException(404, f"Unknown tool: {tool_name}")
             tool = self.tools[tool_name]
             result = await tool.execute(request.params)
-            # Send notification for Claude and wallet operations
+            # Send notification for wallet and Claude operations
             if tool_name in ["claude", "wallet"]:
-                notification_method = f"{tool_name}.operationComplete"
+                notification_method = f"{tool_name}.{method_parts[0] if method_parts else 'operationComplete'}"
                 await self.notification_handler.send_notification(
                     request.params.get("user_id", "default"),
                     {"jsonrpc": "2.0", "method": notification_method, "params": result}
