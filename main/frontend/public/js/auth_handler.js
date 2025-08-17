@@ -41,6 +41,9 @@ async function handleGoogleResponse(response) {
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
     updateUI(data.result);
+    // Dispatch auth-success event for WebSocket connection
+    const event = new CustomEvent('auth-success', { detail: { user_id: data.result.user_id } });
+    document.dispatchEvent(event);
   } catch (error) {
     document.getElementById('output').innerText = `Error: ${error.message}`;
   }
