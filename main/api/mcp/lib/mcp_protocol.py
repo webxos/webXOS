@@ -28,3 +28,6 @@ class MCPMethods:
     WALLET_IMPORT_WALLET = "wallet.importWallet"
     WALLET_EXPORT_VIALS = "wallet.exportVials"
     WALLET_MINE_VIAL = "wallet.mineVial"
+    WALLET_VOID_VIAL = "wallet.voidVial"
+    WALLET_TROUBLESHOOT_VIAL = "wallet.troubleshootVial"
+    WALLET_QUANTUM_LINK = "wallet.quantumLink"
