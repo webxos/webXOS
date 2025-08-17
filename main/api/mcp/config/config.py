@@ -1,24 +1,29 @@
 import os
+from pydantic_settings import BaseSettings
 from typing import Optional
-from pydantic import BaseModel
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
-class DatabaseConfig:
-    def __init__(self):
-        self.url = os.getenv("NEON_DATABASE_URL")
+class DatabaseConfig(BaseSettings):
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/neondb")
+    max_connections: int = 20
+    min_connections: int = 1
+    connect_timeout: int = 10
 
-    async def query(self, query: str, params: list = None):
-        # Placeholder for actual database connection logic
-        pass
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
-class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
-    port: int = 8000
-    ssl_cert_path: Optional[str] = os.getenv("SSL_CERT_PATH")
-    ssl_key_path: Optional[str] = os.getenv("SSL_KEY_PATH")
-    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID")
-    jwt_secret: str = os.getenv("JWT_SECRET")
+class APIConfig(BaseSettings):
+    max_retries: int = 3
+    rate_limit: int = 100
+    rate_limit_window: int = 60
+    api_key: Optional[str] = os.getenv("API_KEY")
+    api_secret: Optional[str] = os.getenv("API_SECRET")
+    github_client_id: Optional[str] = os.environ.get("GITHUB_CLIENT_ID")
+    github_client_secret: Optional[str] = os.environ.get("GITHUB_CLIENT_SECRET")
 
-limiter = Limiter(key_func=get_remote_address)
-batch_sync_limiter = limiter.limit("5/minute")  # Limit batchSync to 5 requests per minute per IP
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+database_config = DatabaseConfig()
+api_config = APIConfig()
