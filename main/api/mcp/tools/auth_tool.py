@@ -30,6 +30,7 @@ class AuthTokenInput(BaseModel):
 
 class AuthTokenOutput(BaseModel):
     access_token: str
+    refresh_token: str
     user_id: str
     session_id: str
 
@@ -39,6 +40,15 @@ class AuthRevokeInput(BaseModel):
 
 class AuthRevokeOutput(BaseModel):
     status: str
+
+class AuthRefreshInput(BaseModel):
+    user_id: str
+    refresh_token: str
+
+class AuthRefreshOutput(BaseModel):
+    access_token: str
+    refresh_token: str
+    session_id: str
 
 class AuthTool:
     def __init__(self, db: DatabaseConfig):
@@ -59,6 +69,9 @@ class AuthTool:
             elif method == "revokeToken":
                 revoke_input = AuthRevokeInput(**input)
                 return await self.revoke_token(revoke_input)
+            elif method == "refreshToken":
+                refresh_input = AuthRefreshInput(**input)
+                return await self.refresh_token(refresh_input)
             else:
                 raise ValidationError(f"Unknown method: {method}")
         except Exception as e:
@@ -125,6 +138,7 @@ class AuthTool:
                     raise ValidationError(f"GitHub OAuth error: {data['error_description']}")
                 
                 access_token = data["access_token"]
+                refresh_token = data.get("refresh_token", str(uuid.uuid4()))
                 user_response = await client.get(
                     "https://api.github.com/user",
                     headers={"Authorization": f"Bearer {access_token}"}
@@ -144,8 +158,8 @@ class AuthTool:
                 if not existing_user.rows:
                     wallet_address = str(uuid.uuid4())
                     await self.db.query(
-                        "INSERT INTO users (user_id, balance, wallet_address, access_token) VALUES ($1, $2, $3, $4)",
-                        [user_id, 0.0, wallet_address, access_token]
+                        "INSERT INTO users (user_id, balance, wallet_address, access_token, refresh_token) VALUES ($1, $2, $3, $4, $5)",
+                        [user_id, 0.0, wallet_address, access_token, refresh_token]
                     )
                     from tools.wallet import WalletTool
                     wallet_tool = WalletTool(self.db)
@@ -160,8 +174,8 @@ class AuthTool:
                 )
                 
                 await self.db.query(
-                    "UPDATE users SET access_token = $1 WHERE user_id = $2",
-                    [access_token, user_id]
+                    "UPDATE users SET access_token = $1, refresh_token = $2 WHERE user_id = $3",
+                    [access_token, refresh_token, user_id]
                 )
                 
                 await self.security_handler.log_event(
@@ -170,7 +184,7 @@ class AuthTool:
                     details={"access_token": access_token[:8] + "...", "session_id": session_id}
                 )
                 logger.info(f"Exchanged OAuth token for user {user_id}")
-                return AuthTokenOutput(access_token=access_token, user_id=user_id, session_id=session_id)
+                return AuthTokenOutput(access_token=access_token, refresh_token=refresh_token, user_id=user_id, session_id=session_id)
         except Exception as e:
             logger.error(f"Exchange token error: {str(e)}")
             await self.security_handler.log_event(
@@ -191,7 +205,7 @@ class AuthTool:
             
             # Revoke access token
             await self.db.query(
-                "UPDATE users SET access_token = NULL WHERE user_id = $1",
+                "UPDATE users SET access_token = NULL, refresh_token = NULL WHERE user_id = $1",
                 [input.user_id]
             )
             
@@ -212,6 +226,64 @@ class AuthTool:
             logger.error(f"Revoke token error: {str(e)}")
             await self.security_handler.log_event(
                 event_type="revoke_token_error",
+                user_id=input.user_id,
+                details={"error": str(e)}
+            )
+            raise HTTPException(400, str(e))
+
+    async def refresh_token(self, input: AuthRefreshInput) -> AuthRefreshOutput:
+        try:
+            user = await self.db.query(
+                "SELECT user_id, refresh_token FROM users WHERE user_id = $1 AND refresh_token = $2",
+                [input.user_id, input.refresh_token]
+            )
+            if not user.rows:
+                raise ValidationError("Invalid user or refresh token")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://github.com/login/oauth/access_token",
+                    data={
+                        "client_id": self.api_config.github_client_id,
+                        "client_secret": self.api_config.github_client_secret,
+                        "grant_type": "refresh_token",
+                        "refresh_token": input.refresh_token
+                    },
+                    headers={"Accept": "application/json"}
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                if "error" in data:
+                    raise ValidationError(f"GitHub OAuth refresh error: {data['error_description']}")
+                
+                new_access_token = data["access_token"]
+                new_refresh_token = data.get("refresh_token", str(uuid.uuid4()))
+                
+                # Create new session
+                session_id = f"{input.user_id}:{secrets.token_urlsafe(32)}"
+                expires_at = datetime.utcnow() + timedelta(minutes=15)
+                await self.db.query(
+                    "INSERT INTO sessions (session_key, user_id, expires_at) VALUES ($1, $2, $3)",
+                    [session_id, input.user_id, expires_at]
+                )
+                
+                await self.db.query(
+                    "UPDATE users SET access_token = $1, refresh_token = $2 WHERE user_id = $3",
+                    [new_access_token, new_refresh_token, input.user_id]
+                )
+                
+                await self.security_handler.log_event(
+                    event_type="token_refreshed",
+                    user_id=input.user_id,
+                    details={"access_token": new_access_token[:8] + "...", "session_id": session_id}
+                )
+                logger.info(f"Refreshed token for user {input.user_id}")
+                return AuthRefreshOutput(access_token=new_access_token, refresh_token=new_refresh_token, session_id=session_id)
+        except Exception as e:
+            logger.error(f"Refresh token error: {str(e)}")
+            await self.security_handler.log_event(
+                event_type="refresh_token_error",
                 user_id=input.user_id,
                 details={"error": str(e)}
             )
