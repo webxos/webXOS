@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WEBXOS MCP Controller</title>
-  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
   <style>
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -115,34 +114,6 @@
     button.disabled:hover {
       background-color: #666;
     }
-    .popup {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.5);
-    }
-    .popup-content {
-      background-color: #222;
-      margin: 15% auto;
-      padding: 20px;
-      width: 70%;
-      max-width: 500px;
-      border-radius: 5px;
-      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
-    }
-    .close {
-      color: #0f0;
-      float: right;
-      font-size: 28px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    .close:hover {
-      color: #0c0;
-    }
     .footer {
       margin-top: 10px;
       text-align: center;
@@ -171,7 +142,6 @@
       <p>Session Balance: <span id="session-balance">0.0000 $WEBXOS</span></p>
       <p>Address: <span id="address">N/A</span></p>
       <p>Vial Agent: <span id="vial-agent">N/A</span></p>
-      <p>Quantum State: <span id="quantum-state">N/A</span></p>
       <p>Task Status: <span id="task-status">Idle</span></p>
     </div>
     <div class="credentials">
@@ -183,41 +153,8 @@
       <input type="text" id="command-input" placeholder="Enter command...">
     </div>
     <div class="button-container">
-      <button id="fastmcp-btn">Authenticate</button>
-      <button id="git-btn" disabled class="disabled">Git Control</button>
-      <button id="void-btn" disabled class="disabled">Void</button>
-      <button id="troubleshoot-btn" disabled class="disabled">Troubleshoot</button>
-      <button id="quantum-link-btn" disabled class="disabled">Quantum Link</button>
-      <button id="export-btn" disabled class="disabled">Export</button>
-      <button id="import-btn" disabled class="disabled">Import</button>
-      <button id="api-btn" disabled class="disabled">API Access</button>
-    </div>
-    <div id="api-popup" class="popup">
-      <div class="popup-content">
-        <span class="close">&times;</span>
-        <h1>Generate API Credentials</h1>
-        <button id="generate-credentials-btn">Generate New Credentials</button>
-        <p>Key: <input type="text" id="popup-api-key" placeholder="API Key: N/A" readonly></p>
-        <p>Secret: <input type="text" id="popup-api-secret" placeholder="API Secret: N/A" readonly></p>
-      </div>
-    </div>
-    <div id="git-popup" class="popup">
-      <div class="popup-content">
-        <span class="close">&times;</span>
-        <h1>Git Repository Control</h1>
-        <input type="text" id="repo-url" placeholder="Repository URL">
-        <select id="git-action">
-          <option value="push">Push</option>
-          <option value="pull">Pull</option>
-          <option value="diff">Diff</option>
-          <option value="commit">Commit</option>
-          <option value="log">Log</option>
-          <option value="checkout">Checkout</option>
-        </select>
-        <input type="text" id="git-branch" placeholder="Branch (e.g., main)">
-        <button id="execute-git-btn">Execute</button>
-        <p>Output: <span id="git-output">N/A</span></p>
-      </div>
+      <button id="auth-btn">Authenticate</button>
+      <button id="health-btn" disabled class="disabled">Health Check</button>
     </div>
     <div class="footer">
       <p>WebXOS Vial MCP Controller | Offline Mode | 2025 | v2.7.8</p>
@@ -225,19 +162,20 @@
     </div>
   </div>
   <script type="module">
-    // Embedded MCPClient
     class MCPClient {
-      constructor(baseUrl, fallbackUrl) {
+      constructor(baseUrl) {
         this.baseUrl = baseUrl;
-        this.fallbackUrl = fallbackUrl;
         this.token = localStorage.getItem('access_token') || null;
         this.offline = !navigator.onLine;
         this.retryAttempts = 3;
         this.retryDelay = 2000;
+        this.offlineForced = false;
+        this.offlineAttempts = 0;
+        this.maxOfflineAttempts = 5;
       }
-      async request(method, params, endpoint, httpMethod = 'POST') {
+      async request(endpoint, httpMethod = 'POST', body = null) {
         try {
-          if (this.offline) return this.mockResponse(method, params, endpoint);
+          if (this.offline || this.offlineForced) return this.mockResponse(endpoint);
           const url = `${this.baseUrl}${endpoint}`;
           const response = await this.fetchWithRetry(url, {
             method: httpMethod,
@@ -246,12 +184,12 @@
               'Accept': 'application/json',
               ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
             },
-            body: httpMethod !== 'GET' ? JSON.stringify({ jsonrpc: '2.0', method, params, id: Date.now() }) : null
+            body: body ? JSON.stringify(body) : null
           });
-          if (response.error) throw new Error(`MCP Error: ${response.error.message} (${method}) at ${endpoint}`);
-          return response.result || response;
+          this.offlineAttempts = 0;
+          return response;
         } catch (error) {
-          this.handleError(error, endpoint, method, httpMethod);
+          this.handleError(error, endpoint, httpMethod);
           throw error;
         }
       }
@@ -270,52 +208,34 @@
             }
             return await response.json();
           } catch (error) {
+            this.offlineAttempts++;
+            if (this.offlineAttempts >= this.maxOfflineAttempts) {
+              this.offlineForced = true;
+              this.handleError(new Error(`Forcing offline mode after ${this.offlineAttempts} failed attempts`), url, 'fetch', options.method);
+              return this.mockResponse(url.replace(this.baseUrl, ''));
+            }
             if (i < attempts - 1) {
               this.handleError(new Error(`Attempt ${i + 1} failed for ${url}\nError: ${error.message}\nRetrying in ${this.retryDelay}ms`), url, 'fetch', options.method);
               await new Promise(resolve => setTimeout(resolve, this.retryDelay));
               continue;
             }
-            try {
-              const fallbackUrl = url.replace(this.baseUrl, this.fallbackUrl);
-              this.handleError(new Error(`Switching to fallback: ${fallbackUrl}`), url, 'fetch', options.method);
-              const response = await fetch(fallbackUrl, options);
-              if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}\nFix: Verify ${fallbackUrl} in /main/api/routes/${endpointToFile(fallbackUrl)}`);
-              return await response.json();
-            } catch (fallbackError) {
-              throw new Error(`Fallback failed: ${fallbackError.message}\nFix: Check Docker container at ${this.fallbackUrl} or /main/api/routes/${endpointToFile(url)}`);
-            }
+            throw error;
           }
         }
       }
-      mockResponse(method, params, endpoint) {
+      mockResponse(endpoint) {
         const mocks = {
           '/health': { status: 'healthy', timestamp: new Date().toISOString() },
-          '/wallet': { user_id: 'WEBXOS-MOCKKEY', balance: 0, currency: 'USD' },
-          '/generate-credentials': { key: 'mock_key', secret: 'mock_secret' },
-          '/void': { status: 'success', message: 'Transaction voided' },
-          '/troubleshoot': { status: 'success', diagnostics: { cpu_usage_percent: 10, memory_usage_mb: 500, memory_total_mb: 16000, disk_usage_percent: 20, process_memory_mb: 100 } },
-          '/quantum-link': { status: 'success', quantum_state: { qubits: [], entanglement: 'none' } },
-          '/git/push': { status: 'success', output: 'Mock push to repository' },
-          '/git/pull': { status: 'success', output: 'Mock pull from repository' },
-          '/git/diff': { status: 'success', output: 'Mock diff output' },
-          '/git/commit': { status: 'success', output: 'Mock commit completed' },
-          '/git/log': { status: 'success', output: 'Mock commit log' },
-          '/git/checkout': { status: 'success', output: 'Mock checkout completed' },
-          '/mcp': {
-            'tools/list': ['get_wallet_info', 'generate_credentials'],
-            'prompts/get': `Mock response for ${params.name}`,
-            'initialize': { serverName: 'webxos-mcp-gateway', serverVersion: '2.7.8', protocolVersion: '2024-11-05', capabilities: ['tools', 'resources', 'prompts', 'tasks', 'notifications'] }
-          }
+          '/oauth/token': { access_token: 'mock_token', token_type: 'bearer' }
         };
-        if (endpoint === '/mcp' && mocks[endpoint][method]) return mocks[endpoint][method];
         if (mocks[endpoint]) return mocks[endpoint];
-        throw new Error(`No mock for ${method} at ${endpoint} in offline mode\nFix: Add mock response in MCPClient.mockResponse`);
+        throw new Error(`No mock for ${endpoint} in offline mode\nFix: Add mock response in MCPClient.mockResponse`);
       }
-      handleError(error, endpoint, method, httpMethod) {
+      handleError(error, endpoint, httpMethod) {
         const stack = [
           `Traceback: ${error.message}`,
           `Endpoint: ${endpoint}`,
-          `Method: ${method} (${httpMethod})`,
+          `Method: ${httpMethod}`,
           `Timestamp: ${new Date().toISOString()}`,
           `Stack: ${error.stack || 'No stack trace available'}`,
           `Fix: Check /main/api/routes/${endpointToFile(endpoint)} or .env configuration`
@@ -326,11 +246,9 @@
       }
     }
 
-    // Embedded Gateway
     class Gateway {
       constructor() {
-        this.client = new MCPClient('https://webxos-mcp-gateway.onrender.com/v1', 'http://localhost:8000/v1');
-        this.socket = null;
+        this.client = new MCPClient('http://localhost:8000/v1');
         this.isAuthenticated = !!localStorage.getItem('access_token');
         this.cache = {};
         this.elements = {
@@ -342,103 +260,47 @@
           sessionBalance: document.getElementById('session-balance'),
           address: document.getElementById('address'),
           vialAgent: document.getElementById('vial-agent'),
-          quantumState: document.getElementById('quantum-state'),
           taskStatus: document.getElementById('task-status'),
           apiKey: document.getElementById('api-key'),
           apiSecret: document.getElementById('api-secret'),
-          popupApiKey: document.getElementById('popup-api-key'),
-          popupApiSecret: document.getElementById('popup-api-secret'),
-          repoUrl: document.getElementById('repo-url'),
-          gitAction: document.getElementById('git-action'),
-          gitBranch: document.getElementById('git-branch'),
-          gitOutput: document.getElementById('git-output'),
           dashboard: document.getElementById('dashboard'),
           commandInput: document.getElementById('command-input'),
-          apiPopup: document.getElementById('api-popup'),
-          gitPopup: document.getElementById('git-popup'),
-          fastmcpBtn: document.getElementById('fastmcp-btn'),
-          apiBtn: document.getElementById('api-btn'),
-          gitBtn: document.getElementById('git-btn'),
-          voidBtn: document.getElementById('void-btn'),
-          troubleshootBtn: document.getElementById('troubleshoot-btn'),
-          quantumLinkBtn: document.getElementById('quantum-link-btn'),
-          exportBtn: document.getElementById('export-btn'),
-          importBtn: document.getElementById('import-btn'),
-          generateCredentialsBtn: document.getElementById('generate-credentials-btn'),
-          executeGitBtn: document.getElementById('execute-git-btn')
+          authBtn: document.getElementById('auth-btn'),
+          healthBtn: document.getElementById('health-btn')
         };
         this.setupEventListeners();
-        this.setupSocket();
         this.updateButtonStates();
         this.checkStatus();
         setInterval(() => this.checkStatus(), 30000);
       }
       setupEventListeners() {
-        this.elements.fastmcpBtn.addEventListener('click', () => this.fastMCPStartup());
-        this.elements.apiBtn.addEventListener('click', () => this.showAPIPopup());
-        this.elements.gitBtn.addEventListener('click', () => this.showGitPopup());
-        this.elements.voidBtn.addEventListener('click', () => this.voidTransaction());
-        this.elements.troubleshootBtn.addEventListener('click', () => this.troubleshoot());
-        this.elements.quantumLinkBtn.addEventListener('click', () => this.quantumLink());
-        this.elements.exportBtn.addEventListener('click', () => this.exportData());
-        this.elements.importBtn.addEventListener('click', () => this.importData());
-        this.elements.generateCredentialsBtn.addEventListener('click', () => this.generateCredentials());
-        this.elements.executeGitBtn.addEventListener('click', () => this.executeGitAction());
+        this.elements.authBtn.addEventListener('click', () => this.authenticate());
+        this.elements.healthBtn.addEventListener('click', () => this.checkStatus());
         this.elements.commandInput.addEventListener('keypress', (e) => {
           if (e.key === 'Enter') this.sendCommand(e.target.value);
         });
-        document.querySelectorAll('.close').forEach(close => {
-          close.addEventListener('click', () => {
-            this.hideAPIPopup();
-            this.hideGitPopup();
-          });
-        });
-      }
-      setupSocket() {
-        if (this.client.offline) {
-          this.logError('Offline mode: WebSocket disabled');
-          return;
-        }
-        if (typeof io === 'undefined') {
-          this.client.handleError(new Error('Socket.IO library failed to load'), '/ws', 'WebSocket', 'CONNECT');
-          return;
-        }
-        this.socket = io(this.client.baseUrl, { autoConnect: false });
-        this.socket.on('connect', () => this.logError('WebSocket connected'));
-        this.socket.on('disconnect', () => this.logError('WebSocket disconnected'));
-        this.socket.on('update', (data) => this.handleStreamUpdate(data));
-        if (this.isAuthenticated) this.socket.connect();
-      }
-      handleStreamUpdate(data) {
-        this.updateDashboard(data);
-        this.elements.taskStatus.textContent = data.task_status || 'Idle';
-        this.logError(`Stream update: ${JSON.stringify(data)}`);
       }
       updateButtonStates() {
-        const isEnabled = this.isAuthenticated;
-        ['apiBtn', 'gitBtn', 'voidBtn', 'troubleshootBtn', 'quantumLinkBtn', 'exportBtn', 'importBtn'].forEach(id => {
-          this.elements[id].disabled = !isEnabled;
-          this.elements[id].classList.toggle('disabled', !isEnabled);
-        });
+        this.elements.healthBtn.disabled = !this.isAuthenticated;
+        this.elements.healthBtn.classList.toggle('disabled', !this.isAuthenticated);
       }
       async checkStatus() {
         try {
-          const data = await this.client.request(null, {}, '/health', 'GET');
-          this.logError('Backend healthy: /main/api/health.py');
+          const data = await this.client.request('/health', 'GET');
+          this.logError('Backend healthy: /main/api/routes/health.py');
           this.updateDashboard(data);
         } catch (error) {
-          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Verify /main/api/health.py or Render deployment at ${this.client.baseUrl}/health`);
+          this.logError(`Traceback: NetworkError\nError: ${error.message}\nFix: Verify /main/api/routes/health.py or ensure backend is running at ${this.client.baseUrl}`);
           if (this.cache) this.updateFromCache();
         }
       }
       updateDashboard(data) {
         this.elements.balance.textContent = data.balance || '0.0000';
         this.elements.reputation.textContent = data.reputation || '0';
-        this.elements.walletKey.textContent = data.user_id || data.wallet_key || 'N/A';
+        this.elements.walletKey.textContent = data.user_id || 'N/A';
         this.elements.sessionBalance.textContent = `${data.balance || 0.0000} $WEBXOS`;
         this.elements.address.textContent = data.address || 'N/A';
         this.elements.vialAgent.textContent = data.vial_agent || 'N/A';
-        this.elements.quantumState.textContent = JSON.stringify(data.quantum_state || 'N/A');
         this.elements.taskStatus.textContent = data.task_status || 'Idle';
         this.cache = data;
         this.elements.dashboard.classList.add('active');
@@ -451,179 +313,76 @@
         this.elements.errorMessage.textContent = `[${timestamp}] ${message}`;
         this.elements.errorConsole.scrollTop = this.elements.errorConsole.scrollHeight;
       }
-      showAPIPopup() {
-        if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required\nFix: Use Authenticate button first (check /main/api/routes/oauth.py)');
-          return;
+      async authenticate() {
+        try {
+          const data = await this.client.request('/oauth/token', 'POST', {
+            grant_type: 'client_credentials',
+            client_id: 'WEBXOS-MOCKKEY',
+            client_secret: 'MOCKSECRET1234567890'
+          });
+          this.client.token = data.access_token;
+          localStorage.setItem('access_token', data.access_token);
+          this.isAuthenticated = true;
+          this.updateButtonStates();
+          this.logError('Authentication successful: /main/api/routes/oauth.py');
+          await this.checkStatus();
+        } catch (error) {
+          this.logError(`Traceback: Authentication failed\nError: ${error.message}\nFix: Check /main/api/routes/oauth.py or .env`);
         }
-        this.elements.apiPopup.style.display = 'block';
-      }
-      hideAPIPopup() {
-        this.elements.apiPopup.style.display = 'none';
-      }
-      showGitPopup() {
-        if (!this.isAuthenticated) {
-          this.logError('Traceback: Authentication required\nFix: Use Authenticate button first (check /main/api/routes/oauth.py)');
-          return;
-        }
-        this.elements.gitPopup.style.display = 'block';
-      }
-      hideGitPopup() {
-        this.elements.gitPopup.style.display = 'none';
       }
       async sendCommand(command) {
-        if (!this.client.offline && !this.isAuthenticated && command !== '/fastmcp' && command !== '/help') {
-          this.logError('Traceback: Authentication required\nFix: Use /fastmcp or Authenticate button (check /main/api/routes/oauth.py)');
+        if (!this.isAuthenticated && command !== '/auth' && command !== '/help') {
+          this.logError('Traceback: Authentication required\nFix: Use /auth or Authenticate button (check /main/api/routes/oauth.py)');
           return;
         }
         try {
-          let endpoint = '/wallet';
-          let method = 'GET';
-          let params = {};
-          let httpMethod = 'POST';
+          let endpoint = '/health';
+          let httpMethod = 'GET';
+          let body = null;
           switch (command.toLowerCase()) {
             case '/help':
-              this.logError('Available commands: /help, /wallet, /health, /fastmcp, /void, /troubleshoot, /quantum-link, /export, /import, /git');
+              this.logError('Available commands: /help, /auth, /health');
               return;
-            case '/wallet':
-              endpoint = '/wallet';
-              params = { user_id: 'WEBXOS-MOCKKEY' };
+            case '/auth':
+              endpoint = '/oauth/token';
+              httpMethod = 'POST';
+              body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' };
               break;
             case '/health':
               endpoint = '/health';
+              httpMethod = 'GET';
               break;
-            case '/fastmcp':
-              endpoint = '/oauth/token';
-              params = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' };
-              break;
-            case '/void':
-              endpoint = '/void';
-              params = {};
-              break;
-            case '/troubleshoot':
-              endpoint = '/troubleshoot';
-              params = {};
-              break;
-            case '/quantum-link':
-              endpoint = '/quantum-link';
-              params = {};
-              break;
-            case '/export':
-              endpoint = '/export';
-              params = {};
-              break;
-            case '/import':
-              endpoint = '/import';
-              params = { file: 'vial_wallet_export_2025-08-17T00-22-00Z.md' };
-              break;
-            case '/git':
-              this.showGitPopup();
-              return;
             default:
               this.logError(`Traceback: Unknown command: ${command}\nFix: Use /help for commands`);
               return;
           }
-          const data = await this.client.request(null, params, endpoint, httpMethod);
-          if (endpoint === '/wallet') this.updateDashboard(data);
+          const data = await this.client.request(endpoint, httpMethod, body);
           if (endpoint === '/oauth/token') {
             this.client.token = data.access_token;
             localStorage.setItem('access_token', data.access_token);
             this.isAuthenticated = true;
             this.updateButtonStates();
-            this.socket?.connect();
             this.logError('Authentication successful: /main/api/routes/oauth.py');
+            await this.checkStatus();
+          } else {
+            this.updateDashboard(data);
+            this.logError(`Command executed: ${endpoint} (${httpMethod})`);
           }
-          if (endpoint === '/generate-credentials') {
-            this.elements.popupApiKey.value = data.key || 'N/A';
-            this.elements.apiKey.value = data.key || 'N/A';
-            this.elements.apiSecret.value = data.secret || 'N/A';
-          }
-          this.logError(`Command executed: ${endpoint} (${httpMethod})`);
         } catch (error) {
           this.logError(`Traceback: Command failed\nError: ${error.message}\nFix: Check /main/api/routes/${endpointToFile(endpoint)} or .env`);
         }
         this.elements.commandInput.value = '';
       }
-      async generateCredentials() {
-        try {
-          const data = await this.client.request('generate_credentials', { user_id: 'WEBXOS-MOCKKEY' }, '/generate-credentials', 'GET');
-          this.elements.popupApiKey.value = data.key || 'N/A';
-          this.elements.apiKey.value = data.key || 'N/A';
-          this.elements.apiSecret.value = data.secret || 'N/A';
-          this.logError('Credentials generated: /main/api/routes/credentials.py');
-        } catch (error) {
-          this.logError(`Traceback: Credentials generation failed\nError: ${error.message}\nFix: Check /main/api/routes/credentials.py or /main/api/mcp/handlers/tools.py`);
-        }
-      }
-      async executeGitAction() {
-        try {
-          const action = this.elements.gitAction.value;
-          const repoUrl = this.elements.repoUrl.value || 'https://github.com/webxos/webxos-mcp-gateway.git';
-          const branch = this.elements.gitBranch.value || 'main';
-          const data = await this.client.request(null, { repo_url: repoUrl, branch }, `/git/${action}`, 'POST');
-          this.elements.gitOutput.textContent = JSON.stringify(data.output || data);
-          this.logError(`Git ${action} successful: /main/api/routes/git.py`);
-        } catch (error) {
-          this.elements.gitOutput.textContent = `Error: ${error.message}`;
-          this.logError(`Traceback: Git ${action} failed\nError: ${error.message}\nFix: Check /main/api/routes/git.py or /main/.env (REPO_URL, REPO_TOKEN)`);
-        }
-      }
-      async quantumLink() {
-        try {
-          const data = await this.client.request(null, {}, '/quantum-link', 'GET');
-          this.updateDashboard({ quantum_state: data.quantum_state });
-          this.logError('Quantum link successful: /main/api/routes/quantum_link.py');
-        } catch (error) {
-          this.logError(`Traceback: Quantum link failed\nError: ${error.message}\nFix: Check /main/api/routes/quantum_link.py or /main/api/mcp/handlers/resources.py`);
-        }
-      }
-      fastMCPStartup() { this.sendCommand('/fastmcp'); }
-      voidTransaction() { this.sendCommand('/void'); }
-      troubleshoot() { this.sendCommand('/troubleshoot'); }
-      exportData() { this.sendCommand('/export'); }
-      importData() { this.sendCommand('/import'); }
     }
 
-    // Embedded QuantumInterface
-    class QuantumInterface {
-      constructor() {
-        this.client = new MCPClient('https://webxos-mcp-gateway.onrender.com/v1', 'http://localhost:8000/v1');
-      }
-      async getQuantumState() {
-        try {
-          const data = await this.client.request(null, {}, '/quantum-link', 'GET');
-          return data.quantum_state || { qubits: [], entanglement: 'none' };
-        } catch (error) {
-          this.client.handleError(error, '/quantum-link', 'GET', 'GET');
-          throw error;
-        }
-      }
-    }
-
-    // Helper function to map endpoints to backend files
     function endpointToFile(endpoint) {
       const mapping = {
         '/health': 'health.py',
-        '/oauth/token': 'oauth.py',
-        '/wallet': 'wallet.py',
-        '/generate-credentials': 'credentials.py',
-        '/void': 'void.py',
-        '/troubleshoot': 'troubleshoot.py',
-        '/quantum-link': 'quantum_link.py',
-        '/mcp': 'mcp_protocol.py',
-        '/git/push': 'git.py',
-        '/git/pull': 'git.py',
-        '/git/diff': 'git.py',
-        '/git/commit': 'git.py',
-        '/git/log': 'git.py',
-        '/git/checkout': 'git.py',
-        '/export': 'void.py',
-        '/import': 'void.py'
+        '/oauth/token': 'oauth.py'
       };
       return mapping[endpoint] || 'unknown.py';
     }
 
-    // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       const gateway = new Gateway();
     });
