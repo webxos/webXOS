@@ -195,7 +195,7 @@
       <input type="text" id="command-input" placeholder="Enter command..." onkeypress="if(event.key === 'Enter') gateway.sendCommand(this.value)">
     </div>
     <div class="button-container">
-      <button id="oauth-btn" onclick="gateway.oauthStartup()">OAUTH</button>
+      <button id="fastmcp-btn" onclick="gateway.fastMCPStartup()">FastMCP</button>
       <button id="api-btn" onclick="gateway.showAPIPopup()" disabled class="disabled">API</button>
       <button id="void-btn" onclick="gateway.voidTransaction()" disabled class="disabled">Void</button>
       <button id="troubleshoot-btn" onclick="gateway.troubleshoot()" disabled class="disabled">Troubleshoot</button>
@@ -236,7 +236,7 @@
         this.dashboard = document.getElementById('dashboard');
         this.commandInput = document.getElementById('command-input');
         this.apiPopup = document.getElementById('api-popup');
-        this.oauthBtn = document.getElementById('oauth-btn');
+        this.fastMCPBtn = document.getElementById('fastmcp-btn');
         this.apiBtn = document.getElementById('api-btn');
         this.voidBtn = document.getElementById('void-btn');
         this.troubleshootBtn = document.getElementById('troubleshoot-btn');
@@ -246,7 +246,7 @@
         this.isOnline = navigator.onLine;
         this.cache = {};
         this.isAuthenticated = !!localStorage.getItem('access_token');
-        this.baseUrl = 'https://vial-mcp-backend.onrender.com/v1';
+        this.baseUrl = '/v1';
         this.updateButtonStates();
         this.checkStatus();
         setInterval(() => this.checkStatus(), 5000);
@@ -278,16 +278,16 @@
           const response = await fetch(`${this.baseUrl}/health`, {
             headers: { 'Content-Type': 'application/json' }
           });
-          if (!response.ok) throw new Error(`Traceback: Backend health check failed - Status: ${response.status}\nResponse: ${await response.text()}\nFix: Verify backend deployment at ${this.baseUrl}/health`);
+          if (!response.ok) throw new Error(`Traceback: Backend health check failed - Status: ${response.status}\nResponse: ${await response.text()}\nFix: Verify Docker container at ${this.baseUrl}/health`);
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
-            throw new Error(`Traceback: JSON.parse: unexpected character at line 1 column 1 of the JSON data\nResponse: ${await response.text()}\nFix: Ensure backend at ${this.baseUrl}/health returns JSON`);
+            throw new Error(`Traceback: JSON.parse: unexpected character at line 1 column 1 of the JSON data\nResponse: ${await response.text()}\nFix: Ensure Docker container at ${this.baseUrl}/health returns JSON`);
           }
           const data = await response.json();
           this.logError('Backend healthy.');
           this.updateDashboard(data);
         } catch (error) {
-          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Check backend deployment at ${this.baseUrl}/health`);
+          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Check Docker container deployment at ${this.baseUrl}/health`);
         }
       }
 
@@ -314,7 +314,7 @@
 
       showAPIPopup() {
         if (!this.isAuthenticated) {
-          this.logError('Traceback: OAuth required before API access.\nFix: Use OAUTH button first.');
+          this.logError('Traceback: FastMCP authentication required before API access.\nFix: Use FastMCP button first.');
           return;
         }
         this.apiPopup.style.display = 'block';
@@ -334,10 +334,10 @@
           let method = 'GET';
           let body = null;
           switch (command.toLowerCase()) {
-            case '/help': this.logError('Available commands: /help, /wallet, /health, /oauth, /void, /troubleshoot, /quantum-link, /export, /import'); return;
+            case '/help': this.logError('Available commands: /help, /wallet, /health, /fastmcp, /void, /troubleshoot, /quantum-link, /export, /import'); return;
             case '/wallet': endpoint = '/wallet'; break;
             case '/health': endpoint = '/health'; break;
-            case '/oauth': endpoint = '/oauth/token'; method = 'POST'; body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' }; break;
+            case '/fastmcp': endpoint = '/oauth/token'; method = 'POST'; body = { grant_type: 'client_credentials', client_id: 'WEBXOS-MOCKKEY', client_secret: 'MOCKSECRET1234567890' }; break;
             case '/void': endpoint = '/void'; method = 'POST'; break;
             case '/troubleshoot': endpoint = '/troubleshoot'; break;
             case '/quantum-link': endpoint = '/quantum-link'; break;
@@ -350,10 +350,10 @@
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` },
             body: body ? JSON.stringify(body) : null
           });
-          if (!response.ok) throw new Error(`Traceback: Request failed - Status: ${response.status}\nResponse: ${await response.text()}\nFix: Verify backend deployment at ${this.baseUrl}${endpoint}`);
+          if (!response.ok) throw new Error(`Traceback: Request failed - Status: ${response.status}\nResponse: ${await response.text()}\nFix: Verify Docker container at ${this.baseUrl}${endpoint}`);
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
-            throw new Error(`Traceback: JSON.parse: unexpected character at line 1 column 1 of the JSON data\nResponse: ${await response.text()}\nFix: Ensure backend at ${this.baseUrl}${endpoint} returns JSON`);
+            throw new Error(`Traceback: JSON.parse: unexpected character at line 1 column 1 of the JSON data\nResponse: ${await response.text()}\nFix: Ensure Docker container at ${this.baseUrl}${endpoint} returns JSON`);
           }
           const data = await response.json();
           if (endpoint === '/wallet') this.updateDashboard(data);
@@ -367,25 +367,25 @@
             localStorage.setItem('access_token', data.access_token);
             this.isAuthenticated = true;
             this.updateButtonStates();
-            this.logError('OAuth successful. Buttons enabled.');
+            this.logError('FastMCP authentication successful. Buttons enabled.');
           }
           this.logError(`Command executed: ${endpoint}`);
         } catch (error) {
-          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Check backend deployment at ${this.baseUrl}${endpoint}`);
+          this.logError(`Traceback: NetworkError when attempting to fetch resource\nError: ${error.message}\nFix: Check Docker container deployment at ${this.baseUrl}${endpoint}`);
         }
         this.commandInput.value = '';
       }
 
       generateCredentials() {
         if (!this.isAuthenticated) {
-          this.logError('Traceback: OAuth required before generating credentials.\nFix: Use OAUTH button first.');
+          this.logError('Traceback: FastMCP authentication required before generating credentials.\nFix: Use FastMCP button first.');
           return;
         }
         this.sendCommand('/generate-credentials');
       }
 
-      oauthStartup() {
-        this.sendCommand('/oauth/token');
+      fastMCPStartup() {
+        this.sendCommand('/fastmcp');
         this.sendCommand('/health');
         this.sendCommand('/mcp/rpc');
       }
