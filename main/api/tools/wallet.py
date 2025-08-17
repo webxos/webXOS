@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from typing import Dict, Any, List
 import hashlib
 import re
+import uuid
 
 logger = logging.getLogger("mcp.wallet")
 logger.setLevel(logging.INFO)
@@ -21,6 +22,7 @@ class WalletBalanceOutput(BaseModel):
 class WalletImportInput(BaseModel):
     user_id: str
     markdown: str
+    hash: str
 
 class WalletImportOutput(BaseModel):
     imported_vials: List[str]
@@ -28,6 +30,7 @@ class WalletImportOutput(BaseModel):
 
 class WalletExportOutput(BaseModel):
     markdown: str
+    hash: str
 
 class WalletMineInput(BaseModel):
     user_id: str
@@ -37,6 +40,30 @@ class WalletMineInput(BaseModel):
 class WalletMineOutput(BaseModel):
     hash: str
     reward: float
+    balance: float
+
+class WalletVoidInput(BaseModel):
+    user_id: str
+    vial_id: str
+
+class WalletVoidOutput(BaseModel):
+    vial_id: str
+    status: str
+
+class WalletTroubleshootInput(BaseModel):
+    user_id: str
+    vial_id: str
+
+class WalletTroubleshootOutput(BaseModel):
+    vial_id: str
+    status: str
+    diagnostics: Dict[str, Any]
+
+class WalletQuantumLinkInput(BaseModel):
+    user_id: str
+
+class WalletQuantumLinkOutput(BaseModel):
+    link_id: str
 
 class WalletTool:
     def __init__(self, db: DatabaseConfig):
@@ -57,6 +84,15 @@ class WalletTool:
             elif method == "mineVial":
                 mine_input = WalletMineInput(**input)
                 return await self.mine_vial(mine_input)
+            elif method == "voidVial":
+                void_input = WalletVoidInput(**input)
+                return await self.void_vial(void_input)
+            elif method == "troubleshootVial":
+                troubleshoot_input = WalletTroubleshootInput(**input)
+                return await self.troubleshoot_vial(troubleshoot_input)
+            elif method == "quantumLink":
+                quantum_input = WalletQuantumLinkInput(**input)
+                return await self.quantum_link(quantum_input)
             else:
                 raise ValidationError(f"Unknown method: {method}")
         except Exception as e:
@@ -77,11 +113,15 @@ class WalletTool:
 
     async def import_wallet(self, input: WalletImportInput) -> WalletImportOutput:
         try:
+            # Validate markdown hash
+            calculated_hash = hashlib.sha256(input.markdown.encode()).hexdigest()
+            if calculated_hash != input.hash:
+                raise ValidationError("Invalid markdown file: Hash mismatch")
+            
             user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
-            # Parse markdown for vial balances (simplified from vial_wallet_export)
             balances = []
             for line in input.markdown.splitlines():
                 if match := re.match(r".*balance\s*=\s*(\d+\.\d+)", line):
@@ -91,7 +131,6 @@ class WalletTool:
             current_balance = float(user.rows[0]["balance"])
             new_balance = current_balance + total_balance
             
-            # Update user balance
             await self.db.query(
                 "UPDATE users SET balance = $1 WHERE user_id = $2",
                 [new_balance, input.user_id]
@@ -117,8 +156,9 @@ class WalletTool:
 ## Vial Balances
 - {input.vial_id}: {balance}
 """
+            hash_value = hashlib.sha256(markdown.encode()).hexdigest()
             logger.info(f"Exported vials for {input.user_id}")
-            return WalletExportOutput(markdown=markdown)
+            return WalletExportOutput(markdown=markdown, hash=hash_value)
         except Exception as e:
             logger.error(f"Export vials error: {str(e)}")
             raise HTTPException(400, str(e))
@@ -129,22 +169,80 @@ class WalletTool:
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
-            # Simplified PoW: Find a hash with leading zeros
             data = f"{input.user_id}{input.vial_id}{input.nonce}"
             hash_value = hashlib.sha256(data.encode()).hexdigest()
-            difficulty = 2  # Number of leading zeros
+            difficulty = 2
             reward = 0.0
             
             if hash_value.startswith("0" * difficulty):
-                reward = 1.0  # Reward for valid PoW
+                reward = 1.0
                 current_balance = float(user.rows[0]["balance"])
+                new_balance = current_balance + reward
                 await self.db.query(
                     "UPDATE users SET balance = $1 WHERE user_id = $2",
-                    [current_balance + reward, input.user_id]
+                    [new_balance, input.user_id]
                 )
                 logger.info(f"Mining successful for {input.user_id}, vial {input.vial_id}, reward: {reward}")
+            else:
+                new_balance = float(user.rows[0]["balance"])
             
-            return WalletMineOutput(hash=hash_value, reward=reward)
+            return WalletMineOutput(hash=hash_value, reward=reward, balance=new_balance)
         except Exception as e:
             logger.error(f"Mine vial error: {str(e)}")
+            raise HTTPException(400, str(e))
+
+    async def void_vial(self, input: WalletVoidInput) -> WalletVoidOutput:
+        try:
+            user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
+            await self.db.query(
+                "UPDATE users SET balance = 0 WHERE user_id = $1",
+                [input.user_id]
+            )
+            
+            logger.info(f"Voided vial {input.vial_id} for {input.user_id}")
+            return WalletVoidOutput(vial_id=input.vial_id, status="voided")
+        except Exception as e:
+            logger.error(f"Void vial error: {str(e)}")
+            raise HTTPException(400, str(e))
+
+    async def troubleshoot_vial(self, input: WalletTroubleshootInput) -> WalletTroubleshootOutput:
+        try:
+            user = await self.db.query("SELECT user_id, balance, wallet_address FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
+            diagnostics = {
+                "balance": float(user.rows[0]["balance"]),
+                "wallet_address": user.rows[0]["wallet_address"],
+                "active": user.rows[0]["balance"] > 0
+            }
+            
+            logger.info(f"Troubleshooted vial {input.vial_id} for {input.user_id}")
+            return WalletTroubleshootOutput(
+                vial_id=input.vial_id,
+                status="operational" if diagnostics["active"] else "inactive",
+                diagnostics=diagnostics
+            )
+        except Exception as e:
+            logger.error(f"Troubleshoot vial error: {str(e)}")
+            raise HTTPException(400, str(e))
+
+    async def quantum_link(self, input: WalletQuantumLinkInput) -> WalletQuantumLinkOutput:
+        try:
+            user = await self.db.query("SELECT user_id FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
+            link_id = str(uuid.uuid4())
+            await self.db.query(
+                "INSERT INTO quantum_links (link_id, user_id) VALUES ($1, $2)",
+                [link_id, input.user_id]
+            )
+            logger.info(f"Established quantum link for {input.user_id}: {link_id}")
+            return WalletQuantumLinkOutput(link_id=link_id)
+        except Exception as e:
+            logger.error(f"Quantum link error: {str(e)}")
             raise HTTPException(400, str(e))
