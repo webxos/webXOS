@@ -1,78 +1,51 @@
-const API_URL = 'http://localhost:8000/mcp';
-const GOOGLE_CLIENT_ID = 'your_google_client_id'; // Replace with actual client ID from .env
+const GITHUB_CLIENT_ID = 'YOUR_GITHUB_CLIENT_ID'; // Replace with actual Client ID from Netlify env
+const REDIRECT_URI = 'https://<your-netlify-site>.netlify.app/auth/callback';
+const API_URL = 'https://<your-netlify-site>.netlify.app/mcp/execute';
 
-// Load Google Sign-In SDK
-function loadGoogleSignIn() {
-  const script = document.createElement('script');
-  script.src = 'https://accounts.google.com/gsi/client';
-  script.async = true;
-  script.defer = true;
-  document.head.appendChild(script);
+async function initiateOAuth() {
+  const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=user`;
+  window.location.href = authUrl;
 }
 
-async function authenticateWithGoogle(credential) {
-  try {
-    const res = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'authentication',
-        params: { oauth_token: credential, provider: 'google' },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    
-    const userId = data.result.user_id;
-    document.getElementById('user-id').innerText = userId;
-    document.getElementById('output').innerText = 'Authentication successful!';
-    
-    // Dispatch auth-success event to trigger WebSocket connection and wallet sync
-    const event = new CustomEvent('auth-success', { detail: { user_id: userId } });
-    document.dispatchEvent(event);
-    
-    // Fetch initial wallet data
-    const walletRes = await fetch(`${API_URL}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'wallet.getVialBalance',
-        params: { user_id: userId, vial_id: 'vial1' },
-        id: Math.floor(Math.random() * 1000)
-      })
-    });
-    const walletData = await walletRes.json();
-    if (walletData.error) throw new Error(walletData.error.message);
-    
-    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: walletData.result.balance }));
-    document.getElementById('balance').innerText = `${walletData.result.balance} $WEBXOS`;
-    document.getElementById('wallet-address').innerText = `wallet_${userId}`;
-  } catch (error) {
-    document.getElementById('output').innerText = `Authentication error: ${error.message}`;
+async function handleOAuthCallback() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  if (code) {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'auth.exchangeToken',
+          params: { code, redirect_uri: REDIRECT_URI },
+          id: Math.floor(Math.random() * 1000)
+        })
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      
+      const { access_token, user_id } = data.result;
+      localStorage.setItem('access_token', access_token);
+      document.getElementById('user-id').innerText = user_id;
+      document.getElementById('output').innerText = 'Authentication successful!';
+      
+      // Trigger WebSocket connection
+      const event = new CustomEvent('auth-success', { detail: { user_id } });
+      document.dispatchEvent(event);
+      
+      // Redirect to main page
+      window.history.replaceState({}, document.title, '/');
+    } catch (error) {
+      document.getElementById('output').innerText = `Authentication error: ${error.message}`;
+    }
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadGoogleSignIn();
-  
-  // Initialize Google Sign-In
-  window.google.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: (response) => {
-      authenticateWithGoogle(response.credential);
-    }
-  });
-  
-  // Render Google Sign-In button
-  window.google.accounts.id.renderButton(
-    document.getElementById('google-login-btn'),
-    { theme: 'outline', size: 'large' }
-  );
-});
+document.getElementById('google-login-btn').style.display = 'none'; // Hide Google login
+document.getElementById('auth-btn').addEventListener('click', initiateOAuth);
 
-document.getElementById('auth-btn').addEventListener('click', () => {
-  document.getElementById('output').innerText = 'Please use Google Login for authentication';
-});
+// Check for OAuth callback on page load
+if (window.location.pathname === '/auth/callback') {
+  handleOAuthCallback();
+}
