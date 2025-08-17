@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 import hashlib
 import re
 import uuid
+from datetime import datetime
 
 logger = logging.getLogger("mcp.wallet")
 logger.setLevel(logging.INFO)
@@ -22,13 +23,22 @@ class WalletBalanceOutput(BaseModel):
 class WalletImportInput(BaseModel):
     user_id: str
     markdown: str
+    hash: str
 
 class WalletImportOutput(BaseModel):
     imported_vials: List[str]
     total_balance: float
 
+class WalletBatchSyncInput(BaseModel):
+    user_id: str
+    operations: List[Dict[str, Any]]
+
+class WalletBatchSyncOutput(BaseModel):
+    results: List[Dict[str, Any]]
+
 class WalletExportOutput(BaseModel):
     markdown: str
+    hash: str
 
 class WalletMineInput(BaseModel):
     user_id: str
@@ -38,6 +48,7 @@ class WalletMineInput(BaseModel):
 class WalletMineOutput(BaseModel):
     hash: str
     reward: float
+    balance: float
 
 class WalletVoidInput(BaseModel):
     user_id: str
@@ -75,6 +86,9 @@ class WalletTool:
             elif method == "importWallet":
                 import_input = WalletImportInput(**input)
                 return await self.import_wallet(import_input)
+            elif method == "batchSync":
+                sync_input = WalletBatchSyncInput(**input)
+                return await self.batch_sync(sync_input)
             elif method == "exportVials":
                 export_input = WalletBalanceInput(**input)
                 return await self.export_vials(export_input)
@@ -110,6 +124,10 @@ class WalletTool:
 
     async def import_wallet(self, input: WalletImportInput) -> WalletImportOutput:
         try:
+            calculated_hash = hashlib.sha256(input.markdown.encode()).hexdigest()
+            if calculated_hash != input.hash:
+                raise ValidationError("Invalid markdown file: Hash mismatch")
+            
             user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
@@ -137,19 +155,98 @@ class WalletTool:
             logger.error(f"Import wallet error: {str(e)}")
             raise HTTPException(400, str(e))
 
-    async def export_vials(self, input: WalletBalanceInput) -> WalletExportOutput:
+    async def batch_sync(self, input: WalletBatchSyncInput) -> WalletBatchSyncOutput:
         try:
             user = await self.db.query("SELECT user_id, balance FROM users WHERE user_id = $1", [input.user_id])
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
+            current_balance = float(user.rows[0]["balance"])
+            results = []
+            
+            # Batch database operations
+            import_vials = []
+            mining_ops = []
+            
+            for op in input.operations:
+                if op["method"] == "importWallet":
+                    calculated_hash = hashlib.sha256(op["markdown"].encode()).hexdigest()
+                    if calculated_hash != op["hash"]:
+                        results.append({"error": "Invalid markdown file: Hash mismatch"})
+                        continue
+                    
+                    balances = []
+                    for line in op["markdown"].splitlines():
+                        if match := re.match(r".*balance\s*=\s*(\d+\.\d+)", line):
+                            balances.append(float(match.group(1)))
+                    
+                    total_balance = sum(balances)
+                    import_vials.append((total_balance, [f"vial{i+1}" for i in range(len(balances))]))
+                
+                elif op["method"] == "mineVial":
+                    mining_ops.append((op["vial_id"], op["nonce"]))
+            
+            # Process imports in a single query
+            if import_vials:
+                total_import_balance = sum(v[0] for v in import_vials)
+                current_balance += total_import_balance
+                await self.db.query(
+                    "UPDATE users SET balance = $1 WHERE user_id = $2",
+                    [current_balance, input.user_id]
+                )
+                for total_balance, vials in import_vials:
+                    results.append({"imported_vials": vials, "total_balance": current_balance})
+            
+            # Process mining operations in a single query
+            for vial_id, nonce in mining_ops:
+                data = f"{input.user_id}{vial_id}{nonce}"
+                hash_value = hashlib.sha256(data.encode()).hexdigest()
+                difficulty = 2
+                reward = 0.0
+                
+                if hash_value.startswith("0" * difficulty):
+                    reward = 1.0
+                    current_balance += reward
+                    await self.db.query(
+                        "UPDATE users SET balance = $1 WHERE user_id = $2",
+                        [current_balance, input.user_id]
+                    )
+                
+                results.append({"hash": hash_value, "reward": reward, "balance": current_balance})
+            
+            logger.info(f"Batch synced operations for {input.user_id}, new balance: {current_balance}")
+            return WalletBatchSyncOutput(results=results)
+        except Exception as e:
+            logger.error(f"Batch sync error: {str(e)}")
+            raise HTTPException(400, str(e))
+
+    async def export_vials(self, input: WalletBalanceInput) -> WalletExportOutput:
+        try:
+            user = await self.db.query("SELECT user_id, balance, wallet_address FROM users WHERE user_id = $1", [input.user_id])
+            if not user.rows:
+                raise ValidationError(f"User not found: {input.user_id}")
+            
             balance = float(user.rows[0]["balance"])
+            wallet_address = user.rows[0]["wallet_address"]
+            timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S-%fZ")
             markdown = f"""# Wallet Export for {input.user_id}
+## Instructions
+- **Reuse**: Import this .md file via the "Import" button to resume training.
+- **Extend**: Modify agent code externally, then reimport.
+- **Share**: Send this .md file to others to continue training with the same wallet.
+- **API**: Use API credentials with LangChain to train vials (online mode only).
+- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification (online mode only).
+
 ## Vial Balances
 - {input.vial_id}: {balance}
+
+## Wallet Details
+- Wallet Address: {wallet_address}
+- Export Timestamp: {timestamp}
 """
+            hash_value = hashlib.sha256(markdown.encode()).hexdigest()
             logger.info(f"Exported vials for {input.user_id}")
-            return WalletExportOutput(markdown=markdown)
+            return WalletExportOutput(markdown=markdown, hash=hash_value)
         except Exception as e:
             logger.error(f"Export vials error: {str(e)}")
             raise HTTPException(400, str(e))
@@ -168,13 +265,16 @@ class WalletTool:
             if hash_value.startswith("0" * difficulty):
                 reward = 1.0
                 current_balance = float(user.rows[0]["balance"])
+                new_balance = current_balance + reward
                 await self.db.query(
                     "UPDATE users SET balance = $1 WHERE user_id = $2",
-                    [current_balance + reward, input.user_id]
+                    [new_balance, input.user_id]
                 )
                 logger.info(f"Mining successful for {input.user_id}, vial {input.vial_id}, reward: {reward}")
+            else:
+                new_balance = float(user.rows[0]["balance"])
             
-            return WalletMineOutput(hash=hash_value, reward=reward)
+            return WalletMineOutput(hash=hash_value, reward=reward, balance=new_balance)
         except Exception as e:
             logger.error(f"Mine vial error: {str(e)}")
             raise HTTPException(400, str(e))
@@ -185,7 +285,6 @@ class WalletTool:
             if not user.rows:
                 raise ValidationError(f"User not found: {input.user_id}")
             
-            # Simulate voiding by resetting balance for simplicity
             await self.db.query(
                 "UPDATE users SET balance = 0 WHERE user_id = $1",
                 [input.user_id]
@@ -226,7 +325,10 @@ class WalletTool:
                 raise ValidationError(f"User not found: {input.user_id}")
             
             link_id = str(uuid.uuid4())
-            # Simulate quantum link by logging a unique connection ID
+            await self.db.query(
+                "INSERT INTO quantum_links (link_id, user_id) VALUES ($1, $2)",
+                [link_id, input.user_id]
+            )
             logger.info(f"Established quantum link for {input.user_id}: {link_id}")
             return WalletQuantumLinkOutput(link_id=link_id)
         except Exception as e:
