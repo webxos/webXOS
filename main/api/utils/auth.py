@@ -1,7 +1,7 @@
 from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 import jwt
-from config.mcp_config import MCP_CONFIG
+from main.api.config.mcp_config import MCP_CONFIG
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/oauth/token")
 
