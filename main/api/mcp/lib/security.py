@@ -1,7 +1,8 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from config.config import DatabaseConfig
+from pydantic import BaseModel
 import json
 import hashlib
 import smtplib
@@ -10,6 +11,16 @@ import os
 
 logger = logging.getLogger("mcp.security")
 logger.setLevel(logging.INFO)
+
+class UserActionsInput(BaseModel):
+    user_id: str
+    page: int = 1
+    page_size: int = 50
+
+class UserActionsOutput(BaseModel):
+    actions: List[Dict[str, Any]]
+    total_pages: int
+    current_page: int
 
 class SecurityHandler:
     def __init__(self, db: DatabaseConfig):
@@ -47,7 +58,7 @@ class SecurityHandler:
         except Exception as e:
             logger.error(f"Error logging security event: {str(e)}")
 
-    async def log_user_action(self, user_id: str, action: str, details: Dict[str, Any], ip_address: Optional[str] = None):
+    async def log_user_action(self, user_id: Optional[str], action: str, details: Dict[str, Any], ip_address: Optional[str] = None):
         """Log user actions for auditing purposes."""
         try:
             await self.db.query(
@@ -238,3 +249,36 @@ class SecurityHandler:
                     logger.warning(f"Anomaly detected: High cash-out attempts for user {user_id}")
         except Exception as e:
             logger.error(f"Error detecting anomalies: {str(e)}")
+
+    async def get_user_actions(self, input: UserActionsInput) -> UserActionsOutput:
+        try:
+            offset = (input.page - 1) * input.page_size
+            total_count = await self.db.query(
+                "SELECT COUNT(*) FROM audit_logs WHERE user_id = $1",
+                [input.user_id]
+            )
+            total_pages = (total_count.rows[0]["count"] + input.page_size - 1) // input.page_size
+
+            actions = await self.db.query(
+                "SELECT action, details, created_at FROM audit_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                [input.user_id, input.page_size, offset]
+            )
+            await self.log_user_action(
+                user_id=input.user_id,
+                action="view_action_history",
+                details={"page": input.page, "page_size": input.page_size, "action_count": len(actions.rows)}
+            )
+            logger.info(f"Retrieved action history for user {input.user_id}, page {input.page}")
+            return UserActionsOutput(
+                actions=[{"action": row["action"], "details": json.loads(row["details"]), "created_at": row["created_at"].isoformat()} for row in actions.rows],
+                total_pages=total_pages,
+                current_page=input.page
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving user actions: {str(e)}")
+            await self.log_event(
+                event_type="action_history_error",
+                user_id=input.user_id,
+                details={"error": str(e)}
+            )
+            raise HTTPException(status_code=500, detail=str(e))
