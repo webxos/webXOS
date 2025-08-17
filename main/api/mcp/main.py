@@ -3,6 +3,10 @@ from pydantic import BaseModel
 from typing import Dict, Any
 import uvicorn
 from tools.auth_tool import AuthenticationTool
+from tools.vial_management import VialManagementTool
+from tools.health import HealthTool
+from tools.blockchain import BlockchainTool
+from tools.claude_tool import ClaudeTool
 from lib.mcp_transport import MCPTransport
 from config.config import DatabaseConfig
 import logging
@@ -31,7 +35,10 @@ class MCPServer:
         self.db = DatabaseConfig()
         self.tools = {
             "authentication": AuthenticationTool(self.db),
-            # Add vial-management tool later
+            "vial-management": VialManagementTool(self.db),
+            "health": HealthTool(self.db, self.tools),
+            "blockchain": BlockchainTool(self.db),
+            "claude": ClaudeTool(self.db)
         }
         self.transport = MCPTransport(self.handle_request)
 
@@ -64,6 +71,10 @@ async def startup_event():
 @app.post("/mcp/execute")
 async def execute(request: MCPRequest):
     return await server.transport.handle(request)
+
+@app.get("/mcp/health")
+async def health_check():
+    return await server.tools["health"].execute({})
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
