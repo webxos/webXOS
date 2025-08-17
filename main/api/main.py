@@ -3,10 +3,13 @@ from .routes import wallet, oauth, troubleshoot, quantum_link, mcp_protocol, cre
 from .health import router as health_router
 from ..utils.logging import log_error, log_info
 import asyncio
+import torch
+import tensorflow as tf
+import dspy
 
 app = FastAPI(
     title="WEBXOS MCP Gateway",
-    description="API Gateway for WEBXOS Vial MCP (BETA)",
+    description="API Gateway for WEBXOS Vial MCP (BETA) with PyTorch, TensorFlow, and DSPy",
     version="2.7.8",
     openapi_url="/v1/openapi.json"
 )
@@ -21,10 +24,16 @@ app.include_router(credentials.router, prefix="/v1")
 app.include_router(void.router, prefix="/v1")
 app.include_router(health_router, prefix="/v1")
 
+# Initialize DSPy for lightweight processing
+dspy.settings.configure(lm=dspy.LM('gpt-3.5-turbo'))
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     log_info("WEBXOS MCP Gateway starting...")
+    log_info(f"PyTorch version: {torch.__version__}")
+    log_info(f"TensorFlow version: {tf.__version__}")
+    log_info(f"DSPy configured with: {dspy.settings.lm}")
     # Add database or resource initialization here
 
 # Shutdown event
