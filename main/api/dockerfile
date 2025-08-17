@@ -1,24 +1,14 @@
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim
 
 WORKDIR /app
+
 COPY main/api/mcp/requirements.txt .
-RUN pip install --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.11-slim AS runtime
-
-WORKDIR /app
-COPY --from=builder /root/.local /root/.local
 COPY main/api/mcp/ .
 
-RUN useradd -m mcpuser
-USER mcpuser
+# Install SSL dependencies and generate self-signed certificate for WebSocket
+RUN apt-get update && apt-get install -y openssl
+RUN openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365 -subj "/CN=localhost"
 
-ENV PATH=/root/.local/bin:$PATH
-ENV PYTHONUNBUFFERED=1
-
-EXPOSE 8000
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8000/mcp/health || exit 1
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile", "key.pem", "--ssl-certfile", "cert.pem"]
