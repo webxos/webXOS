@@ -7,6 +7,7 @@ from tools.vial_management import VialManagementTool
 from tools.health import HealthTool
 from tools.blockchain import BlockchainTool
 from tools.claude_tool import ClaudeTool
+from tools.wallet import WalletTool
 from lib.mcp_transport import MCPTransport
 from lib.notifications import NotificationHandler
 from config.config import DatabaseConfig
@@ -40,7 +41,8 @@ class MCPServer:
             "vial-management": VialManagementTool(self.db),
             "health": HealthTool(self.db, self.tools),
             "blockchain": BlockchainTool(self.db),
-            "claude": ClaudeTool(self.db)
+            "claude": ClaudeTool(self.db),
+            "wallet": WalletTool(self.db)
         }
         self.transport = MCPTransport(self.handle_request)
 
@@ -55,11 +57,12 @@ class MCPServer:
                 raise HTTPException(404, f"Unknown tool: {tool_name}")
             tool = self.tools[tool_name]
             result = await tool.execute(request.params)
-            # Send notification for Claude code execution
-            if tool_name == "claude":
+            # Send notification for Claude and wallet operations
+            if tool_name in ["claude", "wallet"]:
+                notification_method = f"{tool_name}.operationComplete"
                 await self.notification_handler.send_notification(
                     request.params.get("user_id", "default"),
-                    {"jsonrpc": "2.0", "method": "claude.executionComplete", "params": result}
+                    {"jsonrpc": "2.0", "method": notification_method, "params": result}
                 )
             return MCPResponse(id=request.id, result=result, error=None)
         except Exception as e:
