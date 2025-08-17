@@ -122,13 +122,16 @@ async function exportVials(userId) {
 
 async function importWallet(userId, markdown) {
   try {
-    // Calculate hash of markdown for validation
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(markdown));
     const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
     
     if (!navigator.onLine) {
-      localStorage.setItem(`pending_import_${userId}`, JSON.stringify({ markdown, hash: hashHex }));
+      const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
+      pendingOperations.push({ method: 'importWallet', markdown, hash: hashHex });
+      localStorage.setItem(`pending_operations_${userId}`, JSON.stringify(pendingOperations));
+      self.postMessage({ action: 'cachePendingImport', data: { user_id: userId, markdown, hash: hashHex } });
       document.getElementById('output').innerText = 'Wallet import queued for next online session';
+      document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Pending operations: ${pendingOperations.length}` } }));
       return;
     }
     
@@ -169,6 +172,10 @@ async function mineVial(userId, vialId) {
         reward = 1.0;
         wallet.balance += reward;
         localStorage.setItem(`wallet_${userId}`, JSON.stringify(wallet));
+        const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
+        pendingOperations.push({ method: 'mineVial', vial_id: vialId, nonce });
+        localStorage.setItem(`pending_operations_${userId}`, JSON.stringify(pendingOperations));
+        document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Pending operations: ${pendingOperations.length}` } }));
       }
       document.getElementById('output').innerText = `Offline mining result: Hash=${hashHex}, Reward=${reward}`;
       updateVialStatus(vialId, wallet.balance);
@@ -194,6 +201,45 @@ async function mineVial(userId, vialId) {
   }
 }
 
+async function batchSync(userId) {
+  try {
+    const pendingOperations = JSON.parse(localStorage.getItem(`pending_operations_${userId}`) || '[]');
+    if (!pendingOperations.length) return;
+    
+    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: `Syncing ${pendingOperations.length} operations...` } }));
+    
+    const res = await fetch(`${API_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'wallet.batchSync',
+        params: { user_id: userId, operations: pendingOperations },
+        id: Math.floor(Math.random() * 1000)
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    
+    localStorage.setItem(`wallet_${userId}`, JSON.stringify({ balance: data.result.results[data.result.results.length - 1].total_balance || data.result.results[data.result.results.length - 1].balance }));
+    localStorage.removeItem(`pending_operations_${userId}`);
+    document.getElementById('output').innerText = `Synced ${data.result.results.length} operations`;
+    document.dispatchEvent(new CustomEvent('sync-progress', { detail: { message: 'No pending operations' } }));
+    
+    data.result.results.forEach(result => {
+      if (result.imported_vials) {
+        result.imported_vials.forEach(vialId => {
+          updateVialStatus(vialId, result.total_balance);
+        });
+      } else if (result.balance) {
+        updateVialStatus('vial1', result.balance);
+      }
+    });
+  } catch (error) {
+    document.getElementById('output').innerText = `Error syncing operations: ${error.message}`;
+  }
+}
+
 function updateVialStatus(vialId, balance) {
   document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${balance})`;
 }
@@ -212,6 +258,9 @@ document.addEventListener('auth-success', (event) => {
       }
     });
   });
+  if (navigator.onLine) {
+    batchSync(userId);
+  }
 });
 
 document.getElementById('void-btn').addEventListener('click', () => {
