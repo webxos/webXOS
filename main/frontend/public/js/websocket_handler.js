@@ -1,39 +1,55 @@
-let ws = null;
+const WS_URL = 'ws://localhost:8000/mcp/notifications';
 
-function initWebSocket(userId) {
-  if (!userId || userId === 'Not logged in') {
-    document.getElementById('websocket-status').innerText = 'Disconnected (Please authenticate)';
-    return;
+let websocket = null;
+
+function connectWebSocket(userId) {
+  if (websocket) {
+    websocket.close();
   }
-
-  ws = new WebSocket(`ws://localhost:8000/mcp/notifications?client_id=${userId}`);
-
-  ws.onopen = () => {
+  
+  websocket = new WebSocket(`${WS_URL}?client_id=${userId}`);
+  
+  websocket.onopen = () => {
     document.getElementById('websocket-status').innerText = 'Connected';
     console.log('WebSocket connected for user:', userId);
   };
-
-  ws.onmessage = (event) => {
-    const notification = JSON.parse(event.data);
-    if (notification.method === 'claude.executionComplete') {
-      const { output, error } = notification.params;
-      document.getElementById('output').innerText = `Claude Output: ${output || 'No output'}${error ? '\nError: ' + error : ''}`;
+  
+  websocket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Received WebSocket message:', data);
+    
+    if (data.method === 'wallet.voidVial') {
+      document.getElementById('output').innerText = `Notification: Vial ${data.params.vial_id} voided`;
+      document.getElementById(`${data.params.vial_id}-status`).innerText = 'Stopped (Balance: 0)';
+    } else if (data.method === 'wallet.troubleshootVial') {
+      document.getElementById('output').innerText = `Notification: Troubleshoot ${data.params.vial_id}: ${data.params.status}\nDiagnostics: ${JSON.stringify(data.params.diagnostics)}`;
+    } else if (data.method === 'wallet.quantumLink') {
+      document.getElementById('output').innerText = `Notification: Quantum Link established: ${data.params.link_id}`;
+    } else if (data.method === 'wallet.importWallet') {
+      document.getElementById('output').innerText = `Notification: Imported ${data.params.imported_vials.length} vials, new balance: ${data.params.total_balance}`;
+      data.params.imported_vials.forEach(vialId => {
+        document.getElementById(`${vialId}-status`).innerText = `Running (Balance: ${data.params.total_balance})`;
+      });
+    } else if (data.method === 'wallet.mineVial') {
+      document.getElementById('output').innerText = `Notification: Mining result: Hash=${data.params.hash}, Reward=${data.params.reward}`;
+    } else if (data.method === 'claude.executeCode') {
+      document.getElementById('output').innerText = `Notification: Claude code executed: ${data.params.output}`;
     }
   };
-
-  ws.onclose = () => {
+  
+  websocket.onclose = () => {
     document.getElementById('websocket-status').innerText = 'Disconnected';
-    console.log('WebSocket disconnected');
-    setTimeout(() => initWebSocket(userId), 5000); // Reconnect after 5s
+    console.log('WebSocket disconnected, attempting to reconnect...');
+    setTimeout(() => connectWebSocket(userId), 5000);
   };
-
-  ws.onerror = (error) => {
-    document.getElementById('websocket-status').innerText = 'Error';
+  
+  websocket.onerror = (error) => {
     console.error('WebSocket error:', error);
+    document.getElementById('websocket-status').innerText = 'Error';
   };
 }
 
-// Update auth_handler.js to call initWebSocket on successful login
 document.addEventListener('auth-success', (event) => {
-  initWebSocket(event.detail.user_id);
+  const userId = event.detail.user_id;
+  connectWebSocket(userId);
 });
