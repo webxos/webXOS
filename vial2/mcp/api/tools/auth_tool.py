@@ -1,9 +1,9 @@
-import aiohttp
-import jwt
 from config.config import DatabaseConfig
 from lib.security import SecurityHandler
+import aiohttp
 import logging
 import uuid
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -11,21 +11,20 @@ class AuthTool:
     def __init__(self, db: DatabaseConfig):
         self.db = db
         self.security = SecurityHandler(db)
-        self.client_id = db.stack_auth_client_id
-        self.client_secret = db.stack_auth_client_secret
-        self.audience = db.jwt_audience
-        self.redirect_uri = "https://webxos.netlify.app/vial2.html"
-        self.auth_url = "https://stack-auth.com/oauth/authorize"
-        self.token_url = "https://stack-auth.com/oauth/token"
-        self.jwks_url = "https://stack-auth.com/.well-known/jwks.json"
 
     async def execute(self, data: dict) -> dict:
         try:
             method = data.get("method")
-            if method == "oauth_login":
-                return await self.oauth_login(data.get("code"), data.get("code_verifier"), data.get("project_id"))
-            elif method == "generate_api_key":
-                return await self.generate_api_key(data.get("user_id"), data.get("project_id"))
+            user_id = data.get("user_id")
+            project_id = data.get("project_id", self.db.project_id)
+            if project_id != self.db.project_id:
+                error_message = f"Invalid project ID: {project_id} [auth_tool.py:20] [ID:project_error]"
+                logger.error(error_message)
+                return {"error": error_message}
+            if method == "authenticate":
+                return await self.authenticate(data.get("code"), data.get("redirect_uri"))
+            elif method == "validate_wallet":
+                return await self.validate_wallet(user_id, data.get("wallet_data"))
             else:
                 error_message = f"Invalid auth method: {method} [auth_tool.py:25] [ID:auth_method_error]"
                 logger.error(error_message)
@@ -35,64 +34,61 @@ class AuthTool:
             logger.error(error_message)
             return {"error": error_message}
 
-    async def oauth_login(self, code: str, code_verifier: str, project_id: str) -> dict:
+    async def authenticate(self, code: str, redirect_uri: str) -> dict:
         try:
-            if project_id != self.db.project_id:
-                error_message = f"Invalid project ID: {project_id} [auth_tool.py:35] [ID:project_error]"
-                logger.error(error_message)
-                return {"error": error_message}
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.token_url,
+                token_response = await session.post(
+                    "https://api.stack-auth.com/api/v1/oauth/token",
                     data={
                         "grant_type": "authorization_code",
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
+                        "client_id": self.db.stack_auth_client_id,
+                        "client_secret": self.db.stack_auth_client_secret,
                         "code": code,
-                        "code_verifier": code_verifier,
-                        "redirect_uri": self.redirect_uri
+                        "redirect_uri": redirect_uri
                     }
-                ) as response:
-                    token_data = await response.json()
-                    if "error" in token_data:
-                        error_message = f"OAuth token error: {token_data['error']} [auth_tool.py:45] [ID:oauth_error]"
-                        logger.error(error_message)
-                        return {"error": error_message}
-                    access_token = token_data["access_token"]
-                    decoded = jwt.decode(
-                        access_token,
-                        algorithms=["RS256"],
-                        audience=self.audience,
-                        options={"verify_signature": False}
-                    )
-                    user_id = decoded.get("sub")
-                    await self.db.query(
-                        "INSERT INTO sessions (session_id, user_id, access_token, expires_at, project_id) VALUES ($1, $2, $3, $4, $5)",
-                        [str(uuid.uuid4()), user_id, access_token, token_data.get("expires_at"), project_id]
-                    )
-                    await self.security.log_action(user_id, "login", {"method": "oauth"})
-                    logger.info(f"OAuth login successful for user {user_id} [auth_tool.py:55] [ID:oauth_success]")
-                    return {"access_token": access_token, "user_id": user_id}
+                )
+                token_data = await token_response.json()
+                if "access_token" not in token_data:
+                    error_message = f"Token exchange failed: {token_data.get('error', 'Unknown')} [auth_tool.py:35] [ID:token_error]"
+                    logger.error(error_message)
+                    return {"error": error_message}
+                access_token = token_data["access_token"]
+                decoded = await self.security.verify_jwt(access_token)
+                if "error" in decoded:
+                    error_message = decoded["error"]
+                    logger.error(error_message)
+                    return {"error": error_message}
+                user_id = decoded.get("sub")
+                await self.db.query(
+                    "INSERT INTO blocks (block_id, user_id, type, data, hash, project_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                    [str(uuid.uuid4()), user_id, "auth", json.dumps({"access_token": access_token}), str(uuid.uuid4()), self.db.project_id]
+                )
+                logger.info(f"Authentication successful for user: {user_id} [auth_tool.py:40] [ID:auth_success]")
+                return {"status": "success", "access_token": access_token, "user_id": user_id}
         except Exception as e:
-            error_message = f"OAuth login failed: {str(e)} [auth_tool.py:60] [ID:oauth_error]"
+            error_message = f"Authentication failed: {str(e)} [auth_tool.py:45] [ID:auth_error]"
             logger.error(error_message)
             return {"error": error_message}
 
-    async def generate_api_key(self, user_id: str, project_id: str) -> dict:
+    async def validate_wallet(self, user_id: str, wallet_data: dict) -> dict:
         try:
-            if project_id != self.db.project_id:
-                error_message = f"Invalid project ID: {project_id} [auth_tool.py:65] [ID:project_error]"
+            if not wallet_data.get("address") or not wallet_data.get("signature"):
+                error_message = "Invalid wallet data [auth_tool.py:50] [ID:wallet_validation_error]"
                 logger.error(error_message)
                 return {"error": error_message}
-            api_key = str(uuid.uuid4())
+            # Simulate .md wallet validation (replace with actual logic)
+            is_valid = wallet_data["address"].startswith("0x")
+            if not is_valid:
+                error_message = f"Invalid wallet address: {wallet_data['address']} [auth_tool.py:55] [ID:wallet_invalid_error]"
+                logger.error(error_message)
+                return {"error": error_message}
             await self.db.query(
-                "INSERT INTO api_keys (api_key, user_id, project_id) VALUES ($1, $2, $3)",
-                [api_key, user_id, project_id]
+                "INSERT INTO blocks (block_id, user_id, type, data, hash, project_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                [str(uuid.uuid4()), user_id, "wallet_validation", json.dumps(wallet_data), str(uuid.uuid4()), self.db.project_id]
             )
-            await self.security.log_action(user_id, "generate_api_key", {"api_key": api_key[:8] + "..."})
-            logger.info(f"API key generated for user {user_id} [auth_tool.py:70] [ID:api_key_success]")
-            return {"api_key": api_key}
+            logger.info(f"Wallet validated for user: {user_id} [auth_tool.py:60] [ID:wallet_validation_success]")
+            return {"status": "success", "wallet_address": wallet_data["address"]}
         except Exception as e:
-            error_message = f"API key generation failed: {str(e)} [auth_tool.py:75] [ID:api_key_error]"
+            error_message = f"Wallet validation failed: {str(e)} [auth_tool.py:65] [ID:wallet_validation_error]"
             logger.error(error_message)
             return {"error": error_message}
