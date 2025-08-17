@@ -1,16 +1,16 @@
 from fastapi import FastAPI, HTTPException, WebSocket, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from config.config import DatabaseConfig
 from tools.auth_tool import AuthTool
 from tools.wallet import WalletTool
 from tools.vial_management import VialManager
 from tools.git_tool import GitTool
+from tools.replication_tool import ReplicationTool
 from lib.security import SecurityHandler
 from lib.notifications import NotificationHandler
+from lib.data_api import DataApiClient
 from sql.query_engine import QueryEngine
 from monitoring.metrics import MetricsCollector
-from postgrest import AsyncPostgrestClient
 import logging
 import uuid
 
@@ -26,7 +26,8 @@ app = FastAPI(
         {"name": "endpoints", "description": "Command processing"},
         {"name": "vials", "description": "Vial management"},
         {"name": "wallet", "description": "Wallet operations"},
-        {"name": "ws", "description": "WebSocket notifications"}
+        {"name": "ws", "description": "WebSocket notifications"},
+        {"name": "monitoring", "description": "Monitoring and replication"}
     ]
 )
 
@@ -46,8 +47,9 @@ security = SecurityHandler(db)
 notifications = NotificationHandler()
 query_engine = QueryEngine(db)
 git_tool = GitTool(db, security)
+replication_tool = ReplicationTool(db, security)
 metrics = MetricsCollector()
-data_api = AsyncPostgrestClient("https://app-billowing-king-08029676.dpl.myneon.app")
+data_api = DataApiClient(db)
 
 @app.on_event("startup")
 async def startup():
@@ -64,7 +66,7 @@ async def startup():
 async def shutdown():
     try:
         await db.disconnect()
-        await data_api.aclose()
+        await data_api.close()
         logger.info("Database and Data API connections closed [server.py:55] [ID:shutdown_success]")
         metrics.increment("shutdown_success")
     except Exception as e:
@@ -92,15 +94,27 @@ async def command_endpoint(data: dict):
         command = data.get("command")
         project_id = data.get("project_id", "twilight-art-21036984")
         metrics.increment(f"command_{command}_requests")
+        headers = {
+            "Prefer": data.get("prefer", "return=representation"),
+            "Range-Unit": data.get("range_unit", "items")
+        }
+        params = {
+            "select": data.get("select", "*"),
+            "order": data.get("order", ""),
+            "limit": data.get("limit", ""),
+            "offset": data.get("offset", "")
+        }
         if command == "data":
             table = data.get("args")[0]
             action = data.get("args")[1]
             if table == "sql":
                 result = await query_engine.execute_sql(user_id, " ".join(data.get("args")[1:]), data.get("access_token"), project_id)
             else:
-                result = await query_engine.execute_data_api_query(user_id, table, action, data.get("access_token"), project_id)
+                result = await query_engine.execute_data_api_query(user_id, table, action, data.get("access_token"), project_id, headers, params)
         elif command == "git":
             result = await git_tool.execute(data)
+        elif command == "replication":
+            result = await replication_tool.execute(data)
         elif command in ["prompt", "task", "config"]:
             result = await vial_manager.execute(data)
         else:
