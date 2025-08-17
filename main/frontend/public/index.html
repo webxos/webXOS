@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://github.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://webxos.netlify.app https://api.github.com; img-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-{{nonce}}' https://github.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://webxos.netlify.app https://api.github.com; img-src 'self';">
   <meta http-equiv="X-Frame-Options" content="DENY">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
@@ -55,6 +55,12 @@
     </div>
 
     <div class="mb-4">
+      <h2 class="text-xl font-bold mb-2">User Action History</h2>
+      <div id="action-history" class="bg-white p-4 rounded shadow"></div>
+      <button id="load-actions-btn" class="bg-blue-500 text-white px-4 py-2 rounded" disabled>Load Action History</button>
+    </div>
+
+    <div class="mb-4">
       <textarea id="claude-code" class="w-full h-32 p-2 border rounded" placeholder="Enter Claude-generated code" disabled></textarea>
       <textarea id="wallet-import" class="w-full h-32 p-2 border rounded" placeholder="Paste wallet markdown to import"></textarea>
       <textarea id="agent-code" class="w-full h-32 p-2 border rounded" placeholder="Enter custom agent code for Git push"></textarea>
@@ -79,10 +85,10 @@
     <div id="output" class="bg-white p-4 rounded shadow"></div>
   </div>
 
-  <script type="module" src="/js/auth_handler.js"></script>
-  <script type="module" src="/js/websocket_handler.js"></script>
-  <script type="module" src="/js/vial_controller.js"></script>
-  <script type="module">
+  <script type="module" nonce="{{nonce}}" src="/js/auth_handler.js"></script>
+  <script type="module" nonce="{{nonce}}" src="/js/websocket_handler.js"></script>
+  <script type="module" nonce="{{nonce}}" src="/js/vial_controller.js"></script>
+  <script type="module" nonce="{{nonce}}">
     import { updateNetworkStatus } from '/js/vial_controller.js';
     import { wsHandler } from '/js/websocket_handler.js';
 
@@ -100,6 +106,7 @@
       document.getElementById('cash-out-btn').disabled = !navigator.onLine;
       document.getElementById('logout-btn').disabled = false;
       document.getElementById('data-erasure-btn').disabled = false;
+      document.getElementById('load-actions-btn').disabled = false;
     });
 
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -128,6 +135,7 @@
         const data = await res.json();
         if (data.error) throw new Error(data.error.message);
         localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
         document.cookie = 'session_id=; Max-Age=0; path=/;';
         document.getElementById('user-id').innerText = 'Not logged in';
         document.getElementById('output').innerText = 'Logged out successfully';
@@ -140,6 +148,7 @@
         document.getElementById('cash-out-btn').disabled = true;
         document.getElementById('logout-btn').disabled = true;
         document.getElementById('data-erasure-btn').disabled = true;
+        document.getElementById('load-actions-btn').disabled = true;
       } catch (error) {
         document.getElementById('output').innerText = `Logout error: ${error.message}`;
       }
@@ -169,6 +178,7 @@
         const data = await res.json();
         if (res.status !== 200) throw new Error(data.detail || 'Data erasure failed');
         localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
         document.cookie = 'session_id=; Max-Age=0; path=/;';
         document.getElementById('user-id').innerText = 'Not logged in';
         document.getElementById('output').innerText = 'Data erasure request successful. All data deleted.';
@@ -181,8 +191,48 @@
         document.getElementById('cash-out-btn').disabled = true;
         document.getElementById('logout-btn').disabled = true;
         document.getElementById('data-erasure-btn').disabled = true;
+        document.getElementById('load-actions-btn').disabled = true;
       } catch (error) {
         document.getElementById('output').innerText = `Data erasure error: ${error.message}`;
+      }
+    });
+
+    document.getElementById('load-actions-btn').addEventListener('click', async () => {
+      const userId = document.getElementById('user-id').innerText;
+      if (userId === 'Not logged in') {
+        document.getElementById('output').innerText = 'Error: Please authenticate first';
+        return;
+      }
+      try {
+        const accessToken = localStorage.getItem('access_token');
+        const sessionId = document.cookie.match(/session_id=([^;]+)/)?.[1];
+        const res = await fetch('https://webxos.netlify.app/mcp/execute', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Session-ID': sessionId
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'security.getUserActions',
+            params: { user_id: userId },
+            id: Math.floor(Math.random() * 1000)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        const actions = data.result.actions;
+        const actionHistory = document.getElementById('action-history');
+        actionHistory.innerHTML = actions.map(action => `
+          <div class="p-2 border-b">
+            <p><strong>Action:</strong> ${action.action}</p>
+            <p><strong>Details:</strong> ${JSON.stringify(action.details)}</p>
+            <p><strong>Timestamp:</strong> ${new Date(action.created_at).toLocaleString()}</p>
+          </div>
+        `).join('');
+      } catch (error) {
+        document.getElementById('output').innerText = `Error loading action history: ${error.message}`;
       }
     });
   </script>
