@@ -17,14 +17,22 @@ async def mine_proof_of_work(operation: dict, token: str = Depends(get_octokit_a
         db = await get_db()
         vial_id = operation.get("vial_id")
         difficulty = operation.get("difficulty", 4)
-        if not vial_id:
-            raise ValueError("Vial ID missing")
+        wallet_address = operation.get("wallet_address")
+        if not vial_id or not wallet_address:
+            raise ValueError("Vial ID or wallet address missing")
         
+        # Validate wallet
+        wallet_query = "SELECT balance FROM wallets WHERE address = $1"
+        wallet = await db.execute(wallet_query, wallet_address)
+        if not wallet:
+            raise ValueError("Wallet not found")
+        
+        # Proof of work
         nonce = 0
         target = "0" * difficulty
         start_time = time.time()
         while True:
-            hash_input = f"{vial_id}{nonce}".encode()
+            hash_input = f"{vial_id}{wallet_address}{nonce}".encode()
             hash_result = hashlib.sha256(hash_input).hexdigest()
             if hash_result.startswith(target):
                 break
@@ -32,11 +40,17 @@ async def mine_proof_of_work(operation: dict, token: str = Depends(get_octokit_a
             if time.time() - start_time > 60:  # Timeout after 60s
                 raise ValueError("Proof of work timeout")
         
+        # Update vial and wallet
         query = "UPDATE vials SET pow_result = $1 WHERE vial_id = $2 RETURNING pow_result"
         result = await db.execute(query, {"nonce": nonce, "hash": hash_result}, vial_id)
+        wallet_update_query = "UPDATE wallets SET balance = balance + $1 WHERE address = $2"
+        await db.execute(wallet_update_query, 1.0, wallet_address)
         
-        error_logger.log_error("pow_success", f"Proof of work completed for {vial_id}", "", sql_statement=query, sql_error_code=None, params=operation)
-        return {"jsonrpc": "2.0", "result": {"status": "success", "pow": result}}
+        with sqlite3.connect("error_log.db") as conn:
+            conn.execute("INSERT INTO vial_logs (vial_id, event_type, event_data, node_id) VALUES (?, ?, ?, ?)",
+                        (vial_id, "pow", str(result), token.get("node_id", "unknown")))
+        
+        return {"jsonrpc": "2.0", "result": {"status": "success", "pow": result, "wallet_updated": True}}
     except ValueError as e:
         error_logger.log_error("pow_validation", str(e), str(e.__traceback__), sql_statement=query, sql_error_code=None, params=operation)
         logger.error(f"Proof of work validation failed: {str(e)}")
