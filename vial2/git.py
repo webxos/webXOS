@@ -6,7 +6,7 @@ import os
 logger = logging.getLogger(__name__)
 
 async def execute_git_command(command: str, db):
-    try:
+    try {
         allowed_commands = ['status', 'pull', 'push', 'commit', 'branch', 'checkout', 'merge', 'clone']
         cmd_parts = command.strip().split()
         if not cmd_parts or cmd_parts[0] not in allowed_commands:
@@ -24,7 +24,7 @@ async def execute_git_command(command: str, db):
             await db.execute(
                 "INSERT INTO logs (event_type, message, timestamp) VALUES ($1, $2, $3)",
                 "git_command",
-                f"Git command executed: {command}\nOutput: {result.stdout}\nError: {result.stderr}",
+                f"Git command executed: {command}\nOutput: {result.stdout}\nError: ${result.stderr}",
                 datetime.utcnow()
             )
 
