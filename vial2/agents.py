@@ -6,7 +6,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 async def handle_command(command: str, request: dict, db):
-    try:
+    try {
         parts = command.split()
         cmd = parts[0].lower()
         if cmd == '/prompt':
@@ -14,7 +14,7 @@ async def handle_command(command: str, request: dict, db):
             async with db:
                 await db.execute(
                     "UPDATE vials SET status=$1, code=$2, code_length=$3 WHERE vial_id=$4",
-                    "running" if action.lower().find("train") != -1 else "stopped",
+                    "running" if 'train' in action.lower() else "stopped",
                     action,
                     len(action),
                     vial_id
@@ -48,7 +48,7 @@ async def handle_command(command: str, request: dict, db):
         raise HTTPException(status_code=400, detail=str(e))
 
 async def configure_compute(spec: dict, db):
-    try:
+    try {
         async with db:
             await db.execute(
                 "UPDATE computes SET state=$1, spec=$2, last_activity=$3 WHERE compute_id=$4",
@@ -60,7 +60,7 @@ async def configure_compute(spec: dict, db):
         raise HTTPException(status_code=400, detail=str(e))
 
 async def refresh_configuration(db):
-    try:
+    try {
         async with db:
             await db.execute(
                 "UPDATE computes SET state=$1, last_activity=$2 WHERE compute_id=$3",
@@ -72,7 +72,7 @@ async def refresh_configuration(db):
         raise HTTPException(status_code=400, detail=str(e))
 
 async def terminate_fast(db):
-    try:
+    try {
         async with db:
             await db.execute(
                 "UPDATE computes SET state=$1, readiness=$2, last_activity=$3 WHERE compute_id=$4",
@@ -84,7 +84,7 @@ async def terminate_fast(db):
         raise HTTPException(status_code=400, detail=str(e))
 
 async def terminate_immediate(db):
-    try:
+    try {
         async with db:
             await db.execute(
                 "UPDATE computes SET state=$1, readiness=$2, last_activity=$3 WHERE compute_id=$4",
