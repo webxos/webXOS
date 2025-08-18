@@ -10,22 +10,29 @@ router = APIRouter(prefix="/mcp/api/vial", tags=["vial_status"])
 logger = logging.getLogger(__name__)
 
 @router.get("/status")
-async def get_vial_status(token: str = Depends(get_octokit_auth)):
+async def get_vial_status(vial_id: str = None, token: str = Depends(get_octokit_auth)):
     try:
         db = await get_db()
-        query = "SELECT vial_id, status, config FROM vials"
-        result = await db.execute(query)
+        if vial_id:
+            query = "SELECT vial_id, status, config, quantum_state FROM vials WHERE vial_id = $1"
+            result = await db.execute(query, vial_id)
+        else:
+            query = "SELECT vial_id, status, config, quantum_state FROM vials"
+            result = await db.execute(query)
+        
         with sqlite3.connect("error_log.db") as conn:
-            log_count = conn.execute("SELECT COUNT(*) FROM vial_logs WHERE timestamp > datetime('now', '-1 hour')").fetchone()[0]
+            log_query = "SELECT COUNT(*) FROM vial_logs WHERE timestamp > datetime('now', '-1 hour') AND vial_id = ?"
+            log_count = conn.execute(log_query, (vial_id,) if vial_id else ()).fetchone()[0]
+        
         return {"jsonrpc": "2.0", "result": {"status": "success", "vials": result, "log_count": log_count}}
     except sqlite3.Error as e:
-        error_logger.log_error("vial_status_db", str(e), str(e.__traceback__), sql_statement=query, sql_error_code=e.sqlite_errorcode, params=None)
+        error_logger.log_error("vial_status_db", str(e), str(e.__traceback__), sql_statement=query, sql_error_code=e.sqlite_errorcode, params={"vial_id": vial_id})
         logger.error(f"SQLite error in vial status: {str(e)}")
         raise HTTPException(status_code=400, detail={
-            "jsonrpc": "2.0", "error": {"code": -32603, "message": str(e), "data": {"sql_error_code": e.sqlite_errorcode, "sql_statement": query}}
+            "jsonrpc": "2.0", "error": {"code": -32603, "message": str(e), "data": {"sql_error_code": e.sqlite_errorcode, "sql_statement": query, "params": {"vial_id": vial_id}}}
         })
     except Exception as e:
-        error_logger.log_error("vial_status", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params=None)
+        error_logger.log_error("vial_status", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={"vial_id": vial_id})
         logger.error(f"Vial status retrieval failed: {str(e)}")
         raise HTTPException(status_code=400, detail={
             "jsonrpc": "2.0", "error": {"code": -32603, "message": str(e), "data": str(e.__traceback__)}
