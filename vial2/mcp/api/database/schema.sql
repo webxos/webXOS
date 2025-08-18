@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     wallet_address VARCHAR(42) UNIQUE NOT NULL,
+    api_key VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -8,7 +9,7 @@ CREATE TABLE IF NOT EXISTS wallets (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     address VARCHAR(42) UNIQUE NOT NULL,
-    balance DECIMAL(18, 4) DEFAULT 0.0,
+    balance FLOAT DEFAULT 0.0,
     hash VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -38,4 +39,16 @@ CREATE TABLE IF NOT EXISTS computes (
 
 CREATE TABLE IF NOT EXISTS logs (
     id SERIAL PRIMARY KEY,
-    event
+    event_type VARCHAR(50),
+    message TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Enable Row-Level Security
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE computes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE logs ENABLE ROW LEVEL SECURITY;
+
+-- xAI Artifact Tags: #vial2 #database #schema #neon_mcp
