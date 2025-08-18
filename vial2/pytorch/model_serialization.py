@@ -1,33 +1,27 @@
 import torch
-from ..pytorch.models import QuantumAgentModel
 from ..error_logging.error_log import error_logger
 import logging
-import pickle
+import os
 
 logger = logging.getLogger(__name__)
 
-async def serialize_model(vial_id: str, model: QuantumAgentModel):
+def serialize_model(model, path: str):
     try:
-        serialized_data = pickle.dumps(model.state_dict())
-        with open(f"models/{vial_id}/serialized_model.pkl", "wb") as f:
-            f.write(serialized_data)
-        return {"status": "success", "vial_id": vial_id}
+        torch.save(model.state_dict(), path)
+        return {"status": "success", "path": path}
     except Exception as e:
-        error_logger.log_error("model_serialization", f"Model serialization failed for {vial_id}: {str(e)}", str(e.__traceback__))
+        error_logger.log_error("model_serialization", str(e), str(e.__traceback__))
         logger.error(f"Model serialization failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise
 
-async def deserialize_model(vial_id: str):
+def deserialize_model(model_class, path: str):
     try:
-        with open(f"models/{vial_id}/serialized_model.pkl", "rb") as f:
-            serialized_data = pickle.load(f)
-        model = QuantumAgentModel()
-        model.load_state_dict(serialized_data)
-        model.eval()
-        return {"status": "success", "vial_id": vial_id}
+        model = model_class()
+        model.load_state_dict(torch.load(path))
+        return model
     except Exception as e:
-        error_logger.log_error("model_serialization", f"Model deserialization failed for {vial_id}: {str(e)}", str(e.__traceback__))
+        error_logger.log_error("model_deserialization", str(e), str(e.__traceback__))
         logger.error(f"Model deserialization failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise
 
 # xAI Artifact Tags: #vial2 #pytorch #model_serialization #neon_mcp
