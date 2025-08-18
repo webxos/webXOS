@@ -20,11 +20,14 @@ async def git_operation(operation: dict, token: str = Depends(get_octokit_auth))
         if not vial_id or not command:
             raise ValueError("Vial ID or command missing")
         
-        allowed_commands = ["git status", "git pull", "git push"]
-        if command not in allowed_commands:
+        allowed_commands = ["git status", "git pull", "git push", "git commit -m"]
+        if not any(command.startswith(cmd) for cmd in allowed_commands):
             raise ValueError("Unsupported Git command")
         
         try:
+            # Sanitize command to prevent injection
+            if "&&" in command or "|" in command:
+                raise ValueError("Invalid characters in Git command")
             result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
             output = {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
         except subprocess.SubprocessError as e:
