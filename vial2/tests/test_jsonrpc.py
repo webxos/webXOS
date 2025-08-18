@@ -22,7 +22,7 @@ async def test_jsonrpc_request():
         assert response.json()["id"] == 1
         assert "result" in response.json()
     except Exception as e:
-        error_logger.log_error("test_jsonrpc_request", str(e), str(e.__traceback__))
+        error_logger.log_error("test_jsonrpc_request", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params=None)
         logger.error(f"JSON-RPC request test failed: {str(e)}")
         raise
 
@@ -37,7 +37,7 @@ async def test_jsonrpc_notification():
         assert response.status_code == 200
         assert response.json() is None
     except Exception as e:
-        error_logger.log_error("test_jsonrpc_notification", str(e), str(e.__traceback__))
+        error_logger.log_error("test_jsonrpc_notification", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params=None)
         logger.error(f"JSON-RPC notification test failed: {str(e)}")
         raise
 
@@ -54,7 +54,7 @@ async def test_jsonrpc_invalid_method():
         assert response.json()["error"]["code"] == -32601
         assert response.json()["error"]["message"] == "Method not found"
     except Exception as e:
-        error_logger.log_error("test_jsonrpc_invalid_method", str(e), str(e.__traceback__))
+        error_logger.log_error("test_jsonrpc_invalid_method", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params=None)
         logger.error(f"JSON-RPC invalid method test failed: {str(e)}")
         raise
 
@@ -65,7 +65,7 @@ async def test_jsonrpc_db_error():
             "jsonrpc": "2.0",
             "id": 3,
             "method": "resources/get",
-            "params": {"compute_id": "nonexistent"}  # Triggers DB error
+            "params": {"compute_id": "nonexistent"}
         })
         assert response.status_code == 400
         assert response.json()["error"]["code"] == -32603
@@ -75,4 +75,21 @@ async def test_jsonrpc_db_error():
         logger.error(f"JSON-RPC DB error test failed: {str(e)}")
         raise
 
-# xAI Artifact Tags: #vial2 #tests #jsonrpc #sqlite #neon_mcp
+@pytest.mark.asyncio
+async def test_jsonrpc_oauth_error():
+    try:
+        response = client.post("/mcp/api/jsonrpc", json={
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "prompts/list",
+            "params": {"token": "invalid_token"}
+        })
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == -32603
+        assert "data" in response.json()["error"]
+    except Exception as e:
+        error_logger.log_error("test_jsonrpc_oauth_error", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={"token": "invalid_token"})
+        logger.error(f"JSON-RPC OAuth error test failed: {str(e)}")
+        raise
+
+# xAI Artifact Tags: #vial2 #tests #jsonrpc #octokit #sqlite #neon_mcp
