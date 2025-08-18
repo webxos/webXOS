@@ -2,112 +2,652 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vial2 MCP Console</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial2 MCP Controller (BETA)</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script type="module" src="/mcp/client/terminal_commands.js"></script>
     <style>
-        body { font-family: monospace; background-color: #1a1a1a; color: #ffffff; }
-        #terminal { height: 80vh; overflow-y: auto; background-color: #2d2d2d; padding: 1rem; }
-        #input { width: 100%; background-color: #3d3d3d; color: #ffffff; border: none; padding: 0.5rem; }
-        .button { padding: 0.5rem 1rem; margin: 0.5rem; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
+        html, body { height: 100vh; overflow: hidden; background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+        body.glow { background: rgba(255, 0, 0, 0.1); box-shadow: 0 0 20px #ff0000; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1); box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.6rem; text-align: center; margin: 0.8rem 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1); border: 1px solid #0f0; padding: 0.6rem; flex: 1; max-height: calc(100vh - 380px); overflow-y: auto; margin: 0.5rem 0; border-radius: 5px; font-size: 0.8rem; position: relative; z-index: 5; }
+        #console.active-monitor { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        #console.active-train { border-color: #ff0; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .command { font-weight: 700; text-shadow: 0 0 3px #0f0; }
+        #console .error { color: #ff0000; text-shadow: 0 0 3px #ff0000; }
+        #console .balance { color: #00f; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8); color: #fff; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
+        #error-notification.visible { display: block; }
+        #api-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0; }
+        #api-popup.visible { display: block; }
+        #api-popup textarea { width: 100%; height: 100px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; resize: none; }
+        #api-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button:hover { background: #0c0; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
+        button { background: #0f0; color: #000; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
+        button:hover, button:focus { background: #0c0; outline: 2px solid #0f0; }
+        button.active-monitor { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0; color: #000; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        #prompt-input { width: 90%; max-width: 900px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.6rem; font-size: 0.9rem; border-radius: 3px; margin: 0.5rem 0; }
+        #vial-status-bars { width: 90%; max-width: 900px; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.2rem; z-index: 10; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 90px; font-size: 0.75rem; color: #0f0; }
+        .progress-bar { flex: 1; height: 8px; background: #333; border: 1px solid #0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #0f0; transition: width 0.5s; }
+        .progress-fill.offline-grey { background: #666; }
+        .progress-fill.training { background: #ff0; }
+        .progress-fill.offline { background: #f00; }
+        .status-text { font-size: 0.75rem; width: 250px; text-align: right; }
+        .status-text.online { color: #0f0; }
+        .status-text.training { color: #ff0; }
+        .status-text.offline-grey { color: #666; }
+        .status-text.offline { color: #f00; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0; background: rgba(0, 0, 0, 0.8); z-index: 10; }
+        #file-input { display: none; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+            #console { font-size: 0.75rem; padding: 0.5rem; max-height: calc(100vh - 380px); }
+            button { padding: 0.5rem 1rem; font-size: 0.85rem; min-width: 80px; }
+            #prompt-input, #api-popup textarea { font-size: 0.85rem; padding: 0.5rem; }
+            .progress-label { width: 70px; font-size: 0.7rem; }
+            .progress-bar { height: 7px; }
+            .status-text { font-size: 0.7rem; width: 200px; }
+            #error-notification, #api-popup { font-size: 0.7rem; max-width: 250px; }
+        }
+        @media (max-width: 400px) {
+            .button-group { flex-direction: column; align-items: center; }
+            button { width: 100%; max-width: 160px; }
+            #console { max-height: calc(100vh - 320px); }
+            .status-text { width: 150px; }
+        }
     </style>
 </head>
 <body>
-    <div class="p-4">
-        <div class="flex space-x-4 mb-4">
-            <button id="authButton" class="button bg-blue-600 hover:bg-blue-700">Authenticate (OAuth2.0)</button>
-            <button id="apiAccessButton" class="button bg-green-600 hover:bg-green-700">API Access</button>
-            <button id="mineButton" class="button bg-purple-600 hover:bg-purple-700">Mine Proof of Work</button>
-            <button id="walletButton" class="button bg-yellow-600 hover:bg-yellow-700">Wallet Status</button>
-        </div>
-        <div id="status" class="mb-4">Status: Disconnected</div>
-        <div id="terminal" class="rounded"></div>
-        <input id="input" type="text" placeholder="Enter command (/help for commands)">
+    <h1>Vial2 MCP Controller (BETA)</h1>
+    <div id="console">
+        <p>Vial2 MCP Controller initialized. Use /help for commands.</p>
+        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
     </div>
+    <div id="error-notification"></div>
+    <div id="api-popup">
+        <h2>API Access Credentials</h2>
+        <textarea id="api-input" readonly></textarea>
+        <button id="api-generate">Generate New Credentials</button>
+        <button id="api-close">Close</button>
+    </div>
+    <div class="button-group">
+        <button id="authButton">Authenticate</button>
+        <button id="voidButton">Void</button>
+        <button id="troubleshootButton">Troubleshoot</button>
+        <button id="quantumLinkButton" disabled>Quantum Sync</button>
+        <button id="exportButton" disabled>Export</button>
+        <button id="importButton" disabled>Import</button>
+        <button id="apiAccessButton" disabled>API Access</button>
+    </div>
+    <textarea id="prompt-input" placeholder="Enter commands (e.g., /mcp status, /git status, /wallet sync vial1)..."></textarea>
+    <div id="vial-status-bars"></div>
+    <footer>WebXOS Vial2 MCP Controller | Testing Mode (BETA) | 2025 | v2.8 WARNING: $webxos token is in development under MIT license. @WEBXOS claims no fault for token loss. For more info: webxos.netlify.app & github.com/webxos/webxos</footer>
+    <input type="file" id="file-input" accept=".md">
     <script type="module">
-        import { handleTerminalCommand } from '/mcp/client/terminal_commands.js';
+        import { handleTerminalCommand } from './vial2/mcp/client/terminal_commands.js';
 
-        const terminal = document.getElementById('terminal');
-        const input = document.getElementById('input');
-        const status = document.getElementById('status');
+        // Agent templates for new users
+        const agentTemplates = [
+            `# Agent: vial1\n- Status: stopped\n- Language: Python\n- Code Length: 0 bytes\n- $WEBXOS Hash: none\n- Wallet Balance: 0.0000 $WEBXOS\n- Wallet Address: none\n- Wallet Hash: none\n- Tasks: none\n- Quantum State: {}\n- Training Data: []\n- Config: {}\n\n\`\`\`python\nimport torch\nimport torch.nn as nn\n\nclass VialAgent1(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(10, 1)\n    def forward(self, x):\n        return torch.sigmoid(self.fc(x))\n\nmodel = VialAgent1()\n\`\`\``,
+            `# Agent: vial2\n- Status: stopped\n- Language: Python\n- Code Length: 0 bytes\n- $WEBXOS Hash: none\n- Wallet Balance: 0.0000 $WEBXOS\n- Wallet Address: none\n- Wallet Hash: none\n- Tasks: none\n- Quantum State: {}\n- Training Data: []\n- Config: {}\n\n\`\`\`python\nimport torch\nimport torch.nn as nn\n\nclass VialAgent2(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(20, 2)\n    def forward(self, x):\n        return torch.relu(self.fc(x))\n\nmodel = VialAgent2()\n\`\`\``,
+            `# Agent: vial3\n- Status: stopped\n- Language: Python\n- Code Length: 0 bytes\n- $WEBXOS Hash: none\n- Wallet Balance: 0.0000 $WEBXOS\n- Wallet Address: none\n- Wallet Hash: none\n- Tasks: none\n- Quantum State: {}\n- Training Data: []\n- Config: {}\n\n\`\`\`python\nimport torch\nimport torch.nn as nn\n\nclass VialAgent3(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(15, 3)\n    def forward(self, x):\n        return torch.tanh(self.fc(x))\n\nmodel = VialAgent3()\n\`\`\``,
+            `# Agent: vial4\n- Status: stopped\n- Language: Python\n- Code Length: 0 bytes\n- $WEBXOS Hash: none\n- Wallet Balance: 0.0000 $WEBXOS\n- Wallet Address: none\n- Wallet Hash: none\n- Tasks: none\n- Quantum State: {}\n- Training Data: []\n- Config: {}\n\n\`\`\`python\nimport torch\nimport torch.nn as nn\n\nclass VialAgent4(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(25, 4)\n    def forward(self, x):\n        return torch.softmax(self.fc(x), dim=1)\n\nmodel = VialAgent4()\n\`\`\``
+        ];
+
+        // Global state
+        let logQueue = ['<p>Vial2 MCP Controller initialized. Use /help for commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
         let isAuthenticated = false;
+        let isOffline = true;
+        let wallet = { address: null, balance: 0, hash: null };
+        let reputation = 0;
+        let blockchain = [];
+        let apiCredentials = { key: null, secret: null };
+        let connectedResources = [];
+        let vials = Array(4).fill().map((_, i) => ({
+            id: `vial${i+1}`,
+            status: 'stopped',
+            code: agentTemplates[i],
+            codeLength: agentTemplates[i].length,
+            isPython: true,
+            webxosHash: generateUUID(),
+            wallet: { address: null, balance: 0, hash: null },
+            tasks: [],
+            quantumState: null,
+            trainingData: [],
+            config: {},
+            isTraining: false,
+            latency: 0
+        }));
+        let lastLogMessage = null;
+        let lastLogTime = 0;
+        let lastLogId = 0;
 
-        async function log(message) {
-            terminal.innerHTML += `<div>${message}</div>`;
-            terminal.scrollTop = terminal.scrollHeight;
+        // Utility functions
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
         }
 
-        document.getElementById('authButton').addEventListener('click', async () => {
-            try {
-                const response = await axios.get('/mcp/auth');
-                localStorage.setItem('token', response.data.token);
-                isAuthenticated = true;
-                status.textContent = 'Status: Authenticated';
-                log('Authentication successful');
-            } catch (e) {
-                log(`Authentication failed: ${e.response?.data?.error?.message || e.message}`);
-            }
-        });
+        async function sha256(data) {
+            const encoded = new TextEncoder().encode(data);
+            const hash = await crypto.subtle.digest('SHA-256', encoded);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
 
-        document.getElementById('apiAccessButton').addEventListener('click', async () => {
+        function sanitizeInput(input) {
+            return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                        .replace(/[<>{}]/g, '');
+        }
+
+        function validateMarkdown(mdContent) {
+            if (!mdContent.includes('## Agentic Network') && !mdContent.includes('# Agent: vial')) {
+                return false;
+            }
+            return !mdContent.includes('<script');
+        }
+
+        function parseMarkdownForTraining(mdContent) {
+            const lines = mdContent.split('\n');
+            let tasks = [];
+            let parameters = {};
+            let inTaskSection = false;
+            for (let line of lines) {
+                if (line.startsWith('## Tasks')) {
+                    inTaskSection = true;
+                } else if (inTaskSection && line.startsWith('- ')) {
+                    tasks.push(line.slice(2).trim());
+                } else if (line.match(/^- Parameter: (\w+): (.+)/)) {
+                    const [, key, value] = line.match(/^- Parameter: (\w+): (.+)/);
+                    parameters[key] = value;
+                }
+            }
+            return { tasks, parameters };
+        }
+
+        async function addToBlockchain(type, data) {
+            if (isOffline && type !== 'train' && type !== 'import' && type !== 'export') {
+                return null;
+            }
+            const timestamp = new Date().toISOString();
+            const prevHash = blockchain.length ? blockchain[blockchain.length - 1].hash : '0'.repeat(64);
+            const hash = await sha256(`${type}${JSON.stringify(data, null, 0)}${timestamp}${prevHash}`);
+            const block = { type, data, timestamp, prevHash, hash };
+            blockchain.push(block);
+            return hash;
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        function logEvent(event_type, message, metadata = {}) {
+            const timestamp = new Date().toISOString();
+            const now = Date.now();
+            const logId = ++lastLogId;
+            const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+            if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
+            lastLogMessage = baseMessage;
+            lastLogTime = now;
+            const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+            logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+            console.log(`${event_type}: ${message}`, metadata);
+        }
+
+        function showErrorNotification(message) {
+            const errorNotification = document.getElementById('error-notification');
+            if (errorNotification) {
+                errorNotification.textContent = message;
+                errorNotification.classList.add('visible');
+                setTimeout(() => errorNotification.classList.remove('visible'), 5000);
+            } else {
+                console.error(`Notification: ${message}`);
+            }
+        }
+
+        const debouncedUpdateConsole = debounce(() => {
+            const consoleDiv = document.getElementById('console');
+            if (consoleDiv) {
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+        }, 100);
+
+        function updateVialStatusBars() {
+            const vialStatusBars = document.getElementById('vial-status-bars');
+            if (!vialStatusBars) return;
+            vials.forEach(vial => {
+                vial.latency = isOffline ? 0 : Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+            });
+            vialStatusBars.innerHTML = vials.map(vial => {
+                const mode = vial.isTraining ? 'Training' : (isOffline ? 'Offline (Wallet Disabled)' : 'Online');
+                const statusClass = vial.isTraining ? 'training' : (isOffline ? 'offline-grey' : 'online');
+                const fillClass = vial.status === 'stopped' ? 'offline-grey' : (vial.isTraining ? 'training' : '');
+                return `
+                    <div class="progress-container">
+                        <span class="progress-label">${vial.id}</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${fillClass}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                        </div>
+                        <span class="status-text ${statusClass}">Latency: ${vial.latency}ms | Size: ${vial.codeLength} bytes | Mode: ${mode}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateBalanceDisplay() {
+            const balanceIndex = logQueue.findIndex(log => log.includes('$WEBXOS Balance'));
+            const displayBalance = isOffline ? 'N/A (Offline)' : wallet.balance.toFixed(4);
+            const displayResource = connectedResources.length ? `Connected: ${connectedResources.join(', ')}` : 'No resources connected';
+            const displayReputation = isOffline ? 'N/A (Offline)' : reputation;
+            if (balanceIndex !== -1) {
+                logQueue[balanceIndex] = `<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation} | ${displayResource}</p>`;
+            } else {
+                logQueue.push(`<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation} | ${displayResource}</p>`);
+            }
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+        }
+
+        function disableFunctions() {
+            const buttons = ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'];
+            buttons.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = true;
+            });
+            const authButton = document.getElementById('authButton');
+            if (authButton) authButton.classList.remove('active-monitor');
+            if (isOffline) {
+                apiCredentials = { key: null, secret: null };
+                connectedResources = [];
+                logEvent('error', 'Offline mode: All functions except Authenticate, Void, and Troubleshoot disabled. Connect online to enable.', {});
+                updateVialStatusBars();
+                updateBalanceDisplay();
+            }
+        }
+
+        async function authenticate() {
+            const isOnline = confirm('Authenticate in online mode? Cancel for offline mode.');
+            isOffline = !isOnline;
+            try {
+                if (!isOnline) {
+                    wallet = { address: null, balance: 0, hash: null };
+                    reputation = 0;
+                    blockchain = [];
+                    apiCredentials = { key: null, secret: null };
+                    connectedResources = [];
+                    isAuthenticated = true;
+                    vials.forEach((vial, i) => {
+                        vial.wallet = { address: null, balance: 0, hash: null };
+                        vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                        vial.code = agentTemplates[i];
+                        vial.codeLength = agentTemplates[i].length;
+                        vial.trainingData = [];
+                        vial.tasks = [];
+                        vial.config = {};
+                        vial.isTraining = false;
+                        vial.latency = 0;
+                    });
+                    logEvent('auth', 'Authentication successful (offline mode). Limited functionality available. Use /help for commands.', {});
+                } else {
+                    const response = await axios.get('/mcp/auth/relay_check', { withCredentials: true });
+                    if (response.data.redirect_url) {
+                        window.location.href = response.data.redirect_url;
+                        return;
+                    }
+                    const token = response.data.token;
+                    localStorage.setItem('token', token);
+                    const walletResponse = await axios.post('/mcp/api/vial/wallet/sync', { vial_id: 'vial1' }, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    wallet = walletResponse.data.result.data;
+                    reputation = wallet.reputation || 0;
+                    blockchain = wallet.blockchain || [];
+                    apiCredentials = { key: null, secret: null };
+                    connectedResources = walletResponse.data.result.connected_resources || [];
+                    isAuthenticated = true;
+                    vials.forEach((vial, i) => {
+                        vial.code = agentTemplates[i];
+                        vial.codeLength = agentTemplates[i].length;
+                        vial.wallet = { address: generateUUID(), balance: 0, hash: wallet.hash };
+                        vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                    });
+                    logEvent('auth', `Authentication successful (online mode). Wallet synced: ${wallet.address}. Connected: ${connectedResources.join(', ') || 'none'}`, { wallet: wallet.address });
+                }
+                const authButton = document.getElementById('authButton');
+                if (authButton) authButton.classList.add('active-monitor');
+                ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton'].forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) btn.disabled = !isOnline;
+                });
+                updateVialStatusBars();
+                updateBalanceDisplay();
+            } catch (err) {
+                showErrorNotification(`Authentication failed: ${err.message}. Please try again.`);
+                logEvent('error', `Authentication failed: ${err.message}`, { stack: err.stack });
+                voidVials();
+            }
+        }
+
+        function voidVials() {
+            isAuthenticated = false;
+            isOffline = true;
+            wallet = { address: null, balance: 0, hash: null };
+            reputation = 0;
+            blockchain = [];
+            apiCredentials = { key: null, secret: null };
+            connectedResources = [];
+            vials = Array(4).fill().map((_, i) => ({
+                id: `vial${i+1}`,
+                status: 'stopped',
+                code: agentTemplates[i],
+                codeLength: agentTemplates[i].length,
+                isPython: true,
+                webxosHash: generateUUID(),
+                wallet: { address: null, balance: 0, hash: null },
+                tasks: [],
+                quantumState: null,
+                trainingData: [],
+                config: {},
+                isTraining: false,
+                latency: 0
+            }));
+            localStorage.removeItem('token');
+            disableFunctions();
+            logQueue = ['<p>Vial2 MCP Controller initialized. Use /help for commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+            debouncedUpdateConsole();
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            logEvent('void', 'All data voided', {});
+        }
+
+        async function troubleshoot() {
+            try {
+                if (isOffline) {
+                    logEvent('error', 'Troubleshoot: System in offline mode. Connect online to access full diagnostics.', {});
+                    return;
+                }
+                const response = await axios.get('/mcp/api/vial/error/traceback', {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+                const errors = response.data.result.data;
+                logEvent('diagnostics', `Troubleshoot: System in online mode. Recent errors: ${errors.length}`, { errors });
+            } catch (err) {
+                showErrorNotification(`Troubleshoot failed: ${err.message}. Connect online to continue.`);
+                logEvent('error', `Troubleshoot failed: ${err.message}`, { stack: err.stack });
+            }
+        }
+
+        async function quantumSync() {
             if (!isAuthenticated) {
-                log('Please authenticate first using /auth');
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('Quantum Sync disabled in offline mode. Connect online to enable.');
+                logEvent('error', 'Quantum Sync disabled in offline mode. Connect online to enable.', {});
+                return;
+            }
+            try {
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.add('active-train');
+                if (consoleDiv) consoleDiv.classList.add('active-train');
+                document.body.classList.add('train-glow');
+                vials.forEach(vial => { vial.isTraining = true; vial.status = 'running'; });
+                updateVialStatusBars();
+                const fileInput = document.getElementById('file-input');
+                let inputData = '';
+                if (fileInput?.files?.length) {
+                    inputData = await fileInput.files[0].text();
+                    inputData = sanitizeInput(inputData);
+                }
+                const response = await axios.post('/mcp/api/vial/quantum/link', { vial_id: 'vial1', input_data: inputData }, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+                vials.forEach((vial, i) => {
+                    vial.quantumState = response.data.result.data.quantum_state;
+                    vial.status = 'running';
+                    vial.wallet = response.data.result.data.vials[i].wallet;
+                });
+                connectedResources = response.data.result.data.connected_resources || [];
+                const blockHash = await addToBlockchain('quantum_sync', { network_id: response.data.result.data.network_id });
+                logEvent('quantum', `Quantum sync activated. Network ID: ${response.data.result.data.network_id}. Connected: ${connectedResources.join(', ') || 'none'}`, { blockHash });
+                setTimeout(() => {
+                    if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                    if (consoleDiv) consoleDiv.classList.remove('active-train');
+                    document.body.classList.remove('train-glow');
+                    vials.forEach(vial => { vial.isTraining = false; });
+                    updateVialStatusBars();
+                    updateBalanceDisplay();
+                }, 1000);
+            } catch (err) {
+                showErrorNotification(`Quantum sync failed: ${err.message}. Connect online to continue.`);
+                logEvent('error', `Quantum sync failed: ${err.message}`, { stack: err.stack });
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                vials.forEach(vial => { vial.isTraining = false; });
+                updateVialStatusBars();
+            }
+        }
+
+        async function exportVials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('Export disabled in offline mode. Connect online to enable.');
+                logEvent('error', 'Export disabled in offline mode. Connect online to enable.', {});
+                return;
+            }
+            try {
+                const response = await axios.post('/mcp/api/vial/wallet/export', { vial_id: 'vial1' }, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+                const data = response.data.result.data;
+                const markdown = `# WebXOS Vial2 Wallet Export\n\n## Agentic Network\n- Network ID: ${data.network_id || 'none'}\n- Session Start: ${new Date().toISOString()}\n- Reputation: ${isOffline ? 'N/A (Offline)' : reputation}\n\n## Wallet\n- Address: ${wallet.address || 'none'}\n- Session Balance: ${isOffline ? 'N/A (Offline)' : wallet.balance.toFixed(4)} $WEBXOS\n- Hash: ${wallet.hash || 'none'}\n\n## API Credentials\n- Key: ${apiCredentials.key || 'none'}\n- Secret: ${apiCredentials.secret || 'none'}\n\n## Blockchain\n- Blocks: ${blockchain.length}\n- Last Hash: ${blockchain.length ? blockchain[blockchain.length - 1].hash : 'none'}\n\n## Vials\n${vials.map(vial => {
+                    let trainingDataStr = JSON.stringify(vial.trainingData, null, 2).replace(/\n/g, '\n    ');
+                    let quantumStateStr = JSON.stringify(vial.quantumState || {}, null, 2).replace(/\n/g, '\n    ');
+                    let configStr = JSON.stringify(vial.config, null, 2).replace(/\n/g, '\n    ');
+                    return `# Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $WEBXOS Hash: ${vial.webxosHash}\n- Wallet Balance: ${isOffline ? 'N/A (Offline)' : vial.wallet.balance.toFixed(4)} $WEBXOS\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${quantumStateStr}\n- Training Data: ${trainingDataStr}\n- Config: ${configStr}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`;
+                }).join('---\n\n')}\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button to resume training.\n- **Extend**: Modify agent code externally, then reimport.\n- **Share**: Send this .md file to others to continue training with the same wallet.\n- **API**: Use API credentials to access backend (online mode only).\n- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification (online mode only).\n\nGenerated by Vial2 MCP Controller`;
+                const blob = new Blob([markdown], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vial2_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+                const blockHash = await addToBlockchain('export', { network_id: data.network_id });
+                logEvent('export', 'Exported vials and wallet as Markdown', { blockHash });
+            } catch (err) {
+                showErrorNotification(`Export failed: ${err.message}. Connect online to continue.`);
+                logEvent('error', `Export failed: ${err.message}`, { stack: err.stack });
+            }
+        }
+
+        async function importFile() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('Import disabled in offline mode. Connect online to enable.');
+                logEvent('error', 'Import disabled in offline mode. Connect online to enable.', {});
+                return;
+            }
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput?.files?.length) {
+                showErrorNotification('No file selected: Please select a .md file');
+                logEvent('error', 'No file selected: Please select a .md file', {});
+                return;
+            }
+            const file = fileInput.files[0];
+            if (!file.name.match(/\.md$/)) {
+                showErrorNotification('Invalid file type: Only .md files allowed');
+                logEvent('error', 'Invalid file type: Only .md files allowed', { file: file.name });
+                return;
+            }
+            if (file.size > 1024 * 1024) {
+                showErrorNotification('File size exceeds limit: Maximum 1MB allowed');
+                logEvent('error', 'File size exceeds limit: Maximum 1MB allowed', { size: file.size });
+                return;
+            }
+            try {
+                const text = await file.text();
+                const sanitizedText = sanitizeInput(text);
+                if (!validateMarkdown(sanitizedText)) {
+                    showErrorNotification('Invalid .md format: File contains invalid content or script tags');
+                    logEvent('error', 'Invalid .md format: File contains invalid content or script tags', {});
+                    return;
+                }
+                const response = await axios.post('/mcp/api/vial/wallet/import', { vial_id: 'vial1', markdown: sanitizedText }, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+                const data = response.data.result.data;
+                wallet = data.wallet;
+                reputation = data.reputation || 0;
+                blockchain = data.blockchain || [];
+                connectedResources = data.connected_resources || [];
+                vials = data.vials.map((v, i) => ({
+                    ...v,
+                    code: agentTemplates[i],
+                    codeLength: agentTemplates[i].length,
+                    isPython: true,
+                    webxosHash: v.webxosHash || generateUUID()
+                }));
+                const blockHash = await addToBlockchain('import', { network_id: data.network_id });
+                logEvent('import', `Imported and merged wallet from .md. Connected: ${connectedResources.join(', ') || 'none'}`, { blockHash });
+                updateVialStatusBars();
+                updateBalanceDisplay();
+                await quantumSync();
+            } catch (err) {
+                showErrorNotification(`Import failed: ${err.message}. Connect online to continue.`);
+                logEvent('error', `Import failed: ${err.message}`, { stack: err.stack });
+            }
+        }
+
+        async function generateApiCredentials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode. Connect online to enable.');
+                logEvent('error', 'API access disabled in offline mode. Connect online to enable.', {});
                 return;
             }
             try {
                 const response = await axios.post('/mcp/api/vial/api_key/generate', { vial_id: 'vial1' }, {
                     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
-                log(`API Access Key: ${JSON.stringify(response.data.result.data, null, 2)}`);
-            } catch (e) {
-                log(`API Access failed: ${e.response?.data?.error?.message || e.message}`);
+                apiCredentials = response.data.result.data;
+                const apiInput = document.getElementById('api-input');
+                if (apiInput) {
+                    apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials for console commands to access connected resources.`;
+                }
+                const blockHash = await addToBlockchain('api_credentials', { key: apiCredentials.key });
+                logEvent('api', 'Generated API credentials for console commands', { blockHash });
+            } catch (err) {
+                showErrorNotification(`API credential generation failed: ${err.message}. Connect online to continue.`);
+                logEvent('error', `API credential generation failed: ${err.message}`, { stack: err.stack });
             }
-        });
-
-        document.getElementById('mineButton').addEventListener('click', async () => {
-            if (!isAuthenticated) {
-                log('Please authenticate first using /auth');
-                return;
-            }
-            log('Initiating proof-of-work mining...');
-            // Mining logic to be implemented
-        });
-
-        document.getElementById('walletButton').addEventListener('click', async () => {
-            if (!isAuthenticated) {
-                log('Please authenticate first using /auth');
-                return;
-            }
-            try {
-                const response = await axios.post('/mcp/api/vial/wallet/sync', { vial_id: 'vial1' }, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
-                log(`Wallet Status: ${JSON.stringify(response.data.result.data, null, 2)}`);
-            } catch (e) {
-                log(`Wallet Status failed: ${e.response?.data?.error?.message || e.message}`);
-            }
-        });
-
-        input.addEventListener('keypress', async (e) => {
-            if (e.key === 'Enter' && input.value.trim()) {
-                await handleTerminalCommand(input.value, log);
-                input.value = '';
-            }
-        });
-
-        // Check for OAuth redirect token
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
-        if (token) {
-            localStorage.setItem('token', token);
-            isAuthenticated = true;
-            status.textContent = 'Status: Authenticated';
-            log('Authenticated via OAuth2.0 redirect');
         }
+
+        function showApiPopup() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first');
+                logEvent('error', 'Not authenticated: Please authenticate first', {});
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode. Connect online to enable.');
+                logEvent('error', 'API access disabled in offline mode. Connect online to enable.', {});
+                return;
+            }
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) {
+                apiPopup.classList.add('visible');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput && apiCredentials.key) {
+                    apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials for console commands to access connected resources.`;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateVialStatusBars();
+            updateBalanceDisplay();
+            const elements = {
+                authButton: document.getElementById('authButton'),
+                voidButton: document.getElementById('voidButton'),
+                troubleshootButton: document.getElementById('troubleshootButton'),
+                quantumLinkButton: document.getElementById('quantumLinkButton'),
+                exportButton: document.getElementById('exportButton'),
+                importButton: document.getElementById('importButton'),
+                apiAccessButton: document.getElementById('apiAccessButton'),
+                apiSubmit: document.getElementById('api-generate'),
+                apiClose: document.getElementById('api-close'),
+                fileInput: document.getElementById('file-input'),
+                promptInput: document.getElementById('prompt-input')
+            };
+
+            elements.authButton.addEventListener('click', authenticate);
+            elements.voidButton.addEventListener('click', voidVials);
+            elements.troubleshootButton.addEventListener('click', troubleshoot);
+            elements.quantumLinkButton.addEventListener('click', quantumSync);
+            elements.exportButton.addEventListener('click', exportVials);
+            elements.importButton.addEventListener('click', () => elements.fileInput.click());
+            elements.apiAccessButton.addEventListener('click', showApiPopup);
+            elements.apiSubmit.addEventListener('click', generateApiCredentials);
+            elements.apiClose.addEventListener('click', () => {
+                const apiPopup = document.getElementById('api-popup');
+                if (apiPopup) apiPopup.classList.remove('visible');
+            });
+            elements.fileInput.addEventListener('change', importFile);
+            elements.promptInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (elements.promptInput.value.trim()) {
+                        handleTerminalCommand(elements.promptInput.value, message => {
+                            logEvent('command', message);
+                            updateBalanceDisplay();
+                        }, isAuthenticated, isOffline);
+                        elements.promptInput.value = '';
+                    }
+                }
+            });
+
+            logEvent('system', 'Vial2 MCP Controller initialized. Use /help for commands.', {});
+            if (window.location.search.includes('code=')) {
+                authenticate();
+            }
+        }, { once: true });
     </script>
 </body>
 </html>
 
-# xAI Artifact Tags: #vial2 #html #mcp #inspector #oauth2 #git #neon_mcp
+<!-- xAI Artifact Tags: #vial2 #html #frontend #mcp #wallet #oauth #neon_mcp -->
