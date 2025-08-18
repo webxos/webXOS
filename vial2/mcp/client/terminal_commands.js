@@ -1,4 +1,4 @@
-import { mcpStatus, mcpConnect, mcpListResources, mcpGetResource, mcpListPrompts, mcpGetPrompt } from './mcp_client.js';
+import { mcpStatus, mcpConnect, mcpListResources, mcpGetResource, mcpListPrompts, mcpGetPrompt, mcpExecuteTool, mcpQueueOffline, mcpSyncState } from './mcp_client.js';
 
 export async function handleTerminalCommand(cmd, log) {
     const parts = cmd.trim().split(' ').filter(p => p);
@@ -18,12 +18,16 @@ export async function handleTerminalCommand(cmd, log) {
             /mcp resources/get <resource> - Get a resource
             /mcp prompts/list - List available prompts
             /mcp prompts/get <prompt> - Get a prompt
+            /mcp tool/execute <vial_id> <tool> [key=value ...] - Execute an MCP tool
+            /mcp offline/queue <vial_id> <action> [key=value ...] - Queue offline operation
+            /mcp sync <vial_id> - Sync vial state
             /git <command> - Run git command (status, pull, push, commit -m)
             /git model <action> - Git model operations (commit_model, push_model, pull_model)
             /training <action> - Training operations (start_training, commit_training)
             /api_key generate <vial_id> - Generate API key for vial
             /quantum link <vial_id> - Link vial to quantum network
             /wallet sync <vial_id> - Sync wallet with WebXOS
+            /wallet export <vial_id> - Export wallet data
             /mine - Start proof-of-work mining
             /api - Request API access
         `);
@@ -56,6 +60,30 @@ export async function handleTerminalCommand(cmd, log) {
                 const promptName = parts[2];
                 const prompt = await mcpGetPrompt(promptName);
                 log(JSON.stringify(prompt, null, 2));
+            } else if (subCommand === 'tool/execute') {
+                const vialId = parts[2];
+                const toolName = parts[3];
+                const args = parts.slice(4).reduce((acc, arg) => {
+                    const [key, value] = arg.split('=');
+                    acc[key] = value;
+                    return acc;
+                }, {});
+                const result = await mcpExecuteTool(vialId, toolName, args);
+                log(JSON.stringify(result, null, 2));
+            } else if (subCommand === 'offline/queue') {
+                const vialId = parts[2];
+                const action = parts[3];
+                const payload = parts.slice(4).reduce((acc, arg) => {
+                    const [key, value] = arg.split('=');
+                    acc[key] = value;
+                    return acc;
+                }, {});
+                const result = await mcpQueueOffline(vialId, action, payload);
+                log(JSON.stringify(result, null, 2));
+            } else if (subCommand === 'sync') {
+                const vialId = parts[2];
+                const result = await mcpSyncState(vialId);
+                log(JSON.stringify(result, null, 2));
             } else {
                 log('Unknown MCP command');
             }
@@ -106,6 +134,16 @@ export async function handleTerminalCommand(cmd, log) {
         try {
             const vialId = parts[2];
             const response = await axios.post('/mcp/api/vial/wallet/sync', { vial_id: vialId }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            log(JSON.stringify(response.data.result.data, null, 2));
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error?.message || e.message}`);
+        }
+    } else if (cmd.startsWith('/wallet export')) {
+        try {
+            const vialId = parts[2];
+            const response = await axios.post('/mcp/api/vial/wallet/export', { vial_id: vialId }, {
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             log(JSON.stringify(response.data.result.data, null, 2));
