@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from ..database import get_db
 from ..error_logging.error_log import error_logger
+from ..security.octokit_oauth import get_octokit_auth
 import logging
 import sqlite3
 
@@ -10,8 +11,11 @@ async def handle_task(params: dict):
     try:
         db = await get_db()
         task_type = params.get("type")
+        token = params.get("token")
         if not task_type:
             raise ValueError("Task type missing")
+        if token:
+            await get_octokit_auth(token)  # Validate GitHub token
         
         # Validate parameters
         if not isinstance(params, (dict, list)):
@@ -27,6 +31,9 @@ async def handle_task(params: dict):
         elif task_type == "prompts/list":
             query = "SELECT * FROM logs WHERE event_type='prompt'"
             result = await db.execute(query)
+        elif task_type == "wallet/balance":
+            query = "SELECT balance FROM wallets WHERE address=$1"
+            result = await db.execute(query, params.get("address"))
         else:
             raise ValueError("Unsupported task type")
         
@@ -50,4 +57,4 @@ async def handle_task(params: dict):
             "jsonrpc": "2.0", "error": {"code": -32603, "message": str(e), "data": str(e.__traceback__)}
         })
 
-# xAI Artifact Tags: #vial2 #tasks #sqlite #neon_mcp
+# xAI Artifact Tags: #vial2 #tasks #octokit #sqlite #neon_mcp
