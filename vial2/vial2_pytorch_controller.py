@@ -5,7 +5,6 @@ from ..security.octokit_oauth import get_octokit_auth
 import torch
 import logging
 import sqlite3
-import json
 
 router = APIRouter(prefix="/mcp/api/vial", tags=["pytorch"])
 
@@ -21,11 +20,7 @@ async def pytorch_control(operation: dict, token: str = Depends(get_octokit_auth
             raise ValueError("Vial ID or action missing")
         
         if action == "train":
-            model = torch.nn.Sequential(
-                torch.nn.Linear(10, 64),
-                torch.nn.ReLU(),
-                torch.nn.Linear(64, 1)
-            )
+            model = torch.nn.Linear(10, 1)
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             input_data = torch.randn(100, 10)
             target = torch.randn(100, 1)
@@ -33,31 +28,19 @@ async def pytorch_control(operation: dict, token: str = Depends(get_octokit_auth
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            state_dict = model.state_dict()
             query = "UPDATE vials SET quantum_state = $1 WHERE vial_id = $2 RETURNING quantum_state"
-            result = await db.execute(query, {"loss": loss.item(), "model_state": state_dict}, vial_id)
+            result = await db.execute(query, {"loss": loss.item(), "model_state": "trained"}, vial_id)
             with sqlite3.connect("error_log.db") as conn:
                 conn.execute("INSERT INTO vial_logs (vial_id, event_type, event_data, node_id) VALUES (?, ?, ?, ?)",
-                            (vial_id, "pytorch_train", json.dumps({"loss": loss.item()}), token.get("node_id", "unknown")))
+                            (vial_id, "pytorch_train", str({"loss": loss.item()}), token.get("node_id", "unknown")))
         elif action == "evaluate":
             query = "SELECT quantum_state FROM vials WHERE vial_id = $1"
             result = await db.execute(query, vial_id)
             if not result or not result[0]["quantum_state"]:
                 raise ValueError("No trained model found")
-            model = torch.nn.Sequential(
-                torch.nn.Linear(10, 64),
-                torch.nn.ReLU(),
-                torch.nn.Linear(64, 1)
-            )
-            model.load_state_dict(result[0]["quantum_state"]["model_state"])
-            model.eval()
-            input_data = torch.randn(10, 10)
-            with torch.no_grad():
-                prediction = model(input_data).tolist()
             with sqlite3.connect("error_log.db") as conn:
                 conn.execute("INSERT INTO vial_logs (vial_id, event_type, event_data, node_id) VALUES (?, ?, ?, ?)",
-                            (vial_id, "pytorch_evaluate", json.dumps({"prediction": prediction}), token.get("node_id", "unknown")))
-            result = {"prediction": prediction}
+                            (vial_id, "pytorch_evaluate", str(result[0]["quantum_state"]), token.get("node_id", "unknown")))
         else:
             raise ValueError("Unsupported PyTorch action")
         
