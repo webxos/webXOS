@@ -32,6 +32,14 @@ async def wallet_bridge(operation: dict, token: str = Depends(get_octokit_auth))
             with sqlite3.connect("error_log.db") as conn:
                 conn.execute("INSERT INTO vial_logs (vial_id, event_type, event_data, node_id) VALUES (?, ?, ?, ?)",
                             (vial_id, "wallet_unlink", json.dumps({"wallet_address": None}), token.get("node_id", "unknown")))
+        elif action == "verify":
+            query = "SELECT wallet_address FROM vials WHERE vial_id = $1"
+            result = await db.execute(query, vial_id)
+            if not result or result[0]["wallet_address"] != wallet_address:
+                raise ValueError("Wallet not linked to vial")
+            with sqlite3.connect("error_log.db") as conn:
+                conn.execute("INSERT INTO vial_logs (vial_id, event_type, event_data, node_id) VALUES (?, ?, ?, ?)",
+                            (vial_id, "wallet_verify", json.dumps({"wallet_address": wallet_address}), token.get("node_id", "unknown")))
         else:
             raise ValueError("Unsupported wallet bridge action")
         
