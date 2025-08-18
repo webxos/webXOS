@@ -1,98 +1,35 @@
-import torch
 from fastapi import HTTPException
+from ..database import get_db
+from ..pytorch.quantum_link import QuantumLink
+from ..error_logging.error_log import error_logger
 import logging
-from datetime import datetime
+import torch
 
 logger = logging.getLogger(__name__)
 
-async def handle_command(command: str, request: dict, db):
-    try {
-        parts = command.split()
-        cmd = parts[0].lower()
-        if cmd == '/prompt':
-            vial_id, action = parts[1], ' '.join(parts[2:])
-            async with db:
-                await db.execute(
-                    "UPDATE vials SET status=$1, code=$2, code_length=$3 WHERE vial_id=$4",
-                    "running" if 'train' in action.lower() else "stopped",
-                    action,
-                    len(action),
-                    vial_id
-                )
-            return {"status": "success", "vial_id": vial_id, "action": action}
-        elif cmd == '/task':
-            vial_id, task = parts[1], ' '.join(parts[2:])
-            async with db:
-                await db.execute(
-                    "UPDATE vials SET tasks=$1 WHERE vial_id=$2",
-                    [task], vial_id
-                )
-            return {"status": "success", "vial_id": vial_id, "task": task}
-        elif cmd == '/config':
-            vial_id, key, value = parts[1], parts[2], ' '.join(parts[3:])
-            async with db:
-                await db.execute(
-                    "UPDATE vials SET config=$1 WHERE vial_id=$2",
-                    {key: value}, vial_id
-                )
-            return {"status": "success", "vial_id": vial_id, "config": {key: value}}
-        elif cmd == '/status':
-            async with db:
-                vials = await db.fetch("SELECT * FROM vials")
-                computes = await db.fetch("SELECT * FROM computes")
-            return {"vials": [dict(v) for v in vials], "computes": [dict(c) for c in computes]}
+async def manage_agent(vial_id: str, action: str, data: dict = None):
+    try:
+        db = await get_db()
+        if action == "train":
+            model_class = data.get("model_class")
+            model_data = data.get("model_data")
+            if not model_class or not model_data:
+                raise HTTPException(status_code=400, detail="Model class or data missing")
+            quantum_link = QuantumLink()
+            model = await quantum_link.train_model(model_class, torch.tensor(model_data))
+            await db.execute(
+                "UPDATE vials SET status=$1, code=$2 WHERE vial_id=$3",
+                "running", str(model), vial_id
+            )
+            return {"status": "success", "vial_id": vial_id}
+        elif action == "status":
+            result = await db.execute("SELECT status FROM vials WHERE vial_id=$1", vial_id)
+            return result[0] if result else {"status": "not found"}
         else:
-            raise ValueError("Unknown command")
+            raise HTTPException(status_code=400, detail="Invalid action")
     except Exception as e:
-        logger.error(f"Command handling failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-async def configure_compute(spec: dict, db):
-    try {
-        async with db:
-            await db.execute(
-                "UPDATE computes SET state=$1, spec=$2, last_activity=$3 WHERE compute_id=$4",
-                "Configuration", spec, datetime.utcnow(), "compute1"
-            )
-        return {"status": "success", "spec": spec}
-    except Exception as e:
-        logger.error(f"Compute configuration failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-async def refresh_configuration(db):
-    try {
-        async with db:
-            await db.execute(
-                "UPDATE computes SET state=$1, last_activity=$2 WHERE compute_id=$3",
-                "RefreshConfiguration", datetime.utcnow(), "compute1"
-            )
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Refresh configuration failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-async def terminate_fast(db):
-    try {
-        async with db:
-            await db.execute(
-                "UPDATE computes SET state=$1, readiness=$2, last_activity=$3 WHERE compute_id=$4",
-                "TerminationPendingFast", False, datetime.utcnow(), "compute1"
-            )
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Fast termination failed: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-async def terminate_immediate(db):
-    try {
-        async with db:
-            await db.execute(
-                "UPDATE computes SET state=$1, readiness=$2, last_activity=$3 WHERE compute_id=$4",
-                "TerminationPendingImmediate", False, datetime.utcnow(), "compute1"
-            )
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Immediate termination failed: {str(e)}")
+        error_logger.log_error("manage_agent", str(e), str(e.__traceback__))
+        logger.error(f"Agent management failed: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # xAI Artifact Tags: #vial2 #agents #pytorch #neon_mcp
