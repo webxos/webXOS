@@ -18,8 +18,18 @@ from .mcp.inspector.mcp_server import router as mcp_server_router
 from .mcp.inspector.tool_manager import router as tool_manager_router
 from .mcp.inspector.resource_manager import router as resource_manager_router
 from .mcp.inspector.prompt_manager import router as prompt_manager_router
+from .mcp.inspector.training_pipeline import router as training_pipeline_router
+from .mcp.inspector.model_versioning import router as model_versioning_router
+from .mcp.inspector.quantum_link import router as quantum_link_router
+from .mcp.inspector.resource_cache import router as resource_cache_router
+from .mcp.inspector.prompt_template import router as prompt_template_router
+from .mcp.inspector.tool_execution import router as tool_execution_router
 from .mcp.api.mcp_endpoints import router as mcp_endpoints_router
 from .mcp.api.git_integration import router as git_integration_router
+from .mcp.api.mcp_auth import router as mcp_auth_router
+from .mcp.api.api_key_manager import router as api_key_manager_router
+from .mcp.api.wallet_sync import router as wallet_sync_router
+from .mcp.api.offline_queue import router as offline_queue_router
 
 __all__ = [
     "vial_manager_router",
@@ -42,8 +52,18 @@ __all__ = [
     "tool_manager_router",
     "resource_manager_router",
     "prompt_manager_router",
+    "training_pipeline_router",
+    "model_versioning_router",
+    "quantum_link_router",
+    "resource_cache_router",
+    "prompt_template_router",
+    "tool_execution_router",
     "mcp_endpoints_router",
-    "git_integration_router"
+    "git_integration_router",
+    "mcp_auth_router",
+    "api_key_manager_router",
+    "wallet_sync_router",
+    "offline_queue_router"
 ]
 
 # xAI Artifact Tags: #vial2 #init #mcp #inspector #pytorch #sqlite #octokit #neon_mcp
