@@ -11,7 +11,7 @@ export async function handleTerminalCommand(cmd, log) {
             Available commands:
             /auth - Initiate OAuth2.0 authentication
             /mcp status - Check MCP server status
-            /mcp connect <vial_id> [server] - Connect to MCP server
+            /mcp connect <vial_id> [server] [port] - Connect to MCP server
             /mcp tools/list - List available MCP tools
             /mcp tools/call <tool> [key=value ...] - Call an MCP tool
             /mcp resources/list - List available resources
@@ -20,6 +20,10 @@ export async function handleTerminalCommand(cmd, log) {
             /mcp prompts/get <prompt> - Get a prompt
             /git <command> - Run git command (status, pull, push, commit -m)
             /git model <action> - Git model operations (commit_model, push_model, pull_model)
+            /training <action> - Training operations (start_training, commit_training)
+            /api_key generate <vial_id> - Generate API key for vial
+            /quantum link <vial_id> - Link vial to quantum network
+            /wallet sync <vial_id> - Sync wallet with WebXOS
             /mine - Start proof-of-work mining
             /api - Request API access
         `);
@@ -35,7 +39,8 @@ export async function handleTerminalCommand(cmd, log) {
             } else if (subCommand === 'connect') {
                 const vialId = parts[2];
                 const server = parts[3] || 'default';
-                const result = await mcpConnect(vialId, server);
+                const port = parts[4] || 6277;
+                const result = await mcpConnect(vialId, server, port);
                 log(JSON.stringify(result, null, 2));
             } else if (subCommand === 'resources/list') {
                 const resources = await mcpListResources();
@@ -61,6 +66,46 @@ export async function handleTerminalCommand(cmd, log) {
         try {
             const action = parts[2];
             const response = await axios.post('/mcp/api/vial/git/model', { vial_id: 'vial1', action }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            log(JSON.stringify(response.data.result.data, null, 2));
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error?.message || e.message}`);
+        }
+    } else if (cmd.startsWith('/training')) {
+        try {
+            const action = parts[1];
+            const response = await axios.post('/mcp/api/vial/training/pipeline', { vial_id: 'vial1', action }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            log(JSON.stringify(response.data.result.data, null, 2));
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error?.message || e.message}`);
+        }
+    } else if (cmd.startsWith('/api_key generate')) {
+        try {
+            const vialId = parts[2];
+            const response = await axios.post('/mcp/api/vial/api_key/generate', { vial_id: vialId }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            log(JSON.stringify(response.data.result.data, null, 2));
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error?.message || e.message}`);
+        }
+    } else if (cmd.startsWith('/quantum link')) {
+        try {
+            const vialId = parts[2];
+            const response = await axios.post('/mcp/api/vial/quantum/link', { vial_id: vialId }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            log(JSON.stringify(response.data.result.data, null, 2));
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error?.message || e.message}`);
+        }
+    } else if (cmd.startsWith('/wallet sync')) {
+        try {
+            const vialId = parts[2];
+            const response = await axios.post('/mcp/api/vial/wallet/sync', { vial_id: vialId }, {
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             log(JSON.stringify(response.data.result.data, null, 2));
