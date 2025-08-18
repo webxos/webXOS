@@ -9,9 +9,9 @@ export async function mcpStatus() {
     }
 }
 
-export async function mcpConnect(vialId, server = 'default') {
+export async function mcpConnect(vialId, server = 'default', port = 6277) {
     try {
-        const response = await axios.post('/mcp/api/vial/mcp/connect', { vial_id: vialId, server }, {
+        const response = await axios.post('/mcp/api/vial/mcp/connect', { vial_id: vialId, server, port }, {
             headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         return response.data.result.data;
@@ -61,6 +61,39 @@ export async function mcpGetPrompt(promptName) {
         return response.data.result.data;
     } catch (e) {
         throw new Error(`MCP Prompt get failed: ${e.response?.data?.error?.message || e.message}`);
+    }
+}
+
+export async function mcpExecuteTool(vialId, toolName, args = {}) {
+    try {
+        const response = await axios.post('/mcp/api/vial/tool/execute', { vial_id: vialId, tool_name: toolName, args }, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        return response.data.result.data;
+    } catch (e) {
+        throw new Error(`MCP Tool execution failed: ${e.response?.data?.error?.message || e.message}`);
+    }
+}
+
+export async function mcpQueueOffline(vialId, action, payload = {}) {
+    try {
+        const response = await axios.post('/mcp/api/vial/offline/queue', { vial_id: vialId, action, payload }, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        return response.data.result.data;
+    } catch (e) {
+        throw new Error(`MCP Offline queue failed: ${e.response?.data?.error?.message || e.message}`);
+    }
+}
+
+export async function mcpSyncState(vialId) {
+    try {
+        const response = await axios.post('/mcp/api/vial/sync/state', { vial_id: vialId }, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        return response.data.result.data;
+    } catch (e) {
+        throw new Error(`MCP Sync state failed: ${e.response?.data?.error?.message || e.message}`);
     }
 }
 
