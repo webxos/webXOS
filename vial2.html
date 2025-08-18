@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vial MCP (BETA)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
+        html, body { height: 100vh; overflow: hidden; background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+        body.glow { background: rgba(255, 0, 0, 0.1); box-shadow: 0 0 20px #ff0000; }
+        body.train-glow { background: rgba(255, 255, 0, 0.1); box-shadow: 0 0 20px #ff0; }
+        h1 { font-size: 1.6rem; text-align: center; margin: 0.8rem 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 0 5px #0f0; }
+        #console { width: 90%; max-width: 900px; background: rgba(0, 255, 0, 0.1); border: 1px solid #0f0; padding: 0.6rem; flex: 1; max-height: calc(100vh - 380px); overflow-y: auto; margin: 0.5rem 0; border-radius: 5px; font-size: 0.8rem; position: relative; z-index: 5; }
+        #console.active-monitor { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        #console.active-train { border-color: #ff0; box-shadow: 0 0 10px #ff0; }
+        #console p { margin: 0.2rem 0; }
+        #console .command { font-weight: 700; text-shadow: 0 0 3px #0f0; }
+        #console .error { color: #ff0000; text-shadow: 0 0 3px #ff0000; }
+        #console .balance { color: #00f; text-shadow: 0 0 3px #00f; position: sticky; bottom: 0; background: rgba(0, 0, 0, 0.8); padding: 0.2rem; z-index: 6; }
+        #error-notification { display: none; position: fixed; top: 10px; right: 10px; background: rgba(255, 0, 0, 0.8); color: #fff; padding: 0.5rem; border-radius: 3px; font-size: 0.8rem; max-width: 300px; z-index: 1000; box-shadow: 0 0 10px #ff0000; }
+        #error-notification.visible { display: block; }
+        #api-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 500px; background: #000; border: 2px solid #0f0; padding: 1rem; border-radius: 5px; z-index: 2000; box-shadow: 0 0 20px #0f0; color: #0f0; }
+        #api-popup.visible { display: block; }
+        #api-popup textarea { width: 100%; height: 100px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.5rem; font-size: 0.9rem; border-radius: 3px; resize: none; }
+        #api-popup button { background: #0f0; color: #000; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; margin-top: 0.5rem; }
+        #api-popup button:hover { background: #0c0; }
+        .button-group { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 900px; z-index: 10; }
+        button { background: #0f0; color: #000; border: none; padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; border-radius: 3px; min-width: 90px; }
+        button:hover, button:focus { background: #0c0; outline: 2px solid #0f0; }
+        button.active-monitor { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        button.active-train { background: #ff0; color: #000; box-shadow: 0 0 10px #ff0; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        #prompt-input { width: 90%; max-width: 900px; background: #000; border: 1px solid #0f0; color: #0f0; padding: 0.6rem; font-size: 0.9rem; border-radius: 3px; margin: 0.5rem 0; }
+        #vial-status-bars, #compute-status-bars { width: 90%; max-width: 900px; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.2rem; z-index: 10; }
+        .progress-container { display: flex; align-items: center; gap: 0.4rem; }
+        .progress-label { width: 90px; font-size: 0.75rem; color: #0f0; }
+        .progress-bar { flex: 1; height: 8px; background: #333; border: 1px solid #0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #0f0; transition: width 0.5s; }
+        .progress-fill.offline-grey { background: #666; }
+        .progress-fill.training { background: #ff0; }
+        .progress-fill.offline { background: #f00; }
+        .status-text { font-size: 0.75rem; width: 250px; text-align: right; }
+        .status-text.online { color: #0f0; }
+        .status-text.training { color: #ff0; }
+        .status-text.offline-grey { color: #666; }
+        .status-text.offline { color: #f00; }
+        footer { width: 100%; padding: 0.4rem; font-size: 9pt; text-align: center; color: #0f0; background: rgba(0, 0, 0, 0.8); z-index: 10; }
+        #file-input { display: none; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+            #console { font-size: 0.75rem; padding: 0.5rem; max-height: calc(100vh - 380px); }
+            button { padding: 0.5rem 1rem; font-size: 0.85rem; min-width: 80px; }
+            #prompt-input, #api-popup textarea { font-size: 0.85rem; padding: 0.5rem; }
+            .progress-label { width: 70px; font-size: 0.7rem; }
+            .progress-bar { height: 7px; }
+            .status-text { font-size: 0.7rem; width: 200px; }
+            #error-notification, #api-popup { font-size: 0.7rem; max-width: 250px; }
+        }
+        @media (max-width: 400px) {
+            .button-group { flex-direction: column; align-items: center; }
+            button { width: 100%; max-width: 160px; }
+            #console { max-height: calc(100vh - 320px); }
+            .status-text { width: 150px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Vial MCP (BETA)</h1>
+    <div id="console">
+        <p>Vial MCP Controller initialized. Use /help for API commands.</p>
+        <p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>
+    </div>
+    <div id="error-notification"></div>
+    <div id="api-popup">
+        <h2>API Access Credentials</h2>
+        <textarea id="api-input" readonly></textarea>
+        <button id="api-generate">Generate New Credentials</button>
+        <button id="api-close">Close</button>
+    </div>
+    <div class="button-group">
+        <button id="authButton">Authenticate</button>
+        <button id="voidButton">Void</button>
+        <button id="troubleshootButton">Troubleshoot</button>
+        <button id="quantumLinkButton" disabled>Quantum Link</button>
+        <button id="exportButton" disabled>Export</button>
+        <button id="importButton" disabled>Import</button>
+        <button id="apiAccessButton" disabled>API Access</button>
+    </div>
+    <textarea id="prompt-input" placeholder="Enter commands (e.g., /prompt vial1 train dataset, /configure, /refresh_configuration)..." disabled></textarea>
+    <div id="vial-status-bars"></div>
+    <div id="compute-status-bars"></div>
+    <footer>WebXOS Vial MCP Controller | Testing Mode (BETA) | 2025 | v2.7 WARNING: $webxos token is still in development phase under MIT open source license. @WEBXOS will claim no fault for loss of tokens while using our software. For more info: webxos.netlify.app & github.com/webxos/webxos</footer>
+    <input type="file" id="file-input" accept=".md,.json">
+    <script src="./vial2/static/js/mcp-client.js"></script>
+    <script>
+        // Global state
+        let logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+        let isAuthenticated = false;
+        let isOffline = true;
+        let masterKey = null;
+        let walletKey = null;
+        let agenticNetworkId = null;
+        let tokenInterval = null;
+        let reputation = 0;
+        let blockchain = [];
+        let apiCredentials = { key: null, secret: null };
+        let vials = Array(4).fill().map((_, i) => ({
+            id: `vial${i+1}`,
+            status: 'stopped',
+            code: '',
+            codeLength: 0,
+            isPython: true,
+            webxosHash: generateUUID(),
+            wallet: { address: null, balance: 0, hash: null },
+            tasks: [],
+            quantumState: null,
+            trainingData: [],
+            config: {},
+            isTraining: false,
+            latency: 0
+        }));
+        let computes = [{
+            id: 'compute1',
+            state: 'Empty',
+            lastActivity: null,
+            spec: null,
+            readiness: false,
+            latency: 0
+        }];
+        let wallet = { address: null, balance: 0, hash: null };
+        let lastLogMessage = null;
+        let lastLogTime = 0;
+        let lastLogId = 0;
+
+        // UUID generator
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        // SHA-256 hash
+        async function sha256(data) {
+            const encoded = new TextEncoder().encode(data);
+            const hash = await crypto.subtle.digest('SHA-256', encoded);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Sanitize input
+        function sanitizeInput(input) {
+            return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                        .replace(/[<>{}]/g, '');
+        }
+
+        // Validate .md or .json format
+        function validateInputFormat(content, type) {
+            if (type === 'md' && (!content.includes('address:') || content.includes('<script'))) {
+                return false;
+            }
+            if (type === 'json' && content.includes('<script')) {
+                return false;
+            }
+            return true;
+        }
+
+        // Parse .md for wallet data or .json for compute spec
+        function parseInputForData(content, type) {
+            if (type === 'md') {
+                const lines = content.split('\n');
+                let walletData = { address: null, signature: null };
+                for (let line of lines) {
+                    if (line.match(/^address: (0x[a-fA-F0-9]{40})/)) {
+                        walletData.address = line.match(/^address: (0x[a-fA-F0-9]{40})/)[1];
+                    } else if (line.match(/^signature: (.+)/)) {
+                        walletData.signature = line.match(/^signature: (.+)/)[1];
+                    }
+                }
+                return walletData;
+            } else {
+                try {
+                    return JSON.parse(content);
+                } catch {
+                    return null;
+                }
+            }
+        }
+
+        // Log event with deduplication
+        function logEvent(event_type, message, metadata = {}) {
+            const timestamp = new Date().toISOString();
+            const now = Date.now();
+            const logId = ++lastLogId;
+            const baseMessage = message.replace(/^\[\S+\]\s*|\s*\[ID:\d+\]$/, '').trim();
+            if (baseMessage === lastLogMessage && (now - lastLogTime) < 300) return;
+            lastLogMessage = baseMessage;
+            lastLogTime = now;
+            const formattedMessage = `[${timestamp}] ${message} [ID:${logId}]`;
+            logQueue.push(`<p class="${event_type === 'error' ? 'error' : 'command'}">${formattedMessage}</p>`);
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+            console.log(`${event_type}: ${message}`, metadata);
+        }
+
+        // Debounce utility
+        function debounce(func, wait) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        // Update console
+        const debouncedUpdateConsole = debounce(() => {
+            const consoleDiv = document.getElementById('console');
+            if (consoleDiv) {
+                consoleDiv.innerHTML = logQueue.join('');
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+        }, 100);
+
+        // Error notification
+        function showErrorNotification(message) {
+            const errorNotification = document.getElementById('error-notification');
+            if (errorNotification) {
+                errorNotification.textContent = message;
+                errorNotification.classList.add('visible');
+                setTimeout(() => errorNotification.classList.remove('visible'), 5000);
+            } else {
+                console.error(`Notification: ${message}`);
+            }
+        }
+
+        // Update vial status bars
+        function updateVialStatusBars() {
+            const vialStatusBars = document.getElementById('vial-status-bars');
+            if (!vialStatusBars) return;
+            vials.forEach(vial => {
+                vial.latency = isOffline ? 0 : Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+            });
+            vialStatusBars.innerHTML = vials.map(vial => {
+                const mode = vial.isTraining ? 'Training' : (isOffline ? 'Offline (Wallet Disabled)' : 'Online');
+                const statusClass = vial.isTraining ? 'training' : (isOffline ? 'offline-grey' : 'online');
+                const fillClass = vial.status === 'stopped' ? 'offline-grey' : (vial.isTraining ? 'training' : '');
+                return `
+                    <div class="progress-container">
+                        <span class="progress-label">${vial.id}</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${fillClass}" style="width: ${vial.status === 'running' ? '100%' : '0%'};"></div>
+                        </div>
+                        <span class="status-text ${statusClass}">Latency: ${vial.latency}ms | Size: ${vial.codeLength} bytes | Mode: ${mode}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update compute status bars
+        function updateComputeStatusBars() {
+            const computeStatusBars = document.getElementById('compute-status-bars');
+            if (!computeStatusBars) return;
+            computes.forEach(compute => {
+                compute.latency = isOffline ? 0 : Math.floor(Math.random() * (200 - 50 + 1)) + 50;
+            });
+            computeStatusBars.innerHTML = computes.map(compute => {
+                const statusClass = compute.state === 'Running' ? 'online' : (compute.state === 'Failed' ? 'offline' : 'offline-grey');
+                const fillClass = compute.state === 'Running' ? '' : (compute.state === 'Failed' ? 'offline' : 'offline-grey');
+                return `
+                    <div class="progress-container">
+                        <span class="progress-label">${compute.id}</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${fillClass}" style="width: ${compute.state === 'Running' ? '100%' : '0%'};"></div>
+                        </div>
+                        <span class="status-text ${statusClass}">State: ${compute.state} | Latency: ${compute.latency}ms | Readiness: ${compute.readiness}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update balance and reputation display
+        function updateBalanceDisplay() {
+            const balanceIndex = logQueue.findIndex(log => log.includes('$WEBXOS Balance'));
+            const displayBalance = isOffline ? 'N/A (Offline)' : wallet.balance.toFixed(4);
+            const displayReputation = isOffline ? 'N/A (Offline)' : reputation;
+            if (balanceIndex !== -1) {
+                logQueue[balanceIndex] = `<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation}</p>`;
+            } else {
+                logQueue.push(`<p class="balance">$WEBXOS Balance: ${displayBalance} | Reputation: ${displayReputation}</p>`);
+            }
+            if (logQueue.length > 50) logQueue.shift();
+            debouncedUpdateConsole();
+        }
+
+        // Authenticate with Stack Auth
+        async function authenticate() {
+            try {
+                isOffline = false;
+                window.location.href = `https://api.stack-auth.com/api/v1/oauth/authorize?client_id=${encodeURIComponent('your_stack_auth_client_id')}&redirect_uri=${encodeURIComponent('https://webxos.github.io/vial2.html')}&response_type=code&scope=openid+profile+email`;
+            } catch (e) {
+                showErrorNotification(`Authentication redirect failed: ${e.message} [vial2.html:150] [ID:auth_redirect_error]`);
+                logEvent('error', `Authentication redirect failed: ${e.message} [vial2.html:150] [ID:auth_redirect_error]`, { error: e.message });
+            }
+        }
+
+        // Handle OAuth callback
+        async function handleCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            if (code) {
+                try {
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ method: 'authenticate', code, redirect_uri: 'https://webxos.github.io/vial2.html' })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        showErrorNotification(`${result.error} [vial2.html:160] [ID:auth_callback_error]`);
+                        logEvent('error', `${result.error} [vial2.html:160] [ID:auth_callback_error]`, { error: result.error });
+                        return;
+                    }
+                    isAuthenticated = true;
+                    agenticNetworkId = generateUUID();
+                    masterKey = 'online';
+                    walletKey = generateUUID();
+                    wallet = { address: result.wallet_address || generateUUID(), balance: 0, hash: await sha256(agenticNetworkId) };
+                    reputation = 0;
+                    blockchain = [];
+                    apiCredentials = { key: null, secret: null };
+                    vials.forEach((vial, i) => {
+                        vial.wallet = { address: generateUUID(), balance: 0, hash: wallet.hash };
+                        vial.quantumState = { qubits: [], entanglement: 'initialized' };
+                        vial.status = 'stopped';
+                        vial.trainingData = [];
+                        vial.tasks = [];
+                        vial.config = {};
+                        vial.isTraining = false;
+                        vial.latency = 0;
+                    });
+                    computes[0].state = 'Empty';
+                    computes[0].readiness = false;
+                    localStorage.setItem('access_token', result.access_token);
+                    setAuthenticated(result.access_token);
+                    await fetch('/vial2/mcp/api/relay_signal', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${result.access_token}` }
+                    });
+                    logEvent('auth', `Authentication successful. Wallet: ${wallet.address} [vial2.html:170] [ID:auth_success]`, { networkId: agenticNetworkId });
+                    startTokenEarning();
+                    updateVialStatusBars();
+                    updateComputeStatusBars();
+                    updateBalanceDisplay();
+                } catch (e) {
+                    showErrorNotification(`Authentication callback failed: ${e.message} [vial2.html:175] [ID:auth_callback_error]`);
+                    logEvent('error', `Authentication callback failed: ${e.message} [vial2.html:175] [ID:auth_callback_error]`, { error: e.message });
+                }
+            }
+        }
+
+        // Void
+        function voidVials() {
+            isAuthenticated = false;
+            isOffline = true;
+            masterKey = null;
+            walletKey = null;
+            agenticNetworkId = null;
+            wallet = { address: null, balance: 0, hash: null };
+            reputation = 0;
+            blockchain = [];
+            apiCredentials = { key: null, secret: null };
+            vials = Array(4).fill().map((_, i) => ({
+                id: `vial${i+1}`,
+                status: 'stopped',
+                code: '',
+                codeLength: 0,
+                isPython: true,
+                webxosHash: generateUUID(),
+                wallet: { address: null, balance: 0, hash: null },
+                tasks: [],
+                quantumState: null,
+                trainingData: [],
+                config: {},
+                isTraining: false,
+                latency: 0
+            }));
+            computes = [{ id: 'compute1', state: 'Empty', lastActivity: null, spec: null, readiness: false, latency: 0 }];
+            resetAuthenticated();
+            logQueue = ['<p>Vial MCP Controller initialized. Use /help for API commands.</p>', '<p class="balance">$WEBXOS Balance: 0.0000 | Reputation: 0</p>'];
+            debouncedUpdateConsole();
+            updateVialStatusBars();
+            updateComputeStatusBars();
+            updateBalanceDisplay();
+            logEvent('void', 'All data voided [vial2.html:180] [ID:void_success]');
+        }
+
+        // Troubleshoot
+        async function troubleshoot() {
+            try {
+                const response = await fetch('/vial2/mcp/api/monitoring/replication_status');
+                const result = await response.json();
+                logEvent('diagnostics', `Troubleshoot: System in ${isOffline ? 'offline' : 'online'} mode. Replication status: ${JSON.stringify(result)} [vial2.html:185] [ID:troubleshoot_success]`, { blockchainLength: blockchain.length });
+            } catch (e) {
+                showErrorNotification(`Troubleshoot failed: ${e.message} [vial2.html:190] [ID:troubleshoot_error]`);
+                logEvent('error', `Troubleshoot failed: ${e.message} [vial2.html:190] [ID:troubleshoot_error]`, { error: e.message });
+            }
+        }
+
+        // Quantum Link
+        async function quantumLink(isApiTriggered = false) {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:195] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:195] [ID:auth_required_error]');
+                return;
+            }
+            const fileInput = document.getElementById('file-input');
+            let inputData = null, inputType = null;
+            if (fileInput?.files?.length) {
+                inputType = fileInput.files[0].name.endsWith('.md') ? 'md' : 'json';
+                const text = await fileInput.files[0].text();
+                const sanitizedText = sanitizeInput(text);
+                if (!validateInputFormat(sanitizedText, inputType)) {
+                    showErrorNotification(`Invalid ${inputType} format: File contains invalid content [vial2.html:200] [ID:input_format_error]`);
+                    logEvent('error', `Invalid ${inputType} format: File contains invalid content [vial2.html:200] [ID:input_format_error]');
+                    return;
+                }
+                inputData = parseInputForData(sanitizedText, inputType);
+            }
+            try {
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.add('active-train');
+                if (consoleDiv) consoleDiv.classList.add('active-train');
+                document.body.classList.add('train-glow');
+                vials.forEach(vial => { vial.isTraining = true; vial.status = 'running'; });
+                computes[0].state = 'Running';
+                computes[0].readiness = true;
+                updateVialStatusBars();
+                updateComputeStatusBars();
+                if (inputData && inputType === 'md') {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ method: 'validate_md_wallet', wallet_data: inputData })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        throw new Error(result.error);
+                    }
+                    wallet.address = result.wallet_address;
+                    vials.forEach(vial => { vial.wallet.address = result.wallet_address; });
+                } else if (inputData && inputType === 'json') {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ method: 'configure', spec: inputData })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        throw new Error(result.error);
+                    }
+                    computes[0].spec = inputData;
+                    computes[0].state = 'Configuration';
+                }
+                const blockHash = await sha256(JSON.stringify({ tasks: [], parameters: {}, wallet: wallet.address }));
+                blockchain.push({ type: 'quantum_link', data: { wallet: wallet.address }, hash: blockHash });
+                vials.forEach(vial => {
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = blockHash;
+                    vial.quantumState = { qubits: [], entanglement: isOffline ? 'local' : 'synced' };
+                });
+                logEvent('training', `Quantum link activated. Compute: ${computes[0].state}, Agents ${isOffline ? 'generated locally' : 'synced'}. [vial2.html:205] [ID:quantum_link_success]`, { networkId: agenticNetworkId, blockHash });
+                setTimeout(() => {
+                    if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                    if (consoleDiv) consoleDiv.classList.remove('active-train');
+                    document.body.classList.remove('train-glow');
+                    vials.forEach(vial => { vial.isTraining = false; });
+                    updateVialStatusBars();
+                    updateComputeStatusBars();
+                }, 1000);
+            } catch (err) {
+                showErrorNotification(`Quantum link failed: ${err.message} [vial2.html:210] [ID:quantum_link_error]`);
+                logEvent('error', `Quantum link failed: ${err.message} [vial2.html:210] [ID:quantum_link_error]`, { stack: err.stack });
+                const quantumLinkButton = document.getElementById('quantumLinkButton');
+                const consoleDiv = document.getElementById('console');
+                if (quantumLinkButton) quantumLinkButton.classList.remove('active-train');
+                if (consoleDiv) consoleDiv.classList.remove('active-train');
+                document.body.classList.remove('train-glow');
+                vials.forEach(vial => { vial.isTraining = false; });
+                computes[0].state = 'Failed';
+                updateVialStatusBars();
+                updateComputeStatusBars();
+            }
+        }
+
+        // Configure Compute
+        async function configureCompute() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:215] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:215] [ID:auth_required_error]');
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/vial2/mcp/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ method: 'configure' })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                computes[0].state = 'Configuration';
+                computes[0].spec = result.spec;
+                computes[0].readiness = false;
+                logEvent('command', `Compute configuration started: ${computes[0].id} [vial2.html:220] [ID:configure_success]`, { spec: result.spec });
+                updateComputeStatusBars();
+            } catch (err) {
+                showErrorNotification(`Configuration failed: ${err.message} [vial2.html:225] [ID:configure_error]`);
+                logEvent('error', `Configuration failed: ${err.message} [vial2.html:225] [ID:configure_error]`, { stack: err.stack });
+                computes[0].state = 'Failed';
+                updateComputeStatusBars();
+            }
+        }
+
+        // Refresh Configuration
+        async function refreshConfiguration() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:230] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:230] [ID:auth_required_error]');
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/vial2/mcp/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ method: 'refresh_configuration' })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                computes[0].state = 'RefreshConfiguration';
+                computes[0].spec = result.spec;
+                logEvent('command', `Compute configuration refreshed: ${computes[0].id} [vial2.html:235] [ID:refresh_config_success]`, { spec: result.spec });
+                updateComputeStatusBars();
+                setTimeout(() => {
+                    computes[0].state = 'Running';
+                    computes[0].readiness = true;
+                    updateComputeStatusBars();
+                    logEvent('command', `Compute reconfigured and running: ${computes[0].id} [vial2.html:240] [ID:refresh_config_complete]`);
+                }, 1000);
+            } catch (err) {
+                showErrorNotification(`Refresh configuration failed: ${err.message} [vial2.html:245] [ID:refresh_config_error]`);
+                logEvent('error', `Refresh configuration failed: ${err.message} [vial2.html:245] [ID:refresh_config_error]`, { stack: err.stack });
+                computes[0].state = 'RefreshConfigurationPending';
+                updateComputeStatusBars();
+            }
+        }
+
+        // Terminate Fast
+        async function terminateFast() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:250] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:250] [ID:auth_required_error]');
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/vial2/mcp/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ method: 'terminate_fast' })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                computes[0].state = 'TerminationPendingFast';
+                computes[0].readiness = false;
+                logEvent('command', `Compute termination (fast) started: ${computes[0].id} [vial2.html:255] [ID:terminate_fast_success]`);
+                updateComputeStatusBars();
+                setTimeout(() => {
+                    computes[0].state = 'Terminated';
+                    updateComputeStatusBars();
+                    logEvent('command', `Compute terminated: ${computes[0].id} [vial2.html:260] [ID:terminate_fast_complete]`);
+                }, 30000);
+            } catch (err) {
+                showErrorNotification(`Termination (fast) failed: ${err.message} [vial2.html:265] [ID:terminate_fast_error]`);
+                logEvent('error', `Termination (fast) failed: ${err.message} [vial2.html:265] [ID:terminate_fast_error]`, { stack: err.stack });
+            }
+        }
+
+        // Terminate Immediate
+        async function terminateImmediate() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:270] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:270] [ID:auth_required_error]');
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/vial2/mcp/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ method: 'terminate_immediate' })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                computes[0].state = 'TerminationPendingImmediate';
+                computes[0].readiness = false;
+                logEvent('command', `Compute termination (immediate) started: ${computes[0].id} [vial2.html:275] [ID:terminate_immediate_success]`);
+                updateComputeStatusBars();
+                setTimeout(() => {
+                    computes[0].state = 'Terminated';
+                    updateComputeStatusBars();
+                    logEvent('command', `Compute terminated: ${computes[0].id} [vial2.html:280] [ID:terminate_immediate_complete]`);
+                }, 1000);
+            } catch (err) {
+                showErrorNotification(`Termination (immediate) failed: ${err.message} [vial2.html:285] [ID:terminate_immediate_error]`);
+                logEvent('error', `Termination (immediate) failed: ${err.message} [vial2.html:285] [ID:terminate_immediate_error]`, { stack: err.stack });
+            }
+        }
+
+        // Export Vials
+        async function exportVials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:290] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:290] [ID:auth_required_error]');
+                return;
+            }
+            try {
+                const data = {
+                    markdown: `# WebXOS Vial and Wallet Export\n\n## Agentic Network\n- Network ID: ${agenticNetworkId || 'none'}\n- Session Start: ${new Date().toISOString()}\n- Session Duration: 0.00 seconds\n- Reputation: ${isOffline ? 'N/A (Offline)' : reputation}\n\n## Wallet\n- Address: ${wallet.address || 'none'}\n- Hash: ${wallet.hash || 'none'}\n\n## API Credentials\n- Key: ${apiCredentials.key || 'none'}\n- Secret: ${apiCredentials.secret || 'none'}\n\n## Blockchain\n- Blocks: ${blockchain.length}\n- Last Hash: ${blockchain.length ? blockchain[blockchain.length - 1].hash : 'none'}\n\n## Vials\n${vials.map(vial => `
+# Vial Agent: ${vial.id}\n- Status: ${vial.status}\n- Language: ${vial.isPython ? 'Python' : 'JavaScript'}\n- Code Length: ${vial.codeLength} bytes\n- $WEBXOS Hash: ${vial.webxosHash}\n- Wallet Address: ${vial.wallet.address || 'none'}\n- Wallet Hash: ${vial.wallet.hash || 'none'}\n- Tasks: ${vial.tasks.join(', ') || 'none'}\n- Quantum State: ${JSON.stringify(vial.quantumState || {}, null, 2).replace(/\n/g, '\n    ')}\n- Training Data: ${JSON.stringify(vial.trainingData, null, 2).replace(/\n/g, '\n    ')}\n- Config: ${JSON.stringify(vial.config, null, 2).replace(/\n/g, '\n    ')}\n\n\`\`\`python\n${vial.code}\n\`\`\`\n`).join('---\n\n')}\n## Compute\n- State: ${computes[0].state}\n- Readiness: ${computes[0].readiness}\n- Spec: ${JSON.stringify(computes[0].spec || {}, null, 2).replace(/\n/g, '\n    ')}\n\n## Instructions\n- **Reuse**: Import this .md file via the "Import" button to resume training.\n- **Extend**: Modify agent code externally, then reimport.\n- **Share**: Send this .md file to others to continue training with the same wallet.\n- **API**: Use API credentials to access agents at webxos.github.io/vial2/mcp/api/agents.\n- **Cash Out**: $WEBXOS balance and reputation are tied to the wallet address and hash for secure verification (online mode only).\n\nGenerated by Vial MCP Controller`
+                };
+                const blob = new Blob([data.markdown], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vial_wallet_export_${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+                const blockHash = await sha256(JSON.stringify(data));
+                blockchain.push({ type: 'export', data, hash: blockHash });
+                logEvent('export', 'Exported vials and wallet as Markdown [vial2.html:295] [ID:export_success]', { networkId: agenticNetworkId, blockHash });
+            } catch (err) {
+                showErrorNotification(`Export failed: ${err.message} [vial2.html:300] [ID:export_error]`);
+                logEvent('error', `Export failed: ${err.message} [vial2.html:300] [ID:export_error]`, { stack: err.stack });
+            }
+        }
+
+        // Import File
+        async function importFile() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:305] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:305] [ID:auth_required_error]');
+                return;
+            }
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput?.files?.length) {
+                showErrorNotification('No file selected: Please select a .md or .json file [vial2.html:310] [ID:file_select_error]');
+                logEvent('error', 'No file selected: Please select a .md or .json file [vial2.html:310] [ID:file_select_error]');
+                return;
+            }
+            const file = fileInput.files[0];
+            const inputType = file.name.endsWith('.md') ? 'md' : 'json';
+            if (!file.name.match(/\.(md|json)$/)) {
+                showErrorNotification('Invalid file type: Only .md or .json files allowed [vial2.html:315] [ID:file_type_error]');
+                logEvent('error', 'Invalid file type: Only .md or .json files allowed [vial2.html:315] [ID:file_type_error]', { file: file.name });
+                return;
+            }
+            if (file.size > 1024 * 1024) {
+                showErrorNotification('File size exceeds limit: Maximum 1MB allowed [vial2.html:320] [ID:file_size_error]');
+                logEvent('error', 'File size exceeds limit: Maximum 1MB allowed [vial2.html:320] [ID:file_size_error]', { size: file.size });
+                return;
+            }
+            try {
+                const text = await file.text();
+                const sanitizedText = sanitizeInput(text);
+                if (!validateInputFormat(sanitizedText, inputType)) {
+                    showErrorNotification(`Invalid ${inputType} format: File contains invalid content [vial2.html:325] [ID:input_format_error]`);
+                    logEvent('error', `Invalid ${inputType} format: File contains invalid content [vial2.html:325] [ID:input_format_error]');
+                    return;
+                }
+                const inputData = parseInputForData(sanitizedText, inputType);
+                const token = localStorage.getItem('access_token');
+                if (inputType === 'md') {
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ method: 'validate_md_wallet', wallet_data: inputData })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        showErrorNotification(`${result.error} [vial2.html:330] [ID:wallet_validation_error]`);
+                        logEvent('error', `${result.error} [vial2.html:330] [ID:wallet_validation_error]`, { error: result.error });
+                        return;
+                    }
+                    wallet.address = result.wallet_address;
+                    vials.forEach(vial => { vial.wallet.address = result.wallet_address; });
+                } else {
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ method: 'configure', spec: inputData })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        showErrorNotification(`${result.error} [vial2.html:335] [ID:configure_error]`);
+                        logEvent('error', `${result.error} [vial2.html:335] [ID:configure_error]`, { error: result.error });
+                        return;
+                    }
+                    computes[0].spec = inputData;
+                    computes[0].state = 'Configuration';
+                }
+                const blockHash = await sha256(JSON.stringify({ input: inputData, type: inputType }));
+                blockchain.push({ type: 'import', data: inputData, hash: blockHash });
+                logEvent('import', `Imported ${inputType} data [vial2.html:340] [ID:import_success]`, { networkId: agenticNetworkId, blockHash });
+                if (inputType === 'json') {
+                    await configureCompute();
+                } else {
+                    await quantumLink();
+                }
+            } catch (err) {
+                showErrorNotification(`Import failed: ${err.message} [vial2.html:345] [ID:import_error]`);
+                logEvent('error', `Import failed: ${err.message} [vial2.html:345] [ID:import_error]`, { stack: err.stack });
+            }
+        }
+
+        // Generate API Credentials
+        async function generateApiCredentials() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:350] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:350] [ID:auth_required_error]');
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode [vial2.html:355] [ID:offline_error]');
+                logEvent('error', 'API access disabled in offline mode [vial2.html:355] [ID:offline_error]');
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/vial2/mcp/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ method: 'generate_api_key', user_id: 'current_user' })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    showErrorNotification(`${result.error} [vial2.html:360] [ID:api_key_error]`);
+                    logEvent('error', `${result.error} [vial2.html:360] [ID:api_key_error]`, { error: result.error });
+                    return;
+                }
+                apiCredentials = { key: result.api_key, secret: result.api_password };
+                const apiInput = document.getElementById('api-input');
+                if (apiInput) {
+                    apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials to access agents at webxos.github.io/vial2/mcp/api/agents`;
+                }
+                const blockHash = await sha256(JSON.stringify(apiCredentials));
+                blockchain.push({ type: 'api_credentials', data: apiCredentials, hash: blockHash });
+                logEvent('api', `Generated API credentials: ${apiCredentials.key} [vial2.html:365] [ID:api_key_success]`, { blockHash });
+            } catch (err) {
+                showErrorNotification(`API key generation failed: ${err.message} [vial2.html:370] [ID:api_key_error]`);
+                logEvent('error', `API key generation failed: ${err.message} [vial2.html:370] [ID:api_key_error]`, { stack: err.stack });
+            }
+        }
+
+        // API Access (Show Popup)
+        function showApiPopup() {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:375] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:375] [ID:auth_required_error]');
+                return;
+            }
+            if (isOffline) {
+                showErrorNotification('API access disabled in offline mode [vial2.html:380] [ID:offline_error]');
+                logEvent('error', 'API access disabled in offline mode [vial2.html:380] [ID:offline_error]');
+                return;
+            }
+            const apiPopup = document.getElementById('api-popup');
+            if (apiPopup) {
+                apiPopup.classList.add('visible');
+                const apiInput = document.getElementById('api-input');
+                if (apiInput && apiCredentials.key) {
+                    apiInput.value = `API Key: ${apiCredentials.key}\nAPI Secret: ${apiCredentials.secret}\n\nUse these credentials to access agents at webxos.github.io/vial2/mcp/api/agents`;
+                }
+            }
+        }
+
+        // Handle Command
+        async function handleGitCommand(command) {
+            if (!isAuthenticated) {
+                showErrorNotification('Not authenticated: Please authenticate first [vial2.html:385] [ID:auth_required_error]');
+                logEvent('error', 'Not authenticated: Please authenticate first [vial2.html:385] [ID:auth_required_error]');
+                return;
+            }
+            const sanitizedCommand = sanitizeInput(command.trim());
+            const parts = sanitizedCommand.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const blockHash = await sha256(sanitizedCommand);
+            blockchain.push({ type: 'command', data: { command: sanitizedCommand }, hash: blockHash });
+
+            if (cmd === '/help') {
+                logEvent('command', 'Vial MCP Commands: /prompt <vial> <text> (e.g., /prompt vial1 train dataset), /task <vial> <task> (e.g., /task vial2 optimize model), /config <vial> <key> <value> (e.g., /config vial1 learning_rate 0.01), /status, /git <command> (e.g., /git status), /configure, /refresh_configuration, /terminate_fast, /terminate_immediate. Use buttons for Authenticate, Void, Troubleshoot, Quantum Link, Export, Import, API Access. See webxos.github.io [vial2.html:390] [ID:help_command]', { blockHash });
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('access_token');
+                if (cmd === '/configure') {
+                    await configureCompute();
+                } else if (cmd === '/refresh_configuration') {
+                    await refreshConfiguration();
+                } else if (cmd === '/terminate_fast') {
+                    await terminateFast();
+                } else if (cmd === '/terminate_immediate') {
+                    await terminateImmediate();
+                } else {
+                    const response = await fetch('/vial2/mcp/api/endpoints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ command: sanitizedCommand })
+                    });
+                    const result = await response.json();
+                    if (result.error) {
+                        showErrorNotification(`${result.error} [vial2.html:395] [ID:command_error]`);
+                        logEvent('error', `${result.error} [vial2.html:395] [ID:command_error]`, { error: result.error });
+                        return;
+                    }
+                    logEvent('command', JSON.stringify(result), { blockHash });
+                    if ((cmd === '/prompt' && parts[2]?.toLowerCase().includes('train')) || (cmd === '/task' && parts[2]?.toLowerCase().includes('optimize'))) {
+                        await quantumLink(true);
+                    }
+                }
+                updateVialStatusBars();
+                updateComputeStatusBars();
+            } catch (e) {
+                showErrorNotification(`Command failed: ${e.message} [vial2.html:400] [ID:command_error]`);
+                logEvent('error', `Command failed: ${e.message} [vial2.html:400] [ID:command_error]`, { stack: e.stack });
+            }
+        }
+
+        // Earn tokens and reputation
+        async function startTokenEarning() {
+            if (tokenInterval) clearInterval(tokenInterval);
+            if (isOffline) {
+                logEvent('error', '$WEBXOS earning disabled in offline mode [vial2.html:405] [ID:offline_error]');
+                return;
+            }
+            tokenInterval = setInterval(async () => {
+                if (!isAuthenticated || isOffline) {
+                    clearInterval(tokenInterval);
+                    resetAuthenticated();
+                    logEvent('error', 'Authentication lost or offline: $WEBXOS earning stopped [vial2.html:410] [ID:auth_lost_error]');
+                    return;
+                }
+                wallet.balance += 1;
+                reputation += 1;
+                const blockHash = await sha256(JSON.stringify({ wallet: wallet.address, amount: 1, reputation }));
+                blockchain.push({ type: 'token_earn', data: { wallet: wallet.address, amount: 1, reputation }, hash: blockHash });
+                vials.forEach(vial => {
+                    vial.wallet.balance = wallet.balance / 4;
+                    vial.wallet.hash = blockHash;
+                });
+                wallet.hash = blockHash;
+                logEvent('token', `Earned 1 $WEBXOS | Reputation: ${reputation} | Block: ${blockHash.slice(0, 8)}... [vial2.html:415] [ID:token_earn_success]`, { wallet: wallet.address });
+                updateBalanceDisplay();
+            }, 10000);
+        }
+
+        // Disable functions
+        function resetAuthenticated() {
+            isAuthenticated = false;
+            ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton', 'prompt-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = true;
+            });
+            document.getElementById('authButton').classList.remove('active-monitor');
+            clearInterval(tokenInterval);
+            apiCredentials = { key: null, secret: null };
+            logEvent('system', 'Functions disabled due to authentication loss or offline mode [vial2.html:420] [ID:disable_functions]');
+            updateVialStatusBars();
+            updateComputeStatusBars();
+        }
+
+        // Enable functions after authentication
+        function setAuthenticated(token) {
+            isAuthenticated = true;
+            ['quantumLinkButton', 'exportButton', 'importButton', 'apiAccessButton', 'prompt-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = false;
+            });
+            document.getElementById('authButton').classList.add('active-monitor');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateVialStatusBars();
+            updateComputeStatusBars();
+            updateBalanceDisplay();
+            const elements = {
+                authButton: document.getElementById('authButton'),
+                voidButton: document.getElementById('voidButton'),
+                troubleshootButton: document.getElementById('troubleshootButton'),
+                quantumLinkButton: document.getElementById('quantumLinkButton'),
+                exportButton: document.getElementById('exportButton'),
+                importButton: document.getElementById('importButton'),
+                apiAccessButton: document.getElementById('apiAccessButton'),
+                apiSubmit: document.getElementById('api-generate'),
+                apiClose: document.getElementById('api-close'),
+                fileInput: document.getElementById('file-input'),
+                promptInput: document.getElementById('prompt-input')
+            };
+
+            elements.authButton.addEventListener('click', authenticate);
+            elements.voidButton.addEventListener('click', voidVials);
+            elements.troubleshootButton.addEventListener('click', troubleshoot);
+            elements.quantumLinkButton.addEventListener('click', () => quantumLink());
+            elements.exportButton.addEventListener('click', exportVials);
+            elements.importButton.addEventListener('click', () => elements.fileInput.click());
+            elements.apiAccessButton.addEventListener('click', showApiPopup);
+            elements.apiSubmit.addEventListener('click', generateApiCredentials);
+            elements.apiClose.addEventListener('click', () => {
+                const apiPopup = document.getElementById('api-popup');
+                if (apiPopup) apiPopup.classList.remove('visible');
+            });
+            elements.fileInput.addEventListener('change', importFile);
+            elements.promptInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (elements.promptInput.value.trim()) {
+                        handleGitCommand(elements.promptInput.value);
+                        elements.promptInput.value = '';
+                    }
+                }
+            });
+
+            window.addEventListener('load', handleCallback);
+            logEvent('system', 'Vial MCP Controller initialized. Use /help for API commands. [vial2.html:425] [ID:init_success]');
+        }, { once: true });
+    </script>
+</body>
+</html>
