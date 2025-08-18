@@ -1,74 +1,32 @@
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from .config import config
-from .auth import handle_auth, generate_api_key
-from .wallet import validate_wallet
-from .agents import handle_command, configure_compute, refresh_configuration, terminate_fast, terminate_immediate
-from .database import get_db
-from .monitoring import get_status, replication_status
+from fastapi import FastAPI
+from .api.endpoints import router as endpoints_router
+from .monitoring.health import router as health_router
+from .monitoring.log_aggregation import router as logs_router
+from .security.cors import configure_cors
 from .error_logging.error_log import error_logger
-import asyncpg
 import logging
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Configure CORS
+configure_cors(app)
 
-@app.post("/mcp/api/endpoints")
-async def endpoints(request: dict, db=Depends(get_db)):
+# Include routers
+app.include_router(endpoints_router)
+app.include_router(health_router)
+app.include_router(logs_router)
+
+@app.on_event("startup")
+async def startup_event():
     try:
-        method = request.get("method")
-        if method == "authenticate":
-            return await handle_auth(method, request)
-        elif method == "validate_md_wallet":
-            return await validate_wallet(request.get("wallet_data"), db)
-        elif method == "generate_api_key":
-            return await generate_api_key(request.get("user_id"))
-        elif method == "configure":
-            return await configure_compute(request.get("spec", {}), db)
-        elif method == "refresh_configuration":
-            return await refresh_configuration(db)
-        elif method == "terminate_fast":
-            return await terminate_fast(db)
-        elif method == "terminate_immediate":
-            return await terminate_immediate(db)
-        elif request.get("command"):
-            return await handle_command(request.get("command"), request, db)
-        raise HTTPException(status_code=400, detail="Invalid method or command")
+        from .config import config
+        config.validate()
+        logger.info("Application started successfully")
     except Exception as e:
-        error_logger.log_error("main", str(e), str(e.__traceback__))
-        raise HTTPException(status_code=400, detail=str(e))
+        error_logger.log_error("startup", str(e), str(e.__traceback__))
+        logger.error(f"Startup failed: {str(e)}")
+        raise
 
-@app.get("/mcp/api/status")
-async def status(db=Depends(get_db)):
-    try:
-        return await get_status(db)
-    except Exception as e:
-        error_logger.log_error("status", str(e), str(e.__traceback__))
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/mcp/api/replication_status")
-async def get_replication_status(db=Depends(get_db)):
-    try:
-        return await replication_status(db)
-    except Exception as e:
-        error_logger.log_error("replication_status", str(e), str(e.__traceback__))
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/mcp/api/relay_signal")
-async def relay_signal():
-    try:
-        return {"status": "signal_relayed"}
-    except Exception as e:
-        error_logger.log_error("relay_signal", str(e), str(e.__traceback__))
-        raise HTTPException(status_code=400, detail=str(e))
-
-# xAI Artifact Tags: #vial2 #fastapi #backend #neon_mcp
+# xAI Artifact Tags: #vial2 #main #neon_mcp
