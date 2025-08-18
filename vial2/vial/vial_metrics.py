@@ -16,19 +16,19 @@ async def get_vial_metrics(vial_id: str = None, token: str = Depends(get_octokit
         db = await get_db()
         start_time = time.time()
         if vial_id:
-            query = "SELECT status, quantum_state, pow_result FROM vials WHERE vial_id = $1"
+            query = "SELECT status, quantum_state, pow_result, wallet_address FROM vials WHERE vial_id = $1"
             vial_data = await db.execute(query, vial_id)
         else:
-            query = "SELECT vial_id, status, quantum_state, pow_result FROM vials"
+            query = "SELECT vial_id, status, quantum_state, pow_result, wallet_address FROM vials"
             vial_data = await db.execute(query)
         
         with sqlite3.connect("error_log.db") as conn:
             conn.execute("PRAGMA busy_timeout = 5000")
-            log_query = "SELECT event_type, COUNT(*) as count FROM vial_logs WHERE timestamp > datetime('now', '-1 hour') GROUP BY event_type"
+            log_query = "SELECT event_type, COUNT(*) as count, MAX(timestamp) as last_event FROM vial_logs WHERE timestamp > datetime('now', '-1 hour') GROUP BY event_type"
             log_metrics = conn.execute(log_query).fetchall()
         
         latency = time.time() - start_time
-        error_logger.log_error("metrics_success", "Metrics retrieved", "", sql_statement=query, sql_error_code=None, params={"vial_id": vial_id, "latency": latency})
+        error_logger.log_error("metrics_success", "Metrics retrieved", "", sql_statement=query, sql_error_code=None, params={"vial_id": vial_id, "latency": latency, "node_id": token.get("node_id", "unknown")})
         
         return {"jsonrpc": "2.0", "result": {"status": "success", "vials": vial_data, "log_metrics": log_metrics, "latency": latency}}
     except sqlite3.Error as e:
