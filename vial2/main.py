@@ -1,25 +1,28 @@
 from fastapi import FastAPI
-from .mcp.api.api_router import api_router
-from .mcp.environment_setup import setup_environment
-from .mcp.error_logging.error_log import error_logger
-import logging
+from mcp.server import Server
+from mcp.server.models import InitializationOptions
+from mcp.server.stdio import stdio_server
+from mcp.api import agent_endpoint, auth_endpoint, health_endpoint, wallet_sync
+from mcp.database import neon_connection
+import uvicorn
 
-logger = logging.getLogger(__name__)
+app = FastAPI()
+mcp_server = Server(InitializationOptions(tools=["/vial/train", "/vial/sync", "/vial/quantum"], resources=["vial://config", "vial://wallet", "vial://status"]))
 
-app = FastAPI(title="Vial2 MCP API")
-
-if setup_environment():
-    app.include_router(api_router, prefix="/mcp/api/vial")
-    logger.info("Vial2 MCP API initialized")
-else:
-    logger.error("Environment setup failed, API not initialized")
+app.include_router(agent_endpoint.router, prefix="/mcp/api/vial")
+app.include_router(auth_endpoint.router, prefix="/mcp/api/vial")
+app.include_router(health_endpoint.router, prefix="/mcp/api/vial")
+app.include_router(wallet_sync.router, prefix="/mcp/api/vial")
 
 @app.on_event("startup")
 async def startup_event():
-    try:
-        logger.info("Application startup completed")
-    except Exception as e:
-        error_logger.log_error("startup_event", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={})
-        logger.error(f"Startup event failed: {str(e)}")
+    await neon_connection.connect()
 
-# xAI Artifact Tags: #vial2 #mcp #main #api #neon_mcp
+@app.on_event("shutdown")
+async def shutdown_event():
+    await neon_connection.disconnect()
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# xAI Artifact Tags: #vial2 #main #mcp #server #neon_mcp
