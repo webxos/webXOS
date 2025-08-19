@@ -1,37 +1,31 @@
-from langchain.chains.base import Chain
-from ..tools.agent_manager import agent_manager
+from langchain.trainers import QuantumTrainer
+from ..ds import DataSynthesizer
 from ..error_logging.error_log import error_logger
 import logging
+import git
 
 logger = logging.getLogger(__name__)
 
-class MCPChain(Chain):
+class MCPChain:
     def __init__(self, agent_type: str):
-        super().__init__()
         self.agent_type = agent_type
-        self.agent = None
+        self.trainer = None
+        self.repo = git.Repo(os.getenv("GIT_REPO_PATH", "."))
 
-    async def _call(self, inputs: dict):
+    async def train_chain(self, training_data: list):
         try:
-            self.agent = await agent_manager.get_agent(self.agent_type)
-            if not self.agent:
-                raise ValueError(f"No agent available for {self.agent_type}")
-            response = await self.agent.run(inputs["query"])
-            logger.info(f"MCP chain processed query for {self.agent_type}")
-            return {"output": response}
+            ds = DataSynthesizer()
+            prompts = ds.generate_git_prompts(training_data)
+            self.trainer = QuantumTrainer()
+            await self.trainer.train(prompts)
+            self.repo.index.add(["*"])
+            self.repo.index.commit(f"Trained MCP chain for {self.agent_type} with Git prompts")
+            logger.info(f"Trained MCP chain for agent {self.agent_type} with LangChain")
         except Exception as e:
-            error_logger.log_error("mcp_chain_call", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={})
-            logger.error(f"MCP chain failed: {str(e)}")
+            error_logger.log_error("chain_train", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={})
+            logger.error(f"MCP chain training failed: {str(e)}")
             raise
-
-    @property
-    def input_keys(self):
-        return ["query"]
-
-    @property
-    def output_keys(self):
-        return ["output"]
 
 mcp_chain = MCPChain("grok")
 
-# xAI Artifact Tags: #vial2 #mcp #langchain #chain #neon #neon_mcp
+# xAI Artifact Tags: #vial2 #mcp #langchain #chain #training #git #neon_mcp
