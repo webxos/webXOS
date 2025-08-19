@@ -19,9 +19,9 @@ class TrainingMonitor:
             prompts = self.ds.generate_git_prompts(commands)
             status = await self.trainer.monitor(prompts)
             query = "INSERT INTO vial_logs (vial_id, event_type, event_data) VALUES ($1, $2, $3)"
-            await neon_db.execute(query, vial_id, "training_monitor", {"status": status, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            await neon_db.execute(query, vial_id, "training_monitor", {"status": status, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "vial": vial_id})
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Monitored training for vial {vial_id} with status {status}")
+            self.repo.index.commit(f"Monitored training for vial {vial_id} with final status {status}")
             logger.info(f"Monitored training for vial {vial_id} with LangChain")
             return status
         except Exception as e:
