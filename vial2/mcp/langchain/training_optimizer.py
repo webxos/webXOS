@@ -18,7 +18,7 @@ class TrainingOptimizer:
             prompts = self.ds.generate_git_prompts(commands)
             score = await training_evaluator.evaluate_training(vial_id, prompts)
             if score < 0.8:
-                self.trainer.adjust_hyperparameters(learning_rate=0.005)
+                self.trainer.adjust_hyperparameters(learning_rate=0.005, epochs=15)
                 await self.trainer.train(prompts)
             self.repo.index.add(["*"])
             self.repo.index.commit(f"Optimized training for vial {vial_id} with score {score}")
