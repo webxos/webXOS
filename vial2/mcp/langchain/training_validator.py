@@ -18,7 +18,7 @@ class TrainingValidator:
             prompts = self.ds.generate_git_prompts(commands)
             is_valid = await self.trainer.validate(prompts)
             query = "INSERT INTO vial_logs (vial_id, event_type, event_data) VALUES ($1, $2, $3)"
-            await neon_db.execute(query, vial_id, "training_validation", {"valid": is_valid})
+            await neon_db.execute(query, vial_id, "training_validation", {"valid": is_valid, "vial": vial_id})
             self.repo.index.add(["*"])
             self.repo.index.commit(f"Validated training for vial {vial_id} with result {is_valid}")
             logger.info(f"Validated training for vial {vial_id} with LangChain")
