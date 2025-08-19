@@ -19,9 +19,9 @@ class TrainingCheckpoint:
             prompts = self.ds.generate_git_prompts(commands)
             checkpoint = await self.trainer.save_checkpoint(prompts)
             query = "INSERT INTO vial_logs (vial_id, event_type, event_data) VALUES ($1, $2, $3)"
-            await neon_db.execute(query, vial_id, "training_checkpoint", json.dumps({"checkpoint": checkpoint}))
+            await neon_db.execute(query, vial_id, "training_checkpoint", json.dumps({"checkpoint": checkpoint, "vial": vial_id}))
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Saved checkpoint for vial {vial_id}")
+            self.repo.index.commit(f"Saved final checkpoint for vial {vial_id}")
             logger.info(f"Saved checkpoint for vial {vial_id} with LangChain")
             return checkpoint
         except Exception as e:
