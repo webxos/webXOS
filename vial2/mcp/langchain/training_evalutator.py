@@ -18,9 +18,9 @@ class TrainingEvaluator:
             prompts = self.ds.generate_git_prompts(test_data)
             score = await self.trainer.evaluate(prompts)
             query = "INSERT INTO vial_logs (vial_id, event_type, event_data) VALUES ($1, $2, $3)"
-            await neon_db.execute(query, vial_id, "training_evaluation", {"score": score})
+            await neon_db.execute(query, vial_id, "training_evaluation", {"score": score, "vial": vial_id})
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Evaluated training for vial {vial_id}")
+            self.repo.index.commit(f"Evaluated training for vial {vial_id} with score {score}")
             logger.info(f"Evaluated training for vial {vial_id} with LangChain")
             return score
         except Exception as e:
