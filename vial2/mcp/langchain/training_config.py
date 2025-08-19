@@ -15,9 +15,9 @@ class TrainingConfig:
     async def configure_training(self, agent_type: str, data: list):
         try:
             prompts = self.ds.generate_git_prompts(data)
-            config = self.config.update({"training_data": prompts})
+            config = self.config.update({"training_data": prompts, "quantum_tandem": True})
             self.repo.index.add(["training_config.py"])
-            self.repo.index.commit(f"Updated training config for {agent_type}")
+            self.repo.index.commit(f"Updated training config for {agent_type} with Git prompts")
             logger.info(f"Configured training for {agent_type} with Git integration")
             return config
         except Exception as e:
