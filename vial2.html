@@ -98,7 +98,6 @@
         let wallet = { address: null, balance: 0, hash: null };
         let reputation = 0;
         let apiCredentials = { key: null, secret: null };
-        let connectedResources = [];
         let vials = Array(4).fill().map((_, i) => ({
             id: `vial${i+1}`, status: 'stopped', code: '', codeLength: 0, isPython: true,
             webxosHash: crypto.randomUUID(), wallet: { address: null, balance: 0, hash: null },
@@ -117,6 +116,8 @@
             const consoleDiv = document.getElementById('console');
             consoleDiv.innerHTML = logQueue.join('');
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            document.getElementById('console').classList.toggle('active-monitor', type === 'monitor');
+            document.getElementById('console').classList.toggle('active-train', type === 'train');
         }
 
         function showError(message) {
@@ -149,36 +150,23 @@
         }
 
         // Button handlers
-        document.getElementById('authButton').addEventListener('click', async () => {
+        document.getElementById('authButton').addEventListener('click', () => {
             if (isAuthenticated) {
                 voidVials();
                 return;
             }
             isOffline = !confirm('Authenticate in online mode? Cancel for offline mode.');
-            try {
-                const response = await fetch('/mcp/auth/relay_check');
-                if (response.redirected) {
-                    window.location.href = response.url;
-                    return;
-                }
-                const data = await response.json();
-                if (isOffline) {
-                    isAuthenticated = true;
-                    logEvent('auth', 'Authenticated in offline mode.');
-                } else {
-                    localStorage.setItem('mcp_token', data.token);
-                    await initializeSession(data.token);
-                    isAuthenticated = true;
-                    logEvent('auth', `Authenticated online. Wallet: ${wallet.address}`);
-                }
-                document.getElementById('authButton').textContent = 'Toggle Off';
-                document.getElementById('authButton').classList.add('active-monitor');
-                disableButtons(!isOffline);
-                updateStatusBars();
-            } catch (err) {
-                showError(`Authentication failed: ${err.message}`);
-                logEvent('error', `Authentication failed: ${err.message}`);
+            if (!isOffline) {
+                logEvent('auth', 'Online authentication not implemented offline. Using mock data.');
+                mockAuthentication();
+            } else {
+                isAuthenticated = true;
+                logEvent('auth', 'Authenticated in offline mode.');
             }
+            document.getElementById('authButton').textContent = 'Toggle Off';
+            document.getElementById('authButton').classList.add('active-monitor');
+            disableButtons(!isOffline);
+            updateStatusBars();
         });
 
         document.getElementById('voidButton').addEventListener('click', () => {
@@ -186,21 +174,12 @@
             logEvent('void', 'All data voided.');
         });
 
-        document.getElementById('troubleshootButton').addEventListener('click', async () => {
+        document.getElementById('troubleshootButton').addEventListener('click', () => {
             if (isOffline) {
                 logEvent('error', 'Troubleshoot requires online mode.');
                 return;
             }
-            try {
-                const response = await fetch('/mcp/api/error/traceback', {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('mcp_token')}` }
-                });
-                const data = await response.json();
-                logEvent('diagnostics', `Troubleshoot: ${data.errors.length} errors found.`);
-            } catch (err) {
-                showError(`Troubleshoot failed: ${err.message}`);
-                logEvent('error', `Troubleshoot failed: ${err.message}`);
-            }
+            logEvent('diagnostics', 'Troubleshoot: Mock error check - No errors found (offline).');
         });
 
         document.getElementById('quantumLinkButton').addEventListener('click', async () => {
@@ -212,15 +191,9 @@
             document.getElementById('console').classList.add('active-train');
             try {
                 const file = document.getElementById('file-input').files[0];
-                const inputData = file ? await file.text() : '';
-                const response = await fetch('/mcp/api/vial/quantum/link', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${localStorage.getItem('mcp_token')}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ vial_id: 'vial2', input_data: inputData })
-                });
-                const data = await response.json();
-                vials.forEach(v => { v.isTraining = true; v.status = 'running'; v.quantumState = data.quantumState; });
-                logEvent('quantum', 'Quantum sync completed.');
+                const inputData = file ? await file.text() : '{}';
+                mockQuantumSync(inputData);
+                logEvent('quantum', 'Quantum sync completed (mock).');
                 updateStatusBars();
             } catch (err) {
                 showError(`Quantum Sync failed: ${err.message}`);
@@ -238,7 +211,7 @@
             }
             const exportData = {
                 network: { id: crypto.randomUUID(), start: new Date().toISOString(), duration: 0, reputation: reputation },
-                wallet: wallet, apiCredentials, vials
+                wallet, apiCredentials, vials
             };
             const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -260,10 +233,10 @@
                 try {
                     const text = await file.text();
                     const data = JSON.parse(text);
-                    wallet = data.wallet;
-                    apiCredentials = data.apiCredentials;
-                    vials = data.vials;
-                    reputation = data.network.reputation;
+                    wallet = data.wallet || wallet;
+                    apiCredentials = data.apiCredentials || apiCredentials;
+                    vials = data.vials || vials;
+                    reputation = data.network?.reputation || reputation;
                     logEvent('import', 'Import completed.');
                     updateStatusBars();
                 } catch (err) {
@@ -301,13 +274,11 @@
                     logEvent('command', `Executing: ${command}`);
                     e.target.value = '';
                     try {
-                        const response = await fetch('/mcp/api/vial/command', {
-                            method: 'POST',
-                            headers: { Authorization: `Bearer ${localStorage.getItem('mcp_token')}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ command })
-                        });
-                        const data = await response.json();
-                        logEvent('command', data.result || 'Command executed.');
+                        if (isOffline) {
+                            mockCommand(command);
+                        } else {
+                            showError('Online commands not implemented offline.');
+                        }
                     } catch (err) {
                         showError(`Command failed: ${err.message}`);
                         logEvent('error', `Command failed: ${err.message}`);
@@ -316,24 +287,38 @@
             }
         });
 
-        // Initialization
-        async function initializeSession(token) {
-            try {
-                const response = await fetch('/mcp/api/vial/wallet/sync', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                const data = await response.json();
-                wallet = data.wallet;
-                reputation = data.reputation;
-                connectedResources = data.connected_resources || [];
-                apiCredentials = { key: crypto.randomUUID(), secret: crypto.randomUUID() };
-                vials.forEach(v => { v.wallet = { address: crypto.randomUUID(), balance: 0, hash: wallet.hash }; });
-                updateConsole();
-                updateStatusBars();
-            } catch (err) {
-                showError(`Session init failed: ${err.message}`);
-                logEvent('error', `Session init failed: ${err.message}`);
-            }
+        // Mock functions for offline capability
+        function mockAuthentication() {
+            isAuthenticated = true;
+            wallet = { address: crypto.randomUUID(), balance: 55373.0000, hash: crypto.randomUUID() };
+            reputation = 153726462096;
+            apiCredentials = { key: crypto.randomUUID(), secret: crypto.randomUUID() };
+            vials.forEach(v => {
+                v.wallet = { address: crypto.randomUUID(), balance: 13843.2500, hash: wallet.hash };
+                v.status = 'running';
+                v.codeLength = 699641;
+            });
+            updateConsole();
+            updateStatusBars();
+        }
+
+        function mockQuantumSync(inputData) {
+            vials.forEach(v => {
+                v.isTraining = true;
+                v.status = 'running';
+                v.quantumState = { qubits: [], entanglement: 'synced' };
+                v.trainingData = [{ tasks: [], parameters: {}, hash: crypto.randomUUID() }];
+            });
+        }
+
+        function mockCommand(command) {
+            const commands = {
+                '/help': 'Available commands: /status, /train, /sync',
+                '/status': `Vials: ${vials.map(v => `${v.id}: ${v.status}`).join(', ')}`,
+                '/train': 'Training initiated (mock).',
+                '/sync': 'Wallet synced (mock). Balance: ' + wallet.balance
+            };
+            logEvent('command', commands[command] || 'Unknown command. Use /help.');
         }
 
         function voidVials() {
@@ -342,12 +327,10 @@
             wallet = { address: null, balance: 0, hash: null };
             reputation = 0;
             apiCredentials = { key: null, secret: null };
-            connectedResources = [];
             vials.forEach(v => {
                 v.status = 'stopped'; v.code = ''; v.codeLength = 0; v.wallet = { address: null, balance: 0, hash: null };
                 v.tasks = []; v.quantumState = null; v.trainingData = []; v.config = {}; v.isTraining = false; v.latency = 0;
             });
-            localStorage.removeItem('mcp_token');
             disableButtons(true);
             document.getElementById('authButton').textContent = 'Authenticate';
             document.getElementById('authButton').classList.remove('active-monitor');
@@ -355,6 +338,9 @@
             updateConsole();
             updateStatusBars();
         }
+
+        // Initial update
+        updateStatusBars();
     </script>
 </body>
 </html>
