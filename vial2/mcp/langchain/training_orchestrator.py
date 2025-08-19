@@ -1,6 +1,7 @@
 from langchain.trainers import QuantumTrainer
 from ..ds import DataSynthesizer
 from ..langchain.agent_manager import agent_manager
+from ..langchain.training_logger import training_logger
 from ..error_logging.error_log import error_logger
 import logging
 import git
@@ -16,8 +17,9 @@ class TrainingOrchestrator:
         try:
             prompts = self.ds.generate_git_prompts(commands)
             await agent_manager.train_agent("grok", prompts)
+            await training_logger.log_training(vial_id, prompts)
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Orchestrated training for vial {vial_id}")
+            self.repo.index.commit(f"Orchestrated training for vial {vial_id} with Git")
             logger.info(f"Orchestrated training for vial {vial_id} with LangChain")
         except Exception as e:
             error_logger.log_error("training_orchestrate", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={vial_id})
