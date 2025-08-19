@@ -1,42 +1,34 @@
 import asyncpg
-from typing import Optional
-from ...mcp.error_logging.error_log import error_logger
+from mcp.error_logging.error_log import error_logger
 import logging
 import os
 
 logger = logging.getLogger(__name__)
 
-class NeonConnection:
-    def __init__(self):
-        self.pool = None
-        self.db_url = os.getenv("DATABASE_URL", "postgresql://vial2:vial2@localhost:5432/vial2_dev")
+class NeonDBConnection:
+    _pool = None
 
-    async def connect(self):
+    @classmethod
+    async def connect(cls):
         try:
-            self.pool = await asyncpg.create_pool(self.db_url)
-            logger.info("NeonDB connection established")
+            cls._pool = await asyncpg.create_pool(os.getenv("NEON_DB_URL"))
+            logger.info("NeonDB connection pool created")
         except Exception as e:
             error_logger.log_error("neon_connect", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={})
             logger.error(f"NeonDB connection failed: {str(e)}")
             raise
 
-    async def disconnect(self):
-        if self.pool:
-            await self.pool.close()
-            logger.info("NeonDB connection closed")
+    @classmethod
+    async def disconnect(cls):
+        if cls._pool:
+            await cls._pool.close()
+            logger.info("NeonDB connection pool closed")
 
-    async def execute(self, query: str, *args):
-        if not self.pool:
-            raise ValueError("Database connection not established")
-        async with self.pool.acquire() as connection:
-            try:
-                result = await connection.execute(query, *args)
-                return result
-            except Exception as e:
-                error_logger.log_error("neon_execute", str(e), str(e.__traceback__), sql_statement=query, sql_error_code=None, params=args)
-                logger.error(f"NeonDB query failed: {str(e)}")
-                raise
+    @classmethod
+    async def execute(cls, query, *args):
+        async with cls._pool.acquire() as connection:
+            return await connection.execute(query, *args)
 
-neon_db = NeonConnection()
+neon_db = NeonDBConnection()
 
 # xAI Artifact Tags: #vial2 #mcp #database #neon #connection #neon_mcp
