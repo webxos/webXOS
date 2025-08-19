@@ -18,9 +18,9 @@ class GitTraining:
             prompts = self.ds.generate_git_prompts(git_commands)
             await self.trainer.train(prompts)
             query = "INSERT INTO vial_logs (vial_id, event_type, event_data) VALUES ($1, $2, $3)"
-            await neon_db.execute(query, vial_id, "git_training", {"commands": git_commands})
+            await neon_db.execute(query, vial_id, "git_training", {"commands": git_commands, "status": "trained"})
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Trained vial {vial_id} with Git commands")
+            self.repo.index.commit(f"Trained vial {vial_id} with Git commands at {vial_id}")
             logger.info(f"Trained vial {vial_id} with Git and LangChain")
         except Exception as e:
             error_logger.log_error("git_train", str(e), str(e.__traceback__), sql_statement=query, sql_error_code=None, params={vial_id})
