@@ -19,7 +19,7 @@ class TrainingOrchestrator:
             await agent_manager.train_agent("grok", prompts)
             await training_logger.log_training(vial_id, prompts)
             self.repo.index.add(["*"])
-            self.repo.index.commit(f"Orchestrated training for vial {vial_id} with Git")
+            self.repo.index.commit(f"Orchestrated training for vial {vial_id} with Git at {vial_id}")
             logger.info(f"Orchestrated training for vial {vial_id} with LangChain")
         except Exception as e:
             error_logger.log_error("training_orchestrate", str(e), str(e.__traceback__), sql_statement=None, sql_error_code=None, params={vial_id})
