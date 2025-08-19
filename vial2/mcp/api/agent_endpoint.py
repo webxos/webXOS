@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from ..tools.agent_manager import agent_manager
+from ..security.audit import security_audit
 from ..error_logging.error_log import error_logger
 import logging
 
@@ -12,11 +13,10 @@ async def agent_request(agent_type: str, message: dict, credentials: dict = None
     try:
         if not agent_type or not message.get("content"):
             raise ValueError("Agent type and message content required")
-        await agent_manager.register_agent(agent_type, credentials or {})
+        if not await security_audit.check_input_sanitization(message["content"]):
+            raise ValueError("Input sanitization failed")
+        await agent_manager.register_agent(agent_type, credentials)
         agent = await agent_manager.get_agent(agent_type)
-        if not agent or not agent.get("credentials"):
-            raise ValueError("Agent not registered or missing credentials")
-        # Placeholder for agent logic (e.g., API call)
         response = f"Response from {agent_type}: {message['content']}"
         logger.info(f"Agent endpoint processed request for {agent_type}")
         return {"jsonrpc": "2.0", "result": {"status": "success", "data": response}}
