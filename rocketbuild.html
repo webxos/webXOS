@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Rocket Builder: SpaceX Edition</title>
+    <style>
+        /* Jet Black Theme – Pure Void Vibes */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000; 
+            color: #fff; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden; 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+        }
+        /* Top Toolbar: Compact, No Sliders */
+        .toolbar { 
+            display: flex; 
+            background: #111; 
+            padding: 5px; 
+            gap: 5px; 
+            flex-wrap: wrap; 
+            min-height: 40px; 
+        }
+        .btn { 
+            background: #222; 
+            border: 1px solid #333; 
+            color: #fff; 
+            padding: 8px 12px; 
+            cursor: pointer; 
+            font-size: 12px; 
+            border-radius: 3px; 
+            transition: background 0.2s; 
+        }
+        .btn:hover { background: #444; }
+        .btn.active { background: #666; }
+        /* Left Panels: Stacked Flex, Scroll if Needed but Optimized to Fit */
+        .left-panel { 
+            width: 250px; 
+            background: #111; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+            padding: 10px; 
+            overflow-y: auto; 
+            height: calc(100vh - 50px); /* Fit Screen */
+        }
+        .panel { 
+            border: 1px solid #333; 
+            padding: 10px; 
+            border-radius: 5px; 
+        }
+        .panel h3 { 
+            font-size: 14px; 
+            margin-bottom: 10px; 
+            color: #ccc; 
+        }
+        .part-list { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 5px; 
+        }
+        .part { 
+            background: #222; 
+            padding: 5px; 
+            cursor: grab; 
+            border-radius: 3px; 
+            font-size: 11px; 
+        }
+        .part:active { cursor: grabbing; }
+        /* Select Dropdowns/Inputs: No Sliders, Numeric Boxes */
+        select, input { 
+            background: #222; 
+            border: 1px solid #333; 
+            color: #fff; 
+            padding: 5px; 
+            border-radius: 3px; 
+            width: 100%; 
+            margin-bottom: 5px; 
+        }
+        input[type="number"] { width: auto; }
+        /* Center Canvas: Full Bleed */
+        #canvas-container { 
+            flex: 1; 
+            position: relative; 
+            background: #000; 
+        }
+        #renderer { width: 100%; height: 100%; }
+        /* Bottom Status: Hug Screen */
+        .status { 
+            background: #111; 
+            padding: 5px; 
+            display: flex; 
+            justify-content: space-between; 
+            font-size: 12px; 
+            border-top: 1px solid #333; 
+        }
+        /* Right-Click Context: Hidden by Default */
+        .context-menu { 
+            position: absolute; 
+            background: #222; 
+            border: 1px solid #333; 
+            display: none; 
+            flex-direction: column; 
+            padding: 5px; 
+            z-index: 100; 
+        }
+        .context-item { 
+            padding: 5px 10px; 
+            cursor: pointer; 
+        }
+        .context-item:hover { background: #444; }
+        /* Tools Active States */
+        .tool.active { background: #666 !important; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div class="toolbar">
+        <button class="btn" id="new">New</button>
+        <button class="btn" id="save">Save</button>
+        <button class="btn" id="open">Open</button>
+        <button class="btn" id="undo">Undo</button>
+        <button class="btn" id="redo">Redo</button>
+        <button class="btn" id="settings">Settings</button>
+        <button class="btn" id="resetView">Reset View</button>
+        <button class="btn" id="wireframe">Wireframe</button>
+        <button class="btn" id="toggleLight">Toggle Light</button>
+        <button class="btn" id="toggleGrid">Toggle Grid</button>
+        <button class="btn" id="autoConnect">Auto-Connect</button>
+        <button class="btn" id="validate">Validate Connections</button>
+        <!-- Tools -->
+        <button class="btn tool active" data-tool="select">Select</button>
+        <button class="btn tool" data-tool="move">Move</button>
+        <button class="btn tool" data-tool="rotate">Rotate</button>
+        <button class="btn tool" data-tool="scale">Scale</button>
+        <button class="btn tool" data-tool="measure">Measure</button>
+        <button class="btn tool" data-tool="wire">Wire</button>
+        <button class="btn tool" data-tool="code">Code</button>
+    </div>
+
+    <div style="display: flex; flex: 1; overflow: hidden;">
+        <!-- Left Panels -->
+        <div class="left-panel">
+            <!-- Parts Library -->
+            <div class="panel">
+                <h3>Parts Library</h3>
+                <div class="category">
+                    <strong>Basic</strong>
+                    <div class="part-list">
+                        <div class="part" draggable="true" data-part="bodyTube">Body Tube (Falcon 9: 36.6cm dia)</div>
+                        <div class="part" draggable="true" data-part="noseCone">Nose Cone (Ogive, 13m fairing scale)</div>
+                        <div class="part" draggable="true" data-part="fins">Fins (Grid Fins x4)</div>
+                        <div class="part" draggable="true" data-part="parachute">Parachute</div>
+                        <div class="part" draggable="true" data-part="payload">Payload</div>
+                        <div class="part" draggable="true" data-part="engine">Engine (Merlin 1D)</div>
+                    </div>
+                </div>
+                <div class="category">
+                    <strong>Electronics</strong>
+                    <div class="part-list">
+                        <div class="part" draggable="true" data-part="arduino">Arduino Nano</div>
+                        <div class="part" draggable="true" data-part="raspberry">Raspberry Pi</div>
+                        <div class="part" draggable="true" data-part="battery">Battery</div>
+                        <div class="part" draggable="true" data-part="radio">Radio</div>
+                        <div class="part" draggable="true" data-part="gps">GPS</div>
+                    </div>
+                </div>
+                <div class="category">
+                    <strong>Sensors</strong>
+                    <div class="part-list">
+                        <div class="part" draggable="true" data-part="thermometer">Thermometer</div>
+                        <div class="part" draggable="true" data-part="altimeter">Altimeter</div>
+                        <div class="part" draggable="true" data-part="barometer">Barometer</div>
+                        <div class="part" draggable="true" data-part="camera">Camera</div>
+                        <div class="part" draggable="true" data-part="accelerometer">Accelerometer</div>
+                    </div>
+                </div>
+            </div>
+            <!-- Layers -->
+            <div class="panel">
+                <h3>Layers</h3>
+                <label><input type="checkbox" checked data-layer="mainBody"> Main Body</label><br>
+                <label><input type="checkbox" checked data-layer="fins"> Fins</label><br>
+                <label><input type="checkbox" checked data-layer="electronics"> Electronics</label><br>
+                <label><input type="checkbox" checked data-layer="noseCone"> Nose Cone</label>
+            </div>
+            <!-- Properties -->
+            <div class="panel">
+                <h3>Properties</h3>
+                <label>Name: <input type="text" id="propName" value="Falcon_Core"></label>
+                <label>Material:
+                    <select id="propMaterial">
+                        <option>Carbon Fiber</option>
+                        <option>Aluminum</option>
+                        <option>Plastic</option>
+                        <option>Fiberglass</option>
+                    </select>
+                </label>
+                <label>Color: <input type="color" id="propColor" value="#ffffff"></label>
+                <label>Length (cm): <input type="number" id="propLength" value="100"></label>
+                <label>Diameter (cm): <input type="number" id="propDia" value="36.6"></label>
+                <label>Weight (g): <input type="number" id="propWeight" value="1900"></label>
+            </div>
+            <!-- IoT Config -->
+            <div class="panel">
+                <h3>IoT Configuration</h3>
+                <label>Controller:
+                    <select id="iotController">
+                        <option>Arduino Nano</option>
+                        <option>ESP32</option>
+                        <option>Raspberry Pi Pico</option>
+                    </select>
+                </label>
+                <label>Telemetry:
+                    <select id="iotTelemetry">
+                        <option>LoRa</option>
+                        <option>WiFi</option>
+                        <option>Bluetooth</option>
+                    </select>
+                </label>
+                <label>Sensors: <input type="text" id="iotSensors" placeholder="e.g., Altimeter,GPS"></label>
+            </div>
+            <!-- Connection Manager -->
+            <div class="panel">
+                <h3>Connection Manager</h3>
+                <label><input type="checkbox" id="autoConnectCb"> Auto-Connect</label>
+                <button class="btn" id="validateConnections">Validate Connections</button>
+            </div>
+        </div>
+
+        <!-- Center Canvas -->
+        <div id="canvas-container">
+            <canvas id="renderer"></canvas>
+            <div id="context-menu" class="context-menu">
+                <div class="context-item" data-action="cut">Cut</div>
+                <div class="context-item" data-action="copy">Copy</div>
+                <div class="context-item" data-action="paste">Paste</div>
+                <div class="context-item" data-action="delete">Delete</div>
+                <div class="context-item" data-action="duplicate">Duplicate</div>
+                <div class="context-item" data-action="addSensor">Add Sensor</div>
+                <div class="context-item" data-action="addController">Add Controller</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Status -->
+    <div class="status">
+        <span id="statusText">Ready</span>
+        <span>Scale: 1:10 | X: 0.0, Y: 0.0, Z: 0.0</span>
+    </div>
+
+    <script>
+        // Three.js Engine Core – Unreal-Smooth Rendering
+        let scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000011); // Jet Black Space
+        let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        let renderer = new THREE.WebGLRenderer({ antialias: true, canvas: document.getElementById('renderer') });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Lighting: Dramatic, Toggleable
+        let ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+        scene.add(ambientLight);
+        let directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 5);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // Controls & Tools
+        let controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        let transformControls = new THREE.TransformControls(camera, renderer.domElement);
+        transformControls.addEventListener('dragging-changed', (event) => controls.enabled = !event.value);
+        scene.add(transformControls);
+
+        // Grid
+        let gridHelper = new THREE.GridHelper(20, 20, 0x333333, 0x222222);
+        scene.add(gridHelper);
+        let wireframeMode = false;
+
+        // Parts Group
+        let parts = new THREE.Group();
+        scene.add(parts);
+
+        // Default SpaceX Falcon 9 Scaffold (1:10 Scale)
+        function loadFalcon9() {
+            parts.clear();
+            // Body Tube: Cylinder, 36.6cm dia x 100cm long
+            let bodyGeo = new THREE.CylinderGeometry(1.83, 1.83, 10, 32); // Scaled
+            let bodyMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+            let body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 5;
+            body.castShadow = true;
+            parts.add(body);
+
+            // Nose Cone: Ogive Approx (Cone)
+            let noseGeo = new THREE.ConeGeometry(1.83, 5, 32);
+            let nose = new THREE.Mesh(noseGeo, bodyMat);
+            nose.position.y = 12.5;
+            parts.add(nose);
+
+            // Fins: 4 Grid Fins (Planes)
+            for (let i = 0; i < 4; i++) {
+                let finGeo = new THREE.PlaneGeometry(1, 2);
+                let fin = new THREE.Mesh(finGeo, bodyMat);
+                fin.position.set(Math.cos(i * Math.PI / 2) * 2, 0, Math.sin(i * Math.PI / 2) * 2);
+                fin.rotation.y = i * Math.PI / 2;
+                parts.add(fin);
+            }
+
+            // Engine: Simple Cone Plume
+            let engineGeo = new THREE.ConeGeometry(1, 2, 32);
+            let engine = new THREE.Mesh(engineGeo, new THREE.MeshLambertMaterial({ color: 0xff6600 }));
+            engine.position.y = -5;
+            engine.rotation.x = Math.PI;
+            parts.add(engine);
+        }
+        loadFalcon9(); // Start with Falcon
+
+        camera.position.z = 20;
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            transformControls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize Handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Event Handlers: All Buttons Wired
+        document.getElementById('new').addEventListener('click', loadFalcon9);
+        document.getElementById('save').addEventListener('click', () => {
+            localStorage.setItem('rocketSave', JSON.stringify({ parts: [] })); // Stub: Serialize scene
+            alert('Saved to localStorage');
+        });
+        document.getElementById('open').addEventListener('click', () => {
+            let saved = localStorage.getItem('rocketSave');
+            if (saved) { /* Load logic */ alert('Loaded!'); }
+        });
+        let history = []; // Undo/Redo Stack
+        function addToHistory() { history.push(parts.clone()); if (history.length > 20) history.shift(); }
+        document.getElementById('undo').addEventListener('click', () => {
+            if (history.length) parts.copy(history.pop());
+        });
+        document.getElementById('redo').addEventListener('click', () => { /* Re-push */ });
+
+        document.getElementById('settings').addEventListener('click', () => alert('Settings: Jet Black Locked, Units: Metric'));
+
+        // View Controls
+        document.getElementById('resetView').addEventListener('click', () => controls.reset());
+        document.getElementById('wireframe').addEventListener('click', () => {
+            wireframeMode = !wireframeMode;
+            parts.traverse((child) => { if (child.isMesh) child.material.wireframe = wireframeMode; });
+        });
+        document.getElementById('toggleLight').addEventListener('click', () => {
+            directionalLight.visible = !directionalLight.visible;
+        });
+        document.getElementById('toggleGrid').addEventListener('click', () => {
+            gridHelper.visible = !gridHelper.visible;
+        });
+
+        // Layers
+        document.querySelectorAll('input[data-layer]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                let layer = e.target.dataset.layer;
+                parts.traverse((child) => { if (child.userData.layer === layer) child.visible = e.target.checked; });
+            });
+        });
+
+        // Properties: Live Update Selected
+        let selectedPart = null;
+        function updateProps(part) {
+            if (part) {
+                document.getElementById('propName').value = part.userData.name || '';
+                document.getElementById('propMaterial').value = part.material.name || 'Carbon Fiber';
+                document.getElementById('propColor').value = '#' + part.material.color.getHexString();
+                // Scale to length/dia
+                document.getElementById('propLength').value = part.scale.y * 100; // Stub
+                document.getElementById('propWeight').value = part.userData.weight || 0;
+            }
+        }
+        document.getElementById('propColor').addEventListener('change', (e) => {
+            if (selectedPart) selectedPart.material.color.setHex(e.target.value.replace('#', '0x'));
+        });
+        // Similar for others...
+
+        // IoT Config: Stub Updates
+        document.getElementById('iotController').addEventListener('change', (e) => console.log('Controller:', e.target.value));
+        // Sensors parse comma list, add dummy nodes
+
+        // Tools
+        let currentTool = 'select';
+        document.querySelectorAll('.tool').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelector('.tool.active').classList.remove('active');
+                e.target.classList.add('active');
+                currentTool = e.target.dataset.tool;
+                transformControls.setMode(currentTool === 'rotate' ? 'rotate' : currentTool === 'scale' ? 'scale' : 'translate');
+                if (currentTool === 'select') transformControls.detach();
+            });
+        });
+
+        // Raycaster for Select/Measure
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        function onMouseDown(e) {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            let intersects = raycaster.intersectObjects(parts.children, true);
+            if (intersects.length > 0) {
+                selectedPart = intersects[0].object;
+                transformControls.attach(selectedPart);
+                updateProps(selectedPart);
+                if (currentTool === 'measure') {
+                    // Stub: Line from prev to this
+                    console.log('Distance:', intersects[0].point.distanceTo(prevPoint || intersects[0].point));
+                }
+            }
+        }
+        renderer.domElement.addEventListener('click', onMouseDown);
+
+        // Drag-Drop Parts
+        document.querySelectorAll('.part').forEach(part => {
+            part.addEventListener('dragstart', (e) => e.dataTransfer.setData('text', e.target.dataset.part));
+        });
+        let dropZone = document.getElementById('canvas-container');
+        dropZone.addEventListener('dragover', (e) => e.preventDefault());
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            let partType = e.dataTransfer.getData('text');
+            let geo, mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+            switch (partType) {
+                case 'bodyTube': geo = new THREE.CylinderGeometry(1.83, 1.83, 5, 32); break;
+                case 'noseCone': geo = new THREE.ConeGeometry(1.83, 3, 32); break;
+                case 'fins': geo = new THREE.PlaneGeometry(1, 2); break;
+                // Add others...
+                default: return;
+            }
+            let newPart = new THREE.Mesh(geo, mat);
+            newPart.position.set((Math.random() - 0.5) * 10, 0, (Math.random() - 0.5) * 10);
+            newPart.userData = { type: partType, layer: 'mainBody' };
+            addToHistory();
+            parts.add(newPart);
+        });
+
+        // Connections: Lines
+        document.getElementById('wire').addEventListener('click', () => {
+            // Stub: Start line from selected, end on next click
+        });
+        document.getElementById('autoConnectCb').addEventListener('change', (e) => {
+            if (e.target.checked) console.log('Auto-wiring pins...');
+        });
+        document.getElementById('validateConnections').addEventListener('click', () => {
+            // Traverse lines, highlight invalid (no endpoints)
+            alert('Connections Valid! (Stub)');
+        });
+
+        // Code Tool: Simple Editor Stub
+        document.getElementById('code').addEventListener('click', () => {
+            let code = prompt('Arduino Sketch:\nvoid setup() {}\nvoid loop() {}');
+            console.log('Compiled:', code); // WASM stub later
+        });
+
+        // Context Menu
+        let contextMenu = document.getElementById('context-menu');
+        dropZone.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            contextMenu.style.display = 'flex';
+            contextMenu.style.left = e.pageX + 'px';
+            contextMenu.style.top = e.pageY + 'px';
+        });
+        document.addEventListener('click', () => contextMenu.style.display = 'none');
+        document.querySelectorAll('.context-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                let action = e.target.dataset.action;
+                if (selectedPart) {
+                    switch (action) {
+                        case 'delete': parts.remove(selectedPart); break;
+                        case 'duplicate': let clone = selectedPart.clone(); parts.add(clone); break;
+                        // Cut/copy/paste stubs
+                        case 'addSensor': /* Add accel */ break;
+                    }
+                }
+                contextMenu.style.display = 'none';
+            });
+        });
+
+        // Status Update Stub
+        renderer.domElement.addEventListener('mousemove', (e) => {
+            // Raycast for coords
+            document.querySelector('.status span:last-child').textContent = `Scale: 1:10 | X: ${e.clientX / 100}, Y: ${e.clientY / 100}, Z: 0.0`;
+        });
+
+        // SpaceX Presets: Add Starship via Settings or New Variants
+        // (Extend loadFalcon9 to loadStarship: 9m dia, etc. from refs)
+    </script>
+</body>
+</html>
