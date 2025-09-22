@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GalaxyCraft | Enhanced Space Combat</title>
+  <meta name="description" content="Experience GalaxyCraft - enhanced space combat with improved controls, kamikaze enemies, and homing projectiles.">
+  <meta name="keywords" content="GalaxyCraft, space combat, WebGL, drone swarm, space simulator">
+  <meta name="author" content="WebXOS">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Orbitron', 'Courier New', monospace;
+    }
+    body {
+      background: #000;
+      color: #0ff;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #gameCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+    /* Main UI */
+    .ui-container {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 15px;
+      z-index: 20;
+      padding: 15px;
+      background: rgba(0, 20, 30, 0.7);
+      border-radius: 20px;
+      border: 2px solid #0ff;
+      backdrop-filter: blur(5px);
+    }
+    .ui-btn {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #003344, #001122);
+      border: 2px solid #0ff;
+      color: #0ff;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+      transition: all 0.2s ease;
+    }
+    .ui-btn:hover {
+      background: linear-gradient(145deg, #004455, #002233);
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    }
+    .ui-btn.active {
+      background: linear-gradient(145deg, #ff3300, #cc2200);
+      border-color: #ff3300;
+      box-shadow: 0 0 20px rgba(255, 51, 0, 0.8);
+      color: #fff;
+    }
+    .ui-btn .key {
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    
+    /* Combat Mode UI */
+    .combat-ui {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 15;
+    }
+    .combat-mode .combat-ui {
+      opacity: 1;
+    }
+    .targeting-reticle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 120px;
+      height: 120px;
+      border: 3px solid #0f0;
+      border-radius: 50%;
+      box-shadow: 0 0 30px rgba(0, 255, 0, 0.7);
+    }
+    .targeting-reticle::before, .targeting-reticle::after {
+      content: '';
+      position: absolute;
+      background: #0f0;
+    }
+    .targeting-reticle::before {
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      transform: translateY(-50%);
+    }
+    .targeting-reticle::after {
+      left: 50%;
+      top: 0;
+      height: 100%;
+      width: 3px;
+      transform: translateX(-50%);
+    }
+    .target-lock {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border: 2px solid #f00;
+      border-radius: 50%;
+      box-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+      animation: pulse 1s infinite alternate;
+    }
+    @keyframes pulse {
+      from { opacity: 0.5; transform: scale(1); }
+      to { opacity: 1; transform: scale(1.2); }
+    }
+    .combat-stats {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 15px;
+      border: 2px solid #0f0;
+      border-radius: 10px;
+      font-size: 16px;
+      color: #0f0;
+    }
+    .health-bar, .shield-bar {
+      width: 200px;
+      height: 20px;
+      background: #333;
+      border-radius: 10px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    .health-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #f00, #ff3300);
+      border-radius: 10px;
+      transition: width 0.3s ease;
+    }
+    .shield-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #0cf, #06f);
+      border-radius: 10px;
+      transition: width 0.3s ease;
+    }
+    .warning-alert {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 36px;
+      color: #f00;
+      text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .warning-alert.active {
+      animation: alert-flash 0.5s infinite alternate;
+    }
+    @keyframes alert-flash {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    /* Main Menu */
+    .main-menu {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 10, 20, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      color: #0ff;
+    }
+    .game-title {
+      font-size: 60px;
+      margin-bottom: 40px;
+      text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+      letter-spacing: 4px;
+    }
+    .menu-options {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 300px;
+    }
+    .menu-btn {
+      padding: 15px 30px;
+      background: linear-gradient(145deg, #003344, #001122);
+      border: 2px solid #0ff;
+      color: #0ff;
+      font-size: 20px;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.3s ease;
+    }
+    .menu-btn:hover {
+      background: linear-gradient(145deg, #004455, #002233);
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+      transform: translateY(-3px);
+    }
+    .settings-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 20, 30, 0.9);
+      padding: 30px;
+      border: 2px solid #0ff;
+      border-radius: 15px;
+      width: 400px;
+      display: none;
+    }
+    .settings-panel h2 {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 15px 0;
+    }
+    .settings-row label {
+      font-size: 18px;
+    }
+    .settings-row input {
+      background: #002233;
+      border: 1px solid #0ff;
+      color: #0ff;
+      padding: 5px 10px;
+      border-radius: 5px;
+      width: 80px;
+    }
+    .close-settings {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #0ff;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    
+    /* Console Messages */
+    .console-message {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px 20px;
+      border: 2px solid #0ff;
+      border-radius: 10px;
+      color: #0ff;
+      font-size: 18px;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 25;
+    }
+    .console-message.active {
+      opacity: 1;
+    }
+    
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .ui-container {
+        bottom: 10px;
+        padding: 10px;
+        gap: 10px;
+      }
+      .ui-btn {
+        width: 60px;
+        height: 60px;
+        font-size: 10px;
+      }
+      .ui-btn .key {
+        font-size: 16px;
+      }
+      .game-title {
+        font-size: 40px;
+      }
+      .menu-btn {
+        padding: 12px 24px;
+        font-size: 18px;
+      }
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- Combat Mode UI -->
+    <div class="combat-ui">
+      <div class="targeting-reticle"></div>
+      <div class="combat-stats">
+        <div>WAVE: <span id="waveCount">1</span></div>
+        <div>ENEMIES: <span id="enemyCount">0</span></div>
+        <div>SCORE: <span id="combatScore">0</span></div>
+        <div>HEALTH:</div>
+        <div class="health-bar"><div class="health-fill" id="healthFill"></div></div>
+        <div>SHIELD:</div>
+        <div class="shield-bar"><div class="shield-fill" id="shieldFill"></div></div>
+      </div>
+      <div class="warning-alert" id="warningAlert">INCOMING!</div>
+    </div>
+    
+    <!-- Main UI Controls -->
+    <div class="ui-container">
+      <div class="ui-btn" id="thrustBtn">
+        <div class="key">W</div>
+        <div>UP</div>
+      </div>
+      <div class="ui-btn" id="combatBtn">
+        <div class="key">ALT</div>
+        <div>COMBAT</div>
+      </div>
+      <div class="ui-btn" id="fireBtn">
+        <div class="key">SPC</div>
+        <div>FIRE</div>
+      </div>
+      <div class="ui-btn" id="boostBtn">
+        <div class="key">SHIFT</div>
+        <div>BOOST</div>
+      </div>
+      <div class="ui-btn" id="menuBtn">
+        <div class="key">ESC</div>
+        <div>MENU</div>
+      </div>
+    </div>
+    
+    <!-- Console Messages -->
+    <div class="console-message" id="consoleMessage"></div>
+    
+    <!-- Main Menu -->
+    <div class="main-menu" id="mainMenu">
+      <h1 class="game-title">GALAXYCRAFT</h1>
+      <div class="menu-options">
+        <div class="menu-btn" id="startBtn">SINGLE PLAYER</div>
+        <div class="menu-btn" id="multiplayerBtn">MULTIPLAYER</div>
+        <div class="menu-btn" id="settingsBtn">SETTINGS</div>
+        <div class="menu-btn" id="quitBtn">QUIT</div>
+      </div>
+      
+      <div class="settings-panel" id="settingsPanel">
+        <button class="close-settings" id="closeSettings">X</button>
+        <h2>GAME SETTINGS</h2>
+        <div class="settings-row">
+          <label>Mouse Sensitivity:</label>
+          <input type="number" id="mouseSensitivity" value="0.005" step="0.001" min="0.001" max="0.01">
+        </div>
+        <div class="settings-row">
+          <label>Invert Y-Axis:</label>
+          <input type="checkbox" id="invertYAxis">
+        </div>
+        <div class="settings-row">
+          <label>Flight Assist:</label>
+          <input type="checkbox" id="flightAssist" checked>
+        </div>
+        <div class="settings-row">
+          <label>Sound Volume:</label>
+          <input type="range" id="soundVolume" min="0" max="100" value="80">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    // Game state and configuration
+    const GameState = {
+      MENU: 0,
+      PLAYING: 1,
+      COMBAT: 2,
+      PAUSED: 3
+    };
+    
+    let currentState = GameState.MENU;
+    let mouseSensitivity = 0.005;
+    let invertYAxis = false;
+    let flightAssist = true;
+    
+    // Initialize Three.js
+    let scene, camera, renderer;
+    let player, enemies = [], projectiles = [], explosions = [];
+    let mixers = [];
+    let clock = new THREE.Clock();
+    
+    // Player controls state
+    const controls = {
+      pitchUp: false,
+      pitchDown: false,
+      yawLeft: false,
+      yawRight: false,
+      boost: false,
+      fire: false,
+      combat: false,
+      barrelRollRight: false,
+      barrelRollLeft: false,
+      isBarrelRolling: false,
+      barrelRollProgress: 0
+    };
+    
+    // Player stats
+    const playerStats = {
+      health: 100,
+      shield: 100,
+      score: 0,
+      wave: 1,
+      speed: 20,
+      boostMultiplier: 3,
+      fireRate: 0.1,
+      lastFire: 0,
+      rotationSpeed: 1.5
+    };
+    
+    // Initialize the game
+    function init() {
+      // Set up scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000010);
+      scene.fog = new THREE.Fog(0x000010, 50, 500);
+      
+      // Set up camera
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.set(0, 5, 15);
+      
+      // Set up renderer
+      renderer = new THREE.WebGLRenderer({ 
+        canvas: document.getElementById('gameCanvas'),
+        antialias: true,
+        powerPreference: "high-performance"
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      
+      // Add lighting
+      const ambientLight = new THREE.AmbientLight(0x444455);
+      scene.add(ambientLight);
+      
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      directionalLight.position.set(5, 5, 5);
+      directionalLight.castShadow = true;
+      scene.add(directionalLight);
+      
+      // Create starfield (reduced count for performance)
+      createStarfield();
+      
+      // Create player ship
+      createPlayerShip();
+      
+      // Create initial enemies
+      spawnEnemyWave(5);
+      
+      // Set up event listeners
+      setupEventListeners();
+      
+      // Start animation loop
+      animate();
+      
+      // Show console message
+      showConsoleMessage("GalaxyCraft initialized. Ready for launch!");
+      
+      // Initialize UI
+      document.getElementById('healthFill').style.width = '100%';
+      document.getElementById('shieldFill').style.width = '100%';
+    }
+    
+    // Create starfield background with reduced stars
+    function createStarfield() {
+      const starGeometry = new THREE.BufferGeometry();
+      const starMaterial = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.7,
+        sizeAttenuation: true
+      });
+      
+      const starVertices = [];
+      for (let i = 0; i < 2000; i++) { // Reduced from 10000 to 2000
+        const x = (Math.random() - 0.5) * 2000;
+        const y = (Math.random() - 0.5) * 2000;
+        const z = (Math.random() - 0.5) * 2000;
+        starVertices.push(x, y, z);
+      }
+      
+      starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+      const stars = new THREE.Points(starGeometry, starMaterial);
+      scene.add(stars);
+    }
+    
+    // Create player ship
+    function createPlayerShip() {
+      const shipGeometry = new THREE.ConeGeometry(2, 5, 4);
+      const shipMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00aaff,
+        emissive: 0x0044aa,
+        specular: 0xffffff,
+        shininess: 100,
+        flatShading: true
+      });
+      
+      player = new THREE.Mesh(shipGeometry, shipMaterial);
+      player.position.set(0, 0, 0);
+      player.rotation.x = Math.PI / 2;
+      player.castShadow = true;
+      player.receiveShadow = true;
+      
+      // Add engine glow
+      const engineGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+      const engineMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        emissive: 0x0088ff,
+        transparent: true,
+        opacity: 0.8
+      });
+      
+      const leftEngine = new THREE.Mesh(engineGeometry, engineMaterial);
+      leftEngine.position.set(-1, -1.5, -1);
+      player.add(leftEngine);
+      
+      const rightEngine = new THREE.Mesh(engineGeometry, engineMaterial);
+      rightEngine.position.set(1, -1.5, -1);
+      player.add(rightEngine);
+      
+      scene.add(player);
+      
+      // Create a group for the camera to follow the player smoothly
+      camera.lookAt(player.position);
+    }
+    
+    // Spawn a wave of enemies with kamikaze behavior
+    function spawnEnemyWave(count) {
+      for (let i = 0; i < count; i++) {
+        const enemyGeometry = new THREE.ConeGeometry(1.5, 3, 3);
+        const enemyMaterial = new THREE.MeshPhongMaterial({
+          color: 0xff0000,
+          emissive: 0xaa0000,
+          specular: 0xff6666,
+          shininess: 100,
+          flatShading: true
+        });
+        
+        const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
+        
+        // Position enemies in front of the player in a formation
+        const angle = (i / count) * Math.PI * 2;
+        const radius = 20 + Math.random() * 30;
+        enemy.position.set(
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius * 0.5,
+          -50 - Math.random() * 30
+        );
+        
+        enemy.rotation.x = Math.PI / 2;
+        enemy.speed = 5 + Math.random() * 5;
+        enemy.health = 10;
+        enemy.attackDelay = Math.random() * 2; // Stagger attacks
+        enemy.lastAttack = 0;
+        enemy.attackPattern = Math.floor(Math.random() * 3); // Different attack patterns
+        
+        scene.add(enemy);
+        enemies.push(enemy);
+      }
+      
+      updateEnemyCount();
+    }
+    
+    // Create a projectile with homing capability
+    function createProjectile(isPlayerProjectile = true) {
+      const geometry = new THREE.SphereGeometry(0.3, 8, 8);
+      const material = new THREE.MeshBasicMaterial({
+        color: isPlayerProjectile ? 0x00ff00 : 0xff0000,
+        emissive: isPlayerProjectile ? 0x00aa00 : 0xaa0000
+      });
+      
+      const projectile = new THREE.Mesh(geometry, material);
+      
+      if (isPlayerProjectile) {
+        // Player projectiles come from the player's position
+        projectile.position.copy(player.position);
+        
+        // Calculate direction based on player's rotation
+        const direction = new THREE.Vector3(0, 0, -1);
+        direction.applyQuaternion(player.quaternion);
+        
+        projectile.velocity = direction.multiplyScalar(80);
+        projectile.isPlayerProjectile = true;
+        projectile.homingStrength = 0.1; // How strongly projectiles home in on targets
+        projectile.lifeTime = 0;
+        projectile.maxLifeTime = 3; // Projectiles disappear after 3 seconds
+      } else {
+        // Enemy projectiles would come from enemy positions
+        // Not implemented in this demo
+      }
+      
+      scene.add(projectile);
+      projectiles.push(projectile);
+    }
+    
+    // Create explosion effect
+    function createExplosion(position, size = 5, color = 0xff3300) {
+      const particles = [];
+      const particleCount = 20;
+      
+      for (let i = 0; i < particleCount; i++) {
+        const geometry = new THREE.SphereGeometry(0.5, 8, 8);
+        const material = new THREE.MeshBasicMaterial({
+          color: color,
+          emissive: color === 0xff3300 ? 0xff0000 : 0xffff00,
+          transparent: true,
+          opacity: 0.8
+        });
+        
+        const particle = new THREE.Mesh(geometry, material);
+        particle.position.copy(position);
+        
+        // Random velocity for explosion particles
+        const angle1 = Math.random() * Math.PI * 2;
+        const angle2 = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 10 + 5;
+        
+        particle.velocity = new THREE.Vector3(
+          Math.sin(angle1) * Math.cos(angle2) * speed,
+          Math.sin(angle1) * Math.sin(angle2) * speed,
+          Math.cos(angle1) * speed
+        );
+        
+        particle.lifeTime = 0;
+        particle.maxLifeTime = 1 + Math.random() * 0.5;
+        
+        scene.add(particle);
+        particles.push(particle);
+      }
+      
+      explosions.push({
+        particles: particles,
+        startTime: Date.now()
+      });
+      
+      // Remove explosion after a delay
+      setTimeout(() => {
+        for (const particle of particles) {
+          if (scene.children.includes(particle)) {
+            scene.remove(particle);
+          }
+        }
+        explosions = explosions.filter(exp => exp.particles !== particles);
+      }, 2000);
+    }
+    
+    // Update enemy count display
+    function updateEnemyCount() {
+      document.getElementById('enemyCount').textContent = enemies.length;
+    }
+    
+    // Show a console message
+    function showConsoleMessage(message, duration = 3000) {
+      const consoleElement = document.getElementById('consoleMessage');
+      consoleElement.textContent = message;
+      consoleElement.classList.add('active');
+      
+      setTimeout(() => {
+        consoleElement.classList.remove('active');
+      }, duration);
+    }
+    
+    // Show warning alert
+    function showWarningAlert(message, duration = 2000) {
+      const warningElement = document.getElementById('warningAlert');
+      warningElement.textContent = message;
+      warningElement.classList.add('active');
+      
+      setTimeout(() => {
+        warningElement.classList.remove('active');
+      }, duration);
+    }
+    
+    // Toggle combat mode
+    function toggleCombatMode() {
+      if (currentState === GameState.PLAYING) {
+        // Enter combat mode
+        currentState = GameState.COMBAT;
+        document.body.classList.add('combat-mode');
+        document.getElementById('combatBtn').classList.add('active');
+        showConsoleMessage("COMBAT MODE ENGAGED");
+        
+        // Spawn more enemies when entering combat
+        spawnEnemyWave(10);
+        showWarningAlert("INCOMING HOSTILES!");
+        
+      } else if (currentState === GameState.COMBAT) {
+        // Exit combat mode
+        currentState = GameState.PLAYING;
+        document.body.classList.remove('combat-mode');
+        document.getElementById('combatBtn').classList.remove('active');
+        showConsoleMessage("Returning to exploration mode");
+      }
+    }
+    
+    // Perform a barrel roll
+    function performBarrelRoll(direction) {
+      if (controls.isBarrelRolling) return;
+      
+      controls.isBarrelRolling = true;
+      controls.barrelRollProgress = 0;
+      controls.barrelRollDirection = direction;
+      
+      // Make player temporarily invulnerable during barrel roll
+      playerStats.tempInvulnerable = true;
+      setTimeout(() => {
+        playerStats.tempInvulnerable = false;
+      }, 1000);
+    }
+    
+    // Set up event listeners
+    function setupEventListeners() {
+      // Keyboard controls
+      document.addEventListener('keydown', (e) => {
+        if (currentState === GameState.MENU) return;
+        
+        switch(e.key.toLowerCase()) {
+          case 'w':
+            controls.pitchUp = true;
+            break;
+          case 's':
+            controls.pitchDown = true;
+            break;
+          case 'a':
+            controls.yawLeft = true;
+            break;
+          case 'd':
+            controls.yawRight = true;
+            break;
+          case 'x':
+            if (!controls.isBarrelRolling) performBarrelRoll(1); // Right roll
+            break;
+          case 'z':
+            if (!controls.isBarrelRolling) performBarrelRoll(-1); // Left roll
+            break;
+          case ' ':
+            controls.fire = true;
+            break;
+          case 'shift':
+            controls.boost = true;
+            break;
+          case 'alt':
+            e.preventDefault();
+            toggleCombatMode();
+            break;
+          case 'escape':
+            toggleMenu();
+            break;
+        }
+      });
+      
+      document.addEventListener('keyup', (e) => {
+        switch(e.key.toLowerCase()) {
+          case 'w':
+            controls.pitchUp = false;
+            break;
+          case 's':
+            controls.pitchDown = false;
+            break;
+          case 'a':
+            controls.yawLeft = false;
+            break;
+          case 'd':
+            controls.yawRight = false;
+            break;
+          case ' ':
+            controls.fire = false;
+            break;
+          case 'shift':
+            controls.boost = false;
+            break;
+        }
+      });
+      
+      // Mouse movement for camera control
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+      
+      document.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+      
+      document.addEventListener('mousemove', (e) => {
+        if (isDragging && currentState !== GameState.MENU) {
+          const deltaX = e.clientX - previousMousePosition.x;
+          const deltaY = e.clientY - previousMousePosition.y;
+          
+          // Apply rotation to player based on mouse movement
+          player.rotation.y -= deltaX * mouseSensitivity;
+          player.rotation.x -= deltaY * mouseSensitivity * (invertYAxis ? -1 : 1);
+          
+          // Limit vertical rotation to avoid over-rotation
+          player.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.rotation.x));
+          
+          previousMousePosition = { x: e.clientX, y: e.clientY };
+        }
+      });
+      
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+      
+      // Touch controls for mobile devices
+      document.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      });
+      
+      document.addEventListener('touchmove', (e) => {
+        if (isDragging && e.touches.length === 1 && currentState !== GameState.MENU) {
+          const deltaX = e.touches[0].clientX - previousMousePosition.x;
+          const deltaY = e.touches[0].clientY - previousMousePosition.y;
+          
+          player.rotation.y -= deltaX * mouseSensitivity * 2;
+          player.rotation.x -= deltaY * mouseSensitivity * 2 * (invertYAxis ? -1 : 1);
+          
+          player.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.rotation.x));
+          
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      });
+      
+      document.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+      
+      // UI button event listeners
+      document.getElementById('thrustBtn').addEventListener('click', () => {
+        controls.pitchUp = !controls.pitchUp;
+      });
+      
+      document.getElementById('combatBtn').addEventListener('click', toggleCombatMode);
+      
+      document.getElementById('fireBtn').addEventListener('click', () => {
+        if (currentState === GameState.COMBAT) {
+          controls.fire = true;
+          setTimeout(() => { controls.fire = false; }, 100);
+        }
+      });
+      
+      document.getElementById('boostBtn').addEventListener('click', () => {
+        controls.boost = !controls.boost;
+      });
+      
+      document.getElementById('menuBtn').addEventListener('click', toggleMenu);
+      
+      // Menu event listeners
+      document.getElementById('startBtn').addEventListener('click', startGame);
+      document.getElementById('multiplayerBtn').addEventListener('click', () => {
+        showConsoleMessage("Multiplayer mode coming soon!");
+      });
+      document.getElementById('settingsBtn').addEventListener('click', showSettings);
+      document.getElementById('quitBtn').addEventListener('click', () => {
+        showConsoleMessage("Thanks for playing GalaxyCraft!");
+        setTimeout(() => { window.close(); }, 1000);
+      });
+      
+      document.getElementById('closeSettings').addEventListener('click', hideSettings);
+      
+      // Settings change listeners
+      document.getElementById('mouseSensitivity').addEventListener('change', (e) => {
+        mouseSensitivity = parseFloat(e.target.value);
+      });
+      
+      document.getElementById('invertYAxis').addEventListener('change', (e) => {
+        invertYAxis = e.target.checked;
+      });
+      
+      document.getElementById('flightAssist').addEventListener('change', (e) => {
+        flightAssist = e.target.checked;
+      });
+      
+      // Window resize handler
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+    
+    // Toggle menu
+    function toggleMenu() {
+      if (currentState === GameState.MENU) {
+        // Resume game
+        currentState = GameState.PLAYING;
+        document.getElementById('mainMenu').style.display = 'none';
+      } else {
+        // Pause game and show menu
+        currentState = GameState.MENU;
+        document.getElementById('mainMenu').style.display = 'flex';
+        document.getElementById('settingsPanel').style.display = 'none';
+      }
+    }
+    
+    // Show settings panel
+    function showSettings() {
+      document.getElementById('settingsPanel').style.display = 'block';
+    }
+    
+    // Hide settings panel
+    function hideSettings() {
+      document.getElementById('settingsPanel').style.display = 'none';
+    }
+    
+    // Start the game
+    function startGame() {
+      currentState = GameState.PLAYING;
+      document.getElementById('mainMenu').style.display = 'none';
+      showConsoleMessage("Beginning mission...");
+    }
+    
+    // Update game state
+    function update(deltaTime) {
+      if (currentState === GameState.MENU || currentState === GameState.PAUSED) return;
+      
+      // Calculate movement speed
+      let speed = playerStats.speed;
+      if (controls.boost) {
+        speed *= playerStats.boostMultiplier;
+      }
+      
+      // Apply movement based on controls
+      const moveVector = new THREE.Vector3(0, 0, 0);
+      moveVector.z -= speed * deltaTime;
+      
+      // Apply rotation based on controls
+      if (controls.pitchUp) {
+        player.rotation.x -= playerStats.rotationSpeed * deltaTime;
+      }
+      if (controls.pitchDown) {
+        player.rotation.x += playerStats.rotationSpeed * deltaTime;
+      }
+      if (controls.yawLeft) {
+        player.rotation.y += playerStats.rotationSpeed * deltaTime;
+      }
+      if (controls.yawRight) {
+        player.rotation.y -= playerStats.rotationSpeed * deltaTime;
+      }
+      
+      // Handle barrel roll
+      if (controls.isBarrelRolling) {
+        controls.barrelRollProgress += deltaTime * 4; // Speed of roll
+        
+        if (controls.barrelRollProgress >= Math.PI * 2) {
+          // Complete the roll
+          controls.isBarrelRolling = false;
+          player.rotation.z = 0;
+        } else {
+          // Continue rolling
+          player.rotation.z = controls.barrelRollProgress * controls.barrelRollDirection;
+        }
+      }
+      
+      // Limit vertical rotation to avoid over-rotation
+      player.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.rotation.x));
+      
+      // Apply movement in the direction the player is facing
+      moveVector.applyQuaternion(player.quaternion);
+      player.position.add(moveVector);
+      
+      // Update camera to follow player
+      const targetPosition = player.position.clone();
+      const cameraOffset = new THREE.Vector3(0, 3, 10);
+      cameraOffset.applyQuaternion(player.quaternion);
+      targetPosition.add(cameraOffset);
+      
+      // Smooth camera movement
+      camera.position.lerp(targetPosition, 0.1);
+      camera.lookAt(player.position);
+      
+      // Handle firing
+      if (controls.fire && currentState === GameState.COMBAT) {
+        const currentTime = Date.now();
+        if (currentTime - playerStats.lastFire > playerStats.fireRate * 1000) {
+          createProjectile();
+          playerStats.lastFire = currentTime;
+        }
+      }
+      
+      // Update projectiles with homing behavior
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const projectile = projectiles[i];
+        
+        // Homing behavior for player projectiles
+        if (projectile.isPlayerProjectile && enemies.length > 0) {
+          // Find nearest enemy
+          let nearestEnemy = null;
+          let nearestDistance = Infinity;
+          
+          for (const enemy of enemies) {
+            const distance = projectile.position.distanceTo(enemy.position);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestEnemy = enemy;
+            }
+          }
+          
+          // Home in on nearest enemy
+          if (nearestEnemy && nearestDistance < 50) {
+            const direction = new THREE.Vector3();
+            direction.subVectors(nearestEnemy.position, projectile.position).normalize();
+            projectile.velocity.lerp(direction.multiplyScalar(80), projectile.homingStrength);
+          }
+        }
+        
+        // Update position
+        projectile.position.add(projectile.velocity.clone().multiplyScalar(deltaTime));
+        
+        // Update lifetime
+        projectile.lifeTime += deltaTime;
+        if (projectile.lifeTime > projectile.maxLifeTime) {
+          scene.remove(projectile);
+          projectiles.splice(i, 1);
+          continue;
+        }
+        
+        // Check for collisions with enemies (player projectiles only)
+        if (projectile.isPlayerProjectile) {
+          for (let j = enemies.length - 1; j >= 0; j--) {
+            const enemy = enemies[j];
+            if (projectile.position.distanceTo(enemy.position) < 3) {
+              // Hit enemy
+              enemy.health -= 5;
+              
+              if (enemy.health <= 0) {
+                // Enemy destroyed - create explosion
+                createExplosion(enemy.position, 8, 0xff3300);
+                
+                scene.remove(enemy);
+                enemies.splice(j, 1);
+                playerStats.score += 100;
+                document.getElementById('combatScore').textContent = playerStats.score;
+                updateEnemyCount();
+              }
+              
+              // Remove projectile
+              scene.remove(projectile);
+              projectiles.splice(i, 1);
+              break;
+            }
+          }
+        }
+      }
+      
+      // Update explosions
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const explosion = explosions[i];
+        const elapsed = (Date.now() - explosion.startTime) / 1000;
+        
+        for (const particle of explosion.particles) {
+          particle.position.add(particle.velocity.clone().multiplyScalar(deltaTime));
+          
+          // Fade out particles
+          particle.material.opacity = 1 - (elapsed / particle.maxLifeTime);
+          
+          // Apply gravity-like effect
+          particle.velocity.y -= 9.8 * deltaTime;
+        }
+      }
+      
+      // Update enemies with kamikaze behavior
+      const currentTime = Date.now();
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        
+        // Different attack patterns based on enemy type
+        if (currentTime - enemy.lastAttack > enemy.attackDelay * 1000) {
+          enemy.lastAttack = currentTime;
+          
+          if (enemy.attackPattern === 0) {
+            // Direct charge
+            const direction = new THREE.Vector3();
+            direction.subVectors(player.position, enemy.position).normalize();
+            enemy.velocity = direction.multiplyScalar(enemy.speed * 2);
+          } else if (enemy.attackPattern === 1) {
+            // Zig-zag charge
+            const direction = new THREE.Vector3();
+            direction.subVectors(player.position, enemy.position).normalize();
+            
+            // Add some randomness to direction
+            direction.x += (Math.random() - 0.5) * 0.5;
+            direction.y += (Math.random() - 0.5) * 0.5;
+            direction.z += (Math.random() - 0.5) * 0.5;
+            direction.normalize();
+            
+            enemy.velocity = direction.multiplyScalar(enemy.speed * 1.5);
+          } else {
+            // Circle and charge
+            const angle = Math.atan2(
+              enemy.position.z - player.position.z,
+              enemy.position.x - player.position.x
+            );
+            
+            const newAngle = angle + 0.02;
+            const radius = 30;
+            
+            enemy.position.x = player.position.x + Math.cos(newAngle) * radius;
+            enemy.position.z = player.position.z + Math.sin(newAngle) * radius;
+            
+            // Move toward player height
+            enemy.position.y += (player.position.y - enemy.position.y) * 0.01;
+          }
+        }
+        
+        // Apply velocity
+        if (enemy.velocity) {
+          enemy.position.add(enemy.velocity.clone().multiplyScalar(deltaTime));
+        }
+        
+        // Rotate to face player
+        enemy.lookAt(player.position);
+        
+        // Check for collision with player
+        if (enemy.position.distanceTo(player.position) < 5 && !playerStats.tempInvulnerable) {
+          // Player hit
+          playerStats.shield -= 10;
+          document.getElementById('shieldFill').style.width = playerStats.shield + '%';
+          
+          if (playerStats.shield <= 0) {
+            playerStats.health -= 10;
+            document.getElementById('healthFill').style.width = playerStats.health + '%';
+            playerStats.shield = 0;
+            
+            if (playerStats.health <= 0) {
+              // Game over
+              showConsoleMessage("SHIP DESTROYED! MISSION FAILED!");
+              currentState = GameState.MENU;
+              document.getElementById('mainMenu').style.display = 'flex';
+            }
+          }
+          
+          // Create explosion
+          createExplosion(enemy.position, 6, 0xff0000);
+          
+          // Remove enemy
+          scene.remove(enemy);
+          enemies.splice(i, 1);
+          updateEnemyCount();
+          
+          showWarningAlert("IMPACT!");
+        }
+      }
+      
+      // Spawn new enemies if all are destroyed in combat mode
+      if (currentState === GameState.COMBAT && enemies.length === 0) {
+        playerStats.wave++;
+        document.getElementById('waveCount').textContent = playerStats.wave;
+        spawnEnemyWave(5 + playerStats.wave * 2);
+        showConsoleMessage(`Wave ${playerStats.wave} incoming!`);
+        showWarningAlert("WAVE " + playerStats.wave);
+      }
+      
+      // Update mixers for animations
+      const delta = clock.getDelta();
+      for (const mixer of mixers) {
+        mixer.update(delta);
+      }
+    }
+    
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      const deltaTime = Math.min(clock.getDelta(), 0.1);
+      update(deltaTime);
+      
+      renderer.render(scene, camera);
+    }
+    
+    // Initialize the game when the window loads
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>

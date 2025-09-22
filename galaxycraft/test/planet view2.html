@@ -1,0 +1,703 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GalaxyCraft: Dog Fight</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #ui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      color: white;
+      font-family: Arial, sans-serif;
+      pointer-events: none;
+      user-select: none;
+    }
+    #ui div { margin: 10px; }
+    #score { top: 10px; left: 10px; }
+    #health { top: 40px; left: 10px; }
+    #armor { top: 70px; left: 10px; }
+    #energy { top: 100px; left: 10px; }
+    #ammo { top: 130px; left: 10px; }
+    #weapon { top: 160px; left: 10px; }
+    #wave { top: 190px; left: 10px; }
+    #coreData { top: 220px; left: 10px; }
+    #fps { top: 250px; left: 10px; }
+    #lightspeed { top: 280px; left: 10px; }
+    #alert {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 48px;
+      color: red;
+      display: none;
+    }
+    #upgradesMenu, #settingsMenu, #mainMenu, #missionComplete {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 20px;
+      display: none;
+      pointer-events: auto;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+    #mainMenu { display: block; }
+    button {
+      display: block;
+      margin: 10px auto;
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    #settingsMenu label, #upgradesMenu label {
+      display: block;
+      margin: 10px 0;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 20px;
+      height: 20px;
+      transform: translate(-50%, -50%);
+      border: 2px solid #00ff00;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #00ff00;
+      display: none;
+    }
+    #targetArrow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 30px;
+      height: 30px;
+      transform: translate(-50%, -50%);
+      border: 2px solid #00ff00;
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      display: none;
+    }
+    .glitch {
+      animation: glitch 0.1s infinite alternate;
+    }
+    @keyframes glitch {
+      0% { transform: translate(-50%, -50%) skew(0deg); }
+      100% { transform: translate(-50%, -50%) skew(5deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div id="score">SCORE: 0</div>
+    <div id="health">HEALTH: 100</div>
+    <div id="armor">ARMOR: 100</div>
+    <div id="energy">ENERGY: 100</div>
+    <div id="ammo">AMMO: ∞/∞</div>
+    <div id="weapon">WEAPON: NEURO-GATLING</div>
+    <div id="wave">WAVE: 1/100 | DRONES: 0</div>
+    <div id="coreData">CORE DATA: 30000</div>
+    <div id="fps">FPS: 0</div>
+    <div id="lightspeed">LIGHTSPEED: READY</div>
+    <div id="alert">INCOMING!</div>
+  </div>
+  <div id="mainMenu">
+    <h2>GALAXYCRAFT: DOG FIGHT</h2>
+    <button onclick="startGame()">DEFEND THE CORE</button>
+    <button onclick="showUpgrades()">UPGRADES</button>
+    <button onclick="showSettings()">SETTINGS</button>
+    <button onclick="window.close()">QUIT</button>
+  </div>
+  <div id="upgradesMenu">
+    <h2>UPGRADES AVAILABLE</h2>
+    <button onclick="upgrade('health')">INCREASE HEALTH (+20) Cost: 500</button>
+    <button onclick="upgrade('armor')">INCREASE ARMOR (+20) Cost: 500</button>
+    <button onclick="upgrade('damage')">INCREASE DAMAGE (+10%) Cost: 750</button>
+    <button onclick="upgrade('speed')">INCREASE SPEED (+10%) Cost: 600</button>
+    <button onclick="upgrade('energy')">INCREASE ENERGY (+20%) Cost: 400</button>
+    <button onclick="upgrade('core')">REPAIR CORE (+5000) Cost: 1000</button>
+    <button onclick="backToMenu()">CLOSE</button>
+  </div>
+  <div id="settingsMenu">
+    <h2>GAME SETTINGS</h2>
+    <label>Mouse Sensitivity: <input type="range" id="mouseSensitivity" min="0.001" max="0.005" step="0.001" value="0.002"></label>
+    <label>Invert Y-Axis: <input type="checkbox" id="invertY"></label>
+    <label>FOV: <input type="range" id="fov" min="60" max="120" step="1" value="75"></label>
+    <label>Sound Volume: <input type="range" id="soundVolume" min="0" max="1" step="0.1" value="1"></label>
+    <button onclick="backToMenu()">BACK</button>
+  </div>
+  <div id="missionComplete">
+    <h2>MISSION COMPLETE</h2>
+    <div id="finalScore">Final Score: 0</div>
+    <div id="wavesSurvived">Waves Survived: 0</div>
+    <div id="dronesDestroyed">Drones Destroyed: 0</div>
+    <div id="accuracy">Accuracy: 0%</div>
+    <div id="coreDataRemaining">Core Data Remaining: 0</div>
+    <div id="creditsEarned">Total Credits Earned: 0</div>
+    <button onclick="startGame()">PLAY AGAIN</button>
+    <button onclick="backToMenu()">MAIN MENU</button>
+  </div>
+  <div id="crosshair"></div>
+  <div id="targetArrow"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Starry background
+    const starGeometry = new THREE.BufferGeometry();
+    const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.05 });
+    const starVertices = [];
+    for (let i = 0; i < 5000; i++) { // Reduced for performance
+      starVertices.push((Math.random() - 0.5) * 1000, (Math.random() - 0.5) * 1000, (Math.random() - 0.5) * 1000);
+    }
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+    const stars = new THREE.Points(starGeometry, starMaterial);
+    scene.add(stars);
+
+    // Central green planet (core)
+    const coreGeometry = new THREE.SphereGeometry(10, 16, 16); // Reduced segments for performance
+    const coreTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg');
+    const coreMaterial = new THREE.MeshBasicMaterial({ map: coreTexture });
+    const core = new THREE.Mesh(coreGeometry, coreMaterial);
+    scene.add(core);
+
+    // Smaller planets
+    const planets = [];
+    for (let i = 0; i < 3; i++) { // Reduced for performance
+      const size = 1 + Math.random() * 2;
+      const geometry = new THREE.SphereGeometry(size, 16, 16);
+      const material = new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff });
+      const planet = new THREE.Mesh(geometry, material);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const radius = 50 + Math.random() * 30;
+      planet.position.set(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
+      scene.add(planet);
+      planets.push(planet);
+    }
+
+    // Player ship (blue fighter jet)
+    const shipGeometry = new THREE.ConeGeometry(0.5, 2, 8);
+    const shipTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/metal_rust.jpg');
+    const shipMaterial = new THREE.MeshBasicMaterial({ map: shipTexture, color: 0x0000ff });
+    const ship = new THREE.Mesh(shipGeometry, shipMaterial);
+    ship.position.set(0, 0, 20);
+    scene.add(ship);
+
+    // Third-person camera
+    camera.position.set(0, 2, 5);
+    ship.add(camera);
+
+    // Controls
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, rollLeft = false, rollRight = false, spin = false, boost = false, scan = false;
+    let speed = 0.2, boostSpeed = 2.0;
+    let health = 100, maxHealth = 100, armor = 100, maxArmor = 100, energy = 100, maxEnergy = 100;
+    let damageMultiplier = 1.0, speedMultiplier = 1.0;
+    let coreData = 30000, credits = 0, score = 0, dronesDestroyed = 0, wave = 1, maxWaves = 100;
+    let shotsFired = 0, shotsHit = 0;
+    let pitch = 0, yaw = 0, roll = 0;
+    let mouseSensitivity = 0.002, invertY = false, fov = 75;
+    let isPaused = true;
+    let lightspeedActive = false, lightspeedDuration = 0, lightspeedCooldown = 0;
+    let fps = 0, frameCount = 0, lastFpsTime = performance.now();
+    const clock = new THREE.Clock();
+
+    // Gamepad support
+    let gamepad = null;
+    window.addEventListener('gamepadconnected', (e) => {
+      gamepad = e.gamepad;
+    });
+    window.addEventListener('gamepaddisconnected', () => {
+      gamepad = null;
+    });
+
+    // Enemies (red drone swarms)
+    const enemies = [];
+    function spawnEnemySwarm(wave) {
+      const swarmSize = Math.min(3 + Math.floor(wave / 5), 20); // Adjusted for entity limit
+      if (enemies.length + swarmSize <= 400) {
+        for (let i = 0; i < swarmSize; i++) {
+          const geometry = new THREE.SphereGeometry(0.2, 8, 8);
+          const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+          const enemy = new THREE.Mesh(geometry, material);
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          const radius = 30 + Math.random() * 10;
+          enemy.position.set(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
+          scene.add(enemy);
+          enemies.push({ mesh: enemy, target: core.position });
+          if (scan) {
+            const dot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 4, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+            dot.position.copy(enemy.position);
+            scene.add(dot);
+            enemy.scanDot = dot;
+          }
+        }
+      }
+    }
+
+    // Projectiles (Neuro-Gatling, space/left-click)
+    const projectiles = [];
+    function shootProjectile() {
+      if (energy >= 1) {
+        energy -= 1;
+        shotsFired++;
+        const geometry = new THREE.SphereGeometry(0.05, 4, 4); // Dot-like
+        const material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const projectile = new THREE.Mesh(geometry, material);
+        projectile.position.copy(ship.position);
+        projectile.rotation.copy(ship.rotation);
+        scene.add(projectile);
+        projectiles.push({ mesh: projectile, velocity: new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion).multiplyScalar(0.5) });
+      }
+    }
+
+    // Homing Missiles (R/right-click)
+    const missiles = [];
+    function shootMissile() {
+      if (energy >= 20 && enemies.length > 0) {
+        energy -= 20;
+        shotsFired++;
+        const geometry = new THREE.SphereGeometry(0.05, 4, 4); // Dot-like
+        const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+        const missile = new THREE.Mesh(geometry, material);
+        missile.position.copy(ship.position);
+        missile.rotation.copy(ship.rotation);
+        const target = enemies[Math.floor(Math.random() * enemies.length)].mesh;
+        scene.add(missile);
+        missiles.push({ mesh: missile, target });
+      }
+    }
+
+    // Input handling
+    document.addEventListener('keydown', (event) => {
+      if (isPaused) return;
+      switch (event.key.toLowerCase()) {
+        case 'w': moveForward = true; break;
+        case 's': moveBackward = true; break;
+        case 'a': moveLeft = true; break;
+        case 'd': moveRight = true; break;
+        case 'z': rollLeft = true; break;
+        case 'x': rollRight = true; break;
+        case 'c': spin = true; break;
+        case 'shift': boost = true; break;
+        case ' ': shootProjectile(); break;
+        case 'r': shootMissile(); break;
+        case 'tab':
+          if (!lightspeedActive && lightspeedCooldown <= 0) {
+            lightspeedActive = true;
+            lightspeedDuration = 10;
+            lightspeedCooldown = 30;
+            renderer.domElement.classList.add('glitch');
+          }
+          break;
+        case 'alt': scan = !scan; toggleScan(); break;
+        case 'escape': toggleMenu(); break;
+      }
+    });
+
+    document.addEventListener('keyup', (event) => {
+      switch (event.key.toLowerCase()) {
+        case 'w': moveForward = false; break;
+        case 's': moveBackward = false; break;
+        case 'a': moveLeft = false; break;
+        case 'd': moveRight = false; break;
+        case 'z': rollLeft = false; break;
+        case 'x': rollRight = false; break;
+        case 'shift': boost = false; break;
+      }
+    });
+
+    document.addEventListener('mousedown', (event) => {
+      if (!isPaused && document.pointerLockElement) {
+        if (event.button === 0) shootProjectile();
+        if (event.button === 2) shootMissile();
+      }
+    });
+
+    document.addEventListener('mousemove', (event) => {
+      if (!isPaused && document.pointerLockElement) {
+        yaw -= event.movementX * mouseSensitivity;
+        pitch -= event.movementY * mouseSensitivity * (invertY ? -1 : 1);
+      }
+    });
+
+    document.addEventListener('contextmenu', (event) => event.preventDefault());
+
+    renderer.domElement.addEventListener('click', () => {
+      if (!isPaused && !document.pointerLockElement) {
+        renderer.domElement.requestPointerLock();
+        document.getElementById('crosshair').style.display = 'none';
+        document.getElementById('targetArrow').style.display = scan ? 'block' : 'none';
+      }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      if (!document.pointerLockElement && !isPaused) toggleMenu();
+    });
+
+    function toggleScan() {
+      enemies.forEach(enemy => {
+        if (scan && !enemy.scanDot) {
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 4, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+          dot.position.copy(enemy.mesh.position);
+          scene.add(dot);
+          enemy.scanDot = dot;
+        } else if (!scan && enemy.scanDot) {
+          scene.remove(enemy.scanDot);
+          enemy.scanDot = null;
+        }
+      });
+      document.getElementById('targetArrow').style.display = scan && enemies.length > 0 ? 'block' : 'none';
+    }
+
+    function toggleMenu() {
+      isPaused = !isPaused;
+      document.getElementById('mainMenu').style.display = isPaused ? 'block' : 'none';
+      document.getElementById('upgradesMenu').style.display = 'none';
+      document.getElementById('settingsMenu').style.display = 'none';
+      document.getElementById('missionComplete').style.display = 'none';
+      document.getElementById('crosshair').style.display = isPaused ? 'block' : 'none';
+      document.getElementById('targetArrow').style.display = 'none';
+      if (isPaused) {
+        document.exitPointerLock();
+        renderer.domElement.classList.remove('glitch');
+      } else {
+        renderer.domElement.requestPointerLock();
+      }
+    }
+
+    function startGame() {
+      isPaused = false;
+      document.getElementById('mainMenu').style.display = 'none';
+      document.getElementById('crosshair').style.display = 'none';
+      document.getElementById('targetArrow').style.display = scan && enemies.length > 0 ? 'block' : 'none';
+      renderer.domElement.requestPointerLock();
+      if (wave === 1) spawnEnemySwarm(wave);
+    }
+
+    function showUpgrades() {
+      document.getElementById('mainMenu').style.display = 'none';
+      document.getElementById('upgradesMenu').style.display = 'block';
+    }
+
+    function showSettings() {
+      document.getElementById('mainMenu').style.display = 'none';
+      document.getElementById('settingsMenu').style.display = 'block';
+      document.getElementById('mouseSensitivity').value = mouseSensitivity;
+      document.getElementById('invertY').checked = invertY;
+      document.getElementById('fov').value = fov;
+    }
+
+    function backToMenu() {
+      document.getElementById('upgradesMenu').style.display = 'none';
+      document.getElementById('settingsMenu').style.display = 'none';
+      document.getElementById('mainMenu').style.display = 'block';
+    }
+
+    function showMissionComplete() {
+      isPaused = true;
+      document.exitPointerLock();
+      renderer.domElement.classList.remove('glitch');
+      document.getElementById('missionComplete').style.display = 'block';
+      document.getElementById('finalScore').textContent = `Final Score: ${Math.round(score)}`;
+      document.getElementById('wavesSurvived').textContent = `Waves Survived: ${wave - 1}`;
+      document.getElementById('dronesDestroyed').textContent = `Drones Destroyed: ${dronesDestroyed}`;
+      document.getElementById('accuracy').textContent = `Accuracy: ${shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0}%`;
+      document.getElementById('coreDataRemaining').textContent = `Core Data Remaining: ${Math.round(coreData)}`;
+      document.getElementById('creditsEarned').textContent = `Total Credits Earned: ${credits}`;
+    }
+
+    function upgrade(type) {
+      if (type === 'health' && credits >= 500) {
+        maxHealth += 20;
+        health = maxHealth;
+        credits -= 500;
+      } else if (type === 'armor' && credits >= 500) {
+        maxArmor += 20;
+        armor = maxArmor;
+        credits -= 500;
+      } else if (type === 'damage' && credits >= 750) {
+        damageMultiplier += 0.1;
+        credits -= 750;
+      } else if (type === 'speed' && credits >= 600) {
+        speedMultiplier += 0.1;
+        credits -= 600;
+      } else if (type === 'energy' && credits >= 400) {
+        maxEnergy += 20;
+        energy = maxEnergy;
+        credits -= 400;
+      } else if (type === 'core' && credits >= 1000) {
+        coreData += 5000;
+        credits -= 1000;
+      }
+    }
+
+    document.getElementById('mouseSensitivity').addEventListener('input', (e) => {
+      mouseSensitivity = parseFloat(e.target.value);
+    });
+
+    document.getElementById('invertY').addEventListener('change', (e) => {
+      invertY = e.target.checked;
+    });
+
+    document.getElementById('fov').addEventListener('input', (e) => {
+      fov = parseFloat(e.target.value);
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    });
+
+    // Game loop
+    let lastTime = performance.now();
+    function animate() {
+      requestAnimationFrame(animate);
+      if (isPaused) return;
+
+      const delta = clock.getDelta();
+      frameCount++;
+      if (performance.now() - lastFpsTime >= 1000) {
+        fps = frameCount;
+        frameCount = 0;
+        lastFpsTime = performance.now();
+      }
+
+      // Gamepad input
+      if (gamepad) {
+        const axes = gamepad.axes;
+        yaw -= (axes[0] || 0) * mouseSensitivity * 50;
+        pitch -= (axes[1] || 0) * mouseSensitivity * 50 * (invertY ? -1 : 1);
+        if (gamepad.buttons[0].pressed) shootProjectile();
+        if (gamepad.buttons[1].pressed) shootMissile();
+      }
+
+      // Lightspeed handling
+      if (lightspeedActive) {
+        lightspeedDuration -= delta;
+        if (lightspeedDuration <= 0) {
+          lightspeedActive = false;
+          renderer.domElement.classList.remove('glitch');
+        }
+      } else {
+        lightspeedCooldown -= delta;
+      }
+
+      // Update ship rotation
+      if (spin) {
+        yaw += Math.PI;
+        spin = false;
+      }
+      const rotationQuaternion = new THREE.Quaternion();
+      let rollDelta = 0;
+      if (rollLeft) rollDelta += 2 * delta;
+      if (rollRight) rollDelta -= 2 * delta;
+      rotationQuaternion.setFromEuler(new THREE.Euler(pitch, yaw, roll + rollDelta, 'YXZ'));
+      ship.quaternion.copy(rotationQuaternion);
+      roll += rollDelta;
+
+      // Update ship movement
+      const velocity = new THREE.Vector3();
+      if (moveForward) velocity.z -= speed * speedMultiplier;
+      if (moveBackward) velocity.z += speed * speedMultiplier / 2;
+      if (moveLeft) velocity.x -= speed * speedMultiplier / 2;
+      if (moveRight) velocity.x += speed * speedMultiplier / 2;
+      if (lightspeedActive) velocity.multiplyScalar(boostSpeed / speed);
+      else if (boost && energy > 0) {
+        velocity.multiplyScalar(0.4 / speed);
+        energy -= 10 * delta;
+      }
+      energy = Math.min(maxEnergy, energy + 5 * delta);
+      velocity.applyQuaternion(ship.quaternion);
+      ship.position.add(velocity);
+
+      // Update enemies
+      enemies.forEach((enemy) => {
+        const direction = enemy.target.clone().sub(enemy.mesh.position).normalize();
+        enemy.mesh.position.add(direction.multiplyScalar(0.1 * wave));
+        if (enemy.scanDot) enemy.scanDot.position.copy(enemy.mesh.position);
+      });
+
+      // Update target arrow
+      if (scan && enemies.length > 0) {
+        const closestEnemy = enemies.reduce((closest, enemy) => {
+          const dist = enemy.mesh.position.distanceTo(ship.position);
+          return !closest || dist < closest.dist ? { mesh: enemy.mesh, dist } : closest;
+        }, null);
+        if (closestEnemy) {
+          const screenPos = closestEnemy.mesh.position.clone().project(camera);
+          const angle = Math.atan2(screenPos.y, screenPos.x);
+          document.getElementById('targetArrow').style.transform = `translate(-50%, -50%) rotate(${angle * 180 / Math.PI}deg)`;
+        }
+      }
+
+      // Spawn enemies
+      if (Math.random() < 0.005 * wave && enemies.length < 400) spawnEnemySwarm(wave);
+
+      // Update projectiles
+      projectiles.forEach((p, i) => {
+        p.mesh.position.add(p.velocity);
+        if (p.mesh.position.length() > 100) {
+          scene.remove(p.mesh);
+          projectiles.splice(i, 1);
+        }
+      });
+
+      // Update missiles
+      missiles.forEach((m, i) => {
+        if (m.target && scene.children.includes(m.target)) {
+          const direction = m.target.position.clone().sub(m.mesh.position).normalize();
+          m.velocity.lerp(direction.multiplyScalar(0.3), 0.1);
+        }
+        m.mesh.position.add(m.velocity);
+        if (m.mesh.position.length() > 100) {
+          scene.remove(m.mesh);
+          missiles.splice(i, 1);
+        }
+      });
+
+      // Collision detection
+      enemies.forEach((enemy, ei) => {
+        projectiles.forEach((p, pi) => {
+          if (enemy.mesh.position.distanceTo(p.mesh.position) < 0.25) {
+            scene.remove(enemy.mesh);
+            if (enemy.scanDot) scene.remove(enemy.scanDot);
+            scene.remove(p.mesh);
+            enemies.splice(ei, 1);
+            projectiles.splice(pi, 1);
+            score += 10 * damageMultiplier;
+            dronesDestroyed++;
+            shotsHit++;
+            credits += 10;
+            document.getElementById('alert').style.display = 'block';
+            setTimeout(() => document.getElementById('alert').style.display = 'none', 1000);
+            return;
+          }
+        });
+        missiles.forEach((m, mi) => {
+          if (enemy.mesh.position.distanceTo(m.mesh.position) < 0.5) {
+            scene.remove(enemy.mesh);
+            if (enemy.scanDot) scene.remove(enemy.scanDot);
+            scene.remove(m.mesh);
+            enemies.splice(ei, 1);
+            missiles.splice(mi, 1);
+            score += 50 * damageMultiplier;
+            dronesDestroyed++;
+            shotsHit++;
+            credits += 50;
+            document.getElementById('alert').style.display = 'block';
+            setTimeout(() => document.getElementById('alert').style.display = 'none', 1000);
+            return;
+          }
+        });
+        if (enemy.mesh.position.distanceTo(ship.position) < 1) {
+          const damage = 10 * delta * wave;
+          if (armor > 0) {
+            armor -= damage;
+            if (armor < 0) {
+              health += armor;
+              armor = 0;
+            }
+          } else {
+            health -= damage;
+          }
+          if (health <= 0) {
+            showMissionComplete();
+          }
+        }
+        if (enemy.mesh.position.distanceTo(core.position) < 10.2) {
+          coreData -= 100 * delta * wave;
+          scene.remove(enemy.mesh);
+          if (enemy.scanDot) scene.remove(enemy.scanDot);
+          enemies.splice(ei, 1);
+          if (coreData <= 0) {
+            showMissionComplete();
+          }
+        }
+      });
+
+      // Wave progression
+      if (enemies.length === 0 && wave < maxWaves) {
+        wave++;
+        spawnEnemySwarm(wave);
+        document.getElementById('alert').textContent = `WAVE ${wave - 1} COMPLETE! Prepare for next wave`;
+        document.getElementById('alert').style.display = 'block';
+        setTimeout(() => {
+          document.getElementById('alert').textContent = 'INCOMING!';
+          document.getElementById('alert').style.display = 'none';
+        }, 3000);
+      } else if (wave === maxWaves && enemies.length === 0) {
+        showMissionComplete();
+      }
+
+      // Update UI
+      document.getElementById('score').textContent = `SCORE: ${Math.round(score)}`;
+      document.getElementById('health').textContent = `HEALTH: ${Math.round(health)}`;
+      document.getElementById('armor').textContent = `ARMOR: ${Math.round(armor)}`;
+      document.getElementById('energy').textContent = `ENERGY: ${Math.round(energy)}`;
+      document.getElementById('ammo').textContent = `AMMO: ∞/∞`;
+      document.getElementById('wave').textContent = `WAVE: ${wave}/100 | DRONES: ${enemies.length}`;
+      document.getElementById('coreData').textContent = `CORE DATA: ${Math.round(coreData)}`;
+      document.getElementById('fps').textContent = `FPS: ${fps}`;
+      document.getElementById('lightspeed').textContent = `LIGHTSPEED: ${lightspeedActive ? 'ACTIVE' : lightspeedCooldown > 0 ? `COOLDOWN: ${Math.round(lightspeedCooldown)}s` : 'READY'}`;
+
+      renderer.render(scene, camera);
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
