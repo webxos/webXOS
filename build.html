@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GALAXYCRAFT: Rocket Builder & Launch Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    <style>
+        :root {
+            --primary-glow: #00c8ff;
+            --secondary-glow: #ff0080;
+            --bg-dark: rgba(10, 15, 25, 0.95);
+            --bg-panel: rgba(20, 30, 40, 0.85);
+            --text-primary: #00ffcc;
+            --text-secondary: #0099ff;
+            --border-glow: 0 0 10px var(--primary-glow);
+            --danger: #ff3366;
+            --warning: #ffaa00;
+            --success: #00ff99;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: #000;
+            overflow: hidden;
+            color: var(--text-primary);
+            height: 100vh;
+        }
+
+        #three-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .ui-window {
+            position: absolute;
+            background: var(--bg-panel);
+            border: 1px solid var(--primary-glow);
+            box-shadow: var(--border-glow), inset 0 0 20px rgba(0, 200, 255, 0.1);
+            border-radius: 4px;
+            pointer-events: all;
+            min-width: 300px;
+            min-height: 200px;
+            backdrop-filter: blur(5px);
+            overflow: hidden;
+        }
+
+        .title-bar {
+            background: linear-gradient(90deg, rgba(0, 100, 255, 0.3), rgba(0, 200, 255, 0.1));
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--primary-glow);
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            text-shadow: 0 0 5px var(--primary-glow);
+            user-select: none;
+        }
+
+        .window-controls button {
+            background: transparent;
+            border: 1px solid var(--primary-glow);
+            color: var(--text-primary);
+            width: 20px;
+            height: 20px;
+            margin-left: 5px;
+            cursor: pointer;
+            border-radius: 2px;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .window-controls button:hover {
+            background: rgba(0, 200, 255, 0.2);
+        }
+
+        .window-content {
+            padding: 15px;
+            height: calc(100% - 40px);
+            overflow-y: auto;
+        }
+
+        /* Telemetry Gauges */
+        .telemetry-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .gauge {
+            background: rgba(0, 30, 60, 0.5);
+            border: 1px solid var(--primary-glow);
+            padding: 15px;
+            text-align: center;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 200, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .gauge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 100%;
+            background: linear-gradient(transparent, rgba(0, 200, 255, 0.1), transparent);
+            animation: scan 3s linear infinite;
+        }
+
+        .gauge-label {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .gauge-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            text-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        /* Parts Library */
+        .parts-category {
+            margin-bottom: 15px;
+        }
+
+        .category-title {
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(0, 200, 255, 0.3);
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .parts-list {
+            list-style: none;
+        }
+
+        .part-item {
+            padding: 8px 10px;
+            margin: 5px 0;
+            background: rgba(0, 40, 80, 0.3);
+            border-left: 3px solid var(--primary-glow);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .part-item:hover {
+            background: rgba(0, 100, 200, 0.3);
+            transform: translateX(5px);
+        }
+
+        /* Hologram Effect */
+        #hologram-display {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            height: 200px;
+            background: linear-gradient(45deg, 
+                rgba(0, 200, 255, 0.1), 
+                rgba(0, 100, 255, 0.05));
+            border: 1px solid var(--primary-glow);
+            box-shadow: 0 0 30px rgba(0, 200, 255, 0.5);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .hologram-text {
+            font-size: 1.5em;
+            text-shadow: 0 0 10px var(--primary-glow);
+            animation: pulse 2s infinite;
+        }
+
+        /* Status Bar */
+        #status-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(0, 20, 40, 0.8);
+            border-top: 1px solid var(--primary-glow);
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-ok {
+            background: var(--success);
+            box-shadow: 0 0 5px var(--success);
+        }
+
+        .status-warning {
+            background: var(--warning);
+            box-shadow: 0 0 5px var(--warning);
+        }
+
+        /* Buttons */
+        .btn {
+            background: rgba(0, 100, 200, 0.3);
+            border: 1px solid var(--primary-glow);
+            color: var(--text-primary);
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-family: 'Share Tech Mono', monospace;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: rgba(0, 150, 255, 0.5);
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        .btn-primary {
+            background: rgba(0, 150, 255, 0.5);
+        }
+
+        .btn-danger {
+            background: rgba(255, 50, 100, 0.3);
+            border-color: var(--danger);
+        }
+
+        .btn-danger:hover {
+            background: rgba(255, 50, 100, 0.5);
+            box-shadow: 0 0 10px var(--danger);
+        }
+
+        /* Control Panel */
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-secondary);
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .slider {
+            flex: 1;
+            height: 5px;
+            background: rgba(0, 100, 200, 0.3);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--primary-glow);
+            cursor: pointer;
+            box-shadow: 0 0 5px var(--primary-glow);
+        }
+
+        .slider-value {
+            width: 50px;
+            text-align: right;
+            margin-left: 10px;
+        }
+
+        /* Animations */
+        @keyframes scan {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        /* Mode Switcher */
+        #mode-switcher {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            background: rgba(0, 20, 40, 0.8);
+            border-radius: 5px;
+            overflow: hidden;
+            border: 1px solid var(--primary-glow);
+        }
+
+        .mode-btn {
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .mode-btn.active {
+            background: var(--primary-glow);
+            color: #000;
+        }
+
+        /* Build Mode Styles */
+        .build-panel {
+            background: rgba(0, 30, 60, 0.8);
+            border: 1px solid var(--primary-glow);
+            border-radius: 4px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+
+        .build-panel h3 {
+            background: rgba(0, 100, 200, 0.3);
+            padding: 8px 12px;
+            margin: 0;
+            font-size: 0.9em;
+            border-bottom: 1px solid var(--primary-glow);
+        }
+
+        .build-panel-content {
+            padding: 10px;
+        }
+
+        .part-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .part {
+            background: rgba(0, 40, 80, 0.3);
+            padding: 8px;
+            cursor: grab;
+            border-radius: 3px;
+            font-size: 0.8em;
+            border-left: 3px solid var(--primary-glow);
+            transition: all 0.2s;
+        }
+
+        .part:active {
+            cursor: grabbing;
+        }
+
+        .part:hover {
+            background: rgba(0, 100, 200, 0.3);
+            transform: translateX(5px);
+        }
+
+        /* Toolbar */
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: flex;
+            gap: 5px;
+            background: rgba(0, 20, 40, 0.8);
+            border-radius: 5px;
+            padding: 5px;
+            border: 1px solid var(--primary-glow);
+        }
+
+        .tool-btn {
+            background: transparent;
+            border: 1px solid var(--primary-glow);
+            color: var(--text-primary);
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tool-btn.active {
+            background: var(--primary-glow);
+            color: #000;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .ui-window {
+                min-width: 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button class="tool-btn active" id="select-tool" title="Select">🔍</button>
+        <button class="tool-btn" id="move-tool" title="Move">↔️</button>
+        <button class="tool-btn" id="rotate-tool" title="Rotate">🔄</button>
+        <button class="tool-btn" id="scale-tool" title="Scale">📏</button>
+    </div>
+
+    <!-- Mode Switcher -->
+    <div id="mode-switcher">
+        <div class="mode-btn active" id="build-mode-btn">BUILD MODE</div>
+        <div class="mode-btn" id="launch-mode-btn">LAUNCH MODE</div>
+    </div>
+
+    <!-- Three.js Canvas Container -->
+    <div id="three-container"></div>
+    
+    <!-- UI Overlay Container -->
+    <div id="ui-container">
+        <!-- Build Mode Windows -->
+        <div class="ui-window build-mode" id="build-parts-library" style="top: 10%; left: 5%; width: 320px; height: 500px;">
+            <div class="title-bar">
+                <span>🚀 PARTS LIBRARY</span>
+                <div class="window-controls">
+                    <button class="btn-minimize">−</button>
+                    <button class="btn-close">×</button>
+                </div>
+            </div>
+            <div class="window-content">
+                <div class="build-panel">
+                    <h3>BASIC COMPONENTS</h3>
+                    <div class="build-panel-content">
+                        <div class="part-list">
+                            <div class="part" draggable="true" data-part="bodyTube">Body Tube</div>
+                            <div class="part" draggable="true" data-part="noseCone">Nose Cone</div>
+                            <div class="part" draggable="true" data-part="fins">Fins (Grid Fins x4)</div>
+                            <div class="part" draggable="true" data-part="parachute">Parachute System</div>
+                            <div class="part" draggable="true" data-part="payload">Payload Bay</div>
+                            <div class="part" draggable="true" data-part="engine">Engine</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="build-panel">
+                    <h3>ELECTRONICS</h3>
+                    <div class="build-panel-content">
+                        <div class="part-list">
+                            <div class="part" draggable="true" data-part="arduino">Arduino Nano</div>
+                            <div class="part" draggable="true" data-part="raspberry">Raspberry Pi</div>
+                            <div class="part" draggable="true" data-part="battery">Battery</div>
+                            <div class="part" draggable="true" data-part="radio">Radio Module</div>
+                            <div class="part" draggable="true" data-part="gps">GPS Module</div>
+                            <div class="part" draggable="true" data-part="imu">IMU Sensor</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="build-panel">
+                    <h3>PROPULSION</h3>
+                    <div class="build-panel-content">
+                        <div class="part-list">
+                            <div class="part" draggable="true" data-part="booster">Solid Rocket Booster</div>
+                            <div class="part" draggable="true" data-part="fuelTank">Liquid Fuel Tank</div>
+                            <div class="part" draggable="true" data-part="oxidizer">Oxidizer Tank</div>
+                            <div class="part" draggable="true" data-part="turbopump">Turbopump</div>
+                            <div class="part" draggable="true" data-part="nozzle">Nozzle Extension</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="build-panel">
+                    <h3>SENSORS</h3>
+                    <div class="build-panel-content">
+                        <div class="part-list">
+                            <div class="part" draggable="true" data-part="thermometer">Thermometer</div>
+                            <div class="part" draggable="true" data-part="altimeter">Altimeter</div>
+                            <div class="part" draggable="true" data-part="barometer">Barometer</div>
+                            <div class="part" draggable="true" data-part="camera">Camera</div>
+                            <div class="part" draggable="true" data-part="accelerometer">Accelerometer</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ui-window build-mode" id="build-properties" style="top: 10%; right: 5%; width: 350px; height: 400px;">
+            <div class="title-bar">
+                <span>⚙️ ROCKET PROPERTIES</span>
+                <div class="window-controls">
+                    <button class="btn-minimize">−</button>
+                    <button class="btn-close">×</button>
+                </div>
+            </div>
+            <div class="window-content">
+                <div class="control-group">
+                    <label class="control-label">NAME</label>
+                    <input type="text" class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" value="Falcon_Core" id="rocket-name">
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">MATERIAL</label>
+                    <select class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" id="rocket-material">
+                        <option>Carbon Fiber</option>
+                        <option>Aluminum</option>
+                        <option>Plastic</option>
+                        <option>Fiberglass</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">COLOR</label>
+                    <input type="color" class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" value="#ffffff" id="rocket-color">
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">LENGTH (m)</label>
+                    <input type="number" class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" value="36.6" id="rocket-length">
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">DIAMETER (m)</label>
+                    <input type="number" class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" value="3.66" id="rocket-diameter">
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">WEIGHT (kg)</label>
+                    <input type="number" class="btn" style="width: 100%; background: rgba(0, 40, 80, 0.5);" value="50000" id="rocket-weight">
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="btn btn-primary" style="flex: 1;" id="save-design">SAVE DESIGN</button>
+                    <button class="btn" style="flex: 1;" id="export-design">EXPORT</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Launch Mode Windows -->
+        <div class="ui-window launch-mode" style="display: none; top: 5%; right: 5%; width: 350px; height: 400px;">
+            <div class="title-bar">
+                <span>📊 LAUNCH CONTROLS</span>
+                <div class="window-controls">
+                    <button class="btn-minimize">−</button>
+                    <button class="btn-close">×</button>
+                </div>
+            </div>
+            <div class="window-content">
+                <div class="telemetry-panel">
+                    <div class="gauge" id="altitude-gauge">
+                        <div class="gauge-label">ALTITUDE</div>
+                        <div class="gauge-value">0 m</div>
+                    </div>
+                    <div class="gauge" id="velocity-gauge">
+                        <div class="gauge-label">VELOCITY</div>
+                        <div class="gauge-value">0 m/s</div>
+                    </div>
+                    <div class="gauge" id="thrust-gauge">
+                        <div class="gauge-label">THRUST</div>
+                        <div class="gauge-value">0%</div>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">THRUST LEVEL</label>
+                    <div class="slider-container">
+                        <input type="range" min="0" max="100" value="0" class="slider" id="thrust-slider">
+                        <span class="slider-value" id="thrust-value">0%</span>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">FUEL MIXTURE</label>
+                    <div class="slider-container">
+                        <input type="range" min="1" max="100" value="85" class="slider" id="fuel-slider">
+                        <span class="slider-value" id="fuel-value">85%</span>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="btn btn-primary" id="launch-btn">INITIATE LAUNCH</button>
+                    <button class="btn btn-danger" id="abort-btn">ABORT SEQUENCE</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="ui-window launch-mode" style="display: none; bottom: 10%; left: 5%; width: 400px; height: 300px;">
+            <div class="title-bar">
+                <span>📡 TELEMETRY DATA</span>
+                <div class="window-controls">
+                    <button class="btn-minimize">−</button>
+                    <button class="btn-close">×</button>
+                </div>
+            </div>
+            <div class="window-content">
+                <div class="telemetry-panel">
+                    <div class="gauge" id="acceleration-gauge">
+                        <div class="gauge-label">ACCELERATION</div>
+                        <div class="gauge-value">0.0 G</div>
+                    </div>
+                    <div class="gauge" id="fuel-level-gauge">
+                        <div class="gauge-label">FUEL LEVEL</div>
+                        <div class="gauge-value">100%</div>
+                    </div>
+                    <div class="gauge" id="temperature-gauge">
+                        <div class="gauge-label">TEMPERATURE</div>
+                        <div class="gauge-value">22°C</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <div class="control-label">SYSTEM STATUS</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                        <div>Navigation: <span style="color: var(--success)" id="nav-status">ONLINE</span></div>
+                        <div>Propulsion: <span style="color: var(--success)" id="prop-status">ONLINE</span></div>
+                        <div>Communication: <span style="color: var(--success)" id="comm-status">ONLINE</span></div>
+                        <div>Power: <span style="color: var(--success)" id="power-status">100%</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hologram Display -->
+        <div id="hologram-display" class="launch-mode" style="display: none;">
+            <div class="hologram-text">ROCKET SIMULATION ACTIVE</div>
+            <div style="margin-top: 10px; font-size: 0.9em;">SYSTEMS NOMINAL</div>
+        </div>
+
+        <!-- Status Bar -->
+        <div id="status-bar">
+            <div class="status-item">
+                <div class="status-indicator status-ok"></div>
+                <span id="mode-status">BUILD MODE: ACTIVE</span>
+            </div>
+            <div class="status-item">
+                <span>T+ <span id="mission-time">00:00:00</span></span>
+            </div>
+            <div class="status-item">
+                <span>FRAME RATE: <span id="fps-counter">60</span> FPS</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Rocket Simulation Class
+        class RocketSimulation {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.rocket = null;
+                this.parts = new Map();
+                this.physics = null;
+                this.controls = null;
+                this.transformControls = null;
+                
+                this.simulationTime = 0;
+                this.isSimulating = false;
+                this.currentMode = 'build'; // 'build' or 'launch'
+                this.currentTool = 'select'; // 'select', 'move', 'rotate', 'scale'
+                this.selectedPart = null;
+                this.rocketState = {
+                    altitude: 0,
+                    velocity: 0,
+                    acceleration: 0,
+                    thrust: 0,
+                    fuel: 100,
+                    temperature: 22
+                };
+                
+                this.init();
+            }
+
+            init() {
+                this.setupThreeJS();
+                this.buildRocket();
+                this.setupEventListeners();
+                this.setupPhysics();
+                this.setupBuildMode();
+                this.animate();
+            }
+
+            setupThreeJS() {
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x000010);
+                
+                // Camera
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.camera.position.set(0, 2, 5);
+                
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                document.getElementById('three-container').appendChild(this.renderer.domElement);
+                
+                // Lighting
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                this.scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0x00c8ff, 1);
+                directionalLight.position.set(5, 5, 5);
+                directionalLight.castShadow = true;
+                this.scene.add(directionalLight);
+
+                const pointLight = new THREE.PointLight(0x00c8ff, 2, 100);
+                pointLight.position.set(0, 10, 0);
+                this.scene.add(pointLight);
+                
+                // Controls
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                
+                // Transform controls for build mode
+                this.transformControls = new THREE.TransformControls(this.camera, this.renderer.domElement);
+                this.transformControls.addEventListener('dragging-changed', (event) => {
+                    this.controls.enabled = !event.value;
+                });
+                this.scene.add(this.transformControls);
+                
+                // Grid
+                const gridHelper = new THREE.GridHelper(20, 20, 0x333333, 0x222222);
+                this.scene.add(gridHelper);
+                
+                // Stars background
+                this.createStarfield();
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            createStarfield() {
+                const starGeometry = new THREE.BufferGeometry();
+                const starCount = 5000;
+                const positions = new Float32Array(starCount * 3);
+                
+                for (let i = 0; i < starCount * 3; i++) {
+                    positions[i] = (Math.random() - 0.5) * 2000;
+                }
+                
+                starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                const starMaterial = new THREE.PointsMaterial({
+                    color: 0xffffff,
+                    size: 1,
+                    sizeAttenuation: true
+                });
+                
+                const stars = new THREE.Points(starGeometry, starMaterial);
+                this.scene.add(stars);
+            }
+
+            buildRocket() {
+                this.rocket = new THREE.Group();
+                this.rocket.name = 'rocket';
+                
+                // Body tube
+                const bodyGeometry = new THREE.CylinderGeometry(0.183, 0.183, 3.66, 32);
+                const bodyMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0xffffff,
+                    emissive: 0x003366,
+                    shininess: 100
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.castShadow = true;
+                body.name = 'bodyTube';
+                
+                // Add segment rings
+                const ringGeometry = new THREE.TorusGeometry(0.183 + 0.01, 0.02, 16, 32);
+                const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x00c8ff });
+                
+                for (let i = -1; i <= 1; i += 0.5) {
+                    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                    ring.position.y = i * (3.66 / 2);
+                    ring.rotation.x = Math.PI / 2;
+                    body.add(ring);
+                }
+                
+                // Nose cone
+                const noseGeometry = new THREE.ConeGeometry(0.183, 1.2, 32);
+                const noseMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xffffff,
+                    emissive: 0x003366
+                });
+                const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+                nose.position.y = 1.83 + 0.6;
+                nose.name = 'noseCone';
+                
+                // Fins
+                const finGroup = new THREE.Group();
+                const finGeometry = new THREE.BoxGeometry(0.02, 0.3, 0.5);
+                const finMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+                
+                for (let i = 0; i < 4; i++) {
+                    const fin = new THREE.Mesh(finGeometry, finMaterial);
+                    const angle = (i * Math.PI) / 2;
+                    fin.position.set(
+                        Math.sin(angle) * 0.2,
+                        -1.5,
+                        Math.cos(angle) * 0.2
+                    );
+                    fin.rotation.y = angle;
+                    finGroup.add(fin);
+                }
+                finGroup.name = 'fins';
+                
+                // Engine
+                const engineGeometry = new THREE.CylinderGeometry(0.15, 0.15 * 0.8, 0.4, 32);
+                const engineMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x333333,
+                    emissive: 0xff3300
+                });
+                const engine = new THREE.Mesh(engineGeometry, engineMaterial);
+                engine.position.y = -1.83 - 0.2;
+                engine.name = 'engine';
+                
+                this.rocket.add(body, nose, finGroup, engine);
+                this.scene.add(this.rocket);
+            }
+
+            setupPhysics() {
+                // Simple physics simulation
+                this.physics = {
+                    calculateRocketState: (time, state, thrust, fuelMixture) => {
+                        const gravity = 9.81;
+                        const dt = 0.016; // ~60fps
+                        
+                        // Calculate thrust force based on input
+                        const thrustForce = (thrust / 100) * 1000000; // Max thrust 1MN
+                        
+                        // Calculate mass (decreases as fuel is consumed)
+                        const initialMass = 50000; // 50 tons
+                        const fuelMass = (state.fuel / 100) * 10000; // 10 tons of fuel max
+                        const currentMass = initialMass - (10000 - fuelMass);
+                        
+                        // Calculate acceleration (F = ma -> a = F/m)
+                        const netForce = thrustForce - (currentMass * gravity);
+                        const acceleration = netForce / currentMass;
+                        
+                        // Update velocity and position
+                        const newVelocity = state.velocity + acceleration * dt;
+                        const newAltitude = state.altitude + newVelocity * dt;
+                        
+                        // Consume fuel based on thrust
+                        const newFuel = Math.max(0, state.fuel - (thrust / 100) * 0.1);
+                        
+                        // Increase temperature with thrust
+                        const newTemperature = 22 + (thrust / 100) * 50;
+                        
+                        return {
+                            altitude: newAltitude,
+                            velocity: newVelocity,
+                            acceleration: acceleration,
+                            thrust: thrustForce,
+                            fuel: newFuel,
+                            temperature: newTemperature
+                        };
+                    }
+                };
+            }
+
+            setupBuildMode() {
+                // Drag and drop functionality
+                const parts = document.querySelectorAll('.part');
+                const dropZone = document.getElementById('three-container');
+                
+                parts.forEach(part => {
+                    part.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('text/plain', e.target.dataset.part);
+                    });
+                });
+                
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                });
+                
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const partType = e.dataTransfer.getData('text/plain');
+                    this.addPartToRocket(partType);
+                });
+                
+                // Selection functionality
+                const raycaster = new THREE.Raycaster();
+                const mouse = new THREE.Vector2();
+                
+                this.renderer.domElement.addEventListener('click', (e) => {
+                    if (this.currentMode !== 'build') return;
+                    
+                    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                    
+                    raycaster.setFromCamera(mouse, this.camera);
+                    const intersects = raycaster.intersectObjects(this.rocket.children, true);
+                    
+                    if (intersects.length > 0) {
+                        this.selectedPart = intersects[0].object;
+                        this.transformControls.attach(this.selectedPart);
+                        this.updatePropertiesPanel();
+                    } else {
+                        this.selectedPart = null;
+                        this.transformControls.detach();
+                    }
+                });
+            }
+
+            addPartToRocket(partType) {
+                let geometry, material, part;
+                
+                switch(partType) {
+                    case 'bodyTube':
+                        geometry = new THREE.CylinderGeometry(0.183, 0.183, 1, 32);
+                        material = new THREE.MeshPhongMaterial({ color: 0xffffff });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = 0.5;
+                        break;
+                    case 'noseCone':
+                        geometry = new THREE.ConeGeometry(0.183, 0.6, 32);
+                        material = new THREE.MeshPhongMaterial({ color: 0xffffff });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = 1.2;
+                        break;
+                    case 'fins':
+                        geometry = new THREE.BoxGeometry(0.02, 0.3, 0.5);
+                        material = new THREE.MeshPhongMaterial({ color: 0x666666 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.set(0.2, -0.5, 0);
+                        break;
+                    case 'engine':
+                        geometry = new THREE.CylinderGeometry(0.15, 0.15 * 0.8, 0.4, 32);
+                        material = new THREE.MeshPhongMaterial({ color: 0x333333 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = -0.2;
+                        break;
+                    case 'parachute':
+                        geometry = new THREE.SphereGeometry(0.3, 16, 8);
+                        material = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = 2.0;
+                        break;
+                    case 'payload':
+                        geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+                        material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = 1.5;
+                        break;
+                    case 'arduino':
+                    case 'raspberry':
+                    case 'battery':
+                    case 'radio':
+                    case 'gps':
+                    case 'imu':
+                    case 'thermometer':
+                    case 'altimeter':
+                    case 'barometer':
+                    case 'camera':
+                    case 'accelerometer':
+                        geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+                        material = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.set(
+                            (Math.random() - 0.5) * 0.3,
+                            (Math.random() - 0.5) * 0.3 + 0.5,
+                            (Math.random() - 0.5) * 0.3
+                        );
+                        break;
+                    case 'booster':
+                    case 'fuelTank':
+                    case 'oxidizer':
+                    case 'turbopump':
+                    case 'nozzle':
+                        geometry = new THREE.CylinderGeometry(0.15, 0.15, 0.5, 32);
+                        material = new THREE.MeshPhongMaterial({ color: 0x888888 });
+                        part = new THREE.Mesh(geometry, material);
+                        part.position.y = -0.5;
+                        break;
+                    default:
+                        return;
+                }
+                
+                part.castShadow = true;
+                part.name = partType;
+                this.rocket.add(part);
+            }
+
+            updatePropertiesPanel() {
+                if (this.selectedPart) {
+                    document.getElementById('rocket-name').value = this.selectedPart.name || 'Unnamed Part';
+                    // Additional property updates would go here
+                }
+            }
+
+            setupEventListeners() {
+                // Make windows draggable
+                this.makeWindowsDraggable();
+                
+                // Mode switcher
+                document.getElementById('build-mode-btn').addEventListener('click', () => {
+                    this.switchMode('build');
+                });
+                
+                document.getElementById('launch-mode-btn').addEventListener('click', () => {
+                    this.switchMode('launch');
+                });
+                
+                // Tool switcher
+                document.getElementById('select-tool').addEventListener('click', () => {
+                    this.switchTool('select');
+                });
+                
+                document.getElementById('move-tool').addEventListener('click', () => {
+                    this.switchTool('move');
+                });
+                
+                document.getElementById('rotate-tool').addEventListener('click', () => {
+                    this.switchTool('rotate');
+                });
+                
+                document.getElementById('scale-tool').addEventListener('click', () => {
+                    this.switchTool('scale');
+                });
+                
+                // Control sliders
+                const thrustSlider = document.getElementById('thrust-slider');
+                const thrustValue = document.getElementById('thrust-value');
+                const fuelSlider = document.getElementById('fuel-slider');
+                const fuelValue = document.getElementById('fuel-value');
+                
+                thrustSlider.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    thrustValue.textContent = value + '%';
+                    this.rocketState.thrust = value;
+                });
+                
+                fuelSlider.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    fuelValue.textContent = value + '%';
+                });
+                
+                // Launch button
+                document.getElementById('launch-btn').addEventListener('click', () => {
+                    this.isSimulating = true;
+                    this.simulationTime = 0;
+                    document.getElementById('hologram-display').innerHTML = 
+                        '<div class="hologram-text">LAUNCH SEQUENCE INITIATED</div>' +
+                        '<div style="margin-top: 10px; font-size: 0.9em;">T-10 SECONDS</div>';
+                    
+                    // Start countdown
+                    let countdown = 10;
+                    const countdownInterval = setInterval(() => {
+                        document.getElementById('hologram-display').innerHTML = 
+                            '<div class="hologram-text">LAUNCH SEQUENCE INITIATED</div>' +
+                            `<div style="margin-top: 10px; font-size: 0.9em;">T-${countdown} SECONDS</div>`;
+                        
+                        countdown--;
+                        
+                        if (countdown < 0) {
+                            clearInterval(countdownInterval);
+                            document.getElementById('hologram-display').innerHTML = 
+                                '<div class="hologram-text">LIFTOFF!</div>' +
+                                '<div style="margin-top: 10px; font-size: 0.9em;">ENGINES AT FULL THRUST</div>';
+                        }
+                    }, 1000);
+                });
+                
+                // Abort button
+                document.getElementById('abort-btn').addEventListener('click', () => {
+                    this.isSimulating = false;
+                    this.rocketState = {
+                        altitude: 0,
+                        velocity: 0,
+                        acceleration: 0,
+                        thrust: 0,
+                        fuel: 100,
+                        temperature: 22
+                    };
+                    document.getElementById('hologram-display').innerHTML = 
+                        '<div class="hologram-text">LAUNCH ABORTED</div>' +
+                        '<div style="margin-top: 10px; font-size: 0.9em;">SYSTEMS SAFED</div>';
+                });
+                
+                // Save design button
+                document.getElementById('save-design').addEventListener('click', () => {
+                    alert('Rocket design saved! (This would save to localStorage in a real implementation)');
+                });
+                
+                // Export design button
+                document.getElementById('export-design').addEventListener('click', () => {
+                    alert('Rocket design exported! (This would export to a file in a real implementation)');
+                });
+            }
+
+            switchMode(mode) {
+                this.currentMode = mode;
+                
+                // Update UI
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                if (mode === 'build') {
+                    document.getElementById('build-mode-btn').classList.add('active');
+                    document.getElementById('mode-status').textContent = 'BUILD MODE: ACTIVE';
+                    
+                    // Show build mode windows, hide launch mode windows
+                    document.querySelectorAll('.build-mode').forEach(el => {
+                        el.style.display = 'block';
+                    });
+                    document.querySelectorAll('.launch-mode').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    
+                    // Enable transform controls
+                    this.transformControls.enabled = true;
+                    this.controls.enabled = true;
+                    
+                    // Reset rocket position for build mode
+                    if (this.rocket) {
+                        this.rocket.position.set(0, 0, 0);
+                        this.rocket.rotation.set(0, 0, 0);
+                    }
+                    
+                } else {
+                    document.getElementById('launch-mode-btn').classList.add('active');
+                    document.getElementById('mode-status').textContent = 'LAUNCH MODE: ACTIVE';
+                    
+                    // Show launch mode windows, hide build mode windows
+                    document.querySelectorAll('.build-mode').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    document.querySelectorAll('.launch-mode').forEach(el => {
+                        el.style.display = 'block';
+                    });
+                    
+                    // Disable transform controls
+                    this.transformControls.detach();
+                    this.transformControls.enabled = false;
+                    
+                    // Reset simulation state
+                    this.isSimulating = false;
+                    this.rocketState = {
+                        altitude: 0,
+                        velocity: 0,
+                        acceleration: 0,
+                        thrust: 0,
+                        fuel: 100,
+                        temperature: 22
+                    };
+                    
+                    // Reset rocket position for launch mode
+                    if (this.rocket) {
+                        this.rocket.position.set(0, 0, 0);
+                        this.rocket.rotation.set(0, 0, 0);
+                    }
+                    
+                    document.getElementById('hologram-display').innerHTML = 
+                        '<div class="hologram-text">ROCKET SIMULATION ACTIVE</div>' +
+                        '<div style="margin-top: 10px; font-size: 0.9em;">SYSTEMS NOMINAL</div>';
+                }
+            }
+
+            switchTool(tool) {
+                this.currentTool = tool;
+                
+                // Update UI
+                document.querySelectorAll('.tool-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.getElementById(`${tool}-tool`).classList.add('active');
+                
+                // Update transform controls mode
+                switch(tool) {
+                    case 'select':
+                        this.transformControls.setMode('translate');
+                        break;
+                    case 'move':
+                        this.transformControls.setMode('translate');
+                        break;
+                    case 'rotate':
+                        this.transformControls.setMode('rotate');
+                        break;
+                    case 'scale':
+                        this.transformControls.setMode('scale');
+                        break;
+                }
+            }
+
+            makeWindowsDraggable() {
+                const windows = document.querySelectorAll('.ui-window');
+                
+                windows.forEach(window => {
+                    const titleBar = window.querySelector('.title-bar');
+                    let isDragging = false;
+                    let offsetX, offsetY;
+
+                    titleBar.addEventListener('mousedown', (e) => {
+                        isDragging = true;
+                        offsetX = e.clientX - window.offsetLeft;
+                        offsetY = e.clientY - window.offsetTop;
+                        window.style.zIndex = 1000;
+                        
+                        // Bring other windows to a lower z-index
+                        windows.forEach(w => {
+                            if (w !== window) w.style.zIndex = 1;
+                        });
+                    });
+
+                    document.addEventListener('mousemove', (e) => {
+                        if (!isDragging) return;
+                        
+                        window.style.left = (e.clientX - offsetX) + 'px';
+                        window.style.top = (e.clientY - offsetY) + 'px';
+                    });
+
+                    document.addEventListener('mouseup', () => {
+                        isDragging = false;
+                    });
+                });
+                
+                // Window controls
+                document.querySelectorAll('.btn-close').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.target.closest('.ui-window').style.display = 'none';
+                    });
+                });
+                
+                document.querySelectorAll('.btn-minimize').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const window = e.target.closest('.ui-window');
+                        const content = window.querySelector('.window-content');
+                        content.style.display = content.style.display === 'none' ? 'block' : 'none';
+                    });
+                });
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                // Update simulation time
+                if (this.isSimulating && this.currentMode === 'launch') {
+                    this.simulationTime += 0.016; // ~60fps
+                    
+                    // Update rocket state based on physics
+                    this.rocketState = this.physics.calculateRocketState(
+                        this.simulationTime, 
+                        this.rocketState, 
+                        this.rocketState.thrust,
+                        85 // Fixed fuel mixture for simplicity
+                    );
+                    
+                    // Update UI
+                    this.updateTelemetry();
+                    
+                    // Update mission time
+                    const missionTime = new Date(this.simulationTime * 1000).toISOString().substr(11, 8);
+                    document.getElementById('mission-time').textContent = missionTime;
+                    
+                    // Update rocket position
+                    if (this.rocket) {
+                        this.rocket.position.y = this.rocketState.altitude / 1000; // Scale for visualization
+                        
+                        // Add some slight rotation for realism
+                        this.rocket.rotation.z = Math.sin(this.simulationTime * 0.5) * 0.05;
+                    }
+                }
+                
+                // Rotate rocket slowly in build mode
+                if (this.rocket && this.currentMode === 'build') {
+                    this.rocket.rotation.y += 0.002;
+                }
+                
+                // Update controls
+                this.controls.update();
+                this.transformControls.update();
+                
+                // Render scene
+                this.renderer.render(this.scene, this.camera);
+                
+                // Update FPS counter occasionally
+                if (Math.random() < 0.1) {
+                    document.getElementById('fps-counter').textContent = 
+                        Math.floor(60 + Math.random() * 10); // Simulated FPS
+                }
+            }
+
+            updateTelemetry() {
+                document.getElementById('altitude-gauge').querySelector('.gauge-value').textContent = 
+                    Math.round(this.rocketState.altitude) + ' m';
+                document.getElementById('velocity-gauge').querySelector('.gauge-value').textContent = 
+                    Math.round(this.rocketState.velocity) + ' m/s';
+                document.getElementById('thrust-gauge').querySelector('.gauge-value').textContent = 
+                    Math.round(this.rocketState.thrust / 10000) + '%';
+                
+                // Update other gauges
+                document.getElementById('acceleration-gauge').querySelector('.gauge-value').textContent = 
+                    (this.rocketState.acceleration / 9.81).toFixed(1) + ' G';
+                document.getElementById('fuel-level-gauge').querySelector('.gauge-value').textContent = 
+                    Math.round(this.rocketState.fuel) + '%';
+                document.getElementById('temperature-gauge').querySelector('.gauge-value').textContent = 
+                    Math.round(this.rocketState.temperature) + '°C';
+                
+                // Update system status indicators
+                if (this.rocketState.altitude > 100000) {
+                    document.getElementById('nav-status').textContent = "CRITICAL";
+                    document.getElementById('nav-status').style.color = "var(--danger)";
+                }
+                
+                if (this.rocketState.fuel < 20) {
+                    document.getElementById('prop-status').textContent = "LOW FUEL";
+                    document.getElementById('prop-status').style.color = "var(--warning)";
+                }
+            }
+        }
+
+        // Initialize the simulation when the page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            new RocketSimulation();
+        });
+    </script>
+</body>
+</html>
