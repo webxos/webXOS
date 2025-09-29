@@ -1,0 +1,2458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GalaxyCraft: Enhanced 360° Flight</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Orbitron', 'Courier New', monospace;
+        }
+        body {
+            background: #000;
+            color: #0f0;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #gameContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block;
+        }
+        
+        /* Enhanced Crosshair with Range Finder */
+        .targeting-reticle {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            z-index: 10;
+            pointer-events: none;
+            filter: drop-shadow(0 0 8px #0f0);
+        }
+        .reticle-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            border: 2px solid #0f0;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #0f0;
+        }
+        .reticle-line {
+            position: absolute;
+            background: #0f0;
+            box-shadow: 0 0 8px #0f0;
+        }
+        .reticle-line.horizontal {
+            width: 120px;
+            height: 2px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .reticle-line.vertical {
+            width: 2px;
+            height: 120px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .range-marker {
+            position: absolute;
+            color: #0f0;
+            font-size: 10px;
+            text-shadow: 0 0 5px #0f0;
+            font-weight: bold;
+        }
+        .range-marker.top {
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .range-marker.bottom {
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .range-marker.left {
+            left: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .range-marker.right {
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .aim-assist-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            border: 2px solid #f00;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .aim-assist-indicator.active {
+            opacity: 1;
+            animation: pulse 0.5s infinite alternate;
+        }
+        @keyframes pulse {
+            from { transform: translate(-50%, -50%) scale(0.8); }
+            to { transform: translate(-50%, -50%) scale(1.2); }
+        }
+        .target-lock {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid #0f0;
+            border-radius: 50%;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            box-shadow: 0 0 10px #0f0;
+        }
+        .target-lock.active {
+            opacity: 1;
+            animation: lock-pulse 0.5s infinite alternate;
+        }
+        @keyframes lock-pulse {
+            from { transform: scale(0.9); }
+            to { transform: scale(1.1); }
+        }
+        
+        .flight-stats {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #0f0;
+            z-index: 15;
+        }
+        .speed-bar, .boost-bar {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .speed-fill {
+            height: 100%;
+            width: 50%;
+            background: linear-gradient(90deg, #0f0, #0f0);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        .boost-fill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #0f0, #0f0);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .enemy-counter {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border: 2px solid #f00;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #f00;
+            z-index: 15;
+        }
+        
+        .wave-counter {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #0f0;
+            z-index: 15;
+        }
+        
+        .wave-timer {
+            position: absolute;
+            top: 140px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border: 2px solid #0ff;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #0ff;
+            z-index: 15;
+        }
+        
+        .warning-alert {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            color: #f00;
+            text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 25;
+            pointer-events: none;
+        }
+        .warning-alert.active {
+            animation: alert-flash 0.5s infinite alternate;
+        }
+        @keyframes alert-flash {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .flight-ui {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 20;
+            padding: 15px;
+            background: rgba(0, 20, 0, 0.7);
+            border-radius: 20px;
+            border: 2px solid #0f0;
+            backdrop-filter: blur(5px);
+        }
+        .flight-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #002200, #001100);
+            border: 2px solid #0f0;
+            color: #0f0;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+            transition: all 0.2s ease;
+        }
+        .flight-btn:hover {
+            background: linear-gradient(145deg, #003300, #002200);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+        }
+        .flight-btn.active {
+            background: linear-gradient(145deg, #ff3300, #cc2200);
+            border-color: #ff3300;
+            box-shadow: 0 0 20px rgba(255, 51, 0, 0.8);
+            color: #fff;
+        }
+        .flight-btn .key {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .mobile-controls {
+            position: fixed;
+            bottom: 120px;
+            display: none;
+            z-index: 20;
+        }
+        .mobile-left {
+            left: 20px;
+        }
+        .mobile-right {
+            right: 20px;
+        }
+        .mobile-joystick {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(0, 30, 0, 0.6);
+            border: 2px solid #0f0;
+            position: relative;
+            touch-action: none;
+        }
+        .mobile-joystick-handle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #0f0;
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
+        }
+        .mobile-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .mobile-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(0, 30, 0, 0.6);
+            border: 2px solid #0f0;
+            color: #0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            text-align: center;
+        }
+        
+        .console-message {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 20px;
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            color: #0f0;
+            font-size: 18px;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 25;
+        }
+        .console-message.active {
+            opacity: 1;
+        }
+        
+        .camera-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(0, 20, 0, 0.7);
+            border: 2px solid #0f0;
+            border-radius: 50%;
+            color: #0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 20;
+            font-size: 24px;
+        }
+        
+        /* Settings Menu */
+        .settings-menu {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 20, 0, 0.95);
+            padding: 30px;
+            border: 2px solid #0f0;
+            border-radius: 15px;
+            z-index: 110;
+            color: #0f0;
+            display: none;
+            min-width: 400px;
+        }
+        .settings-menu h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .settings-option {
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .settings-option label {
+            margin-right: 15px;
+        }
+        .settings-option input[type="range"] {
+            width: 200px;
+        }
+        
+        /* Controls Help */
+        .controls-help {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 20, 0, 0.95);
+            padding: 30px;
+            border: 2px solid #0f0;
+            border-radius: 15px;
+            z-index: 110;
+            color: #0f0;
+            display: none;
+            min-width: 400px;
+        }
+        .controls-help h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .control-item {
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        .control-key {
+            font-weight: bold;
+            color: #0f0;
+        }
+        
+        /* Results Screen */
+        .results-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 10, 0, 0.95);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 120;
+            color: #0f0;
+        }
+        .results-title {
+            font-size: 48px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+        }
+        .results-stats {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .results-grade {
+            font-size: 72px;
+            margin: 30px 0;
+            text-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+        }
+        
+        .menu-options {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        
+        .menu-btn {
+            padding: 10px 20px;
+            background: rgba(0, 30, 0, 0.7);
+            border: 2px solid #0f0;
+            border-radius: 5px;
+            color: #0f0;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+        
+        .menu-btn:hover {
+            background: rgba(0, 50, 0, 0.7);
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+        }
+        
+        @media (max-width: 768px) {
+            .flight-ui {
+                display: none;
+            }
+            .mobile-controls {
+                display: flex;
+            }
+            .flight-stats {
+                bottom: 100px;
+                left: 10px;
+                font-size: 14px;
+                padding: 10px;
+            }
+            .speed-bar, .boost-bar {
+                width: 150px;
+                height: 15px;
+            }
+            .settings-menu, .controls-help {
+                min-width: 90%;
+                padding: 20px;
+            }
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div class="camera-toggle" id="cameraToggle">3P</div>
+        
+        <!-- Enhanced Crosshair with Range Markers and Aim Assist -->
+        <div class="targeting-reticle">
+            <div class="reticle-circle"></div>
+            <div class="reticle-line horizontal"></div>
+            <div class="reticle-line vertical"></div>
+            <div class="range-marker top">100</div>
+            <div class="range-marker bottom">200</div>
+            <div class="range-marker left">300</div>
+            <div class="range-marker right">400</div>
+            <div class="aim-assist-indicator" id="aimAssistIndicator"></div>
+            <div class="target-lock" id="targetLock"></div>
+        </div>
+        
+        <div class="flight-stats">
+            <div>SPEED: <span id="speedValue">0</span> M/S</div>
+            <div class="speed-bar"><div class="speed-fill" id="speedFill"></div></div>
+            <div>BOOST: <span id="boostValue">100</span>%</div>
+            <div class="boost-bar"><div class="boost-fill" id="boostFill"></div></div>
+            <div>LIGHTSPEED: <span id="lightspeedValue">100</span>%</div>
+            <div>SCORE: <span id="scoreValue">0</span></div>
+            <div>NEUROTS: <span id="neurotCount">∞</span></div>
+            <div>NUKES: <span id="nukeCount">5</span></div>
+        </div>
+        
+        <div class="enemy-counter">
+            <div>DRONES DESTROYED: <span id="enemyCount">0</span></div>
+        </div>
+        
+        <div class="wave-counter">
+            <div>WAVE: <span id="waveCount">1</span>/100</div>
+        </div>
+        
+        <div class="wave-timer">
+            <div>WAVE TIME: <span id="waveTimer">0.0</span>s</div>
+            <div>AVG TIME: <span id="avgTime">0.0</span>s</div>
+        </div>
+        
+        <div class="warning-alert" id="warningAlert">INCOMING!</div>
+        
+        <div class="flight-ui">
+            <div class="flight-btn" id="boostBtn">
+                <div class="key">SHIFT</div>
+                <div>BOOST</div>
+            </div>
+            <div class="flight-btn" id="lightspeedBtn">
+                <div class="key">TAB</div>
+                <div>LIGHTSPEED</div>
+            </div>
+            <div class="flight-btn" id="fireBtn">
+                <div class="key">SPACE</div>
+                <div>FIRE NEUROTS</div>
+            </div>
+            <div class="flight-btn" id="missileBtn">
+                <div class="key">R</div>
+                <div>NUKE HOMING</div>
+            </div>
+            <div class="flight-btn" id="menuBtn">
+                <div class="key">ESC</div>
+                <div>MENU</div>
+            </div>
+        </div>
+        
+        <div class="mobile-controls mobile-left">
+            <div class="mobile-joystick" id="moveJoystick">
+                <div class="mobile-joystick-handle"></div>
+            </div>
+        </div>
+        
+        <div class="mobile-controls mobile-right">
+            <div class="mobile-buttons">
+                <div class="mobile-btn" id="mobileBoost">BOOST</div>
+                <div class="mobile-btn" id="mobileFire">FIRE</div>
+                <div class="mobile-btn" id="mobileMissile">MISSILE</div>
+                <div class="mobile-btn" id="mobileMenu">MENU</div>
+            </div>
+        </div>
+        
+        <div class="console-message" id="consoleMessage"></div>
+        
+        <!-- Settings Menu -->
+        <div class="settings-menu" id="settingsMenu">
+            <h2>GAME SETTINGS</h2>
+            <div class="settings-option">
+                <label for="mouseSensitivity">Mouse Sensitivity:</label>
+                <input type="range" id="mouseSensitivity" min="0.0005" max="0.005" step="0.0001" value="0.0015">
+                <span id="sensitivityValue">0.0015</span>
+            </div>
+            <div class="settings-option">
+                <label for="invertYAxis">Invert Mouse Y-Axis:</label>
+                <input type="checkbox" id="invertYAxis">
+            </div>
+            <div class="settings-option">
+                <label for="flightAssist">Flight Assist:</label>
+                <input type="checkbox" id="flightAssist" checked>
+            </div>
+            <div class="settings-option">
+                <label for="aimAssist">Auto-Aim Neurots:</label>
+                <input type="checkbox" id="aimAssist" checked>
+            </div>
+            <div class="settings-option">
+                <label for="performanceMode">Performance Mode:</label>
+                <input type="checkbox" id="performanceMode">
+            </div>
+            <div class="menu-options">
+                <div class="menu-btn" id="saveSettingsBtn">SAVE SETTINGS</div>
+                <div class="menu-btn" id="backBtn">BACK</div>
+            </div>
+        </div>
+        
+        <!-- Results Screen -->
+        <div class="results-screen" id="resultsScreen">
+            <h1 class="results-title">MISSION COMPLETE</h1>
+            <div class="results-stats">
+                <div>FINAL SCORE: <span id="finalScore">0</span></div>
+                <div>TOTAL TIME: <span id="totalTime">0.0</span>s</div>
+                <div>AVERAGE WAVE TIME: <span id="averageWaveTime">0.0</span>s</div>
+                <div>DRONES DESTROYED: <span id="totalEnemies">0</span></div>
+                <div>ACCURACY: <span id="accuracy">0</span>%</div>
+            </div>
+            <div class="results-grade" id="resultsGrade">A+</div>
+            <div class="menu-options">
+                <div class="menu-btn" id="restartBtn">PLAY AGAIN</div>
+                <div class="menu-btn" id="resultsBackBtn">MAIN MENU</div>
+            </div>
+        </div>
+        
+        <!-- Controls Help Menu -->
+        <div class="controls-help" id="controlsHelp">
+            <h2>CONTROLS</h2>
+            <div class="control-item">
+                <span class="control-desc">W - Thrust Forward</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">S - Reverse Thrust</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">A/D - Turn Left/Right</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">Q/E - Strafe Left/Right</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">Z/X - Barrel Roll Left/Right</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">C - 180° Turn</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">SPACE/Left Click - Auto-Aim Neurots</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">R/Right Click - Nuke Homing</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">SHIFT - Boost</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">TAB - Lightspeed</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">Mouse - 360° Flight Control</span>
+            </div>
+            <div class="control-item">
+                <span class="control-desc">ESC - Pause/Menu</span>
+            </div>
+            <div class="menu-options">
+                <div class="menu-btn" id="closeControlsBtn">CLOSE</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game state and configuration
+        const GameState = {
+            MENU: 0,
+            PLAYING: 1,
+            PAUSED: 2,
+            RESULTS: 3
+        };
+        
+        const CameraMode = {
+            FIRST_PERSON: 0,
+            THIRD_PERSON: 1,
+            CHASE: 2
+        };
+        
+        let currentState = GameState.PLAYING;
+        let currentCameraMode = CameraMode.THIRD_PERSON;
+        let mouseSensitivity = 0.0015;
+        let invertYAxis = false; // Fixed: Default to NOT inverted
+        let flightAssist = true;
+        let aimAssist = true;
+        let performanceMode = false;
+        let isPointerLocked = false;
+        let currentWave = 1;
+        let totalWaves = 100;
+        let enemiesPerWave = 5;
+        let isMobile = window.innerWidth <= 768;
+        
+        // Game statistics
+        let waveStartTime = 0;
+        let waveTimes = [];
+        let totalGameTime = 0;
+        let shotsFired = 0;
+        let shotsHit = 0;
+        
+        // Initialize Three.js
+        let scene, camera, renderer;
+        let player, playerModel, enemies = [], projectiles = [], missiles = [], explosions = [];
+        let clock = new THREE.Clock();
+        
+        // Enhanced player controls state
+        const controls = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+            strafeLeft: false,
+            strafeRight: false,
+            boost: false,
+            lightspeed: false,
+            fire: false,
+            missile: false,
+            rollLeft: false,
+            rollRight: false
+        };
+        
+        // Enhanced mouse control variables
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        const rotationSmoothing = 0.08; // Smoother rotation
+        
+        // Mobile joystick state
+        const joystick = {
+            active: false,
+            position: { x: 0, y: 0 },
+            startPos: { x: 0, y: 0 },
+            radius: 60
+        };
+        
+        // Player stats
+        const playerStats = {
+            speed: 0,
+            maxSpeed: 100,
+            boostMultiplier: 2.5,
+            boostEnergy: 100,
+            boostDrainRate: 20,
+            boostRecoveryRate: 10,
+            lightspeedEnergy: 100,
+            lightspeedMultiplier: 5.0,
+            lightspeedDrainRate: 10,
+            lightspeedRecoveryRate: 5,
+            rotationSpeed: 2.0,
+            fireRate: 0.1,
+            missileRate: 1.0,
+            lastFire: 0,
+            lastMissile: 0,
+            score: 0,
+            acceleration: 25,
+            deceleration: 15,
+            cameraSmoothing: 0.1,
+            nukes: 5,
+            neurots: Infinity
+        };
+        
+        // Camera position and rotation targets for smoothing
+        const cameraTarget = {
+            position: new THREE.Vector3(),
+            rotation: new THREE.Euler()
+        };
+        
+        // Aim assist variables
+        let currentTarget = null;
+        let aimAssistStrength = 0.7;
+        let aimAssistConeAngle = 30 * (Math.PI / 180);
+        
+        // Crosshair alignment variables
+        let crosshairOffset = new THREE.Vector3();
+        let weaponDirection = new THREE.Vector3();
+        
+        // Object pools for optimization
+        const projectilePool = [];
+        const missilePool = [];
+        const enemyPool = [];
+        const explosionPool = [];
+        const MAX_PROJECTILES = 150;
+        const MAX_MISSILES = 20;
+        const MAX_ENEMIES = 30;
+        const MAX_EXPLOSIONS = 20;
+        
+        // Initialize the game
+        function init() {
+            // Set up scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000010);
+            scene.fog = new THREE.Fog(0x000010, 50, 2000);
+            
+            // Set up camera - Start with third-person view
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+            camera.position.set(0, 3, -10);
+            
+            // Initialize camera target
+            cameraTarget.position.copy(camera.position);
+            cameraTarget.rotation.copy(camera.rotation);
+            
+            // Set up renderer with performance optimizations
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: document.getElementById('gameCanvas'),
+                antialias: !performanceMode,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, performanceMode ? 1 : 2));
+            renderer.shadowMap.enabled = !performanceMode;
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x444455);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = !performanceMode;
+            scene.add(directionalLight);
+            
+            // Create starfield with fewer, larger stars
+            createStarfield();
+            
+            // Create planets
+            createPlanets();
+            
+            // Create player ship
+            createPlayerShip();
+            
+            // Create object pools
+            createObjectPools();
+            
+            // Create initial enemies for first wave
+            spawnWave(currentWave);
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Initialize settings UI
+            initializeSettings();
+            
+            // Start animation loop
+            animate();
+            
+            // Start wave timer
+            waveStartTime = clock.getElapsedTime();
+            
+            // Show console message
+            showConsoleMessage("Enhanced Flight Controls Active! Normal mouse mode.");
+            
+            // Show mobile controls if on mobile
+            if (isMobile) {
+                showConsoleMessage("Mobile controls enabled");
+                setupMobileControls();
+            }
+        }
+        
+        // Initialize settings UI with correct values
+        function initializeSettings() {
+            // Set the invert checkbox to match our default (false)
+            document.getElementById('invertYAxis').checked = invertYAxis;
+            document.getElementById('mouseSensitivity').value = mouseSensitivity;
+            document.getElementById('sensitivityValue').textContent = mouseSensitivity.toFixed(4);
+            document.getElementById('flightAssist').checked = flightAssist;
+            document.getElementById('aimAssist').checked = aimAssist;
+            document.getElementById('performanceMode').checked = performanceMode;
+        }
+        
+        // Create object pools for optimization
+        function createObjectPools() {
+            // Projectile pool
+            for (let i = 0; i < MAX_PROJECTILES; i++) {
+                const projectile = createProjectile(true);
+                projectile.visible = false;
+                scene.add(projectile);
+                projectilePool.push(projectile);
+            }
+            
+            // Missile pool
+            for (let i = 0; i < MAX_MISSILES; i++) {
+                const missile = createMissile(true);
+                missile.visible = false;
+                scene.add(missile);
+                missilePool.push(missile);
+            }
+            
+            // Enemy pool
+            for (let i = 0; i < MAX_ENEMIES; i++) {
+                const enemy = createEnemy(true);
+                enemy.visible = false;
+                scene.add(enemy);
+                enemyPool.push(enemy);
+            }
+            
+            // Explosion pool
+            for (let i = 0; i < MAX_EXPLOSIONS; i++) {
+                const explosion = createExplosion(true);
+                explosion.visible = false;
+                scene.add(explosion);
+                explosionPool.push(explosion);
+            }
+        }
+        
+        // Get projectile from pool
+        function getProjectileFromPool() {
+            for (let i = 0; i < projectilePool.length; i++) {
+                if (!projectilePool[i].visible) {
+                    return projectilePool[i];
+                }
+            }
+            return null;
+        }
+        
+        // Get missile from pool
+        function getMissileFromPool() {
+            for (let i = 0; i < missilePool.length; i++) {
+                if (!missilePool[i].visible) {
+                    return missilePool[i];
+                }
+            }
+            return null;
+        }
+        
+        // Get enemy from pool
+        function getEnemyFromPool() {
+            for (let i = 0; i < enemyPool.length; i++) {
+                if (!enemyPool[i].visible) {
+                    return enemyPool[i];
+                }
+            }
+            return null;
+        }
+        
+        // Get explosion from pool
+        function getExplosionFromPool() {
+            for (let i = 0; i < explosionPool.length; i++) {
+                if (!explosionPool[i].visible) {
+                    return explosionPool[i];
+                }
+            }
+            return null;
+        }
+        
+        // Create starfield background with fewer, larger stars
+        function createStarfield() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0x00ff00,
+                size: performanceMode ? 1.0 : 1.5,
+                sizeAttenuation: true
+            });
+            
+            const starVertices = [];
+            const starCount = performanceMode ? 2000 : 5000;
+            for (let i = 0; i < starCount; i++) {
+                const x = (Math.random() - 0.5) * 4000;
+                const y = (Math.random() - 0.5) * 4000;
+                const z = (Math.random() - 0.5) * 4000;
+                starVertices.push(x, y, z);
+            }
+            
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+        
+        // Create planets
+        function createPlanets() {
+            // Saturn-like planet
+            const saturnGeometry = new THREE.SphereGeometry(15, performanceMode ? 16 : 32, performanceMode ? 16 : 32);
+            const saturnMaterial = new THREE.MeshPhongMaterial({
+                color: 0xf0c070,
+                emissive: 0x705020,
+                specular: 0xffffff,
+                shininess: 30
+            });
+            const saturn = new THREE.Mesh(saturnGeometry, saturnMaterial);
+            saturn.position.set(-100, 0, -200);
+            scene.add(saturn);
+            
+            // Create rings for Saturn
+            const ringGeometry = new THREE.RingGeometry(20, 25, performanceMode ? 16 : 32);
+            const ringMaterial = new THREE.MeshPhongMaterial({
+                color: 0xffdd99,
+                emissive: 0xaa9966,
+                side: THREE.DoubleSide
+            });
+            const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+            rings.rotation.x = Math.PI / 2;
+            rings.position.set(-100, 0, -200);
+            scene.add(rings);
+            
+            // Mars-like planet
+            const marsGeometry = new THREE.SphereGeometry(10, performanceMode ? 16 : 32, performanceMode ? 16 : 32);
+            const marsMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff6633,
+                emissive: 0x662211,
+                specular: 0xffffff,
+                shininess: 30
+            });
+            const mars = new THREE.Mesh(marsGeometry, marsMaterial);
+            mars.position.set(150, 50, -300);
+            scene.add(mars);
+            
+            // Moon
+            const moonGeometry = new THREE.SphereGeometry(5, performanceMode ? 16 : 32, performanceMode ? 16 : 32);
+            const moonMaterial = new THREE.MeshPhongMaterial({
+                color: 0xdddddd,
+                emissive: 0x666666,
+                specular: 0xffffff,
+                shininess: 30
+            });
+            const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+            moon.position.set(-200, -80, -250);
+            scene.add(moon);
+        }
+        
+        // Create player ship with black color and neon green accents
+        function createPlayerShip() {
+            // Create a group for the player
+            player = new THREE.Group();
+            scene.add(player);
+            
+            // Main body - black with green accents
+            const bodyGeometry = new THREE.CylinderGeometry(0.8, 1.2, 4, performanceMode ? 6 : 8);
+            const bodyMaterial = new THREE.MeshPhongMaterial({
+                color: 0x000000,
+                emissive: 0x0a0a0a,
+                specular: 0x0f0f0f,
+                shininess: 100
+            });
+            
+            playerModel = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            playerModel.rotation.x = Math.PI / 2;
+            playerModel.position.z = -2;
+            player.add(playerModel);
+            
+            // Wings - black with green edges
+            const wingGeometry = new THREE.BoxGeometry(3, 0.2, 1.5);
+            const wingMaterial = new THREE.MeshPhongMaterial({
+                color: 0x000000,
+                emissive: 0x0a0a0a,
+                specular: 0x0f0f0f,
+                shininess: 100
+            });
+            
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            leftWing.position.set(-1.5, 0, -1.5);
+            leftWing.rotation.z = Math.PI / 6;
+            player.add(leftWing);
+            
+            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            rightWing.position.set(1.5, 0, -1.5);
+            rightWing.rotation.z = -Math.PI / 6;
+            player.add(rightWing);
+            
+            // Add neon green accents to wings
+            const wingEdgeGeometry = new THREE.BoxGeometry(3.2, 0.1, 0.1);
+            const wingEdgeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                emissive: 0x00aa00
+            });
+            
+            const leftWingEdge = new THREE.Mesh(wingEdgeGeometry, wingEdgeMaterial);
+            leftWingEdge.position.set(-1.5, 0, -2.2);
+            leftWing.add(leftWingEdge);
+            
+            const rightWingEdge = new THREE.Mesh(wingEdgeGeometry, wingEdgeMaterial);
+            rightWingEdge.position.set(1.5, 0, -2.2);
+            rightWing.add(rightWingEdge);
+            
+            // Tail
+            const tailGeometry = new THREE.BoxGeometry(1, 1, 1);
+            const tailMaterial = new THREE.MeshPhongMaterial({
+                color: 0x000000,
+                emissive: 0x0a0a0a,
+                specular: 0x0f0f0f,
+                shininess: 100
+            });
+            
+            const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+            tail.position.set(0, 0, -3);
+            tail.scale.set(0.5, 1, 2);
+            player.add(tail);
+            
+            // Add engine glow with improved visuals
+            const engineGeometry = new THREE.SphereGeometry(0.6, performanceMode ? 8 : 16, performanceMode ? 8 : 16);
+            const engineMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                emissive: 0x008800,
+                transparent: true,
+                opacity: 0.9
+            });
+            
+            const leftEngine = new THREE.Mesh(engineGeometry, engineMaterial);
+            leftEngine.position.set(-0.8, 0, -3.5);
+            player.add(leftEngine);
+            
+            const rightEngine = new THREE.Mesh(engineGeometry, engineMaterial);
+            rightEngine.position.set(0.8, 0, -3.5);
+            player.add(rightEngine);
+            
+            // Center engine
+            const centerEngine = new THREE.Mesh(engineGeometry, engineMaterial);
+            centerEngine.position.set(0, 0, -3.5);
+            centerEngine.scale.set(0.8, 0.8, 1.5);
+            player.add(centerEngine);
+            
+            // Engine glow effects - will be enhanced during boost
+            const engineGlowGeometry = new THREE.SphereGeometry(0.8, performanceMode ? 8 : 16, performanceMode ? 8 : 16);
+            const engineGlowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                emissive: 0x00ff00,
+                transparent: true,
+                opacity: 0.6
+            });
+            
+            const leftGlow = new THREE.Mesh(engineGlowGeometry, engineGlowMaterial);
+            leftGlow.position.set(-0.8, 0, -4);
+            player.add(leftGlow);
+            
+            const rightGlow = new THREE.Mesh(engineGlowGeometry, engineGlowMaterial);
+            rightGlow.position.set(0.8, 0, -4);
+            player.add(rightGlow);
+            
+            const centerGlow = new THREE.Mesh(engineGlowGeometry, engineGlowMaterial);
+            centerGlow.position.set(0, 0, -4);
+            centerGlow.scale.set(0.9, 0.9, 1.8);
+            player.add(centerGlow);
+            
+            // Store engine glows for boost effect
+            player.engineGlows = [leftGlow, rightGlow, centerGlow];
+            
+            // Set player initial position
+            player.position.set(0, 0, 0);
+        }
+        
+        // Create enemy (poolable)
+        function createEnemy(isForPool = false) {
+            const enemyGeometry = new THREE.ConeGeometry(1, 3, 4);
+            const enemyMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff0000,
+                emissive: 0x660000,
+                shininess: 100
+            });
+            
+            const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
+            
+            if (!isForPool) {
+                // Position randomly around the player
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 50 + Math.random() * 100;
+                const height = (Math.random() - 0.5) * 100;
+                
+                enemy.position.set(
+                    Math.cos(angle) * radius,
+                    height,
+                    Math.sin(angle) * radius
+                );
+                
+                // Set random rotation
+                enemy.rotation.x = Math.random() * Math.PI * 2;
+                enemy.rotation.y = Math.random() * Math.PI * 2;
+                enemy.rotation.z = Math.random() * Math.PI * 2;
+                
+                // Add velocity for movement
+                enemy.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5
+                );
+                
+                // Add health based on wave number
+                enemy.health = 1 + Math.floor(currentWave / 5);
+            }
+            
+            return enemy;
+        }
+        
+        // Create projectile (poolable) - TEMPEST-style large Neurots
+        function createProjectile(isForPool = false) {
+            const projectileGeometry = new THREE.SphereGeometry(0.5, performanceMode ? 8 : 16, performanceMode ? 8 : 16);
+            const projectileMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                emissive: 0x00aa00
+            });
+            
+            const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+            
+            if (!isForPool) {
+                // Position at the front of the ship
+                projectile.position.copy(player.position);
+                const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+                projectile.position.add(forward.multiplyScalar(3));
+                
+                // Set velocity in the direction the player is facing - 2x faster
+                projectile.velocity = forward.multiplyScalar(200);
+            }
+            
+            return projectile;
+        }
+        
+        // Create missile (poolable) - TEMPEST-style Nuke
+        function createMissile(isForPool = false) {
+            const missileGeometry = new THREE.CylinderGeometry(0.3, 0.3, 2, performanceMode ? 8 : 16);
+            const missileMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff6600,
+                emissive: 0xaa3300
+            });
+            
+            const missile = new THREE.Mesh(missileGeometry, missileMaterial);
+            missile.rotation.x = Math.PI / 2;
+            
+            if (!isForPool) {
+                // Position at the front of the ship
+                missile.position.copy(player.position);
+                const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+                missile.position.add(forward.multiplyScalar(3));
+                
+                // Set initial velocity in the direction the player is facing - 2x faster
+                missile.velocity = forward.multiplyScalar(60);
+                
+                // Find the closest enemy
+                if (enemies.length > 0) {
+                    let closestEnemy = null;
+                    let closestDistance = Infinity;
+                    
+                    enemies.forEach(enemy => {
+                        const distance = player.position.distanceTo(enemy.position);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestEnemy = enemy;
+                        }
+                    });
+                    
+                    // Store target
+                    missile.target = closestEnemy;
+                }
+            }
+            
+            return missile;
+        }
+        
+        // Create explosion effect (poolable)
+        function createExplosion(isForPool = false) {
+            const explosionGeometry = new THREE.SphereGeometry(1, performanceMode ? 8 : 16, performanceMode ? 8 : 16);
+            const explosionMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff5500,
+                emissive: 0xff2200,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
+            
+            if (!isForPool) {
+                explosion.scale.set(0.1, 0.1, 0.1);
+                explosion.life = 1.0;
+            }
+            
+            return explosion;
+        }
+        
+        // Spawn a wave of enemies
+        function spawnWave(waveNumber) {
+            const enemyCount = enemiesPerWave + Math.floor(waveNumber / 3);
+            document.getElementById('waveCount').textContent = waveNumber;
+            
+            // Record wave time
+            if (waveNumber > 1) {
+                const waveTime = clock.getElapsedTime() - waveStartTime;
+                waveTimes.push(waveTime);
+                totalGameTime += waveTime;
+                updateAverageTime();
+            }
+            
+            // Reset wave timer
+            waveStartTime = clock.getElapsedTime();
+            
+            for (let i = 0; i < enemyCount; i++) {
+                const enemy = getEnemyFromPool();
+                
+                if (enemy) {
+                    // Position randomly around the player
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 50 + Math.random() * 100;
+                    const height = (Math.random() - 0.5) * 100;
+                    
+                    enemy.position.set(
+                        Math.cos(angle) * radius,
+                        height,
+                        Math.sin(angle) * radius
+                    );
+                    
+                    // Set random rotation
+                    enemy.rotation.x = Math.random() * Math.PI * 2;
+                    enemy.rotation.y = Math.random() * Math.PI * 2;
+                    enemy.rotation.z = Math.random() * Math.PI * 2;
+                    
+                    // Add velocity for movement
+                    enemy.velocity = new THREE.Vector3(
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 5
+                    );
+                    
+                    // Add health based on wave number
+                    enemy.health = 1 + Math.floor(waveNumber / 5);
+                    
+                    // Make enemy visible
+                    enemy.visible = true;
+                    
+                    // Add to enemies array
+                    enemies.push(enemy);
+                }
+            }
+        }
+        
+        // Update average time display
+        function updateAverageTime() {
+            if (waveTimes.length > 0) {
+                const avgTime = waveTimes.reduce((a, b) => a + b, 0) / waveTimes.length;
+                document.getElementById('avgTime').textContent = avgTime.toFixed(1);
+            }
+        }
+        
+        // Show results screen
+        function showResults() {
+            currentState = GameState.RESULTS;
+            
+            // Calculate final stats
+            const accuracy = shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0;
+            const averageWaveTime = waveTimes.length > 0 ? 
+                waveTimes.reduce((a, b) => a + b, 0) / waveTimes.length : 0;
+            
+            // Update results display
+            document.getElementById('finalScore').textContent = playerStats.score;
+            document.getElementById('totalTime').textContent = totalGameTime.toFixed(1);
+            document.getElementById('averageWaveTime').textContent = averageWaveTime.toFixed(1);
+            document.getElementById('totalEnemies').textContent = document.getElementById('enemyCount').textContent;
+            document.getElementById('accuracy').textContent = accuracy;
+            
+            // Calculate grade
+            let grade = "F";
+            if (averageWaveTime < 10) grade = "A+";
+            else if (averageWaveTime < 15) grade = "A";
+            else if (averageWaveTime < 20) grade = "B";
+            else if (averageWaveTime < 25) grade = "C";
+            else if (averageWaveTime < 30) grade = "D";
+            
+            document.getElementById('resultsGrade').textContent = grade;
+            
+            // Show results screen
+            document.getElementById('resultsScreen').style.display = 'flex';
+        }
+        
+        // Enhanced 360-degree mouse control with fixed inversion
+        function updateMouseRotation(delta) {
+            if (!isPointerLocked || currentState !== GameState.PLAYING) return;
+            
+            // Apply smoothing to rotation
+            targetRotationX = THREE.MathUtils.lerp(targetRotationX, mouseX * mouseSensitivity, rotationSmoothing);
+            targetRotationY = THREE.MathUtils.lerp(targetRotationY, mouseY * mouseSensitivity, rotationSmoothing);
+            
+            // Apply rotation with PROPER inversion handling
+            // Normal mode: mouse up = pitch up, mouse down = pitch down
+            // Inverted mode: mouse up = pitch down, mouse down = pitch up
+            const yMultiplier = invertYAxis ? -1 : 1;
+            
+            // Apply enhanced pitch control (more responsive)
+            player.rotation.y -= targetRotationX * 1.2; // Slightly more yaw
+            player.rotation.x += targetRotationY * yMultiplier * 1.5; // Enhanced pitch response
+            
+            // Limit pitch to prevent over-rotation but allow for aerial maneuvers
+            player.rotation.x = Math.max(-Math.PI/1.5, Math.min(Math.PI/1.5, player.rotation.x));
+            
+            // Reset mouse movement for next frame
+            mouseX = 0;
+            mouseY = 0;
+        }
+        
+        // Update camera position based on current mode with smoothing
+        function updateCamera(delta) {
+            const smoothingFactor = playerStats.cameraSmoothing * (1 + delta * 10);
+            
+            switch(currentCameraMode) {
+                case CameraMode.FIRST_PERSON:
+                    cameraTarget.position.set(0, 0.5, 1);
+                    cameraTarget.rotation.copy(player.rotation);
+                    break;
+                    
+                case CameraMode.THIRD_PERSON:
+                    const relativeCameraOffset = new THREE.Vector3(0, 3, -10);
+                    const cameraOffset = relativeCameraOffset.applyMatrix4(player.matrixWorld);
+                    cameraTarget.position.copy(cameraOffset);
+                    cameraTarget.rotation.setFromRotationMatrix(
+                        new THREE.Matrix4().lookAt(cameraTarget.position, player.position, new THREE.Vector3(0, 1, 0))
+                    );
+                    break;
+                    
+                case CameraMode.CHASE:
+                    const chaseOffset = new THREE.Vector3(0, 1, -5);
+                    const chaseCameraOffset = chaseOffset.applyMatrix4(player.matrixWorld);
+                    cameraTarget.position.copy(chaseCameraOffset);
+                    cameraTarget.rotation.setFromRotationMatrix(
+                        new THREE.Matrix4().lookAt(cameraTarget.position, player.position, new THREE.Vector3(0, 1, 0))
+                    );
+                    break;
+            }
+            
+            // Smoothly interpolate camera position and rotation
+            camera.position.lerp(cameraTarget.position, smoothingFactor);
+            
+            // Smooth rotation using quaternion slerp
+            const targetQuat = new THREE.Quaternion().setFromEuler(cameraTarget.rotation);
+            const currentQuat = new THREE.Quaternion().setFromEuler(camera.rotation);
+            const resultQuat = new THREE.Quaternion();
+            resultQuat.slerpQuaternions(currentQuat, targetQuat, smoothingFactor);
+            camera.rotation.setFromQuaternion(resultQuat);
+        }
+        
+        // Enhanced player movement with smooth 360-degree flight controls
+        function updatePlayer(delta) {
+            // Update mouse rotation first
+            updateMouseRotation(delta);
+            
+            // Calculate speed factor (boost or lightspeed increases speed)
+            let speedFactor = 1;
+            if (controls.boost && playerStats.boostEnergy > 0) {
+                speedFactor = playerStats.boostMultiplier;
+            } else if (controls.lightspeed && playerStats.lightspeedEnergy > 0) {
+                speedFactor = playerStats.lightspeedMultiplier;
+            }
+            
+            // Apply thrust forward/backward
+            if (controls.forward) {
+                playerStats.speed = Math.min(playerStats.maxSpeed * speedFactor, playerStats.speed + playerStats.acceleration * delta);
+            } else if (controls.backward) {
+                playerStats.speed = Math.max(-playerStats.maxSpeed * 0.5, playerStats.speed - playerStats.acceleration * delta);
+            } else {
+                // Gradual deceleration when no thrust is applied
+                if (playerStats.speed > 0) {
+                    playerStats.speed = Math.max(0, playerStats.speed - playerStats.deceleration * delta);
+                } else if (playerStats.speed < 0) {
+                    playerStats.speed = Math.min(0, playerStats.speed + playerStats.deceleration * delta);
+                }
+            }
+            
+            // Apply boost energy drain/recovery
+            if (controls.boost && playerStats.boostEnergy > 0) {
+                playerStats.boostEnergy = Math.max(0, playerStats.boostEnergy - playerStats.boostDrainRate * delta);
+            } else {
+                playerStats.boostEnergy = Math.min(100, playerStats.boostEnergy + playerStats.boostRecoveryRate * delta);
+            }
+            
+            // Apply lightspeed energy drain/recovery
+            if (controls.lightspeed && playerStats.lightspeedEnergy > 0) {
+                playerStats.lightspeedEnergy = Math.max(0, playerStats.lightspeedEnergy - playerStats.lightspeedDrainRate * delta);
+            } else {
+                playerStats.lightspeedEnergy = Math.min(100, playerStats.lightspeedEnergy + playerStats.lightspeedRecoveryRate * delta);
+            }
+            
+            // Update boost UI
+            document.getElementById('boostValue').textContent = Math.round(playerStats.boostEnergy);
+            document.getElementById('boostFill').style.width = `${playerStats.boostEnergy}%`;
+            
+            // Update lightspeed UI
+            document.getElementById('lightspeedValue').textContent = Math.round(playerStats.lightspeedEnergy);
+            
+            // Update speed UI
+            document.getElementById('speedValue').textContent = Math.round(Math.abs(playerStats.speed));
+            document.getElementById('speedFill').style.width = `${Math.abs(playerStats.speed) / playerStats.maxSpeed * 100}%`;
+            
+            // Move player forward based on speed
+            const moveVector = new THREE.Vector3(0, 0, playerStats.speed * delta);
+            moveVector.applyQuaternion(player.quaternion);
+            player.position.add(moveVector);
+            
+            // Apply strafing movement
+            const strafeSpeed = 20 * delta;
+            if (controls.strafeLeft) {
+                const leftVector = new THREE.Vector3(-1, 0, 0);
+                leftVector.applyQuaternion(player.quaternion);
+                player.position.add(leftVector.multiplyScalar(strafeSpeed));
+            }
+            if (controls.strafeRight) {
+                const rightVector = new THREE.Vector3(1, 0, 0);
+                rightVector.applyQuaternion(player.quaternion);
+                player.position.add(rightVector.multiplyScalar(strafeSpeed));
+            }
+            
+            // Apply keyboard rotation based on controls
+            const rotationSpeed = playerStats.rotationSpeed * delta;
+            
+            if (controls.left) {
+                player.rotation.y += rotationSpeed;
+            }
+            if (controls.right) {
+                player.rotation.y -= rotationSpeed;
+            }
+            if (controls.rollLeft) {
+                player.rotation.z += rotationSpeed;
+            }
+            if (controls.rollRight) {
+                player.rotation.z -= rotationSpeed;
+            }
+            
+            // Apply flight assist (auto-leveling) for smoother control
+            if (flightAssist) {
+                // Smoother dampening for better aerial control
+                player.rotation.x *= 0.92;
+                player.rotation.z *= 0.92;
+            }
+            
+            // Update engine glow based on boost/lightspeed
+            let glowIntensity = 1;
+            if (controls.boost && playerStats.boostEnergy > 0) {
+                glowIntensity = 2;
+            } else if (controls.lightspeed && playerStats.lightspeedEnergy > 0) {
+                glowIntensity = 3;
+            }
+            
+            player.engineGlows.forEach(glow => {
+                glow.material.opacity = 0.6 * glowIntensity;
+                glow.scale.z = 1.8 * glowIntensity;
+            });
+            
+            // Handle firing
+            const currentTime = clock.getElapsedTime();
+            if (controls.fire && currentTime - playerStats.lastFire > playerStats.fireRate) {
+                fireProjectile();
+                playerStats.lastFire = currentTime;
+            }
+            
+            if (controls.missile && currentTime - playerStats.lastMissile > playerStats.missileRate) {
+                fireMissile();
+                playerStats.lastMissile = currentTime;
+            }
+            
+            // Update crosshair position
+            updateCrosshair();
+            
+            // Update wave timer
+            const currentWaveTime = clock.getElapsedTime() - waveStartTime;
+            document.getElementById('waveTimer').textContent = currentWaveTime.toFixed(1);
+        }
+        
+        // Update crosshair position to match weapon direction
+        function updateCrosshair() {
+            // Get weapon direction from ship's forward vector
+            weaponDirection.set(0, 0, 1).applyQuaternion(player.quaternion);
+            
+            // Calculate a point in front of the ship where the crosshair should be
+            const crosshairDistance = 50;
+            const crosshairWorldPos = new THREE.Vector3();
+            crosshairWorldPos.copy(player.position).add(weaponDirection.multiplyScalar(crosshairDistance));
+            
+            // Project this position to screen space
+            crosshairWorldPos.project(camera);
+            
+            // Convert to screen coordinates
+            const x = (crosshairWorldPos.x * 0.5 + 0.5) * window.innerWidth;
+            const y = -(crosshairWorldPos.y * 0.5 - 0.5) * window.innerHeight;
+            
+            // Update the crosshair position
+            const targetingReticle = document.querySelector('.targeting-reticle');
+            targetingReticle.style.left = `${x}px`;
+            targetingReticle.style.top = `${y}px`;
+            
+            // Update target lock indicator
+            updateTargetLock();
+        }
+        
+        // Update target lock indicator
+        function updateTargetLock() {
+            // Create a ray from the ship's position in the weapon direction
+            const raycaster = new THREE.Raycaster(player.position, weaponDirection);
+            
+            // Find intersection with objects in the scene
+            const intersects = raycaster.intersectObjects(enemies);
+            
+            if (intersects.length > 0) {
+                // We have a target in the weapon direction
+                const target = intersects[0].object;
+                const targetLock = document.getElementById('targetLock');
+                const vector = new THREE.Vector3();
+                vector.setFromMatrixPosition(target.matrixWorld);
+                vector.project(camera);
+                
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = -(vector.y * 0.5 - 0.5) * window.innerHeight;
+                
+                targetLock.style.left = `${x}px`;
+                targetLock.style.top = `${y}px`;
+                targetLock.classList.add('active');
+                
+                currentTarget = target;
+            } else {
+                // No direct target
+                const targetLock = document.getElementById('targetLock');
+                targetLock.classList.remove('active');
+                currentTarget = null;
+            }
+            
+            // Update aim assist indicator
+            const aimAssistIndicator = document.getElementById('aimAssistIndicator');
+            if (currentTarget && aimAssist) {
+                aimAssistIndicator.classList.add('active');
+            } else {
+                aimAssistIndicator.classList.remove('active');
+            }
+        }
+        
+        // Enhanced target finding for auto-aim
+        function findAutoAimTarget() {
+            if (!aimAssist || enemies.length === 0) return null;
+            
+            let bestTarget = null;
+            let bestScore = 0;
+            
+            enemies.forEach(enemy => {
+                // Calculate direction to enemy
+                const direction = new THREE.Vector3();
+                direction.subVectors(enemy.position, player.position).normalize();
+                
+                // Calculate angle between weapon direction and direction to enemy
+                const angle = direction.angleTo(weaponDirection);
+                
+                // Calculate distance to enemy
+                const distance = player.position.distanceTo(enemy.position);
+                
+                // Enhanced scoring for better auto-aim
+                const angleScore = Math.max(0, 1 - (angle / aimAssistConeAngle));
+                const distanceScore = Math.max(0, 1 - (distance / 200));
+                const velocityScore = 1 + (enemy.velocity.length() / 10); // Prefer moving targets
+                
+                const totalScore = angleScore * distanceScore * velocityScore;
+                
+                if (totalScore > bestScore) {
+                    bestScore = totalScore;
+                    bestTarget = enemy;
+                }
+            });
+            
+            return bestTarget;
+        }
+        
+        // Enhanced projectile firing with better auto-aim
+        function fireProjectile() {
+            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(player.quaternion);
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(player.quaternion);
+            
+            // Find the best target for auto-aim
+            const autoAimTarget = findAutoAimTarget();
+            
+            // Create three projectiles with slight offsets
+            for (let i = 0; i < 3; i++) {
+                const projectile = getProjectileFromPool();
+                
+                if (projectile) {
+                    // Position at the front of the ship with offset
+                    projectile.position.copy(player.position);
+                    
+                    // Calculate offset for spiral effect
+                    const angle = Date.now() * 0.001 * 10;
+                    const offsetDistance = 0.5;
+                    const xOffset = Math.cos(angle + i * Math.PI * 2 / 3) * offsetDistance;
+                    const yOffset = Math.sin(angle + i * Math.PI * 2 / 3) * offsetDistance;
+                    
+                    // Apply offset
+                    projectile.position.add(right.multiplyScalar(xOffset));
+                    projectile.position.add(up.multiplyScalar(yOffset));
+                    
+                    // Move forward from ship
+                    projectile.position.add(forward.multiplyScalar(3));
+                    
+                    // Enhanced auto-aim with predictive targeting
+                    let fireDirection = forward.clone();
+                    if (autoAimTarget && aimAssist) {
+                        const directionToTarget = new THREE.Vector3();
+                        directionToTarget.subVectors(autoAimTarget.position, projectile.position).normalize();
+                        
+                        // Add slight prediction for moving targets
+                        const targetSpeed = autoAimTarget.velocity.length();
+                        if (targetSpeed > 1) {
+                            const predictionFactor = 0.1 * targetSpeed;
+                            const predictedPosition = autoAimTarget.position.clone().add(
+                                autoAimTarget.velocity.clone().multiplyScalar(predictionFactor)
+                            );
+                            directionToTarget.subVectors(predictedPosition, projectile.position).normalize();
+                        }
+                        
+                        fireDirection.lerp(directionToTarget, aimAssistStrength);
+                    }
+                    
+                    // Set velocity in the fire direction with slight spread
+                    const spreadFactor = 0.03; // Reduced spread for better accuracy
+                    const spreadVector = fireDirection.clone()
+                        .add(right.multiplyScalar((Math.random() - 0.5) * spreadFactor))
+                        .add(up.multiplyScalar((Math.random() - 0.5) * spreadFactor))
+                        .normalize();
+                    
+                    projectile.velocity = spreadVector.multiplyScalar(200);
+                    
+                    // Make projectile visible
+                    projectile.visible = true;
+                    
+                    // Add to projectiles array
+                    projectiles.push(projectile);
+                    
+                    // Track shots fired
+                    shotsFired++;
+                }
+            }
+        }
+        
+        // Enhanced missile firing with improved homing
+        function fireMissile() {
+            if (enemies.length === 0) return;
+            
+            const missile = getMissileFromPool();
+            
+            if (missile) {
+                // Position at the front of the ship
+                missile.position.copy(player.position);
+                const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+                missile.position.add(forward.multiplyScalar(3));
+                
+                // Set initial velocity in the direction the player is facing
+                missile.velocity = forward.multiplyScalar(60);
+                
+                // Find the best target using enhanced targeting
+                let bestTarget = null;
+                let bestScore = 0;
+                
+                enemies.forEach(enemy => {
+                    const distance = player.position.distanceTo(enemy.position);
+                    const angle = forward.angleTo(
+                        new THREE.Vector3().subVectors(enemy.position, player.position).normalize()
+                    );
+                    
+                    // Score targets based on distance and angle
+                    const score = (1 / distance) * (1 - (angle / Math.PI));
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestTarget = enemy;
+                    }
+                });
+                
+                // Store target
+                missile.target = bestTarget;
+                missile.homingStrength = 0.1; // Initial homing strength
+                
+                // Make missile visible
+                missile.visible = true;
+                
+                // Add to missiles array
+                missiles.push(missile);
+                
+                // Track shots fired
+                shotsFired++;
+            }
+        }
+        
+        // Enhanced missile homing behavior
+        function updateMissileHoming(missile, delta) {
+            if (missile.target && scene.getObjectById(missile.target.id)) {
+                const target = missile.target;
+                
+                // Calculate direction to target
+                const directionToTarget = new THREE.Vector3()
+                    .subVectors(target.position, missile.position)
+                    .normalize();
+                
+                // Add predictive targeting for moving targets
+                const targetVelocity = target.velocity.clone();
+                const distanceToTarget = missile.position.distanceTo(target.position);
+                const timeToIntercept = distanceToTarget / missile.velocity.length();
+                const predictedPosition = target.position.clone().add(
+                    targetVelocity.multiplyScalar(timeToIntercept * 0.5)
+                );
+                
+                const predictiveDirection = new THREE.Vector3()
+                    .subVectors(predictedPosition, missile.position)
+                    .normalize();
+                
+                // Blend between direct and predictive targeting
+                const finalDirection = directionToTarget.lerp(predictiveDirection, 0.7);
+                
+                // Gradually increase homing strength over time
+                missile.homingStrength = Math.min(0.3, missile.homingStrength + delta * 0.1);
+                
+                // Apply homing with smooth interpolation
+                missile.velocity.lerp(finalDirection.multiplyScalar(80), missile.homingStrength * delta * 5);
+                
+                // Rotate missile to face direction of travel
+                missile.lookAt(missile.position.clone().add(missile.velocity));
+            }
+        }
+        
+        // Create explosion at position
+        function createExplosionAt(position) {
+            const explosion = getExplosionFromPool();
+            
+            if (explosion) {
+                explosion.position.copy(position);
+                explosion.scale.set(0.1, 0.1, 0.1);
+                explosion.life = 1.0;
+                explosion.visible = true;
+                
+                // Add to explosions array
+                explosions.push(explosion);
+                
+                return explosion;
+            }
+            
+            return null;
+        }
+        
+        // Update explosions
+        function updateExplosions(delta) {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const explosion = explosions[i];
+                
+                // Update explosion life
+                explosion.life -= delta * 2;
+                
+                if (explosion.life <= 0) {
+                    // Remove explosion
+                    explosion.visible = false;
+                    explosions.splice(i, 1);
+                    continue;
+                }
+                
+                // Scale explosion based on life
+                const scale = (1 - explosion.life) * 5;
+                explosion.scale.set(scale, scale, scale);
+                
+                // Fade out
+                explosion.material.opacity = explosion.life * 0.8;
+            }
+        }
+        
+        // Update projectiles and check for collisions
+        function updateProjectiles(delta) {
+            // Update projectiles
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const projectile = projectiles[i];
+                projectile.position.add(projectile.velocity.clone().multiplyScalar(delta));
+                
+                // Remove if too far away
+                if (projectile.position.distanceTo(player.position) > 500) {
+                    projectile.visible = false;
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collisions with enemies
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (projectile.position.distanceTo(enemy.position) < 3) {
+                        // Hit enemy
+                        enemy.health--;
+                        
+                        if (enemy.health <= 0) {
+                            // Enemy destroyed - create explosion
+                            createExplosionAt(enemy.position);
+                            
+                            // Remove enemy
+                            enemy.visible = false;
+                            enemies.splice(j, 1);
+                            
+                            // Update score
+                            playerStats.score += 100;
+                            document.getElementById('scoreValue').textContent = playerStats.score;
+                            
+                            // Update enemy counter
+                            const enemyCount = parseInt(document.getElementById('enemyCount').textContent) + 1;
+                            document.getElementById('enemyCount').textContent = enemyCount;
+                            
+                            // Track shots hit
+                            shotsHit++;
+                            
+                            // Check if wave is complete
+                            if (enemies.length === 0) {
+                                currentWave++;
+                                if (currentWave <= totalWaves) {
+                                    showConsoleMessage(`Wave ${currentWave-1} complete! Starting wave ${currentWave}`);
+                                    setTimeout(() => spawnWave(currentWave), 2000);
+                                } else {
+                                    showConsoleMessage("Congratulations! You've completed all waves!");
+                                    setTimeout(() => showResults(), 2000);
+                                }
+                            }
+                        }
+                        
+                        hit = true;
+                        break;
+                    }
+                }
+                
+                if (hit) {
+                    projectile.visible = false;
+                    projectiles.splice(i, 1);
+                }
+            }
+            
+            // Update missiles with enhanced homing
+            for (let i = missiles.length - 1; i >= 0; i--) {
+                const missile = missiles[i];
+                
+                // Apply enhanced homing
+                updateMissileHoming(missile, delta);
+                
+                missile.position.add(missile.velocity.clone().multiplyScalar(delta));
+                
+                // Remove if too far away
+                if (missile.position.distanceTo(player.position) > 1000) {
+                    missile.visible = false;
+                    missiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collisions with enemies
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (missile.position.distanceTo(enemy.position) < 5) {
+                        // Hit enemy - missiles do more damage
+                        enemy.health -= 3;
+                        
+                        if (enemy.health <= 0) {
+                            // Enemy destroyed - create bigger explosion
+                            const explosion = createExplosionAt(enemy.position);
+                            if (explosion) {
+                                explosion.scale.set(0.2, 0.2, 0.2);
+                            }
+                            
+                            // Remove enemy
+                            enemy.visible = false;
+                            enemies.splice(j, 1);
+                            
+                            // Update score
+                            playerStats.score += 250;
+                            document.getElementById('scoreValue').textContent = playerStats.score;
+                            
+                            // Update enemy counter
+                            const enemyCount = parseInt(document.getElementById('enemyCount').textContent) + 1;
+                            document.getElementById('enemyCount').textContent = enemyCount;
+                            
+                            // Track shots hit
+                            shotsHit++;
+                            
+                            // Check if wave is complete
+                            if (enemies.length === 0) {
+                                currentWave++;
+                                if (currentWave <= totalWaves) {
+                                    showConsoleMessage(`Wave ${currentWave-1} complete! Starting wave ${currentWave}`);
+                                    setTimeout(() => spawnWave(currentWave), 2000);
+                                } else {
+                                    showConsoleMessage("Congratulations! You've completed all waves!");
+                                    setTimeout(() => showResults(), 2000);
+                                }
+                            }
+                        }
+                        
+                        hit = true;
+                        break;
+                    }
+                }
+                
+                if (hit) {
+                    missile.visible = false;
+                    missiles.splice(i, 1);
+                }
+            }
+        }
+        
+        // Update enemies
+        function updateEnemies(delta) {
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                
+                // Enhanced AI: move toward player with more dynamic movement
+                const direction = new THREE.Vector3()
+                    .subVectors(player.position, enemy.position)
+                    .normalize();
+                
+                // Add more dynamic randomness to movement
+                direction.x += (Math.random() - 0.5) * 0.5;
+                direction.y += (Math.random() - 0.5) * 0.5;
+                direction.z += (Math.random() - 0.5) * 0.5;
+                
+                // Apply velocity with smoother movement
+                enemy.velocity.lerp(direction.multiplyScalar(12), 0.05);
+                enemy.position.add(enemy.velocity.clone().multiplyScalar(delta));
+                
+                // Rotate toward player
+                enemy.lookAt(player.position);
+                
+                // Check for collision with player
+                if (enemy.position.distanceTo(player.position) < 5) {
+                    // Player hit - flash warning
+                    document.getElementById('warningAlert').classList.add('active');
+                    setTimeout(() => {
+                        document.getElementById('warningAlert').classList.remove('active');
+                    }, 1000);
+                    
+                    // Reduce score
+                    playerStats.score = Math.max(0, playerStats.score - 50);
+                    document.getElementById('scoreValue').textContent = playerStats.score;
+                    
+                    // Push player back
+                    const pushDirection = new THREE.Vector3()
+                        .subVectors(player.position, enemy.position)
+                        .normalize();
+                    
+                    player.position.add(pushDirection.multiplyScalar(10));
+                }
+            }
+        }
+        
+        // Set up event listeners
+        function setupEventListeners() {
+            // Keyboard controls
+            document.addEventListener('keydown', (e) => {
+                switch(e.key.toLowerCase()) {
+                    case 'w': controls.forward = true; break;
+                    case 's': controls.backward = true; break;
+                    case 'a': controls.left = true; break;
+                    case 'd': controls.right = true; break;
+                    case 'q': controls.strafeLeft = true; break;
+                    case 'e': controls.strafeRight = true; break;
+                    case 'z': controls.rollLeft = true; break;
+                    case 'x': controls.rollRight = true; break;
+                    case ' ': controls.fire = true; break;
+                    case 'r': controls.missile = true; break;
+                    case 'shift': controls.boost = true; break;
+                    case 'tab': controls.lightspeed = true; break;
+                    case 'c': 
+                        // 180° turn
+                        player.rotation.y += Math.PI;
+                        break;
+                    case 'escape':
+                        toggleMenu();
+                        break;
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                switch(e.key.toLowerCase()) {
+                    case 'w': controls.forward = false; break;
+                    case 's': controls.backward = false; break;
+                    case 'a': controls.left = false; break;
+                    case 'd': controls.right = false; break;
+                    case 'q': controls.strafeLeft = false; break;
+                    case 'e': controls.strafeRight = false; break;
+                    case 'z': controls.rollLeft = false; break;
+                    case 'x': controls.rollRight = false; break;
+                    case ' ': controls.fire = false; break;
+                    case 'r': controls.missile = false; break;
+                    case 'shift': controls.boost = false; break;
+                    case 'tab': controls.lightspeed = false; break;
+                }
+            });
+            
+            // Enhanced mouse controls for rotation
+            document.addEventListener('mousemove', (e) => {
+                if (!isPointerLocked || currentState !== GameState.PLAYING) return;
+                
+                const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+                const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+                
+                // Accumulate mouse movement for smooth rotation
+                mouseX += movementX;
+                mouseY += movementY;
+            });
+            
+            // Mouse button controls
+            document.addEventListener('mousedown', (e) => {
+                if (e.button === 0) controls.fire = true;
+                if (e.button === 2) controls.missile = true;
+            });
+            
+            document.addEventListener('mouseup', (e) => {
+                if (e.button === 0) controls.fire = false;
+                if (e.button === 2) controls.missile = false;
+            });
+            
+            // Prevent context menu on right click
+            document.addEventListener('contextmenu', (e) => e.preventDefault());
+            
+            // Pointer lock controls
+            document.addEventListener('click', () => {
+                if (currentState === GameState.PLAYING && !isPointerLocked) {
+                    document.body.requestPointerLock();
+                }
+            });
+            
+            document.addEventListener('pointerlockchange', () => {
+                isPointerLocked = document.pointerLockElement === document.body;
+            });
+            
+            // Window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                
+                // Check if mobile mode should be enabled/disabled
+                isMobile = window.innerWidth <= 768;
+            });
+            
+            // UI button events
+            document.getElementById('boostBtn').addEventListener('mousedown', () => controls.boost = true);
+            document.getElementById('boostBtn').addEventListener('mouseup', () => controls.boost = false);
+            document.getElementById('boostBtn').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.boost = true;
+            });
+            document.getElementById('boostBtn').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.boost = false;
+            });
+            
+            document.getElementById('lightspeedBtn').addEventListener('mousedown', () => controls.lightspeed = true);
+            document.getElementById('lightspeedBtn').addEventListener('mouseup', () => controls.lightspeed = false);
+            document.getElementById('lightspeedBtn').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.lightspeed = true;
+            });
+            document.getElementById('lightspeedBtn').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.lightspeed = false;
+            });
+            
+            document.getElementById('fireBtn').addEventListener('mousedown', () => controls.fire = true);
+            document.getElementById('fireBtn').addEventListener('mouseup', () => controls.fire = false);
+            document.getElementById('fireBtn').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.fire = true;
+            });
+            document.getElementById('fireBtn').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.fire = false;
+            });
+            
+            document.getElementById('missileBtn').addEventListener('mousedown', () => controls.missile = true);
+            document.getElementById('missileBtn').addEventListener('mouseup', () => controls.missile = false);
+            document.getElementById('missileBtn').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.missile = true;
+            });
+            document.getElementById('missileBtn').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.missile = false;
+            });
+            
+            document.getElementById('menuBtn').addEventListener('click', toggleMenu);
+            document.getElementById('menuBtn').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                toggleMenu();
+            });
+            
+            // Camera toggle
+            document.getElementById('cameraToggle').addEventListener('click', toggleCamera);
+            
+            // Settings menu - Fixed inversion handling
+            document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+            document.getElementById('backBtn').addEventListener('click', toggleMenu);
+            
+            // Results screen buttons
+            document.getElementById('restartBtn').addEventListener('click', restartGame);
+            document.getElementById('resultsBackBtn').addEventListener('click', () => {
+                document.getElementById('resultsScreen').style.display = 'none';
+                toggleMenu();
+            });
+            
+            // Mouse sensitivity slider
+            const sensitivitySlider = document.getElementById('mouseSensitivity');
+            const sensitivityValue = document.getElementById('sensitivityValue');
+            sensitivitySlider.addEventListener('input', () => {
+                mouseSensitivity = parseFloat(sensitivitySlider.value);
+                sensitivityValue.textContent = mouseSensitivity.toFixed(4);
+            });
+            
+            // Fixed inversion checkbox - properly handles change events
+            const invertCheckbox = document.getElementById('invertYAxis');
+            invertCheckbox.addEventListener('change', (e) => {
+                invertYAxis = e.target.checked;
+                showConsoleMessage(invertYAxis ? "Inverted mouse mode" : "Normal mouse mode");
+            });
+            
+            // Flight assist checkbox
+            document.getElementById('flightAssist').addEventListener('change', (e) => {
+                flightAssist = e.target.checked;
+            });
+            
+            // Auto-aim checkbox
+            document.getElementById('aimAssist').addEventListener('change', (e) => {
+                aimAssist = e.target.checked;
+            });
+            
+            // Performance mode checkbox
+            document.getElementById('performanceMode').addEventListener('change', (e) => {
+                performanceMode = e.target.checked;
+                // Apply performance mode changes
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, performanceMode ? 1 : 2));
+                renderer.shadowMap.enabled = !performanceMode;
+            });
+        }
+        
+        // Set up mobile controls
+        function setupMobileControls() {
+            const joystickElement = document.getElementById('moveJoystick');
+            const joystickHandle = joystickElement.querySelector('.mobile-joystick-handle');
+            
+            joystickElement.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const rect = joystickElement.getBoundingClientRect();
+                joystick.startPos = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                joystick.active = true;
+            });
+            
+            joystickElement.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (!joystick.active) return;
+                
+                const touch = e.touches[0];
+                const dx = touch.clientX - joystick.startPos.x;
+                const dy = touch.clientY - joystick.startPos.y;
+                
+                // Calculate distance from center
+                const distance = Math.min(joystick.radius, Math.sqrt(dx * dx + dy * dy));
+                const angle = Math.atan2(dy, dx);
+                
+                // Update joystick handle position
+                joystickHandle.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+                
+                // Normalize values for controls
+                const normalizedX = dx / joystick.radius;
+                const normalizedY = dy / joystick.radius;
+                
+                // Update controls based on joystick position
+                controls.left = normalizedX < -0.3;
+                controls.right = normalizedX > 0.3;
+                controls.forward = normalizedY < -0.3;
+                controls.backward = normalizedY > 0.3;
+            });
+            
+            joystickElement.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                joystick.active = false;
+                joystickHandle.style.transform = 'translate(0, 0)';
+                
+                // Reset controls
+                controls.left = false;
+                controls.right = false;
+                controls.forward = false;
+                controls.backward = false;
+            });
+            
+            // Mobile buttons
+            document.getElementById('mobileBoost').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.boost = true;
+            });
+            document.getElementById('mobileBoost').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.boost = false;
+            });
+            
+            document.getElementById('mobileFire').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.fire = true;
+            });
+            document.getElementById('mobileFire').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.fire = false;
+            });
+            
+            document.getElementById('mobileMissile').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                controls.missile = true;
+            });
+            document.getElementById('mobileMissile').addEventListener('touchend', (e) => {
+                e.preventDefault();
+                controls.missile = false;
+            });
+            
+            document.getElementById('mobileMenu').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                toggleMenu();
+            });
+        }
+        
+        // Toggle camera mode
+        function toggleCamera() {
+            currentCameraMode = (currentCameraMode + 1) % 3;
+            const cameraToggle = document.getElementById('cameraToggle');
+            
+            switch(currentCameraMode) {
+                case CameraMode.FIRST_PERSON:
+                    cameraToggle.textContent = '1P';
+                    showConsoleMessage("First-person camera");
+                    break;
+                case CameraMode.THIRD_PERSON:
+                    cameraToggle.textContent = '3P';
+                    showConsoleMessage("Third-person camera");
+                    break;
+                case CameraMode.CHASE:
+                    cameraToggle.textContent = 'CH';
+                    showConsoleMessage("Chase camera");
+                    break;
+            }
+        }
+        
+        // Toggle menu
+        function toggleMenu() {
+            if (currentState === GameState.PLAYING) {
+                currentState = GameState.PAUSED;
+                document.getElementById('settingsMenu').style.display = 'block';
+                document.exitPointerLock();
+            } else if (currentState === GameState.PAUSED) {
+                currentState = GameState.PLAYING;
+                document.getElementById('settingsMenu').style.display = 'none';
+                document.body.requestPointerLock();
+            }
+        }
+        
+        // Restart game
+        function restartGame() {
+            // Reset game state
+            currentState = GameState.PLAYING;
+            currentWave = 1;
+            playerStats.score = 0;
+            playerStats.speed = 0;
+            playerStats.boostEnergy = 100;
+            playerStats.lightspeedEnergy = 100;
+            waveTimes = [];
+            totalGameTime = 0;
+            shotsFired = 0;
+            shotsHit = 0;
+            
+            // Clear enemies
+            enemies.forEach(enemy => {
+                enemy.visible = false;
+            });
+            enemies = [];
+            
+            // Clear projectiles
+            projectiles.forEach(projectile => {
+                projectile.visible = false;
+            });
+            projectiles = [];
+            
+            // Clear missiles
+            missiles.forEach(missile => {
+                missile.visible = false;
+            });
+            missiles = [];
+            
+            // Clear explosions
+            explosions.forEach(explosion => {
+                explosion.visible = false;
+            });
+            explosions = [];
+            
+            // Reset player position
+            player.position.set(0, 0, 0);
+            player.rotation.set(0, 0, 0);
+            
+            // Update UI
+            document.getElementById('scoreValue').textContent = '0';
+            document.getElementById('enemyCount').textContent = '0';
+            document.getElementById('waveCount').textContent = '1';
+            document.getElementById('waveTimer').textContent = '0.0';
+            document.getElementById('avgTime').textContent = '0.0';
+            
+            // Hide results screen
+            document.getElementById('resultsScreen').style.display = 'none';
+            
+            // Start new game
+            spawnWave(currentWave);
+            waveStartTime = clock.getElapsedTime();
+            
+            // Request pointer lock
+            document.body.requestPointerLock();
+        }
+        
+        // Save settings
+        function saveSettings() {
+            // Settings are already updated via event listeners
+            showConsoleMessage("Settings saved");
+            toggleMenu();
+        }
+        
+        // Show console message
+        function showConsoleMessage(message) {
+            const consoleElement = document.getElementById('consoleMessage');
+            consoleElement.textContent = message;
+            consoleElement.classList.add('active');
+            
+            setTimeout(() => {
+                consoleElement.classList.remove('active');
+            }, 3000);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = Math.min(clock.getDelta(), 0.1);
+            
+            if (currentState === GameState.PLAYING) {
+                updatePlayer(delta);
+                updateProjectiles(delta);
+                updateEnemies(delta);
+                updateExplosions(delta);
+            }
+            
+            updateCamera(delta);
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the game when the window loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
