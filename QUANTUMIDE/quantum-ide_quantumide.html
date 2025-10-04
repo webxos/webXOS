@@ -1,0 +1,180 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebXOS 2025 Quantum IDE</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/q.js@latest/dist/q.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif;}
+        :root{--neon-green:#0f0;--dark-bg:#000;--card-bg:rgba(15,15,26,0.8);}
+        body{background-color:var(--dark-bg);color:#fff;height:100vh;overflow:hidden;}
+        #three-container{position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;}
+        .app-container{display:flex;height:100vh;}
+        .sidebar{width:200px;background:rgba(10,10,10,0.9);border-right:1px solid var(--neon-green);padding:10px 0;}
+        .logo{padding:15px;font-size:20px;font-weight:700;border-bottom:1px solid rgba(0,255,0,0.3);display:flex;align-items:center;gap:8px;}
+        .neon-text{color:#fff;text-shadow:0 0 5px #fff,0 0 10px var(--neon-green);}
+        .nav-item{padding:10px 15px;display:flex;align-items:center;gap:10px;cursor:pointer;}
+        .nav-item:hover,.nav-item.active{background:rgba(0,255,0,0.15);border-left:3px solid var(--neon-green);}
+        .nav-item i{color:var(--neon-green);}
+        .main-content{flex-grow:1;display:flex;flex-direction:column;}
+        .tabs{display:flex;background:rgba(10,10,10,0.9);}
+        .tab-button{padding:10px 20px;background:none;border:none;color:#fff;cursor:pointer;}
+        .tab-button.active{color:var(--neon-green);box-shadow:0 -2px 0 var(--neon-green) inset;}
+        .tab-content{display:none;padding:15px;}
+        .tab-content.active{display:block;}
+        .hero-section{text-align:center;padding:20px;}
+        .hero-title{font-size:2.5rem;font-weight:800;color:var(--neon-green);}
+        .btn{padding:8px 15px;border-radius:4px;cursor:pointer;background:rgba(0,255,0,0.2);color:var(--neon-green);border:1px solid var(--neon-green);}
+        #q-editor{width:100%;height:300px;border:1px solid var(--neon-green);margin:10px 0;}
+        .info-box{background:rgba(0,50,0,0.3);border:1px solid var(--neon-green);padding:10px;}
+        .status-bar{position:fixed;bottom:0;width:100%;background:rgba(10,10,10,0.9);padding:8px 15px;display:flex;justify-content:space-between;font-size:12px;}
+        .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:100;}
+        .modal-content{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card-bg);border:2px solid var(--neon-green);padding:20px;max-width:500px;}
+        .close-btn{background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer;}
+        @media (max-width:768px){.sidebar{width:60px;}.nav-item span{display:none;}}
+    </style>
+</head>
+<body>
+    <div id="three-container"></div>
+    <div class="app-container">
+        <div class="sidebar">
+            <div class="logo"><i class="fas fa-code"></i><span class="neon-text">webXOS</span></div>
+            <div class="nav-items">
+                <div class="nav-item active" onclick="openTab('dashboard')"><i class="fas fa-home"></i><span>Dashboard</span></div>
+                <div class="nav-item" onclick="openTab('simulator')"><i class="fas fa-atom"></i><span>Simulator</span></div>
+                <div class="nav-item" onclick="openTab('tools')"><i class="fas fa-tools"></i><span>Tools</span></div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab-button active" onclick="openTab('dashboard')">Dashboard</button>
+                <button class="tab-button" onclick="openTab('simulator')">Simulator</button>
+                <button class="tab-button" onclick="openTab('tools')">Tools</button>
+            </div>
+            <div id="dashboard" class="tab-content active">
+                <div class="hero-section">
+                    <h1 class="hero-title neon-text">WebXOS Quantum IDE</h1>
+                    <p>Lightweight quantum IDE with Q.js & QuTiP</p>
+                    <button class="btn" onclick="launchSim()">Launch Sim</button>
+                    <button class="btn" onclick="showModal('settingsModal')">Settings</button>
+                </div>
+            </div>
+            <div id="simulator" class="tab-content">
+                <h2 class="neon-text">Quantum Simulator</h2>
+                <div id="q-editor"></div>
+                <button class="btn" onclick="runQSim()">Run Q.js Sim</button>
+                <button class="btn" onclick="sendToBackend()">Run QuTiP Sim</button>
+                <div id="sim-results" class="info-box"></div>
+            </div>
+            <div id="tools" class="tab-content">
+                <h2 class="neon-text">Diagnostics</h2>
+                <div class="info-box">Lint via GitHub Actions. Deploy: webxos.netlify.app</div>
+            </div>
+        </div>
+    </div>
+    <div class="status-bar">
+        <span>IDE: Online | Qubits: 20 (Client)</span>
+        <span>Backend: localhost:5000</span>
+    </div>
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div><h3 class="neon-text">Settings</h3><button class="close-btn" onclick="closeModal('settingsModal')">&times;</button></div>
+            <div class="info-box"><p>Backend API: <code>http://localhost:5000/api/settings</code></p></div>
+        </div>
+    </div>
+    <script>
+        function openTab(tabName) {
+            document.querySelectorAll('.tab-content,.tab-button,.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        function showModal(modalId) { document.getElementById(modalId).style.display = 'block'; }
+        function closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
+        window.onclick = e => { if (e.target.classList.contains('modal')) e.target.style.display = 'none'; };
+        let circuit = q();
+        function launchSim() { openTab('simulator'); initQEditor(); }
+        function initQEditor() {
+            const editor = document.getElementById('q-editor');
+            editor.innerHTML = '';
+            circuit = q`
+                q0: |0> -- H -- • -- M
+                           |  
+                q1: |0> -- X -- • -- M
+            `;
+            q(editor).render(circuit);
+        }
+        function runQSim() {
+            const result = circuit.run();
+            document.getElementById('sim-results').innerHTML = `<h4>Results:</h4><pre>${JSON.stringify(result.probabilities,null,2)}</pre>`;
+        }
+        async function sendToBackend() {
+            try {
+                const res = await fetch('http://localhost:5000/api/simulator', {
+                    method: 'POST',
+                    body: JSON.stringify({circuit: 'bell'}),
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await res.json();
+                document.getElementById('sim-results').innerHTML = `<h4>QuTiP Results:</h4><pre>${JSON.stringify(data,null,2)}</pre>`;
+            } catch (e) { alert('Backend offline'); }
+        }
+        function initThree() {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+            camera.position.z = 15;
+            const renderer = new THREE.WebGLRenderer({alpha: true});
+            renderer.setSize(innerWidth, innerHeight);
+            document.getElementById('three-container').appendChild(renderer.domElement);
+            const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Array(300).fill().flatMap(() => [Math.random()*20-10,Math.random()*20-10,Math.random()*20-10]), 3));
+            const mat = new THREE.PointsMaterial({color: 0x00ff00, size: 0.05});
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            function animate() { requestAnimationFrame(animate); points.rotation.y += 0.002; renderer.render(scene, camera); }
+            animate();
+        }
+        window.addEventListener('load', initThree);
+    </script>
+</body>
+</html>

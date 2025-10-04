@@ -1,0 +1,81 @@
+name: Quantum IDE Full Lint & Diagnostics
+
+on:
+  push:
+    paths:
+      - 'quantum-ide/**'
+  pull_request:
+    paths:
+      - 'quantum-ide/**'
+  workflow_dispatch:
+
+jobs:
+  lint-quantum-ide:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install linters
+        run: |
+          npm install -g htmlhint eslint stylelint stylelint-config-standard
+          pip install yamllint flake8 black mypy
+
+      - name: Extract and Lint Inline CSS/JS
+        run: |
+          sed -n '/<style>/,/<\/style>/p' quantum-ide/quantumide.html | sed '1d;$d' > temp.css
+          sed -n '/<script>/,/<\/script>/p' quantum-ide/quantumide.html | sed '1d;$d' > temp.js
+          stylelint temp.css || echo "::warning file=quantum-ide/quantumide.html::Inline CSS issues detected"
+          eslint temp.js || echo "::warning file=quantum-ide/quantumide.html::Inline JS issues detected"
+          rm temp.css temp.js
+
+      - name: Lint HTML
+        run: |
+          htmlhint quantum-ide/quantumide.html || echo "::warning file=quantum-ide/quantumide.html::HTML issues detected"
+
+      - name: Lint YAML
+        run: |
+          yamllint quantum-ide/config.yaml || echo "::warning file=quantum-ide/config.yaml::YAML issues detected"
+
+      - name: Lint Python
+        run: |
+          flake8 quantum-ide/server.py quantum-ide/qutip_sim.py || echo "::warning file=quantum-ide/*.py::Python issues detected"
+          black --check quantum-ide/*.py || echo "::warning file=quantum-ide/*.py::Formatting issues"
+          mypy quantum-ide/*.py || echo "::warning file=quantum-ide/*.py::Type errors"
+
+      - name: Comment PR with Diagnostics
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let output = '### Lint Diagnostics for Copilot\n';
+            output += '- HTML/CSS/JS: Check inline code in quantumide.html\n';
+            output += '- Python: Review server.py, qutip_sim.py\n';
+            output += '- YAML: Verify config.yaml\n';
+            output += 'Use Copilot to fix issues or run `black`/`eslint --fix`.';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Upload Lint Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: |
+            quantum-ide/*.py
+            quantum-ide/*.yaml
