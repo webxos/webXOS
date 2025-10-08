@@ -1,5 +1,7 @@
 # Introduction to the Quantum Network Protocol (QNP) 
 
+*https://claude.ai/public/artifacts/78a9a370-0a45-4ddf-b659-ed7488dea788*
+
 by **webXOS** 2025 
 webxos.netlify.app 
 github.com/webxos
@@ -84,6 +86,7 @@ The goal of QNP is to foster empathetic collaboration between quantum and AI com
 by **webXOS** 2025 
 webxos.netlify.app 
 github.com/webxos
+*https://claude.ai/public/artifacts/78a9a370-0a45-4ddf-b659-ed7488dea788*
 
 - [Designing a Quantum Network Protocol](https://arxiv.org/pdf/2010.02575)
 - [The power of quantum neural networks](https://www.ibm.com/quantum/blog/quantum-neural-network-power)
