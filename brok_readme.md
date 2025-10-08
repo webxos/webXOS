@@ -1,4 +1,4 @@
-# 🛡️ Brok Agentic Firewall - Complete Project Files and Setup *(UNDER DEVELOPMENT, FINAL GUIDE COMING SOON)*
+# 🛡️ Brok: Agentic Firewall - Complete Project Files and Setup *(UNDER DEVELOPMENT, FINAL GUIDE COMING SOON)*
 
 ## Overview
 
