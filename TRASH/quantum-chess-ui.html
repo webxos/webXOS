@@ -1,0 +1,209 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Chess Simulator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; background: #000; color: #00ff41; overflow: hidden; }
+        .container { display: flex; height: 100vh; flex-direction: row; }
+        @media (max-width: 768px) { .container { flex-direction: column; } }
+        
+        .panel { width: 25%; height: 100%; position: relative; }
+        .center-panel { width: 50%; height: 100%; position: relative; }
+        @media (max-width: 768px) { 
+            .panel { width: 100%; height: 25%; } 
+            .center-panel { width: 100%; height: 50%; } 
+        }
+        
+        .black-panel { background: linear-gradient(135deg, #000, #001100); border-right: 2px solid #00ff41; }
+        .green-panel { background: linear-gradient(135deg, #000, #110000); border-left: 2px solid #00ff41; }
+        .center-panel { background: #000; }
+        
+        .panel-title { position: absolute; top: 10px; left: 10px; font-size: 18px; z-index: 10; text-shadow: 0 0 10px currentColor; }
+        .black-panel .panel-title { color: #ffffff; }
+        .green-panel .panel-title { color: #00ff41; }
+        .center-panel .panel-title { color: #00ff41; text-align: center; left: 0; right: 0; }
+        
+        #chess-container, #green-chess-container, #main-chess-container { width: 100%; height: 70%; position: absolute; top: 50px; }
+        
+        .controls { position: absolute; bottom: 10px; left: 10px; right: 10px; height: 40px; display: flex; gap: 10px; z-index: 10; }
+        .btn { padding: 5px 10px; background: rgba(0,255,65,0.2); border: 1px solid #00ff41; color: #00ff41; cursor: pointer; border-radius: 3px; }
+        .btn:hover { background: rgba(0,255,65,0.4); box-shadow: 0 0 5px #00ff41; }
+        .black-panel .btn { background: rgba(255,255,255,0.2); border-color: #ffffff; color: #ffffff; }
+        .black-panel .btn:hover { background: rgba(255,255,255,0.4); box-shadow: 0 0 5px #ffffff; }
+        
+        .metrics { position: absolute; bottom: 60px; left: 10px; right: 10px; height: 40px; display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+        .metric { background: rgba(0,255,65,0.1); border: 1px solid #00ff41; height: 100%; position: relative; }
+        .metric::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; background: #00ff41; height: 50%; transition: height 0.3s; }
+        .black-panel .metric { background: rgba(255,255,255,0.1); border-color: #ffffff; }
+        .black-panel .metric::after { background: #ffffff; }
+        
+        #neural-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.3; z-index: 5; }
+        .green-panel #neural-glow { box-shadow: inset 0 0 50px #00ff41; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="panel black-panel">
+            <div class="panel-title">AGENT 1: BLACK</div>
+            <div class="status" id="black-status">Ready</div>
+            <canvas id="chess-container"></canvas>
+            <div class="metrics" id="black-metrics"></div>
+            <div class="controls">
+                <button class="btn" onclick="loadBlackNN()">Load NN</button>
+                <button class="btn" onclick="unloadBlackNN()">Unload NN</button>
+                <button class="btn" onclick="trainBlack()">Train</button>
+            </div>
+            <div id="neural-glow"></div>
+        </div>
+        <div class="center-panel">
+            <div class="panel-title">QUANTUM CHESS BOARD</div>
+            <canvas id="main-chess-container"></canvas>
+        </div>
+        <div class="panel green-panel">
+            <div class="panel-title">AGENT 2: NEON GREEN</div>
+            <div class="status" id="green-status">Ready</div>
+            <canvas id="green-chess-container"></canvas>
+            <div class="metrics" id="green-metrics"></div>
+            <div class="controls">
+                <button class="btn" onclick="loadGreenNN()">Load NN</button>
+                <button class="btn" onclick="unloadGreenNN()">Unload NN</button>
+                <button class="btn" onclick="trainGreen()">Train</button>
+            </div>
+            <div id="neural-glow"></div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        function initChessScene(containerId, pieceColor) {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / (containerId === 'main-chess-container' ? 2 : 4) / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById(containerId), alpha: true });
+            renderer.setSize(window.innerWidth / (containerId === 'main-chess-container' ? 2 : 4), window.innerHeight * 0.7);
+            
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            camera.position.set(0, 5, 5);
+            camera.lookAt(0, 0, 0);
+            
+            const boardGeometry = new THREE.PlaneGeometry(8, 8);
+            const boardMaterial = new THREE.MeshBasicMaterial({ color: 0x333333, wireframe: true });
+            const board = new THREE.Mesh(boardGeometry, boardMaterial);
+            board.rotation.x = -Math.PI / 2;
+            scene.add(board);
+            
+            const pieces = [];
+            for (let i = 0; i < 32; i++) {
+                const pieceGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                const pieceMaterial = new THREE.MeshBasicMaterial({ color: pieceColor });
+                const piece = new THREE.Mesh(pieceGeometry, pieceMaterial);
+                piece.position.set((i % 8 - 3.5) * 1, 0.4, Math.floor(i / 8 - 1.5) * 1);
+                pieces.push(piece);
+                scene.add(piece);
+            }
+            
+            let time = 0;
+            function animate() {
+                requestAnimationFrame(animate);
+                if (containerId === 'main-chess-container') {
+                    time += 0.02;
+                    pieces.forEach((piece, i) => {
+                        piece.position.x = (i % 8 - 3.5) * 1 + Math.sin(time + i) * 0.2;
+                        piece.position.z = Math.floor(i / 8 - 1.5) * 1 + Math.cos(time + i) * 0.2;
+                    });
+                }
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+            
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / (containerId === 'main-chess-container' ? 2 : 4) / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth / (containerId === 'main-chess-container' ? 2 : 4), window.innerHeight * 0.7);
+            });
+        }
+        
+        initChessScene('chess-container', 0x000000);
+        initChessScene('green-chess-container', 0x00ff41);
+        initChessScene('main-chess-container', 0x00ff41);
+        
+        function createMetrics(containerId, color) {
+            const container = document.getElementById(containerId);
+            for (let i = 0; i < 10; i++) {
+                const metric = document.createElement('div');
+                metric.className = 'metric';
+                metric.style.background = `rgba(${color === 'green' ? '0,255,65' : '255,255,255'},0.1)`;
+                metric.style.borderColor = color === 'green' ? '#00ff41' : '#ffffff';
+                container.appendChild(metric);
+            }
+        }
+        createMetrics('black-metrics', 'black');
+        createMetrics('green-metrics', 'green');
+        
+        function loadBlackNN() { document.getElementById('black-status').textContent = 'Loading NN...'; }
+        function unloadBlackNN() { document.getElementById('black-status').textContent = 'Unloaded'; }
+        function trainBlack() { document.getElementById('black-status').textContent = 'Training...'; }
+        function loadGreenNN() { document.getElementById('green-status').textContent = 'Loading NN...'; }
+        function unloadGreenNN() { document.getElementById('green-status').textContent = 'Unloaded'; }
+        function trainGreen() { document.getElementById('green-status').textContent = 'Training...'; }
+        
+        window.addEventListener('resize', () => {
+            const panels = document.querySelectorAll('.panel, .center-panel');
+            panels.forEach(panel => {
+                const container = panel.querySelector('canvas');
+                if (!container) return;
+                if (window.innerWidth <= 768) {
+                    container.width = window.innerWidth;
+                    container.height = window.innerHeight * (panel.classList.contains('center-panel') ? 0.5 : 0.25);
+                } else {
+                    container.width = window.innerWidth / (panel.classList.contains('center-panel') ? 2 : 4);
+                    container.height = window.innerHeight * 0.7;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
