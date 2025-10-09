@@ -1,4 +1,5 @@
-Agent Console Components
+Ultra-lightweight 3x QNN Model Console Components:
+
 Front-End only page and boilerplate template.
 Grid (10x10 Dots): Visual QNN layer. Click dots to toggle activation (green/red/blue colors). Hover for coords (X:Y).
 Console Log: Scrollable chat showing user inputs, bot responses, and events (e.g., training starts).
