@@ -1,4 +1,4 @@
-# WebXOS 2025 Quantum IDE (COMING SOON 2025)
+# WebXOS 2025 Quantum IDE (COMING SOON)
 
 **WebXOS Quantum IDE** is a lightweight, open-source development environment for quantum computing, built for model context protocol (MCP) workflows. It features a single-page front-end (`quantumide.html`, ~15KB minified) with inline CSS/JavaScript, powered by **Q.js** (MIT license) for client-side quantum circuit simulations (up to ~20 qubits) and a **Flask/QuTiP** backend (Apache license) for advanced quantum dynamics with diagnostics (e.g., fidelity, noise, up to ~30 qubits). The project is deployable as a static SPA on **Netlify** (`webxos.netlify.app`) and integrates with **GitHub Copilot** for AI-assisted linting and code fixes via GitHub Actions.
 
