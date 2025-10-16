@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEBXOS AI CHESS | Quantum Chess IDE</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.12.0/chess.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+        }
+
+        :root {
+            --neon-green: #39FF14;
+            --neon-blue: #00F3FF;
+            --neon-purple: #aa00ff;
+            --neon-red: #ff073a;
+            --neon-yellow: #ffd300;
+            --dark-bg: #0a0a0a;
+            --panel-bg: rgba(15, 15, 15, 0.9);
+            --light-square: #1b2328;
+            --dark-square: #0f1417;
+            --card-bg: rgba(15, 15, 26, 0.8);
+        }
+
+        body {
+            background: var(--dark-bg);
+            color: var(--neon-green);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--dark-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        .glitch-text {
+            font-size: 3rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            position: relative;
+            color: var(--neon-green);
+            text-shadow: 0.05em 0 0 var(--neon-green), -0.05em -0.025em 0 var(--neon-purple);
+            animation: glitch 1s infinite;
+        }
+
+        @keyframes glitch {
+            0% { transform: translate(0); }
+            20% { transform: translate(-2px, 2px); }
+            40% { transform: translate(-2px, -2px); }
+            60% { transform: translate(2px, 2px); }
+            80% { transform: translate(2px, -2px); }
+            100% { transform: translate(0); }
+        }
+
+        .loading-subtitle {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            color: var(--neon-blue);
+        }
+
+        .loading-bar {
+            width: 300px;
+            height: 10px;
+            background: rgba(57, 255, 20, 0.2);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .loading-progress {
+            height: 100%;
+            background: var(--neon-green);
+            width: 0%;
+            transition: width 0.3s;
+            box-shadow: 0 0 10px var(--neon-green);
+        }
+
+        /* App Container */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            opacity: 0;
+            transition: opacity 1s;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--neon-green);
+            z-index: 10;
+        }
+
+        .tab-button {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .tab-button.active {
+            color: var(--neon-green);
+            box-shadow: 0 -2px 0 var(--neon-green) inset;
+            text-shadow: 0 0 5px var(--neon-green);
+        }
+
+        .tab-button:hover {
+            background: rgba(57, 255, 20, 0.1);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        /* TRAIN Tab */
+        .train-container {
+            display: flex;
+            height: 100%;
+            width: 100%;
+        }
+
+        .agent-panel {
+            width: 25%;
+            height: 100%;
+            background: var(--panel-bg);
+            border: 1px solid var(--neon-green);
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .black-panel {
+            border-right: 2px solid var(--neon-green);
+        }
+
+        .green-panel {
+            border-left: 2px solid var(--neon-green);
+        }
+
+        .center-panel {
+            width: 50%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            position: relative;
+        }
+
+        .panel-title {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            text-align: center;
+            text-shadow: 0 0 5px currentColor;
+            padding-bottom: 5px;
+            border-bottom: 1px solid rgba(57, 255, 20, 0.3);
+        }
+
+        .black-panel .panel-title {
+            color: #fff;
+        }
+
+        .green-panel .panel-title {
+            color: var(--neon-green);
+        }
+
+        /* Metrics Display */
+        .metrics-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .metric-category {
+            margin-bottom: 8px;
+        }
+
+        .metric-category-title {
+            font-size: 0.8rem;
+            color: var(--neon-blue);
+            margin-bottom: 3px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+        }
+
+        .metric-label {
+            color: #aaa;
+        }
+
+        .metric-value {
+            color: var(--neon-green);
+            font-weight: bold;
+        }
+
+        /* XY Grid */
+        .xy-grid-container {
+            position: relative;
+            margin: 10px 0;
+            height: 200px;
+            border: 1px solid var(--neon-green);
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            padding: 5px;
+        }
+
+        .xy-grid-title {
+            text-align: center;
+            font-size: 14px;
+            margin-bottom: 5px;
+            color: var(--neon-green);
+        }
+
+        .xy-grid {
+            flex: 1;
+            position: relative;
+            border: 1px solid var(--neon-green);
+            background: rgba(0, 20, 0, 0.3);
+        }
+
+        .grid-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.3s;
+            box-shadow: 0 0 8px currentColor;
+            cursor: move;
+        }
+
+        .green-dot {
+            background: var(--neon-green);
+            z-index: 3;
+        }
+
+        .red-dot {
+            background: var(--neon-red);
+            z-index: 2;
+        }
+
+        .blue-dot {
+            background: var(--neon-blue);
+            z-index: 1;
+        }
+
+        .grid-line {
+            position: absolute;
+            background: rgba(57, 255, 20, 0.3);
+        }
+
+        .grid-line.horizontal {
+            width: 100%;
+            height: 1px;
+            left: 0;
+        }
+
+        .grid-line.vertical {
+            width: 1px;
+            height: 100%;
+            top: 0;
+        }
+
+        .grid-center {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: var(--neon-green);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .wave-visualization {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .wave-particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: rgba(57, 255, 20, 0.5);
+            pointer-events: none;
+        }
+
+        .power-ball-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .power-ball-line {
+            position: absolute;
+            background: rgba(0, 243, 255, 0.5);
+            transform-origin: 0 0;
+        }
+
+        .quantum-cube {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            top: 50%;
+            left: 50%;
+            transform-style: preserve-3d;
+            transform: translate(-50%, -50%) rotateX(45deg) rotateY(45deg);
+        }
+
+        .cube-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 1px solid var(--neon-green);
+            background: rgba(57, 255, 20, 0.1);
+        }
+
+        .cube-face.front { transform: translateZ(25px); }
+        .cube-face.back { transform: translateZ(-25px) rotateY(180deg); }
+        .cube-face.right { transform: translateX(25px) rotateY(90deg); }
+        .cube-face.left { transform: translateX(-25px) rotateY(-90deg); }
+        .cube-face.top { transform: translateY(-25px) rotateX(90deg); }
+        .cube-face.bottom { transform: translateY(25px) rotateX(-90deg); }
+
+        /* Chess Board */
+        .chess-board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 280px;
+            height: 280px;
+            border: 2px solid var(--neon-green);
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            margin: 0 auto;
+        }
+
+        .chess-square {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chess-square.light {
+            background-color: var(--light-square);
+        }
+
+        .chess-square.dark {
+            background-color: var(--dark-square);
+        }
+
+        .chess-square.selected {
+            background-color: rgba(0, 255, 0, 0.5);
+        }
+
+        .chess-square.possible-move {
+            background-color: rgba(0, 255, 0, 0.3);
+        }
+
+        #chess-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Terminal */
+        .terminal {
+            background-color: var(--card-bg);
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
+            width: 100%;
+            border: 1px solid rgba(0, 255, 0, 0.2);
+            height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: var(--neon-green);
+            font-size: 12px;
+        }
+
+        .terminal-content {
+            height: calc(100% - 20px);
+            overflow-y: auto;
+        }
+
+        .terminal-line {
+            margin-bottom: 3px;
+            line-height: 1.2;
+        }
+
+        .terminal-line.error {
+            color: #ff5555;
+        }
+
+        .terminal-line.success {
+            color: var(--neon-green);
+        }
+
+        .terminal-line.info {
+            color: var(--neon-blue);
+        }
+
+        .terminal-line.warning {
+            color: #ffaa00;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            font-size: 12px;
+        }
+
+        .btn-primary {
+            background-color: rgba(0, 255, 0, 0.2);
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+        }
+
+        .btn-primary:hover, .btn-primary.active {
+            background-color: rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 8px var(--neon-green);
+            transform: translateY(-1px);
+        }
+
+        .btn-blue {
+            background-color: rgba(0, 243, 255, 0.2);
+            color: var(--neon-blue);
+            border: 1px solid var(--neon-blue);
+        }
+
+        .btn-blue:hover, .btn-blue.active {
+            background-color: rgba(0, 243, 255, 0.3);
+            box-shadow: 0 0 8px var(--neon-blue);
+        }
+
+        .btn-red {
+            background-color: rgba(255, 7, 58, 0.2);
+            color: var(--neon-red);
+            border: 1px solid var(--neon-red);
+        }
+
+        .btn-red:hover, .btn-red.active {
+            background-color: rgba(255, 7, 58, 0.3);
+            box-shadow: 0 0 8px var(--neon-red);
+        }
+
+        .btn-yellow {
+            background-color: rgba(255, 211, 0, 0.2);
+            color: var(--neon-yellow);
+            border: 1px solid var(--neon-yellow);
+        }
+
+        .btn-yellow:hover, .btn-yellow.active {
+            background-color: rgba(255, 211, 0, 0.3);
+            box-shadow: 0 0 8px var(--neon-yellow);
+        }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin: 10px 0;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 6px;
+            background-color: rgba(0, 255, 0, 0.1);
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 0, 0.2);
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--neon-green);
+            text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: #ccc;
+        }
+
+        /* PLAY Tab */
+        .play-container {
+            display: flex;
+            height: 100%;
+            width: 100%;
+        }
+
+        .human-panel, .ai-panel {
+            width: 25%;
+            height: 100%;
+            background: var(--panel-bg);
+            border: 1px solid var(--neon-green);
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .play-main {
+            width: 50%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            position: relative;
+        }
+
+        /* GUIDE Tab */
+        .guide-container {
+            padding: 20px;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .guide-section {
+            margin-bottom: 30px;
+        }
+
+        .guide-title {
+            font-size: 1.5rem;
+            color: var(--neon-green);
+            margin-bottom: 15px;
+            text-shadow: 0 0 5px var(--neon-green);
+        }
+
+        .guide-content {
+            background: var(--panel-bg);
+            border: 1px solid var(--neon-green);
+            padding: 15px;
+            border-radius: 6px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .train-container, .play-container {
+                flex-direction: column;
+            }
+            .agent-panel, .center-panel, .human-panel, .ai-panel, .play-main {
+                width: 100%;
+                height: auto;
+            }
+            .xy-grid-container {
+                height: 150px;
+            }
+            .chess-board {
+                width: 100%;
+                max-width: 300px;
+                height: auto;
+                aspect-ratio: 1/1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="glitch-text">WEBXOS AI CHESS</div>
+        <div class="loading-subtitle">Initializing Quantum Neural Network...</div>
+        <div class="loading-bar">
+            <div class="loading-progress"></div>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div class="app-container">
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-button active" data-tab="train">TRAIN</button>
+            <button class="tab-button" data-tab="play">PLAY</button>
+            <button class="tab-button" data-tab="guide">GUIDE</button>
+        </div>
+
+        <!-- TRAIN Tab -->
+        <div class="tab-content active" id="train">
+            <div class="train-container">
+                <!-- Black Agent Panel -->
+                <div class="agent-panel black-panel">
+                    <div class="panel-title">Black Agent (AI)</div>
+                    <div class="metrics-container">
+                        <div class="metric-category">
+                            <div class="metric-category-title">Nash Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Equilibrium Score</span>
+                                <span class="metric-value" id="black-equilibrium">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Convergence Rate</span>
+                                <span class="metric-value" id="black-convergence">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Strategy Stability</span>
+                                <span class="metric-value" id="black-stability">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Optimal Move Rate</span>
+                                <span class="metric-value" id="black-optimal">0%</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Quantum Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Entanglement</span>
+                                <span class="metric-value" id="black-entanglement">0.00</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Superposition</span>
+                                <span class="metric-value" id="black-superposition">0</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Collapse Events</span>
+                                <span class="metric-value" id="black-collapse">0</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Uncertainty</span>
+                                <span class="metric-value" id="black-uncertainty">0.00</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Performance</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Speed</span>
+                                <span class="metric-value" id="black-speed">0ms</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Memory</span>
+                                <span class="metric-value" id="black-memory">0MB</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Stats</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Wins</span>
+                                <span class="metric-value" id="black-wins">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Losses</span>
+                                <span class="metric-value" id="black-losses">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Draws</span>
+                                <span class="metric-value" id="black-draws">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Total Games</span>
+                                <span class="metric-value" id="black-total-games">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="xy-grid-container">
+                        <div class="xy-grid-title">QNN Training Controller</div>
+                        <div class="xy-grid" id="black-xy-grid">
+                            <div class="grid-line horizontal" style="top: 25%"></div>
+                            <div class="grid-line horizontal" style="top: 50%"></div>
+                            <div class="grid-line horizontal" style="top: 75%"></div>
+                            <div class="grid-line vertical" style="left: 25%"></div>
+                            <div class="grid-line vertical" style="left: 50%"></div>
+                            <div class="grid-line vertical" style="left: 75%"></div>
+                            <div class="grid-center"></div>
+                            <div class="wave-visualization" id="black-wave-visualization"></div>
+                            <div class="power-ball-lines" id="black-power-ball-lines"></div>
+                            <div class="quantum-cube" id="black-quantum-cube">
+                                <div class="cube-face front"></div>
+                                <div class="cube-face back"></div>
+                                <div class="cube-face right"></div>
+                                <div class="cube-face left"></div>
+                                <div class="cube-face top"></div>
+                                <div class="cube-face bottom"></div>
+                            </div>
+                            <div class="grid-dot green-dot" id="black-green-dot" style="left: 50%; top: 50%;"></div>
+                            <div class="grid-dot red-dot" id="black-red-dot" style="left: 50%; top: 50%;"></div>
+                            <div class="grid-dot blue-dot" id="black-blue-dot" style="left: 50%; top: 50%;"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Center Panel -->
+                <div class="center-panel">
+                    <div class="panel-title">Training Arena</div>
+                    <div id="chess-container">
+                        <div class="chess-board" id="train-chess-board"></div>
+                    </div>
+                    <div class="controls">
+                        <button class="btn btn-primary" id="train-btn">Start Training</button>
+                        <button class="btn btn-red" id="train-stop-btn" style="display: none;">Stop Training</button>
+                        <button class="btn btn-yellow" id="train-reset-btn">Reset Training</button>
+                        <button class="btn btn-blue" id="export-btn">Export Training Data</button>
+                    </div>
+                    <div class="terminal">
+                        <div class="terminal-header">
+                            <span>Training Console</span>
+                            <span id="training-timer">00:00</span>
+                        </div>
+                        <div class="terminal-content" id="train-terminal"></div>
+                    </div>
+                </div>
+                <!-- Green Agent Panel -->
+                <div class="agent-panel green-panel">
+                    <div class="panel-title">Green Agent (AI)</div>
+                    <div class="metrics-container">
+                        <div class="metric-category">
+                            <div class="metric-category-title">Nash Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Equilibrium Score</span>
+                                <span class="metric-value" id="green-equilibrium">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Convergence Rate</span>
+                                <span class="metric-value" id="green-convergence">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Strategy Stability</span>
+                                <span class="metric-value" id="green-stability">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Optimal Move Rate</span>
+                                <span class="metric-value" id="green-optimal">0%</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Quantum Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Entanglement</span>
+                                <span class="metric-value" id="green-entanglement">0.00</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Superposition</span>
+                                <span class="metric-value" id="green-superposition">0</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Collapse Events</span>
+                                <span class="metric-value" id="green-collapse">0</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Uncertainty</span>
+                                <span class="metric-value" id="green-uncertainty">0.00</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Performance</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Speed</span>
+                                <span class="metric-value" id="green-speed">0ms</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Memory</span>
+                                <span class="metric-value" id="green-memory">0MB</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Stats</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Wins</span>
+                                <span class="metric-value" id="green-wins">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Losses</span>
+                                <span class="metric-value" id="green-losses">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Draws</span>
+                                <span class="metric-value" id="green-draws">0% (0)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Total Games</span>
+                                <span class="metric-value" id="green-total-games">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="xy-grid-container">
+                        <div class="xy-grid-title">QNN Training Controller</div>
+                        <div class="xy-grid" id="green-xy-grid">
+                            <div class="grid-line horizontal" style="top: 25%"></div>
+                            <div class="grid-line horizontal" style="top: 50%"></div>
+                            <div class="grid-line horizontal" style="top: 75%"></div>
+                            <div class="grid-line vertical" style="left: 25%"></div>
+                            <div class="grid-line vertical" style="left: 50%"></div>
+                            <div class="grid-line vertical" style="left: 75%"></div>
+                            <div class="grid-center"></div>
+                            <div class="wave-visualization" id="green-wave-visualization"></div>
+                            <div class="power-ball-lines" id="green-power-ball-lines"></div>
+                            <div class="quantum-cube" id="green-quantum-cube">
+                                <div class="cube-face front"></div>
+                                <div class="cube-face back"></div>
+                                <div class="cube-face right"></div>
+                                <div class="cube-face left"></div>
+                                <div class="cube-face top"></div>
+                                <div class="cube-face bottom"></div>
+                            </div>
+                            <div class="grid-dot green-dot" id="green-green-dot" style="left: 50%; top: 50%;"></div>
+                            <div class="grid-dot red-dot" id="green-red-dot" style="left: 50%; top: 50%;"></div>
+                            <div class="grid-dot blue-dot" id="green-blue-dot" style="left: 50%; top: 50%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PLAY Tab -->
+        <div class="tab-content" id="play">
+            <div class="play-container">
+                <!-- Human Panel -->
+                <div class="human-panel">
+                    <div class="panel-title">Human Player (White)</div>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <div class="stat-value" id="human-wins">0</div>
+                            <div class="stat-label">Wins</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="human-losses">0</div>
+                            <div class="stat-label">Losses</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="human-draws">0</div>
+                            <div class="stat-label">Draws</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="human-total-games">0</div>
+                            <div class="stat-label">Total Games</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Play Main -->
+                <div class="play-main">
+                    <div class="panel-title">Game Arena</div>
+                    <div id="chess-container">
+                        <div class="chess-board" id="play-chess-board"></div>
+                    </div>
+                    <div class="controls">
+                        <button class="btn btn-primary" id="play-btn">Start Game</button>
+                        <button class="btn btn-red" id="stop-btn" style="display: none;">Stop Game</button>
+                        <button class="btn btn-yellow" id="reset-btn">Reset Game</button>
+                        <button class="btn btn-blue" id="import-btn">Import AI Agent</button>
+                    </div>
+                    <div class="terminal">
+                        <div class="terminal-header">
+                            <span>Game Console</span>
+                            <span id="game-timer">00:00</span>
+                        </div>
+                        <div class="terminal-content" id="play-terminal"></div>
+                    </div>
+                </div>
+                <!-- AI Panel -->
+                <div class="ai-panel">
+                    <div class="panel-title">AI Agent (Black)</div>
+                    <div class="metrics-container">
+                        <div class="metric-category">
+                            <div class="metric-category-title">Nash Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Equilibrium Score</span>
+                                <span class="metric-value" id="play-equilibrium">0%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Strategy Stability</span>
+                                <span class="metric-value" id="play-stability">0%</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Quantum Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Entanglement</span>
+                                <span class="metric-value" id="play-entanglement">0.00</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Superposition</span>
+                                <span class="metric-value" id="play-superposition">0</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Uncertainty</span>
+                                <span class="metric-value" id="play-uncertainty">0.00</span>
+                            </div>
+                        </div>
+                        <div class="metric-category">
+                            <div class="metric-category-title">Stats</div>
+                            <div class="metric-row">
+                                <span class="metric-label">Total Games</span>
+                                <span class="metric-value" id="play-games">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GUIDE Tab -->
+        <div class="tab-content" id="guide">
+            <div class="guide-container">
+                <div class="guide-section">
+                    <div class="guide-title">Welcome to WEBXOS AI Chess</div>
+                    <div class="guide-content">
+                        <p>This is a quantum chess IDE where you can train AI agents and play against them.</p>
+                        <p><strong>TRAIN Tab:</strong> Train two AI agents (Black and Green) against each other, adjust their quantum parameters using the XY grids, and export training data.</p>
+                        <p><strong>PLAY Tab:</strong> Play as White against an AI agent (Black). Import a trained agent to challenge.</p>
+                        <p><strong>Controls:</strong> Use the buttons to start/stop games, reset, or export/import data.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State objects
+        const playState = {
+            game: new Chess(),
+            boardState: { selected: null, legalMoves: [] },
+            isPlaying: false,
+            humanStats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+            importedAgent: null,
+            gameTimer: null
+        };
+
+        const trainState = {
+            game: new Chess(),
+            trainingActive: false,
+            trainingProgress: 0,
+            trainingEpochs: 0,
+            trainingTimer: null,
+            agents: {
+                black: {
+                    stats: { wins: 0, losses: 0, draws: 0, totalGames: 0, movesTried: 0 },
+                    nash: { equilibriumScore: 0, convergenceRate: 0, strategyStability: 0, optimalMoveRate: 0 },
+                    quantum: { entanglement: 0.5, superposition: 0, collapseEvents: 0, uncertainty: 0.5, speed: 50, memory: 50 },
+                    performance: { speed: 0, memory: 0 }
+                },
+                green: {
+                    stats: { wins: 0, losses: 0, draws: 0, totalGames: 0, movesTried: 0 },
+                    nash: { equilibriumScore: 0, convergenceRate: 0, strategyStability: 0, optimalMoveRate: 0 },
+                    quantum: { entanglement: 0.5, superposition: 0, collapseEvents: 0, uncertainty: 0.5, speed: 50, memory: 50 },
+                    performance: { speed: 0, memory: 0 }
+                }
+            }
+        };
+
+        // Initialize app
+        function initApp() {
+            // Simulate loading
+            let progress = 0;
+            const loadingProgress = document.querySelector('.loading-progress');
+            const loadingInterval = setInterval(() => {
+                progress += 10;
+                loadingProgress.style.width = `${progress}%`;
+                if (progress >= 100) {
+                    clearInterval(loadingInterval);
+                    document.getElementById('loading-screen').style.display = 'none';
+                    document.querySelector('.app-container').style.opacity = '1';
+                }
+            }, 200);
+
+            // Initialize tabs
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', () => openTab(button.dataset.tab));
+            });
+
+            // Initialize chess boards
+            renderBoard('train-chess-board', trainState.game, { selected: null, legalMoves: [] });
+            renderBoard('play-chess-board', playState.game, playState.boardState);
+
+            // Initialize XY grids
+            try {
+                initXYGrids();
+            } catch (e) {
+                addToTerminal(`Error initializing XY grids: ${e.message}`, 'error', 'train');
+            }
+
+            // Event listeners for controls
+            document.getElementById('train-btn').addEventListener('click', toggleTraining);
+            document.getElementById('train-stop-btn').addEventListener('click', stopTraining);
+            document.getElementById('train-reset-btn').addEventListener('click', resetTraining);
+            document.getElementById('export-btn').addEventListener('click', exportTrainingData);
+            document.getElementById('play-btn').addEventListener('click', togglePlay);
+            document.getElementById('stop-btn').addEventListener('click', stopGame);
+            document.getElementById('reset-btn').addEventListener('click', resetGame);
+            document.getElementById('import-btn').addEventListener('click', importAgent);
+
+            // Initialize terminal timers
+            updateTerminalTimer('game-timer', playState);
+            updateTrainingTimer();
+        }
+
+        // Tab management
+        function openTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`.tab-button[data-tab="${tabName}"]`).classList.add('active');
+        }
+
+        // Render chess board
+        function renderBoard(boardId, game, state) {
+            const board = document.getElementById(boardId);
+            board.innerHTML = '';
+            const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+            const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+
+            for (let rank = 0; rank < 8; rank++) {
+                for (let file = 0; file < 8; file++) {
+                    const square = files[file] + ranks[rank];
+                    const piece = game.get(square);
+                    const div = document.createElement('div');
+                    div.className = `chess-square ${(file + rank) % 2 === 0 ? 'light' : 'dark'}`;
+                    div.dataset.square = square;
+                    if (state.selected === square) {
+                        div.classList.add('selected');
+                    }
+                    if (state.legalMoves.includes(square)) {
+                        div.classList.add('possible-move');
+                    }
+                    if (piece) {
+                        div.textContent = getPieceSymbol(piece.type, piece.color);
+                    }
+                    if (boardId === 'play-chess-board') {
+                        div.addEventListener('click', () => selectPiece(square));
+                    }
+                    board.appendChild(div);
+                }
+            }
+        }
+
+        function getPieceSymbol(type, color) {
+            const symbols = {
+                p: { w: '♙', b: '♟' },
+                n: { w: '♘', b: '♞' },
+                b: { w: '♗', b: '♝' },
+                r: { w: '♖', b: '♜' },
+                q: { w: '♕', b: '♛' },
+                k: { w: '♔', b: '♚' }
+            };
+            return symbols[type][color];
+        }
+
+        // PLAY Tab Functions
+        function selectPiece(square) {
+            if (playState.isPlaying && playState.game.turn() === 'w') {
+                const piece = playState.game.get(square);
+                if (piece && piece.color === 'w') {
+                    playState.boardState.selected = square;
+                    playState.boardState.legalMoves = playState.game.moves({ square, verbose: true }).map(m => m.to);
+                } else if (playState.boardState.selected) {
+                    makeMove(square);
+                }
+                renderBoard('play-chess-board', playState.game, playState.boardState);
+            }
+        }
+
+        function clearSelection() {
+            playState.boardState.selected = null;
+            playState.boardState.legalMoves = [];
+            renderBoard('play-chess-board', playState.game, playState.boardState);
+        }
+
+        function makeMove(toSquare) {
+            const fromSquare = playState.boardState.selected;
+            if (!fromSquare) return;
+
+            const move = playState.game.moves({ verbose: true }).find(m => m.from === fromSquare && m.to === toSquare);
+            if (move) {
+                playState.game.move(move);
+                addToTerminal(`Human moved ${move.san}`, 'success', 'play');
+                renderBoard('play-chess-board', playState.game, playState.boardState);
+                clearSelection();
+
+                if (playState.game.game_over()) {
+                    handleGameEnd();
+                } else if (playState.isPlaying) {
+                    setTimeout(makeAIMove, 500);
+                }
+            } else {
+                addToTerminal(`Invalid move: ${fromSquare} to ${toSquare}`, 'error', 'play');
+            }
+        }
+
+        function makeAIMove() {
+            const moves = playState.game.moves({ verbose: true });
+            if (moves.length === 0) return;
+
+            let move;
+            if (playState.importedAgent) {
+                move = selectTrainingMove('black', moves);
+            } else {
+                move = basicAIAgent(moves);
+            }
+            playState.game.move(move);
+            addToTerminal(`AI moved ${move.san}`, 'success', 'play');
+            renderBoard('play-chess-board', playState.game, playState.boardState);
+
+            if (playState.game.game_over()) {
+                handleGameEnd();
+            }
+        }
+
+        function basicAIAgent(moves) {
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+
+        function handleGameEnd() {
+            let message = '';
+            if (playState.game.in_checkmate()) {
+                const winner = playState.game.turn() === 'w' ? 'Black (AI)' : 'White (Human)';
+                message = `${winner} wins by checkmate!`;
+                if (winner.includes('Human')) {
+                    playState.humanStats.wins++;
+                } else {
+                    playState.humanStats.losses++;
+                }
+            } else if (playState.game.in_draw()) {
+                message = 'Game ended in a draw.';
+                playState.humanStats.draws++;
+            }
+            playState.humanStats.totalGames++;
+            stopGame();
+            addToTerminal(message, 'info', 'play');
+            updateHumanStats();
+        }
+
+        function updateHumanStats() {
+            const total = playState.humanStats.totalGames;
+            document.getElementById('human-wins').textContent = playState.humanStats.wins;
+            document.getElementById('human-losses').textContent = playState.humanStats.losses;
+            document.getElementById('human-draws').textContent = playState.humanStats.draws;
+            document.getElementById('human-total-games').textContent = total;
+        }
+
+        function togglePlay() {
+            if (trainState.trainingActive) {
+                addToTerminal('Cannot start game during active training.', 'warning', 'play');
+                return;
+            }
+            if (playState.isPlaying) {
+                stopGame();
+            } else {
+                startGame();
+            }
+        }
+
+        function startGame() {
+            playState.isPlaying = true;
+            document.getElementById('play-btn').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'inline-block';
+            addToTerminal('Game started. White (Human) to move.', 'info', 'play');
+            renderBoard('play-chess-board', playState.game, playState.boardState);
+        }
+
+        function stopGame() {
+            playState.isPlaying = false;
+            document.getElementById('play-btn').style.display = 'inline-block';
+            document.getElementById('stop-btn').style.display = 'none';
+            clearInterval(playState.gameTimer);
+            addToTerminal('Game stopped.', 'info', 'play');
+        }
+
+        function resetGame() {
+            playState.game.reset();
+            playState.boardState.selected = null;
+            playState.boardState.legalMoves = [];
+            renderBoard('play-chess-board', playState.game, playState.boardState);
+            addToTerminal('Game reset. White (Human) to move.', 'info', 'play');
+        }
+
+        function importAgent() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        playState.importedAgent = data.agents.black;
+                        updateMetrics();
+                        addToTerminal('AI agent imported successfully.', 'success', 'play');
+                    } catch (error) {
+                        addToTerminal('Invalid JSON format for agent import.', 'error', 'play');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }
+
+        // TRAIN Tab Functions
+        function initXYGrids() {
+            initXYGrid('black-xy-grid', 'black');
+            initXYGrid('green-xy-grid', 'green');
+        }
+
+        function initXYGrid(gridId, agent) {
+            const grid = document.getElementById(gridId);
+            const greenDot = document.getElementById(`${agent}-green-dot`);
+            const redDot = document.getElementById(`${agent}-red-dot`);
+            const blueDot = document.getElementById(`${agent}-blue-dot`);
+            const cube = document.getElementById(`${agent}-quantum-cube`);
+            const waveContainer = document.getElementById(`${agent}-wave-visualization`);
+            let isDragging = false;
+
+            if (!grid || !greenDot || !redDot || !blueDot || !cube || !waveContainer) {
+                addToTerminal(`Error: Missing XY grid elements for ${agent} agent.`, 'error', 'train');
+                return;
+            }
+
+            grid.addEventListener('mousedown', startDrag);
+            grid.addEventListener('mousemove', drag);
+            grid.addEventListener('mouseup', endDrag);
+            grid.addEventListener('mouseleave', endDrag);
+            grid.addEventListener('touchstart', startDrag);
+            grid.addEventListener('touchmove', drag);
+            grid.addEventListener('touchend', endDrag);
+
+            function startDrag(e) {
+                isDragging = true;
+                updateDotPosition(e);
+                e.preventDefault();
+            }
+
+            function drag(e) {
+                if (isDragging) {
+                    updateDotPosition(e);
+                    e.preventDefault();
+                }
+            }
+
+            function endDrag() {
+                isDragging = false;
+            }
+
+            function updateDotPosition(e) {
+                const rect = grid.getBoundingClientRect();
+                let clientX, clientY;
+                if (e.type.includes('touch')) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+                const y = Math.max(0, Math.min(clientY - rect.top, rect.height));
+                const xPercent = (x / rect.width) * 100;
+                const yPercent = (y / rect.height) * 100;
+                greenDot.style.left = `${xPercent}%`;
+                greenDot.style.top = `${yPercent}%`;
+                const rotationX = (yPercent - 50) * 0.1;
+                const rotationY = (xPercent - 50) * 0.1;
+                cube.style.transform = `translate(-50%, -50%) rotateX(${45 + rotationX}deg) rotateY(${45 + rotationY}deg)`;
+                trainState.agents[agent].quantum.speed = xPercent;
+                trainState.agents[agent].quantum.memory = yPercent;
+                updateWaveVisualization(agent, xPercent, yPercent);
+                updateAgentMetrics(agent);
+                addToTerminal(`${agent.toUpperCase()} QNN updated - Speed: ${Math.round(xPercent)}%, Memory: ${Math.round(yPercent)}%`, 'info', 'train');
+            }
+
+            updateRandomDots(agent);
+            setInterval(() => {
+                if (!isDragging) {
+                    updateRandomDots(agent);
+                }
+            }, 2000);
+        }
+
+        function updateWaveVisualization(agent, x, y) {
+            const waveContainer = document.getElementById(`${agent}-wave-visualization`);
+            waveContainer.innerHTML = '';
+            const particleCount = Math.min(25, Math.floor((x / 100) * 20) + 5);
+            const waveAmplitude = (y / 100) * 50;
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'wave-particle';
+                const angle = (i / particleCount) * Math.PI * 2;
+                const radius = waveAmplitude;
+                const particleX = 50 + Math.cos(angle) * radius;
+                const particleY = 50 + Math.sin(angle) * radius;
+                particle.style.left = `${particleX}%`;
+                particle.style.top = `${particleY}%`;
+                waveContainer.appendChild(particle);
+            }
+        }
+
+        function updateRandomDots(agent) {
+            const redDot = document.getElementById(`${agent}-red-dot`);
+            const blueDot = document.getElementById(`${agent}-blue-dot`);
+            const redX = 25 + Math.random() * 50;
+            const redY = 25 + Math.random() * 50;
+            const blueX = 25 + Math.random() * 50;
+            const blueY = 25 + Math.random() * 50;
+            redDot.style.left = `${redX}%`;
+            redDot.style.top = `${redY}%`;
+            blueDot.style.left = `${blueX}%`;
+            blueDot.style.top = `${blueY}%`;
+            createPowerBallLines(agent, redX, redY, blueX, blueY);
+        }
+
+        function createPowerBallLines(agent, redX, redY, blueX, blueY) {
+            const powerBallLines = document.getElementById(`${agent}-power-ball-lines`);
+            powerBallLines.innerHTML = '';
+            const lineCount = 5;
+            for (let i = 0; i < lineCount; i++) {
+                const line = document.createElement('div');
+                line.className = 'power-ball-line';
+                const startX = redX + (blueX - redX) * (i / lineCount);
+                const startY = redY + (blueY - redY) * (i / lineCount);
+                const endX = redX + (blueX - redX) * ((i + 1) / lineCount);
+                const endY = redY + (blueY - redY) * ((i + 1) / lineCount);
+                const dx = endX - startX;
+                const dy = endY - startY;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                line.style.width = `${length}%`;
+                line.style.height = '2px';
+                line.style.left = `${startX}%`;
+                line.style.top = `${startY}%`;
+                line.style.transform = `rotate(${angle}deg)`;
+                powerBallLines.appendChild(line);
+            }
+        }
+
+        function toggleTraining() {
+            if (playState.isPlaying) {
+                addToTerminal('Cannot start training during active game.', 'warning', 'train');
+                return;
+            }
+            if (trainState.trainingActive) {
+                stopTraining();
+            } else {
+                trainState.trainingActive = true;
+                document.getElementById('train-btn').style.display = 'none';
+                document.getElementById('train-stop-btn').style.display = 'inline-block';
+                addToTerminal('Training started.', 'info', 'train');
+                startTrainingLoop();
+            }
+        }
+
+        function stopTraining() {
+            trainState.trainingActive = false;
+            document.getElementById('train-btn').style.display = 'inline-block';
+            document.getElementById('train-stop-btn').style.display = 'none';
+            if (trainState.trainingTimer) {
+                clearInterval(trainState.trainingTimer);
+                trainState.trainingTimer = null;
+            }
+            addToTerminal('Training stopped.', 'info', 'train');
+        }
+
+        function startTrainingLoop() {
+            if (!trainState.trainingActive) return;
+
+            if (trainState.game.game_over()) {
+                trainState.game.reset();
+                renderBoard('train-chess-board', trainState.game, { selected: null, legalMoves: [] });
+            }
+
+            const currentPlayer = trainState.game.turn();
+            const agent = currentPlayer === 'w' ? 'green' : 'black';
+            const moves = trainState.game.moves({ verbose: true });
+
+            if (moves.length > 0) {
+                const move = selectTrainingMove(agent, moves);
+                const result = trainState.game.move(move);
+                if (result) {
+                    renderBoard('train-chess-board', trainState.game, { selected: null, legalMoves: [] });
+                    trainState.agents[agent].stats.movesTried++;
+                    trainState.trainingEpochs++;
+                    trainState.trainingProgress = Math.min(100, trainState.trainingProgress + 0.5);
+                    updateAgentMetrics(agent);
+                    if (trainState.game.game_over()) {
+                        handleTrainingGameEnd();
+                    }
+                }
+            } else {
+                handleTrainingGameEnd();
+            }
+
+            if (trainState.trainingActive) {
+                setTimeout(startTrainingLoop, 500);
+            }
+        }
+
+        function selectTrainingMove(agent, moves) {
+            const agentState = trainState.agents[agent];
+            const quantum = agentState.quantum;
+            const randomness = quantum.uncertainty * (1 - (quantum.speed / 100));
+            const weightedMoves = moves.map(move => {
+                let weight = 1;
+                if (move.flags.includes('c') || move.flags.includes('e')) {
+                    weight += 2;
+                }
+                if (move.san.includes('+')) {
+                    weight += 1;
+                }
+                const centerFiles = ['d', 'e'];
+                const centerRanks = ['4', '5'];
+                if (centerFiles.includes(move.to[0]) && centerRanks.includes(move.to[1])) {
+                    weight += 1;
+                }
+                weight += Math.random() * randomness * (quantum.memory / 50);
+                return { move, weight };
+            });
+            weightedMoves.sort((a, b) => b.weight - a.weight);
+            const selectionIndex = Math.floor(Math.random() * (1 - quantum.entanglement) * weightedMoves.length);
+            return weightedMoves[selectionIndex].move;
+        }
+
+        function handleTrainingGameEnd() {
+            const game = trainState.game;
+            let winner = null;
+
+            if (game.in_checkmate()) {
+                winner = game.turn() === 'w' ? 'black' : 'green';
+            } else if (game.in_draw()) {
+                trainState.agents.black.stats.draws++;
+                trainState.agents.green.stats.draws++;
+            }
+
+            if (winner) {
+                trainState.agents[winner].stats.wins++;
+                const loser = winner === 'black' ? 'green' : 'black';
+                trainState.agents[loser].stats.losses++;
+                addToTerminal(`${winner} agent wins!`, 'success', 'train');
+            } else {
+                addToTerminal("Game ended in a draw.", 'info', 'train');
+            }
+
+            trainState.agents.black.stats.totalGames++;
+            trainState.agents.green.stats.totalGames++;
+            updateMetrics();
+
+            setTimeout(() => {
+                trainState.game.reset();
+                renderBoard('train-chess-board', trainState.game, { selected: null, legalMoves: [] });
+            }, 1000);
+        }
+
+        function resetTraining() {
+            trainState.trainingActive = false;
+            trainState.trainingProgress = 0;
+            trainState.trainingEpochs = 0;
+            document.getElementById('train-btn').style.display = 'inline-block';
+            document.getElementById('train-stop-btn').style.display = 'none';
+            if (trainState.trainingTimer) {
+                clearInterval(trainState.trainingTimer);
+                trainState.trainingTimer = null;
+            }
+            trainState.game.reset();
+            trainState.agents.black = {
+                stats: { wins: 0, losses: 0, draws: 0, totalGames: 0, movesTried: 0 },
+                nash: { equilibriumScore: 0, convergenceRate: 0, strategyStability: 0, optimalMoveRate: 0 },
+                quantum: { entanglement: 0.5, superposition: 0, collapseEvents: 0, uncertainty: 0.5, speed: 50, memory: 50 },
+                performance: { speed: 0, memory: 0 }
+            };
+            trainState.agents.green = {
+                stats: { wins: 0, losses: 0, draws: 0, totalGames: 0, movesTried: 0 },
+                nash: { equilibriumScore: 0, convergenceRate: 0, strategyStability: 0, optimalMoveRate: 0 },
+                quantum: { entanglement: 0.5, superposition: 0, collapseEvents: 0, uncertainty: 0.5, speed: 50, memory: 50 },
+                performance: { speed: 0, memory: 0 }
+            };
+            renderBoard('train-chess-board', trainState.game, { selected: null, legalMoves: [] });
+            updateMetrics();
+            addToTerminal('Training reset.', 'info', 'train');
+        }
+
+        function updateAgentMetrics(agent) {
+            const agentState = trainState.agents[agent];
+            agentState.nash.equilibriumScore = Math.min(100, agentState.nash.equilibriumScore + 0.1);
+            agentState.nash.convergenceRate = Math.min(100, agentState.nash.convergenceRate + 0.2);
+            agentState.nash.strategyStability = Math.min(100, agentState.nash.strategyStability + 0.05);
+            agentState.nash.optimalMoveRate = Math.min(100, agentState.nash.optimalMoveRate + 0.15);
+            agentState.quantum.collapseEvents++;
+            agentState.quantum.uncertainty = Math.max(0.1, agentState.quantum.uncertainty - 0.001);
+            agentState.performance.speed = agentState.quantum.speed;
+            agentState.performance.memory = agentState.quantum.memory;
+            updateMetrics();
+        }
+
+        function updateMetrics() {
+            // Black agent metrics
+            document.getElementById('black-equilibrium').textContent = `${Math.round(trainState.agents.black.nash.equilibriumScore)}%`;
+            document.getElementById('black-convergence').textContent = `${Math.round(trainState.agents.black.nash.convergenceRate)}%`;
+            document.getElementById('black-stability').textContent = `${Math.round(trainState.agents.black.nash.strategyStability)}%`;
+            document.getElementById('black-optimal').textContent = `${Math.round(trainState.agents.black.nash.optimalMoveRate)}%`;
+            document.getElementById('black-entanglement').textContent = trainState.agents.black.quantum.entanglement.toFixed(2);
+            document.getElementById('black-superposition').textContent = trainState.agents.black.quantum.superposition;
+            document.getElementById('black-collapse').textContent = trainState.agents.black.quantum.collapseEvents;
+            document.getElementById('black-uncertainty').textContent = trainState.agents.black.quantum.uncertainty.toFixed(2);
+            document.getElementById('black-speed').textContent = `${trainState.agents.black.performance.speed}ms`;
+            document.getElementById('black-memory').textContent = `${trainState.agents.black.performance.memory}MB`;
+
+            const blackTotal = trainState.agents.black.stats.totalGames;
+            const blackWins = trainState.agents.black.stats.wins;
+            const blackLosses = trainState.agents.black.stats.losses;
+            const blackDraws = trainState.agents.black.stats.draws;
+            const blackWinPct = blackTotal > 0 ? Math.round((blackWins / blackTotal) * 100) : 0;
+            const blackLossPct = blackTotal > 0 ? Math.round((blackLosses / blackTotal) * 100) : 0;
+            const blackDrawPct = blackTotal > 0 ? Math.round((blackDraws / blackTotal) * 100) : 0;
+            document.getElementById('black-wins').textContent = `${blackWinPct}% (${blackWins})`;
+            document.getElementById('black-losses').textContent = `${blackLossPct}% (${blackLosses})`;
+            document.getElementById('black-draws').textContent = `${blackDrawPct}% (${blackDraws})`;
+            document.getElementById('black-total-games').textContent = blackTotal;
+
+            // Green agent metrics
+            document.getElementById('green-equilibrium').textContent = `${Math.round(trainState.agents.green.nash.equilibriumScore)}%`;
+            document.getElementById('green-convergence').textContent = `${Math.round(trainState.agents.green.nash.convergenceRate)}%`;
+            document.getElementById('green-stability').textContent = `${Math.round(trainState.agents.green.nash.strategyStability)}%`;
+            document.getElementById('green-optimal').textContent = `${Math.round(trainState.agents.green.nash.optimalMoveRate)}%`;
+            document.getElementById('green-entanglement').textContent = trainState.agents.green.quantum.entanglement.toFixed(2);
+            document.getElementById('green-superposition').textContent = trainState.agents.green.quantum.superposition;
+            document.getElementById('green-collapse').textContent = trainState.agents.green.quantum.collapseEvents;
+            document.getElementById('green-uncertainty').textContent = trainState.agents.green.quantum.uncertainty.toFixed(2);
+            document.getElementById('green-speed').textContent = `${trainState.agents.green.performance.speed}ms`;
+            document.getElementById('green-memory').textContent = `${trainState.agents.green.performance.memory}MB`;
+
+            const greenTotal = trainState.agents.green.stats.totalGames;
+            const greenWins = trainState.agents.green.stats.wins;
+            const greenLosses = trainState.agents.green.stats.losses;
+            const greenDraws = trainState.agents.green.stats.draws;
+            const greenWinPct = greenTotal > 0 ? Math.round((greenWins / greenTotal) * 100) : 0;
+            const greenLossPct = greenTotal > 0 ? Math.round((greenLosses / greenTotal) * 100) : 0;
+            const greenDrawPct = greenTotal > 0 ? Math.round((greenDraws / greenTotal) * 100) : 0;
+            document.getElementById('green-wins').textContent = `${greenWinPct}% (${greenWins})`;
+            document.getElementById('green-losses').textContent = `${greenLossPct}% (${greenLosses})`;
+            document.getElementById('green-draws').textContent = `${greenDrawPct}% (${greenDraws})`;
+            document.getElementById('green-total-games').textContent = greenTotal;
+
+            // Update PLAY tab AI metrics if an imported agent exists
+            if (playState.importedAgent) {
+                document.getElementById('play-equilibrium').textContent = `${Math.round(playState.importedAgent.nash.equilibriumScore)}%`;
+                document.getElementById('play-stability').textContent = `${Math.round(playState.importedAgent.nash.strategyStability)}%`;
+                document.getElementById('play-entanglement').textContent = playState.importedAgent.quantum.entanglement.toFixed(2);
+                document.getElementById('play-superposition').textContent = playState.importedAgent.quantum.superposition;
+                document.getElementById('play-uncertainty').textContent = playState.importedAgent.quantum.uncertainty.toFixed(2);
+                document.getElementById('play-games').textContent = playState.importedAgent.stats.totalGames;
+            }
+        }
+
+        function exportTrainingData() {
+            const data = {
+                agents: {
+                    black: trainState.agents.black,
+                    green: trainState.agents.green
+                },
+                trainingProgress: trainState.trainingProgress,
+                trainingEpochs: trainState.trainingEpochs
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'quantum_chess_training_data.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            addToTerminal('Training data exported.', 'success', 'train');
+        }
+
+        function addToTerminal(message, type, tab) {
+            const terminal = document.getElementById(`${tab}-terminal`);
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            terminal.appendChild(line);
+            if (terminal.children.length > 50) {
+                terminal.removeChild(terminal.firstChild);
+            }
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function updateTerminalTimer(timerId, state) {
+            let seconds = 0;
+            clearInterval(state.gameTimer);
+            state.gameTimer = setInterval(() => {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                document.getElementById(timerId).textContent = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function updateTrainingTimer() {
+            let seconds = 0;
+            if (trainState.trainingTimer) {
+                clearInterval(trainState.trainingTimer);
+            }
+            trainState.trainingTimer = setInterval(() => {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                document.getElementById('training-timer').textContent = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        // Start the app
+        window.onload = initApp;
+    </script>
+</body>
+</html>
