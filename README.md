@@ -12,7 +12,7 @@ Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` f
 - **Decentralized Designs**: Supports P2P Web3 for resilient, serverless applications ideal for edge computing.
 - **AI-Driven Developments**: Utilizes large language models (LLMs) to generate optimized, modular code via sophisticated prompts.
 - **High Performance & Modularity**: Native JavaScript, WebGL, Three.js, and WASM enable lightweight, reusable components.
-- **Eco-Friendly & PWA-Ready**: Optimized for low-end devices (≥320px screens), offline functionality, and minimal resource consumption.
+- **Eco-Friendly & PWA-Ready**: Optimized for low-end devices (≥320px screens), offline functionality, and minimal resource consumption. Raspberry Pi, Anduino, IoT Devices +more.
 
 ## webXOS Ecosystem
 
