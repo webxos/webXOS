@@ -22,21 +22,6 @@ Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.ap
 - **AI Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
 - **P2P Applications**: Decentralized tools for secure networking and data exchange, built for performance and scalability.
 
-## Getting Started
-
-1. **Set Up Your Environment**:
-   - Follow [INSTALLATION.md](INSTALLATION.md) to configure your development setup.
-2. **Build an App**:
-   - Explore [USAGE.md](USAGE.md) for examples of creating single-page HTML apps.
-3. **Contribute**:
-   - Submit new `.html` app ideas via [CONTRIBUTING.md](CONTRIBUTING.md).
-4. **Future Vision**:
-   - Review [ROADMAP.md](ROADMAP.md) for upcoming features like WebGPU and advanced AI tooling.
-
-## Contributing
-
-We invite developers to contribute standalone `.html` apps that align with Webxos’s decentralized, sustainable vision. Use AI tools to design innovative apps and submit them via [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## Community & Support
 
 - **GitHub**: [webxos/webxos](https://github.com/webxos/webxos)
