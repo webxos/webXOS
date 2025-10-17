@@ -1,4 +1,4 @@
-# webXOS: Decentralized Web Operating System
+# webXOS 2025 introduction:
 
 **webXOS** is an innovative software development company developing progressive web applications tailored for decentralized web3 environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [webxos/webxos](https://github.com/webxos/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
 
