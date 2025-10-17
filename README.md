@@ -40,6 +40,5 @@ We invite developers to contribute standalone `.html` apps that align with Webxo
 - **GitHub**: [webxos/webxos](https://github.com/webxos/webxos)
 - **X**: Follow [@webxos](https://x.com/webxos) for updates.
 - **Website**: Explore our ecosystem at [webxos.netlify.app](https://webxos.netlify.app).
-- **Issues**: Report bugs or propose features on our [Issues page](https://github.com/webxos/webxos/issues).
 
 Join us in shaping the decentralized, sustainable web with Webxos!
