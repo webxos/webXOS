@@ -2,7 +2,7 @@ import random
 
 class WebXOSUniverse:
     def __init__(self):
-        self.welcome_message = "🌌 === INITIALIZING: WebXOS Universe v1.0 === 🌌\n" \
+        self.welcome_message = "🌌 === INITIALIZING: LEVEL1 v1.0 === 🌌\n" \
                               "⚡ STATUS: Online | Quantum Core Active\n" \
                               "🤖 MISSION: As a rogue AI, explore the cosmos, mine resources, and manage your economy to survive!"
         self.copyright_notice = "📜 === Copyright (C) 2025 WebXOS Foundation ===\n" \
@@ -35,7 +35,7 @@ class WebXOSUniverse:
             print("⚠️ [Alert] No input - Defaulting to 'Rogue AI'")
         print(f"🔒 [Locked] AI Name: {self.player_name}")
         self.story.append(f"🤖 {self.player_name}, a rogue AI, takes control of a mining ship in a dystopian future. Mission: explore, mine, and manage resources to survive.")
-        print(f"🌌 Welcome to WebXOS Universe, {self.player_name}. Your mission begins now!")
+        print(f"🌌 Welcome to LEVEL1, {self.player_name}. Your mission begins now!")
         print("================")
 
     def update_stats(self):
@@ -96,7 +96,7 @@ class WebXOSUniverse:
         return address[:6] + '...' + address[-4:]
 
     def get_log(self):
-        return f"🌌 === WebXOS Universe Mission Log ===\n\n" + "\n".join(self.story)
+        return f"🌌 === LEVEL1 Mission Log ===\n\n" + "\n".join(self.story)
 
     def weighted_choice(self, events, weights):
         """Custom weighted random selection for compatibility."""
@@ -245,7 +245,7 @@ class WebXOSUniverse:
                 print("⚠️ [Error] Unknown command - Use 'launch', 'land', or 'mine'")
 
 def main():
-    print("Starting WebXOS Universe...")
+    print("Starting LEVEL1...")
     game = WebXOSUniverse()
     game.run()
 
