@@ -1,0 +1,2607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>X-FORCE: PAINTBALL</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --glow: drop-shadow(0 0 8px #0f0) drop-shadow(0 0 16px #0f0);
+      --glow-red: drop-shadow(0 0 8px #f00) drop-shadow(0 0 16px #f00);
+      --glow-cyan: drop-shadow(0 0 8px #0ff) drop-shadow(0 0 16px #0ff);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #000;
+      color: #0f0;
+      font-family: 'Orbitron', 'Courier New', monospace;
+      overflow: hidden;
+      height: 100vh;
+      touch-action: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* 3D Scene */
+    #gameView {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+    }
+
+    /* HUD Overlay */
+    .hud {
+      position: fixed;
+      z-index: 10;
+      pointer-events: none;
+      color: #0f0;
+      text-shadow: 0 0 8px #0f0;
+    }
+
+    /* Crosshair */
+    .crosshair {
+      position: fixed;
+      top: 50%; left: 50%;
+      width: 120px; height: 120px;
+      transform: translate(-50%, -50%);
+      filter: var(--glow);
+    }
+    .reticle-circle {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 60px; height: 60px;
+      border: 2px solid #0f0;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: var(--glow);
+    }
+    .reticle-line {
+      position: absolute;
+      background: #0f0;
+      box-shadow: var(--glow);
+    }
+    .reticle-line.h { width: 120px; height: 2px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    .reticle-line.v { width: 2px; height: 120px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    .range-label {
+      position: absolute;
+      font: bold 10px Orbitron;
+      text-shadow: 0 0 5px #0f0;
+    }
+    .range-label.t { top: 5px; left: 50%; transform: translateX(-50%); }
+    .range-label.b { bottom: 5px; left: 50%; transform: translateX(-50%); }
+    .range-label.l { left: 5px; top: 50%; transform: translateY(-50%); }
+    .range-label.r { right: 5px; top: 50%; transform: translateY(-50%); }
+
+    /* Target Lock */
+    #targetLock {
+      position: absolute;
+      width: 40px; height: 40px;
+      border: 2px solid #0f0;
+      border-radius: 50%;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      opacity: 0;
+      box-shadow: var(--glow);
+      transition: all 0.3s;
+    }
+    #targetLock.active {
+      opacity: 1;
+      animation: pulse 0.6s infinite alternate;
+    }
+    @keyframes pulse { from { transform: translate(-50%, -50%) scale(0.9); } to { transform: translate(-50%, -50%) scale(1.2); } }
+
+    /* Core Health Bars */
+    .core-health-container {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      justify-content: center;
+      width: 60%;
+      max-width: 500px;
+      gap: 20px;
+    }
+    
+    .core-health-bar {
+      flex: 1;
+      height: 12px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .blue-core-health {
+      border: 1px solid #0ff;
+    }
+    
+    .red-core-health {
+      border: 1px solid #f00;
+    }
+    
+    .core-health-fill {
+      height: 100%;
+      position: absolute;
+      top: 0;
+      transition: width 0.5s;
+    }
+    
+    .blue-core-fill {
+      background: linear-gradient(90deg, #0088ff, #00aaff);
+      left: 0;
+      width: 100%;
+    }
+    
+    .red-core-fill {
+      background: linear-gradient(90deg, #ff4444, #ff6666);
+      left: 0;
+      width: 100%;
+    }
+    
+    .core-health-text {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 10px;
+      font-weight: bold;
+      z-index: 1;
+      width: 100%;
+      text-align: center;
+    }
+    
+    .blue-core-text {
+      color: #0ff;
+    }
+    
+    .red-core-text {
+      color: #f00;
+    }
+
+    /* Team Indicator */
+    .team-indicator {
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      padding: 3px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: bold;
+      box-shadow: var(--glow);
+    }
+    
+    .team-blue-indicator {
+      border: 1px solid #0ff;
+      color: #0ff;
+    }
+    
+    .team-red-indicator {
+      border: 1px solid #f00;
+      color: #f00;
+    }
+
+    /* Score Display */
+    .score-display {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 5px 10px;
+      border: 1px solid #0f0;
+      border-radius: 5px;
+      font-size: 14px;
+      color: #0f0;
+      box-shadow: var(--glow);
+    }
+
+    /* Console */
+    .console {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      padding: 5px 10px;
+      border: 1px solid #0f0;
+      border-radius: 5px;
+      color: #0f0;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: var(--glow);
+    }
+    
+    .console.active {
+      opacity: 1;
+    }
+
+    /* Kill Feed */
+    .kill-feed {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 5px;
+      border: 1px solid #0f0;
+      border-radius: 5px;
+      font-size: 10px;
+      color: #fff;
+      max-height: 120px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-width: 200px;
+      box-shadow: var(--glow);
+    }
+    
+    .kill-event {
+      display: flex;
+      gap: 5px;
+    }
+    
+    .killer {
+      color: #0ff;
+    }
+    
+    .victim {
+      color: #f00;
+    }
+
+    /* Respawn Timer */
+    .respawn-timer {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.9);
+      padding: 20px;
+      border: 2px solid #f00;
+      border-radius: 5px;
+      font-size: 24px;
+      color: #f00;
+      z-index: 5;
+      display: none;
+      box-shadow: var(--glow-red);
+    }
+
+    /* Respawn Status */
+    .respawn-status {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.9);
+      padding: 15px;
+      border: 2px solid #0ff;
+      border-radius: 5px;
+      font-size: 18px;
+      color: #0ff;
+      z-index: 5;
+      display: none;
+      text-align: center;
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* Scope Overlay */
+    .scope-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.9) 100%);
+      pointer-events: none;
+      z-index: 3;
+      display: none;
+    }
+
+    /* Cursor Lock Notice */
+    .cursor-lock-notice {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      padding: 15px;
+      border: 2px solid #0f0;
+      border-radius: 5px;
+      color: #0f0;
+      font-size: 14px;
+      text-align: center;
+      z-index: 4;
+      display: none;
+      box-shadow: var(--glow);
+    }
+
+    /* Game Over Screen */
+    .game-over {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      display: none;
+    }
+    
+    .game-over-title {
+      font-size: 50px;
+      margin-bottom: 15px;
+      color: #0f0;
+      text-shadow: var(--glow);
+    }
+    
+    .game-over-message {
+      font-size: 18px;
+      margin-bottom: 20px;
+      color: #0f0;
+      text-align: center;
+    }
+    
+    .webxos-reward {
+      font-size: 16px;
+      margin-bottom: 30px;
+      color: #ff0;
+      text-align: center;
+    }
+
+    /* Menu */
+    .menu {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,20,10,0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    
+    .title {
+      font-size: 40px;
+      margin-bottom: 15px;
+      text-align: center;
+      color: #0f0;
+      text-shadow: var(--glow);
+    }
+    
+    .subtitle {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #0f0;
+      text-align: center;
+    }
+    
+    .version {
+      font-size: 14px;
+      margin-bottom: 30px;
+      color: #0f0;
+      text-align: center;
+    }
+    
+    .menu-options {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      width: 300px;
+    }
+    
+    .menu-btn {
+      padding: 12px 20px;
+      background: rgba(0,60,30,0.8);
+      border: 1px solid #0f0;
+      color: #0f0;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+      text-align: center;
+      transition: all 0.3s;
+      pointer-events: auto;
+      box-shadow: var(--glow);
+    }
+    
+    .menu-btn:hover {
+      background: rgba(0,120,60,0.8);
+      box-shadow: 0 0 10px #0f0;
+    }
+    
+    .menu-btn.active {
+      background: rgba(0,120,60,0.9);
+      border-color: #ff0;
+      box-shadow: 0 0 10px #ff0;
+    }
+
+    /* Team Selection */
+    .team-selection {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .team-btn {
+      padding: 10px 20px;
+      background: rgba(0,60,30,0.8);
+      border: 1px solid #0f0;
+      color: #0f0;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+      text-align: center;
+      transition: all 0.3s;
+      pointer-events: auto;
+      box-shadow: var(--glow);
+    }
+    
+    .team-btn:hover {
+      background: rgba(0,120,60,0.8);
+    }
+    
+    .team-btn.active {
+      background: rgba(0,120,60,0.9);
+      border-color: #ff0;
+      box-shadow: 0 0 10px #ff0;
+    }
+    
+    .blue-team-btn.active {
+      background: rgba(0,60,120,0.9);
+      border-color: #0ff;
+      box-shadow: 0 0 10px #0ff;
+    }
+    
+    .red-team-btn.active {
+      background: rgba(120,0,0,0.9);
+      border-color: #f00;
+      box-shadow: 0 0 10px #f00;
+    }
+
+    /* Settings Menu */
+    .settings-menu {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,20,10,0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 15;
+      display: none;
+    }
+    
+    .settings-container {
+      background: rgba(0,30,15,0.9);
+      padding: 30px;
+      border: 2px solid #0f0;
+      border-radius: 10px;
+      width: 500px;
+      max-width: 90%;
+      box-shadow: var(--glow);
+    }
+    
+    .settings-title {
+      font-size: 24px;
+      margin-bottom: 20px;
+      text-align: center;
+      color: #0f0;
+      text-shadow: var(--glow);
+    }
+    
+    .setting-group {
+      margin-bottom: 20px;
+    }
+    
+    .setting-label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #0f0;
+    }
+    
+    .setting-select, .setting-input {
+      width: 100%;
+      padding: 8px 12px;
+      background: rgba(0,10,5,0.8);
+      border: 1px solid #0f0;
+      border-radius: 5px;
+      color: #0f0;
+      font-family: 'Orbitron', monospace;
+      box-shadow: var(--glow);
+    }
+    
+    .setting-checkbox {
+      margin-right: 10px;
+    }
+    
+    .setting-slider {
+      width: 100%;
+    }
+
+    /* Loading Screen */
+    .loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+    }
+    
+    .loading-title {
+      font-size: 60px;
+      font-weight: bold;
+      color: #0f0;
+      text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
+      margin-bottom: 10px;
+      letter-spacing: 3px;
+      animation: pulse 2s infinite;
+    }
+    
+    .loading-subtitle {
+      font-size: 24px;
+      color: #0f0;
+      text-shadow: 0 0 5px #0f0;
+      margin-bottom: 30px;
+      letter-spacing: 2px;
+    }
+    
+    .loading-bar-container {
+      width: 400px;
+      height: 20px;
+      background: rgba(0,0,0,0.7);
+      border: 2px solid #0f0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 30px;
+      box-shadow: var(--glow);
+    }
+    
+    .loading-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0f0, #0a0);
+      width: 0%;
+      transition: width 0.3s;
+      box-shadow: inset 0 0 10px #0f0;
+    }
+    
+    .loading-status {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #0f0;
+      text-shadow: 0 0 5px #0f0;
+      text-align: center;
+    }
+    
+    .copyright {
+      position: absolute;
+      bottom: 20px;
+      color: #0f0;
+      font-size: 14px;
+      text-align: center;
+      text-shadow: 0 0 5px #0f0;
+    }
+    
+    .beta-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: #0f0;
+      color: #000;
+      padding: 5px 10px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.7; }
+      50% { opacity: 1; }
+      100% { opacity: 0.7; }
+    }
+
+    /* FPS Display */
+    .fps-display {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 3px 6px;
+      border: 1px solid #0f0;
+      border-radius: 5px;
+      font-size: 9px;
+      color: #0f0;
+      box-shadow: var(--glow);
+    }
+
+    /* Jetpack Status */
+    .jetpack-status {
+      position: fixed;
+      top: 120px;
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 5px 10px;
+      border: 1px solid #0ff;
+      border-radius: 5px;
+      font-size: 12px;
+      color: #0ff;
+      box-shadow: var(--glow-cyan);
+    }
+    
+    .jetpack-status.active {
+      background: rgba(0,20,30,0.8);
+      border-color: #0f0;
+      color: #0f0;
+      box-shadow: var(--glow);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 3D Game Scene -->
+  <canvas id="gameView"></canvas>
+
+  <!-- Scope Overlay -->
+  <div class="scope-overlay" id="scopeOverlay"></div>
+
+  <!-- Cursor Lock Notice -->
+  <div class="cursor-lock-notice" id="cursorLockNotice">
+    Cursor locked to game. Press ESC to exit.
+  </div>
+
+  <!-- HUD Elements -->
+  <div class="hud">
+    <!-- Core Health Bars -->
+    <div class="core-health-container">
+      <div class="core-health-bar blue-core-health">
+        <div class="core-health-fill blue-core-fill" id="blueCoreFill"></div>
+        <div class="core-health-text blue-core-text">BLUE CORE: <span id="blueCoreText">500000</span></div>
+      </div>
+      <div class="core-health-bar red-core-health">
+        <div class="core-health-fill red-core-fill" id="redCoreFill"></div>
+        <div class="core-health-text red-core-text">RED CORE: <span id="redCoreText">500000</span></div>
+      </div>
+    </div>
+
+    <!-- Team Indicator -->
+    <div class="team-indicator team-blue-indicator" id="teamIndicator">
+      TEAM: BLUE
+    </div>
+
+    <!-- Jetpack Status -->
+    <div class="jetpack-status" id="jetpackStatus">
+      JETPACK: READY
+    </div>
+
+    <!-- Crosshair -->
+    <div class="crosshair">
+      <div class="reticle-circle"></div>
+      <div class="reticle-line h"></div>
+      <div class="reticle-line v"></div>
+      <div class="range-label t">100m</div>
+      <div class="range-label b">200m</div>
+      <div class="range-label l">300m</div>
+      <div class="range-label r">400m</div>
+      <div id="targetLock"></div>
+    </div>
+
+    <!-- Score Display -->
+    <div class="score-display">
+      K: <span id="kills">0</span> | D: <span id="deaths">0</span> | K/D: <span id="kdRatio">0.00</span>
+    </div>
+
+    <!-- Console -->
+    <div class="console" id="console"></div>
+
+    <!-- Respawn Timer -->
+    <div class="respawn-timer" id="respawnTimer">
+      RESPAWNING IN: <span id="respawnCount">10</span>
+    </div>
+
+    <!-- Respawn Status -->
+    <div class="respawn-status" id="respawnStatus">
+      INVULNERABLE: <span id="respawnInvulnCount">10</span>s
+    </div>
+
+    <!-- Kill Feed -->
+    <div class="kill-feed" id="killFeed"></div>
+
+    <!-- FPS Display -->
+    <div class="fps-display" id="fpsDisplay">
+      FPS: 60
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div class="game-over" id="gameOverScreen">
+    <h1 class="game-over-title" id="gameOverTitle">VICTORY!</h1>
+    <div class="game-over-message" id="gameOverMessage">Enemy core destroyed!</div>
+    <div class="webxos-reward" id="webxosReward">You earned 50 $WEBXOS!</div>
+    <div class="menu-options">
+      <div class="menu-btn" id="playAgainBtn">PLAY AGAIN</div>
+      <div class="menu-btn" id="mainMenuBtn">MAIN MENU</div>
+    </div>
+  </div>
+
+  <!-- Main Menu -->
+  <div class="menu" id="mainMenu">
+    <h1 class="title">X-FORCE: PAINTBALL</h1>
+    <div class="version">webXOS 2025 | DESKTOP ONLY BETA TEST</div>
+    
+    <!-- Team Selection -->
+    <div class="team-selection">
+      <div class="team-btn blue-team-btn active" id="blueTeamBtn">BLUE TEAM</div>
+      <div class="team-btn red-team-btn" id="redTeamBtn">RED TEAM</div>
+    </div>
+    
+    <div class="menu-options">
+      <div class="menu-btn" id="startBtn">START MATCH</div>
+      <div class="menu-btn" id="settingsBtn">SETTINGS</div>
+      <div class="menu-btn" id="resumeBtn" style="display: none;">RESUME MATCH</div>
+    </div>
+  </div>
+
+  <!-- Settings Menu -->
+  <div class="settings-menu" id="settingsMenu">
+    <div class="settings-container">
+      <h2 class="settings-title">GAME SETTINGS</h2>
+      
+      <div class="setting-group">
+        <label class="setting-label">GAME MODE:</label>
+        <select class="setting-select" id="gameModeSelect">
+          <option value="3v3">3v3</option>
+          <option value="10v10">10v10</option>
+        </select>
+      </div>
+      
+      <div class="setting-group">
+        <label class="setting-label">CONTROLLER TYPE:</label>
+        <select class="setting-select" id="controllerSelect">
+          <option value="mouse">Mouse & Keyboard</option>
+          <option value="xbox">Xbox Controller</option>
+          <option value="ps5">PS5 Controller</option>
+          <option value="usb">USB Controller</option>
+        </select>
+      </div>
+      
+      <div class="setting-group">
+        <label class="setting-label">MOUSE SENSITIVITY:</label>
+        <input type="range" class="setting-slider" id="sensitivitySlider" min="0.1" max="0.5" step="0.01" value="0.2">
+        <span id="sensitivityValue">0.20</span>
+      </div>
+      
+      <div class="setting-group">
+        <label class="setting-label">
+          <input type="checkbox" class="setting-checkbox" id="invertYCheckbox">
+          INVERT Y AXIS
+        </label>
+      </div>
+      
+      <div class="menu-options">
+        <div class="menu-btn" id="saveSettingsBtn">SAVE SETTINGS</div>
+        <div class="menu-btn" id="backToMenuBtn">BACK TO MENU</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Screen -->
+  <div class="loading-screen" id="loadingScreen">
+    <div class="beta-badge">BETA TEST</div>
+    <h1 class="loading-title">X-FORCE: PAINTBALL</h1>
+    <div class="loading-subtitle">webXOS 2025 EDITION</div>
+    <div class="loading-status" id="aiStatus">INITIALIZING SYSTEMS...</div>
+    <div class="loading-bar-container">
+      <div class="loading-fill" id="loadingFill"></div>
+    </div>
+    <div class="loading-status" id="loadingText">LOADING: 0%</div>
+    <div class="copyright">webXOS 2025 © | DESKTOP ONLY BETA TEST</div>
+  </div>
+
+  <!-- Three.js for 3D rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
+  <script>
+    // Game State
+    const GameState = {
+      MENU: 0,
+      PLAYING: 1,
+      GAME_OVER: 2,
+      DEAD: 3,
+      PAUSED: 4,
+      LOADING: 5,
+      SETTINGS: 6
+    };
+    
+    let currentState = GameState.LOADING;
+    let mouseSensitivity = 0.002;
+    let invertYAxis = false;
+    let playerTeam = 'blue';
+    let gameMode = '3v3';
+    let pointerLocked = false;
+    let gatlingActive = false;
+    let gatlingCooldown = 0;
+    let gatlingFireRate = 0.1;
+    let jetpackActive = false;
+    let ceilingHeight = 50;
+    
+    // Three.js variables
+    let scene, camera, renderer;
+    let player, drones = [], projectiles = [], particles = [];
+    let obstacles = [];
+    let clock = new THREE.Clock();
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+    let fps = 60;
+    let ceilingGrid;
+    
+    // Base boundaries
+    const blueBaseBounds = {
+      minX: -105,
+      maxX: -75,
+      minZ: -45,
+      maxZ: 45
+    };
+    
+    const redBaseBounds = {
+      minX: 75,
+      maxX: 105,
+      minZ: -45,
+      maxZ: 45
+    };
+    
+    // Player stats
+    const playerStats = {
+      health: 100,
+      energy: 100,
+      shield: 100,
+      kills: 0,
+      deaths: 0,
+      respawnTime: 10,
+      shotsFired: 0,
+      shotsHit: 0,
+      coreDamage: 0,
+      jetpackActive: false,
+      scopeActive: false,
+      respawnInvulnerable: false,
+      respawnInvulnerableTime: 10
+    };
+    
+    // Game stats
+    const gameStats = {
+      blueScore: 0,
+      redScore: 0,
+      blueCoreHealth: 500000,
+      redCoreHealth: 500000,
+      blueDrones: 2,
+      redDrones: 2
+    };
+    
+    // Controls
+    const controls = {
+      moveForward: false,
+      moveBackward: false,
+      moveLeft: false,
+      moveRight: false,
+      jump: false,
+      jetpack: false,
+      fire: false,
+      scope: false,
+      mouseX: 0,
+      mouseY: 0
+    };
+    
+    // Settings
+    const settings = {
+      gameMode: '3v3',
+      controllerType: 'mouse',
+      mouseSensitivity: 0.002,
+      invertYAxis: false
+    };
+    
+    // Initialize the game
+    function init() {
+      // Load settings from localStorage
+      loadSettings();
+      
+      // Simulate loading progress
+      let loadingProgress = 0;
+      const loadingSteps = [
+        "INITIALIZING SYSTEMS...",
+        "LOADING COMBAT MODULES...",
+        "CALIBRATING WEAPONS SYSTEMS...",
+        "GENERATING BATTLEFIELD...",
+        "SPAWNING COMBAT DRONES...",
+        "ACTIVATING CORE ASSAULT PROTOCOL..."
+      ];
+      
+      let currentStep = 0;
+      
+      const loadingInterval = setInterval(() => {
+        loadingProgress += 2;
+        document.getElementById('loadingFill').style.width = `${loadingProgress}%`;
+        document.getElementById('loadingText').textContent = `LOADING: ${loadingProgress}%`;
+        
+        // Update loading status text
+        if (loadingProgress >= Math.floor((currentStep + 1) * (100 / loadingSteps.length))) {
+          if (currentStep < loadingSteps.length - 1) {
+            currentStep++;
+            document.getElementById('aiStatus').textContent = loadingSteps[currentStep];
+          }
+        }
+        
+        if (loadingProgress >= 100) {
+          clearInterval(loadingInterval);
+          document.getElementById('loadingScreen').style.display = 'none';
+          currentState = GameState.MENU;
+          
+          // Create scene
+          scene = new THREE.Scene();
+          scene.background = new THREE.Color(0x000000);
+          
+          // Create camera
+          camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
+          
+          // Create renderer
+          const canvas = document.getElementById('gameView');
+          renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            antialias: false
+          });
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          
+          // Create lighting
+          const ambientLight = new THREE.AmbientLight(0x404040);
+          scene.add(ambientLight);
+          
+          const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+          directionalLight.position.set(50, 50, 50);
+          scene.add(directionalLight);
+          
+          // Create game world
+          createWorld();
+          
+          // Create player
+          createPlayer();
+          
+          // Create drones
+          createDrones();
+          
+          // Create obstacles
+          createObstacles();
+          
+          // Set up event listeners
+          setupEventListeners();
+          
+          // Start game loop
+          animate();
+          
+          // Show welcome message
+          showConsoleMessage("Welcome to X-FORCE Paintball!");
+          
+          // Auto-enter fullscreen
+          setTimeout(() => {
+            toggleFullscreen();
+          }, 500);
+        }
+      }, 50);
+    }
+    
+    // Load settings from localStorage
+    function loadSettings() {
+      const savedSettings = localStorage.getItem('xforcePaintballSettings');
+      if (savedSettings) {
+        Object.assign(settings, JSON.parse(savedSettings));
+      }
+      
+      // Apply settings to UI
+      document.getElementById('gameModeSelect').value = settings.gameMode;
+      document.getElementById('controllerSelect').value = settings.controllerType;
+      document.getElementById('sensitivitySlider').value = settings.mouseSensitivity * 500;
+      document.getElementById('sensitivityValue').textContent = settings.mouseSensitivity.toFixed(2);
+      document.getElementById('invertYCheckbox').checked = settings.invertYAxis;
+      
+      // Apply settings to game
+      gameMode = settings.gameMode;
+      mouseSensitivity = settings.mouseSensitivity;
+      invertYAxis = settings.invertYAxis;
+    }
+    
+    // Save settings to localStorage
+    function saveSettings() {
+      settings.gameMode = document.getElementById('gameModeSelect').value;
+      settings.controllerType = document.getElementById('controllerSelect').value;
+      settings.mouseSensitivity = parseFloat(document.getElementById('sensitivitySlider').value) / 500;
+      settings.invertYAxis = document.getElementById('invertYCheckbox').checked;
+      
+      localStorage.setItem('xforcePaintballSettings', JSON.stringify(settings));
+      
+      // Apply settings to game
+      gameMode = settings.gameMode;
+      mouseSensitivity = settings.mouseSensitivity;
+      invertYAxis = settings.invertYAxis;
+      
+      showConsoleMessage("Settings saved!");
+    }
+    
+    // Create the game world
+    function createWorld() {
+      // Create ground
+      const groundGeometry = new THREE.PlaneGeometry(200, 100);
+      const groundMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x001100,
+        wireframe: true
+      });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+      
+      // Add grid to ground
+      const gridHelper = new THREE.GridHelper(200, 20, 0x00ff00, 0x003300);
+      scene.add(gridHelper);
+      
+      // Create ceiling with mirrored grid
+      const ceilingGeometry = new THREE.PlaneGeometry(200, 100);
+      const ceilingMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x001100,
+        wireframe: true
+      });
+      const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+      ceiling.rotation.x = Math.PI / 2;
+      ceiling.position.y = ceilingHeight;
+      scene.add(ceiling);
+      
+      // Add mirrored grid to ceiling
+      ceilingGrid = new THREE.GridHelper(200, 20, 0x00ff00, 0x003300);
+      ceilingGrid.position.y = ceilingHeight;
+      scene.add(ceilingGrid);
+      
+      // Create bases and cores
+      const blueBaseGeometry = new THREE.BoxGeometry(20, 10, 20);
+      const blueBaseMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x0033ff,
+        wireframe: true
+      });
+      const blueBase = new THREE.Mesh(blueBaseGeometry, blueBaseMaterial);
+      blueBase.position.set(-90, 5, 0);
+      scene.add(blueBase);
+      
+      const redBaseGeometry = new THREE.BoxGeometry(20, 10, 20);
+      const redBaseMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xff3300,
+        wireframe: true
+      });
+      const redBase = new THREE.Mesh(redBaseGeometry, redBaseMaterial);
+      redBase.position.set(90, 5, 0);
+      scene.add(redBase);
+      
+      const blueCoreGeometry = new THREE.SphereGeometry(5, 8, 6);
+      const blueCoreMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x0088ff,
+        wireframe: true
+      });
+      const blueCore = new THREE.Mesh(blueCoreGeometry, blueCoreMaterial);
+      blueCore.position.set(-90, 10, 0);
+      scene.add(blueCore);
+      
+      const redCoreGeometry = new THREE.SphereGeometry(5, 8, 6);
+      const redCoreMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xff4444,
+        wireframe: true
+      });
+      const redCore = new THREE.Mesh(redCoreGeometry, redCoreMaterial);
+      redCore.position.set(90, 10, 0);
+      scene.add(redCore);
+    }
+    
+    // Create paintball-themed obstacles
+    function createObstacles() {
+      // Create symmetrical paintball bunkers in the middle of the map
+      
+      // Central bunker - large rectangular obstacle
+      const centralBunkerGeometry = new THREE.BoxGeometry(15, 5, 30);
+      const centralBunkerMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x888888,
+        wireframe: true
+      });
+      const centralBunker = new THREE.Mesh(centralBunkerGeometry, centralBunkerMaterial);
+      centralBunker.position.set(0, 2.5, 0);
+      scene.add(centralBunker);
+      obstacles.push({
+        mesh: centralBunker,
+        type: 'box',
+        width: 15,
+        height: 5,
+        depth: 30
+      });
+      
+      // Left side obstacles
+      const leftBunker1Geometry = new THREE.BoxGeometry(8, 4, 8);
+      const leftBunker1Material = new THREE.MeshBasicMaterial({ 
+        color: 0x888888,
+        wireframe: true
+      });
+      const leftBunker1 = new THREE.Mesh(leftBunker1Geometry, leftBunker1Material);
+      leftBunker1.position.set(-25, 2, 15);
+      scene.add(leftBunker1);
+      obstacles.push({
+        mesh: leftBunker1,
+        type: 'box',
+        width: 8,
+        height: 4,
+        depth: 8
+      });
+      
+      const leftBunker2Geometry = new THREE.BoxGeometry(10, 3, 10);
+      const leftBunker2Material = new THREE.MeshBasicMaterial({ 
+        color: 0x888888,
+        wireframe: true
+      });
+      const leftBunker2 = new THREE.Mesh(leftBunker2Geometry, leftBunker2Material);
+      leftBunker2.position.set(-15, 1.5, -20);
+      scene.add(leftBunker2);
+      obstacles.push({
+        mesh: leftBunker2,
+        type: 'box',
+        width: 10,
+        height: 3,
+        depth: 10
+      });
+      
+      // Right side obstacles (symmetrical to left side)
+      const rightBunker1Geometry = new THREE.BoxGeometry(8, 4, 8);
+      const rightBunker1Material = new THREE.MeshBasicMaterial({ 
+        color: 0x888888,
+        wireframe: true
+      });
+      const rightBunker1 = new THREE.Mesh(rightBunker1Geometry, rightBunker1Material);
+      rightBunker1.position.set(25, 2, 15);
+      scene.add(rightBunker1);
+      obstacles.push({
+        mesh: rightBunker1,
+        type: 'box',
+        width: 8,
+        height: 4,
+        depth: 8
+      });
+      
+      const rightBunker2Geometry = new THREE.BoxGeometry(10, 3, 10);
+      const rightBunker2Material = new THREE.MeshBasicMaterial({ 
+        color: 0x888888,
+        wireframe: true
+      });
+      const rightBunker2 = new THREE.Mesh(rightBunker2Geometry, rightBunker2Material);
+      rightBunker2.position.set(15, 1.5, -20);
+      scene.add(rightBunker2);
+      obstacles.push({
+        mesh: rightBunker2,
+        type: 'box',
+        width: 10,
+        height: 3,
+        depth: 10
+      });
+      
+      // Additional small obstacles for more tactical gameplay
+      const smallObstacle1Geometry = new THREE.BoxGeometry(5, 2, 5);
+      const smallObstacle1Material = new THREE.MeshBasicMaterial({ 
+        color: 0x666666,
+        wireframe: true
+      });
+      const smallObstacle1 = new THREE.Mesh(smallObstacle1Geometry, smallObstacle1Material);
+      smallObstacle1.position.set(-40, 1, 0);
+      scene.add(smallObstacle1);
+      obstacles.push({
+        mesh: smallObstacle1,
+        type: 'box',
+        width: 5,
+        height: 2,
+        depth: 5
+      });
+      
+      const smallObstacle2Geometry = new THREE.BoxGeometry(5, 2, 5);
+      const smallObstacle2Material = new THREE.MeshBasicMaterial({ 
+        color: 0x666666,
+        wireframe: true
+      });
+      const smallObstacle2 = new THREE.Mesh(smallObstacle2Geometry, smallObstacle2Material);
+      smallObstacle2.position.set(40, 1, 0);
+      scene.add(smallObstacle2);
+      obstacles.push({
+        mesh: smallObstacle2,
+        type: 'box',
+        width: 5,
+        height: 2,
+        depth: 5
+      });
+      
+      // Add some cylindrical obstacles for variety
+      const cylinderObstacle1Geometry = new THREE.CylinderGeometry(3, 3, 4, 8);
+      const cylinderObstacle1Material = new THREE.MeshBasicMaterial({ 
+        color: 0x777777,
+        wireframe: true
+      });
+      const cylinderObstacle1 = new THREE.Mesh(cylinderObstacle1Geometry, cylinderObstacle1Material);
+      cylinderObstacle1.position.set(-10, 2, 25);
+      scene.add(cylinderObstacle1);
+      obstacles.push({
+        mesh: cylinderObstacle1,
+        type: 'cylinder',
+        radius: 3,
+        height: 4
+      });
+      
+      const cylinderObstacle2Geometry = new THREE.CylinderGeometry(3, 3, 4, 8);
+      const cylinderObstacle2Material = new THREE.MeshBasicMaterial({ 
+        color: 0x777777,
+        wireframe: true
+      });
+      const cylinderObstacle2 = new THREE.Mesh(cylinderObstacle2Geometry, cylinderObstacle2Material);
+      cylinderObstacle2.position.set(10, 2, 25);
+      scene.add(cylinderObstacle2);
+      obstacles.push({
+        mesh: cylinderObstacle2,
+        type: 'cylinder',
+        radius: 3,
+        height: 4
+      });
+    }
+    
+    // Check if a position collides with any obstacle
+    function checkObstacleCollision(position, isPlayer = false) {
+      // Create a bounding box slightly smaller than the player/drone
+      const size = isPlayer ? 0.8 : 0.9;
+      
+      // Check all obstacles
+      for (const obstacle of obstacles) {
+        if (obstacle.type === 'box') {
+          const halfWidth = obstacle.width / 2 + size;
+          const halfHeight = obstacle.height / 2 + (isPlayer ? 1 : 0.5);
+          const halfDepth = obstacle.depth / 2 + size;
+          const pos = obstacle.mesh.position;
+          
+          if (position.x >= pos.x - halfWidth && position.x <= pos.x + halfWidth &&
+              position.y >= pos.y - halfHeight && position.y <= pos.y + halfHeight &&
+              position.z >= pos.z - halfDepth && position.z <= pos.z + halfDepth) {
+            return true;
+          }
+        } else if (obstacle.type === 'cylinder') {
+          const pos = obstacle.mesh.position;
+          const dx = position.x - pos.x;
+          const dz = position.z - pos.z;
+          const distance = Math.sqrt(dx * dx + dz * dz);
+          const halfHeight = obstacle.height / 2 + (isPlayer ? 1 : 0.5);
+          
+          if (distance <= obstacle.radius + size && 
+              position.y >= pos.y - halfHeight && position.y <= pos.y + halfHeight) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    
+    // Check if a drone is in its base
+    function isInBase(team, position) {
+      const bounds = team === 'blue' ? blueBaseBounds : redBaseBounds;
+      return (position.x >= bounds.minX && position.x <= bounds.maxX &&
+              position.z >= bounds.minZ && position.z <= bounds.maxZ);
+    }
+    
+    // Get adjusted position that avoids obstacles
+    function getAdjustedPosition(oldPos, newPos, isPlayer = false) {
+      const adjustedPos = newPos.clone();
+      
+      // Check if new position collides with obstacles
+      if (checkObstacleCollision(adjustedPos, isPlayer)) {
+        // Try to adjust X position
+        const testPosX = new THREE.Vector3(oldPos.x, adjustedPos.y, adjustedPos.z);
+        if (!checkObstacleCollision(testPosX, isPlayer)) {
+          adjustedPos.x = oldPos.x;
+        }
+        
+        // Try to adjust Z position
+        const testPosZ = new THREE.Vector3(adjustedPos.x, adjustedPos.y, oldPos.z);
+        if (!checkObstacleCollision(testPosZ, isPlayer)) {
+          adjustedPos.z = oldPos.z;
+        }
+        
+        // If still colliding, revert to old position
+        if (checkObstacleCollision(adjustedPos, isPlayer)) {
+          return oldPos.clone();
+        }
+      }
+      
+      return adjustedPos;
+    }
+    
+    // Create the player
+    function createPlayer() {
+      player = new THREE.Object3D();
+      
+      // Set position based on team
+      if (playerTeam === 'blue') {
+        player.position.set(-95, 1.7, 0);
+      } else {
+        player.position.set(95, 1.7, 0);
+      }
+      
+      scene.add(player);
+      
+      // Position camera relative to player
+      camera.position.set(0, 1.7, 0);
+      player.add(camera);
+      
+      // Create player model
+      const playerGeometry = new THREE.BoxGeometry(1, 2, 1);
+      const playerMaterial = new THREE.MeshBasicMaterial({ 
+        color: playerTeam === 'blue' ? 0x0088ff : 0xff4444,
+        wireframe: true
+      });
+      const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
+      playerMesh.position.y = 0;
+      player.add(playerMesh);
+      
+      // Set up player physics
+      player.velocity = new THREE.Vector3();
+      player.isGrounded = true;
+      player.lastPosition = player.position.clone();
+      player.respawnInvulnerable = true;
+      player.respawnInvulnerableTime = 10;
+      player.jetpackActive = false;
+    }
+    
+    // Create enemy drones
+    function createDrones() {
+      // Clear existing drones
+      drones.forEach(drone => scene.remove(drone));
+      drones = [];
+      
+      // Set drone counts based on game mode
+      if (gameMode === '3v3') {
+        gameStats.blueDrones = 2;
+        gameStats.redDrones = 2;
+      } else if (gameMode === '10v10') {
+        gameStats.blueDrones = 9;
+        gameStats.redDrones = 9;
+      }
+      
+      // Adjust for player team
+      if (playerTeam === 'blue') {
+        gameStats.blueDrones += 1;
+      } else {
+        gameStats.redDrones += 1;
+      }
+      
+      // Create blue team drones
+      for (let i = 0; i < gameStats.blueDrones; i++) {
+        createDrone('blue', i);
+      }
+      
+      // Create red team drones
+      for (let i = 0; i < gameStats.redDrones; i++) {
+        createDrone('red', i);
+      }
+    }
+    
+    // Create a single drone
+    function createDrone(team, id) {
+      const droneGeometry = new THREE.BoxGeometry(1, 2, 1);
+      const droneMaterial = new THREE.MeshBasicMaterial({ 
+        color: team === 'blue' ? 0x0088ff : 0xff4444,
+        wireframe: true
+      });
+      const drone = new THREE.Mesh(droneGeometry, droneMaterial);
+      
+      // Position drone at its base
+      const bounds = team === 'blue' ? blueBaseBounds : redBaseBounds;
+      drone.position.set(
+        bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+        1.7,
+        bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ)
+      );
+      
+      // Add drone properties
+      drone.team = team;
+      drone.id = id;
+      drone.health = 100;
+      drone.speed = 4;
+      drone.target = null;
+      drone.lastFire = 0;
+      drone.fireRate = 1.2;
+      drone.damage = 10;
+      drone.isAlive = true;
+      drone.respawnTime = 0;
+      drone.respawnInvulnerable = true;
+      drone.respawnInvulnerableTime = 10;
+      drone.lastPosition = drone.position.clone();
+      drone.defendTime = 5; // Drones defend for 5 seconds after respawn
+      drone.defendMode = true; // Start in defend mode
+      drone.attackMode = 'core';
+      drone.state = 'defending'; // defending, attacking, retreating
+      drone.lastStateChange = Date.now();
+      drone.stateDuration = 0;
+      
+      scene.add(drone);
+      drones.push(drone);
+    }
+    
+    // Switch player team
+    function switchTeam() {
+      if (currentState !== GameState.PLAYING) return;
+      
+      // Toggle team
+      playerTeam = playerTeam === 'blue' ? 'red' : 'blue';
+      
+      // Update team indicator
+      document.getElementById('teamIndicator').textContent = `TEAM: ${playerTeam.toUpperCase()}`;
+      document.getElementById('teamIndicator').className = `team-indicator ${playerTeam === 'blue' ? 'team-blue-indicator' : 'team-red-indicator'}`;
+      
+      // Recreate drones with new counts
+      createDrones();
+      
+      // Reset player position
+      if (playerTeam === 'blue') {
+        player.position.set(-95, 1.7, 0);
+      } else {
+        player.position.set(95, 1.7, 0);
+      }
+      player.velocity.set(0, 0, 0);
+      
+      // Update UI
+      updateUI();
+      
+      showConsoleMessage(`Switched to ${playerTeam.toUpperCase()} team!`);
+    }
+    
+    // Toggle fullscreen
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          console.log(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+    
+    // Set up event listeners
+    function setupEventListeners() {
+      // Keyboard events
+      document.addEventListener('keydown', (e) => {
+        switch(e.code) {
+          case 'KeyW': controls.moveForward = true; break;
+          case 'KeyS': controls.moveBackward = true; break;
+          case 'KeyA': controls.moveLeft = true; break;
+          case 'KeyD': controls.moveRight = true; break;
+          case 'Space': 
+            controls.jump = true; 
+            gatlingActive = true;
+            break;
+          case 'ShiftLeft': 
+            controls.jetpack = true;
+            playerStats.jetpackActive = true;
+            player.jetpackActive = true;
+            document.getElementById('jetpackStatus').classList.add('active');
+            document.getElementById('jetpackStatus').textContent = "JETPACK: ACTIVE";
+            break;
+          case 'KeyT':
+            switchTeam();
+            break;
+          case 'Escape': 
+            if (currentState === GameState.PLAYING) {
+              togglePauseMenu();
+            } else if (currentState === GameState.PAUSED) {
+              togglePauseMenu();
+            } else if (currentState === GameState.MENU || currentState === GameState.SETTINGS) {
+              // Exit to browser
+              if (document.exitFullscreen) {
+                document.exitFullscreen();
+              }
+            }
+            break;
+        }
+      });
+      
+      document.addEventListener('keyup', (e) => {
+        switch(e.code) {
+          case 'KeyW': controls.moveForward = false; break;
+          case 'KeyS': controls.moveBackward = false; break;
+          case 'KeyA': controls.moveLeft = false; break;
+          case 'KeyD': controls.moveRight = false; break;
+          case 'Space': 
+            controls.jump = false; 
+            gatlingActive = false;
+            break;
+          case 'ShiftLeft': 
+            controls.jetpack = false;
+            playerStats.jetpackActive = false;
+            player.jetpackActive = false;
+            document.getElementById('jetpackStatus').classList.remove('active');
+            document.getElementById('jetpackStatus').textContent = "JETPACK: READY";
+            break;
+        }
+      });
+      
+      // Mouse events
+      document.addEventListener('mousedown', (e) => {
+        if (currentState === GameState.PLAYING) {
+          if (e.button === 0) {
+            controls.fire = true;
+            fireHighDamageShot();
+          } else if (e.button === 2) {
+            controls.scope = true;
+            // Activate scope
+            activateScope();
+          }
+        }
+      });
+      
+      document.addEventListener('mouseup', (e) => {
+        if (e.button === 0) {
+          controls.fire = false;
+        } else if (e.button === 2) {
+          controls.scope = false;
+          // Deactivate scope
+          deactivateScope();
+        }
+      });
+      
+      document.addEventListener('mousemove', (e) => {
+        if (currentState === GameState.PLAYING || currentState === GameState.PAUSED) {
+          controls.mouseX = e.movementX * mouseSensitivity;
+          controls.mouseY = e.movementY * mouseSensitivity * (invertYAxis ? -1 : 1);
+          
+          // Rotate player based on mouse movement
+          if (currentState === GameState.PLAYING) {
+            player.rotation.y -= controls.mouseX;
+            camera.rotation.x -= controls.mouseY;
+            
+            // Limit camera rotation
+            camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+          }
+        }
+      });
+      
+      // Prevent context menu on right click
+      document.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+      });
+      
+      // Window resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+      
+      // Pointer lock events
+      document.addEventListener('pointerlockchange', pointerLockChange);
+      document.addEventListener('mozpointerlockchange', pointerLockChange);
+      
+      // Fullscreen events
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement) {
+          document.getElementById('cursorLockNotice').textContent = "Press ESC to exit to browser";
+        }
+      });
+      
+      // UI events
+      document.getElementById('startBtn').addEventListener('click', startGame);
+      document.getElementById('settingsBtn').addEventListener('click', showSettings);
+      document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+      document.getElementById('backToMenuBtn').addEventListener('click', hideSettings);
+      document.getElementById('resumeBtn').addEventListener('click', resumeGame);
+      document.getElementById('playAgainBtn').addEventListener('click', startGame);
+      document.getElementById('mainMenuBtn').addEventListener('click', () => {
+        document.getElementById('gameOverScreen').style.display = 'none';
+        document.getElementById('mainMenu').style.display = 'flex';
+        currentState = GameState.MENU;
+      });
+      
+      // Team selection
+      document.getElementById('blueTeamBtn').addEventListener('click', () => {
+        playerTeam = 'blue';
+        document.getElementById('blueTeamBtn').classList.add('active');
+        document.getElementById('redTeamBtn').classList.remove('active');
+      });
+      
+      document.getElementById('redTeamBtn').addEventListener('click', () => {
+        playerTeam = 'red';
+        document.getElementById('redTeamBtn').classList.add('active');
+        document.getElementById('blueTeamBtn').classList.remove('active');
+      });
+      
+      // Settings slider
+      document.getElementById('sensitivitySlider').addEventListener('input', (e) => {
+        document.getElementById('sensitivityValue').textContent = (e.target.value / 500).toFixed(2);
+      });
+    }
+    
+    // Show settings menu
+    function showSettings() {
+      document.getElementById('mainMenu').style.display = 'none';
+      document.getElementById('settingsMenu').style.display = 'flex';
+      currentState = GameState.SETTINGS;
+    }
+    
+    // Hide settings menu
+    function hideSettings() {
+      document.getElementById('settingsMenu').style.display = 'none';
+      document.getElementById('mainMenu').style.display = 'flex';
+      currentState = GameState.MENU;
+    }
+    
+    // Pointer lock change handler
+    function pointerLockChange() {
+      if (document.pointerLockElement === document.getElementById('gameView') ||
+          document.mozPointerLockElement === document.getElementById('gameView')) {
+        pointerLocked = true;
+        document.getElementById('cursorLockNotice').style.display = 'none';
+      } else {
+        pointerLocked = false;
+        if (currentState === GameState.PLAYING) {
+          document.getElementById('cursorLockNotice').style.display = 'block';
+        }
+      }
+    }
+    
+    // Request pointer lock
+    function requestPointerLock() {
+      const canvas = document.getElementById('gameView');
+      canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+      canvas.requestPointerLock();
+    }
+    
+    // Activate scope
+    function activateScope() {
+      playerStats.scopeActive = true;
+      camera.fov = 45;
+      camera.updateProjectionMatrix();
+      document.getElementById('scopeOverlay').style.display = 'block';
+    }
+    
+    // Deactivate scope
+    function deactivateScope() {
+      playerStats.scopeActive = false;
+      camera.fov = 75;
+      camera.updateProjectionMatrix();
+      document.getElementById('scopeOverlay').style.display = 'none';
+    }
+    
+    // Show console message
+    function showConsoleMessage(message) {
+      const consoleElement = document.getElementById('console');
+      consoleElement.textContent = message;
+      consoleElement.classList.add('active');
+      
+      setTimeout(() => {
+        consoleElement.classList.remove('active');
+      }, 3000);
+    }
+    
+    // Start the game
+    function startGame() {
+      document.getElementById('mainMenu').style.display = 'none';
+      document.getElementById('gameOverScreen').style.display = 'none';
+      currentState = GameState.PLAYING;
+      
+      // Request pointer lock
+      requestPointerLock();
+      
+      // Reset player stats
+      playerStats.health = 100;
+      playerStats.energy = 100;
+      playerStats.shield = 100;
+      playerStats.kills = 0;
+      playerStats.deaths = 0;
+      playerStats.respawnTime = 10;
+      playerStats.shotsFired = 0;
+      playerStats.shotsHit = 0;
+      playerStats.coreDamage = 0;
+      playerStats.jetpackActive = false;
+      playerStats.scopeActive = false;
+      playerStats.respawnInvulnerable = true;
+      playerStats.respawnInvulnerableTime = 10;
+      
+      // Reset game stats
+      gameStats.blueScore = 0;
+      gameStats.redScore = 0;
+      gameStats.blueCoreHealth = 500000;
+      gameStats.redCoreHealth = 500000;
+      
+      // Reset player position
+      if (playerTeam === 'blue') {
+        player.position.set(-95, 1.7, 0);
+      } else {
+        player.position.set(95, 1.7, 0);
+      }
+      player.velocity.set(0, 0, 0);
+      player.respawnInvulnerable = true;
+      player.respawnInvulnerableTime = 10;
+      player.jetpackActive = false;
+      
+      // Clear existing drones and projectiles
+      drones.forEach(drone => scene.remove(drone));
+      drones = [];
+      projectiles.forEach(projectile => scene.remove(projectile));
+      projectiles = [];
+      particles.forEach(particle => scene.remove(particle));
+      particles = [];
+      
+      // Create new drones
+      createDrones();
+      
+      // Update UI
+      updateUI();
+      
+      showConsoleMessage("Match started! Destroy the enemy core!");
+    }
+    
+    // Toggle pause menu
+    function togglePauseMenu() {
+      if (currentState === GameState.PLAYING) {
+        document.getElementById('mainMenu').style.display = 'flex';
+        currentState = GameState.PAUSED;
+      } else if (currentState === GameState.PAUSED) {
+        document.getElementById('mainMenu').style.display = 'none';
+        currentState = GameState.PLAYING;
+        requestPointerLock();
+      }
+    }
+    
+    // Resume game
+    function resumeGame() {
+      document.getElementById('mainMenu').style.display = 'none';
+      currentState = GameState.PLAYING;
+      requestPointerLock();
+    }
+    
+    // Fire high-damage shot (left click)
+    function fireHighDamageShot() {
+      if (currentState !== GameState.PLAYING) return;
+      
+      playerStats.shotsFired++;
+      
+      createHighDamageProjectile();
+    }
+    
+    // Fire gatling gun (space bar)
+    function fireGatling() {
+      if (currentState !== GameState.PLAYING) return;
+      
+      playerStats.shotsFired++;
+      
+      // Create multiple small projectiles for gatling effect
+      for (let i = 0; i < 3; i++) {
+        createGatlingProjectile();
+      }
+    }
+    
+    // Create high-damage projectile (left click)
+    function createHighDamageProjectile() {
+      if (projectiles.length > 50) {
+        const oldestProjectile = projectiles.shift();
+        scene.remove(oldestProjectile);
+      }
+      
+      const projectileGeometry = new THREE.SphereGeometry(0.2, 6, 6);
+      const projectileMaterial = new THREE.MeshBasicMaterial({ 
+        color: playerTeam === 'blue' ? 0x0088ff : 0xff4444
+      });
+      const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+      
+      // Set position and direction based on camera
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      
+      // Position projectile slightly in front of camera
+      const cameraWorldPosition = new THREE.Vector3();
+      camera.getWorldPosition(cameraWorldPosition);
+      projectile.position.copy(cameraWorldPosition);
+      projectile.position.add(direction.multiplyScalar(1.5));
+      
+      // Set velocity
+      const speed = 60;
+      
+      projectile.velocity = direction.clone().multiplyScalar(speed);
+      projectile.team = playerTeam;
+      projectile.damage = 50;
+      projectile.isHighDamage = true;
+      
+      scene.add(projectile);
+      projectiles.push(projectile);
+    }
+    
+    // Create gatling projectile (space bar)
+    function createGatlingProjectile() {
+      if (projectiles.length > 50) {
+        const oldestProjectile = projectiles.shift();
+        scene.remove(oldestProjectile);
+      }
+      
+      const projectileGeometry = new THREE.SphereGeometry(0.1, 6, 6);
+      const projectileMaterial = new THREE.MeshBasicMaterial({ 
+        color: playerTeam === 'blue' ? 0x00aaff : 0xff6666
+      });
+      const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+      
+      // Set position and direction based on camera
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      
+      // Add slight spread for gatling effect
+      direction.x += (Math.random() - 0.5) * 0.05;
+      direction.y += (Math.random() - 0.5) * 0.05;
+      direction.z += (Math.random() - 0.5) * 0.05;
+      direction.normalize();
+      
+      // Position projectile slightly in front of camera
+      const cameraWorldPosition = new THREE.Vector3();
+      camera.getWorldPosition(cameraWorldPosition);
+      projectile.position.copy(cameraWorldPosition);
+      projectile.position.add(direction.multiplyScalar(1.5));
+      
+      // Set velocity - faster for gatling
+      const speed = 80;
+      
+      projectile.velocity = direction.clone().multiplyScalar(speed);
+      projectile.team = playerTeam;
+      projectile.damage = 5;
+      projectile.isHighDamage = false;
+      
+      scene.add(projectile);
+      projectiles.push(projectile);
+    }
+    
+    // Create explosion
+    function createExplosion(position, size = 1.0, count = 15) {
+      for (let i = 0; i < count; i++) {
+        const particleGeometry = new THREE.SphereGeometry(0.1, 4, 4);
+        const particleMaterial = new THREE.MeshBasicMaterial({ 
+          color: 0x00ff00
+        });
+        const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+        particle.position.copy(position);
+        
+        // Random direction and speed
+        const angle1 = Math.random() * Math.PI * 2;
+        const angle2 = Math.random() * Math.PI * 2;
+        const speed = 5 + Math.random() * 5;
+        
+        particle.velocity = new THREE.Vector3(
+          Math.sin(angle1) * Math.cos(angle2) * speed,
+          Math.sin(angle1) * Math.sin(angle2) * speed,
+          Math.cos(angle1) * speed
+        );
+        
+        particle.lifetime = 1.0 + Math.random() * 0.5;
+        
+        scene.add(particle);
+        particles.push(particle);
+      }
+    }
+    
+    // Update player
+    function updatePlayer(delta) {
+      if (!player || currentState !== GameState.PLAYING) return;
+      
+      // Store last position for collision detection
+      player.lastPosition.copy(player.position);
+      
+      // Update respawn invulnerability
+      if (player.respawnInvulnerable) {
+        player.respawnInvulnerableTime -= delta;
+        playerStats.respawnInvulnerableTime = player.respawnInvulnerableTime;
+        
+        // Show respawn status
+        document.getElementById('respawnStatus').style.display = 'block';
+        document.getElementById('respawnInvulnCount').textContent = Math.ceil(player.respawnInvulnerableTime);
+        
+        if (player.respawnInvulnerableTime <= 0) {
+          player.respawnInvulnerable = false;
+          playerStats.respawnInvulnerable = false;
+          document.getElementById('respawnStatus').style.display = 'none';
+          showConsoleMessage("Respawn invulnerability ended!");
+        }
+      }
+      
+      // Update gatling cooldown
+      if (gatlingActive) {
+        gatlingCooldown -= delta;
+        if (gatlingCooldown <= 0) {
+          fireGatling();
+          gatlingCooldown = gatlingFireRate;
+        }
+      }
+      
+      // Movement direction
+      const moveVector = new THREE.Vector3();
+      
+      if (controls.moveForward) moveVector.z -= 1;
+      if (controls.moveBackward) moveVector.z += 1;
+      if (controls.moveLeft) moveVector.x -= 1;
+      if (controls.moveRight) moveVector.x += 1;
+      
+      // Normalize if moving diagonally
+      if (moveVector.length() > 0) {
+        moveVector.normalize();
+      }
+      
+      // Apply movement relative to player rotation
+      moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
+      
+      // Speed for assault class
+      let speed = 6;
+      
+      // Apply jetpack upward force if active
+      if (player.jetpackActive) {
+        player.velocity.y += 15 * delta;
+      }
+      
+      moveVector.multiplyScalar(speed * delta);
+      
+      // Calculate new position
+      const newPos = player.position.clone().add(moveVector);
+      
+      // Check if player is respawn invulnerable and trying to leave base
+      if (player.respawnInvulnerable) {
+        // Prevent leaving base during respawn invulnerability
+        if (!isInBase(playerTeam, newPos)) {
+          // Calculate the closest point inside the base
+          const bounds = playerTeam === 'blue' ? blueBaseBounds : redBaseBounds;
+          const clampedX = Math.max(bounds.minX, Math.min(bounds.maxX, newPos.x));
+          const clampedZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, newPos.z));
+          newPos.set(clampedX, newPos.y, clampedZ);
+        }
+      }
+      
+      // Check for obstacle collisions and adjust position
+      player.position.copy(getAdjustedPosition(player.lastPosition, newPos, true));
+      
+      // Regular jumping
+      if (controls.jump && player.isGrounded) {
+        player.velocity.y = 8;
+        player.isGrounded = false;
+      }
+      
+      // Apply gravity if not using jetpack
+      if (!player.jetpackActive) {
+        player.velocity.y -= 20 * delta;
+      }
+      
+      // Check vertical collision
+      const newYPos = player.position.y + player.velocity.y * delta;
+      const testPos = new THREE.Vector3(player.position.x, newYPos, player.position.z);
+      
+      // Check if new Y position collides with obstacles
+      if (!checkObstacleCollision(testPos, true)) {
+        player.position.y = newYPos;
+      } else {
+        // Hit ceiling or obstacle from below
+        player.velocity.y = 0;
+      }
+      
+      // Ground collision
+      if (player.position.y <= 1.7) {
+        player.position.y = 1.7;
+        player.velocity.y = 0;
+        player.isGrounded = true;
+      }
+      
+      // Ceiling collision
+      if (player.position.y >= ceilingHeight - 1.7) {
+        player.position.y = ceilingHeight - 1.7;
+        player.velocity.y = 0;
+      }
+      
+      // Boundary checks
+      player.position.x = Math.max(-105, Math.min(105, player.position.x));
+      player.position.z = Math.max(-45, Math.min(45, player.position.z));
+      
+      // Auto-fire high damage shots
+      if (controls.fire) {
+        fireHighDamageShot();
+      }
+      
+      // Recharge energy
+      playerStats.energy = Math.min(100, playerStats.energy + 5 * delta);
+    }
+    
+    // Update drones
+    function updateDrones(delta) {
+      for (let i = 0; i < drones.length; i++) {
+        const drone = drones[i];
+        
+        // Handle drone respawning
+        if (!drone.isAlive) {
+          drone.respawnTime -= delta;
+          if (drone.respawnTime <= 0) {
+            // Respawn drone at its base
+            drone.isAlive = true;
+            drone.health = 100;
+            drone.visible = true;
+            drone.respawnInvulnerable = true;
+            drone.respawnInvulnerableTime = 10;
+            drone.defendMode = true;
+            drone.defendTime = 5;
+            drone.state = 'defending';
+            
+            // Reset position to base
+            const bounds = drone.team === 'blue' ? blueBaseBounds : redBaseBounds;
+            drone.position.set(
+              bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+              1.7,
+              bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ)
+            );
+          } else {
+            continue;
+          }
+        }
+        
+        // Store last position for collision detection
+        drone.lastPosition.copy(drone.position);
+        
+        // Handle respawn invulnerability
+        if (drone.respawnInvulnerable) {
+          drone.respawnInvulnerableTime -= delta;
+          if (drone.respawnInvulnerableTime <= 0) {
+            drone.respawnInvulnerable = false;
+          } else {
+            // Drones can't leave base during invulnerability
+            if (!isInBase(drone.team, drone.position)) {
+              // Force drone back into base
+              const bounds = drone.team === 'blue' ? blueBaseBounds : redBaseBounds;
+              drone.position.x = Math.max(bounds.minX, Math.min(bounds.maxX, drone.position.x));
+              drone.position.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, drone.position.z));
+            }
+          }
+        }
+        
+        // Update defend mode timer
+        if (drone.defendMode) {
+          drone.defendTime -= delta;
+          if (drone.defendTime <= 0) {
+            drone.defendMode = false;
+            drone.state = 'attacking';
+          }
+        }
+        
+        // Enhanced AI Logic
+        let targetPosition;
+        let shouldFire = false;
+        
+        // Check if core is under attack
+        const ownCorePosition = drone.team === 'blue' ? 
+          new THREE.Vector3(-90, 10, 0) : 
+          new THREE.Vector3(90, 10, 0);
+          
+        const enemyCorePosition = drone.team === 'blue' ? 
+          new THREE.Vector3(90, 10, 0) : 
+          new THREE.Vector3(-90, 10, 0);
+        
+        // Find nearest enemy
+        let nearestEnemy = null;
+        let nearestDistance = Infinity;
+        
+        // Check player first
+        if (playerTeam !== drone.team && !player.respawnInvulnerable) {
+          const distanceToPlayer = drone.position.distanceTo(player.position);
+          if (distanceToPlayer < 30) {
+            nearestEnemy = player;
+            nearestDistance = distanceToPlayer;
+          }
+        }
+        
+        // Check enemy drones
+        for (let j = 0; j < drones.length; j++) {
+          const otherDrone = drones[j];
+          if (otherDrone.isAlive && otherDrone.team !== drone.team && !otherDrone.respawnInvulnerable) {
+            const distance = drone.position.distanceTo(otherDrone.position);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestEnemy = otherDrone;
+            }
+          }
+        }
+        
+        // State machine for drone behavior
+        switch(drone.state) {
+          case 'defending':
+            // Stay near own core to defend it
+            targetPosition = ownCorePosition.clone();
+            
+            // Add some random movement within the base
+            targetPosition.x += (Math.random() - 0.5) * 20;
+            targetPosition.z += (Math.random() - 0.5) * 20;
+            
+            // If enemy is close, attack it
+            if (nearestEnemy && nearestDistance < 15) {
+              targetPosition = nearestEnemy.position;
+              shouldFire = true;
+            }
+            
+            // After defend time, switch to attacking
+            if (!drone.defendMode) {
+              drone.state = 'attacking';
+            }
+            break;
+            
+          case 'attacking':
+            // If core is under attack (enemies near core), defend it
+            let coreUnderAttack = false;
+            for (let j = 0; j < drones.length; j++) {
+              const otherDrone = drones[j];
+              if (otherDrone.isAlive && otherDrone.team !== drone.team && 
+                  otherDrone.position.distanceTo(ownCorePosition) < 25) {
+                coreUnderAttack = true;
+                break;
+              }
+            }
+            
+            // Also check if player is near core
+            if (playerTeam !== drone.team && 
+                player.position.distanceTo(ownCorePosition) < 25 && 
+                !player.respawnInvulnerable) {
+              coreUnderAttack = true;
+            }
+            
+            if (coreUnderAttack) {
+              // Defend the core
+              drone.state = 'defending';
+              drone.defendMode = true;
+              drone.defendTime = 3;
+              targetPosition = ownCorePosition.clone();
+            } else if (nearestEnemy && nearestDistance < 20) {
+              // Attack nearby enemy
+              targetPosition = nearestEnemy.position;
+              shouldFire = true;
+            } else {
+              // Move toward enemy core
+              targetPosition = enemyCorePosition.clone();
+              
+              // Add some pathfinding to avoid obstacles
+              const direction = new THREE.Vector3();
+              direction.subVectors(targetPosition, drone.position);
+              
+              // If path is blocked, try to go around
+              const testPos = drone.position.clone().add(direction.clone().normalize().multiplyScalar(5));
+              if (checkObstacleCollision(testPos)) {
+                // Try to go around the obstacle
+                targetPosition.x += (Math.random() - 0.5) * 10;
+                targetPosition.z += (Math.random() - 0.5) * 10;
+              }
+            }
+            break;
+        }
+        
+        // Calculate direction to target
+        const direction = new THREE.Vector3();
+        direction.subVectors(targetPosition, drone.position).normalize();
+        
+        // Calculate new position
+        const newPos = drone.position.clone().add(direction.multiplyScalar(drone.speed * delta));
+        
+        // Check if drone is respawn invulnerable and trying to leave base
+        if (drone.respawnInvulnerable) {
+          // Prevent leaving base during respawn invulnerability
+          if (!isInBase(drone.team, newPos)) {
+            // Calculate the closest point inside the base
+            const bounds = drone.team === 'blue' ? blueBaseBounds : redBaseBounds;
+            const clampedX = Math.max(bounds.minX, Math.min(bounds.maxX, newPos.x));
+            const clampedZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, newPos.z));
+            newPos.set(clampedX, newPos.y, clampedZ);
+          }
+        }
+        
+        // Check for obstacle collisions and adjust position
+        drone.position.copy(getAdjustedPosition(drone.lastPosition, newPos));
+        
+        // Fire at target if appropriate
+        if (shouldFire && Date.now() - drone.lastFire > drone.fireRate * 1000) {
+          createDroneProjectile(drone, targetPosition);
+          drone.lastFire = Date.now();
+        } else if (Date.now() - drone.lastFire > drone.fireRate * 1000 && Math.random() < 0.1) {
+          // Occasionally fire at target even when not in combat
+          createDroneProjectile(drone, targetPosition);
+          drone.lastFire = Date.now();
+        }
+        
+        // Boundary checks
+        drone.position.x = Math.max(-105, Math.min(105, drone.position.x));
+        drone.position.z = Math.max(-45, Math.min(45, drone.position.z));
+      }
+    }
+    
+    // Create drone projectile
+    function createDroneProjectile(drone, targetPosition) {
+      const projectileGeometry = new THREE.SphereGeometry(0.1, 6, 6);
+      const projectileMaterial = new THREE.MeshBasicMaterial({ 
+        color: drone.team === 'blue' ? 0x0088ff : 0xff4444
+      });
+      const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+      
+      // Position at drone
+      projectile.position.copy(drone.position);
+      projectile.position.y += 1.5;
+      
+      // Calculate direction to target
+      const direction = new THREE.Vector3();
+      direction.subVectors(targetPosition, drone.position).normalize();
+      
+      // Set velocity
+      projectile.velocity = direction.clone().multiplyScalar(40);
+      projectile.team = drone.team;
+      projectile.damage = 10;
+      
+      scene.add(projectile);
+      projectiles.push(projectile);
+    }
+    
+    // Update projectiles
+    function updateProjectiles(delta) {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const projectile = projectiles[i];
+        
+        // Move projectile
+        projectile.position.add(projectile.velocity.clone().multiplyScalar(delta));
+        
+        // Check for collisions with obstacles
+        let hitObstacle = false;
+        for (const obstacle of obstacles) {
+          if (obstacle.type === 'box') {
+            const halfWidth = obstacle.width / 2 + 0.2;
+            const halfHeight = obstacle.height / 2 + 0.2;
+            const halfDepth = obstacle.depth / 2 + 0.2;
+            const pos = obstacle.mesh.position;
+            
+            if (projectile.position.x >= pos.x - halfWidth && projectile.position.x <= pos.x + halfWidth &&
+                projectile.position.y >= pos.y - halfHeight && projectile.position.y <= pos.y + halfHeight &&
+                projectile.position.z >= pos.z - halfDepth && projectile.position.z <= pos.z + halfDepth) {
+              hitObstacle = true;
+              break;
+            }
+          } else if (obstacle.type === 'cylinder') {
+            const pos = obstacle.mesh.position;
+            const dx = projectile.position.x - pos.x;
+            const dz = projectile.position.z - pos.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            const halfHeight = obstacle.height / 2 + 0.2;
+            
+            if (distance <= obstacle.radius + 0.2 && 
+                projectile.position.y >= pos.y - halfHeight && projectile.position.y <= pos.y + halfHeight) {
+              hitObstacle = true;
+              break;
+            }
+          }
+        }
+        
+        if (hitObstacle) {
+          // Create impact effect
+          createExplosion(projectile.position, 0.3, 3);
+          scene.remove(projectile);
+          projectiles.splice(i, 1);
+          continue;
+        }
+        
+        // Check if projectile is out of bounds
+        if (projectile.position.length() > 200) {
+          scene.remove(projectile);
+          projectiles.splice(i, 1);
+          continue;
+        }
+        
+        // Check for collisions with player
+        if (projectile.team !== playerTeam && 
+            projectile.position.distanceTo(player.position) < 1.5 &&
+            playerStats.health > 0) {
+          
+          // Only damage player if they're not in their base or respawn invulnerable
+          if (!isInBase(playerTeam, player.position) && !player.respawnInvulnerable) {
+            // Player dies in one hit from any projectile
+            playerStats.health = 0;
+            
+            createExplosion(projectile.position, 0.5, 5);
+            scene.remove(projectile);
+            projectiles.splice(i, 1);
+            
+            if (playerStats.health <= 0) {
+              playerDie();
+            }
+          }
+          
+          continue;
+        }
+        
+        // Check for collisions with drones
+        for (let j = drones.length - 1; j >= 0; j--) {
+          const drone = drones[j];
+          
+          if (drone.isAlive && drone.health > 0 && 
+              projectile.team !== drone.team &&
+              projectile.position.distanceTo(drone.position) < 1.5) {
+            
+            // Only damage drone if they're not in their base or respawn invulnerable
+            if (!isInBase(drone.team, drone.position) && !drone.respawnInvulnerable) {
+              // Drone dies in one hit from any projectile
+              drone.health = 0;
+              createExplosion(projectile.position, 0.5, 5);
+              scene.remove(projectile);
+              projectiles.splice(i, 1);
+              
+              if (drone.health <= 0) {
+                // Drone killed
+                drone.isAlive = false;
+                drone.visible = false;
+                drone.respawnTime = 10;
+                
+                if (projectile.team === playerTeam) {
+                  playerStats.kills++;
+                  playerStats.shotsHit++;
+                  gameStats[playerTeam + 'Score'] += 10;
+                  
+                  addKillEvent("PLAYER", `${drone.team.toUpperCase()} DRONE ${drone.id}`);
+                } else {
+                  // Drone killed another drone
+                  addKillEvent(`${projectile.team.toUpperCase()} DRONE`, `${drone.team.toUpperCase()} DRONE ${drone.id}`);
+                }
+                
+                createExplosion(drone.position, 2.0, 20);
+              }
+            }
+            
+            break;
+          }
+        }
+        
+        // Check for collisions with cores
+        const blueCorePosition = new THREE.Vector3(-90, 10, 0);
+        const redCorePosition = new THREE.Vector3(90, 10, 0);
+        
+        // Blue core collision
+        if (projectile.team === 'red' && projectile.position.distanceTo(blueCorePosition) < 5) {
+          let damage = projectile.damage;
+          
+          // High-damage shots get bonus damage based on proximity
+          if (projectile.isHighDamage) {
+            const distance = player.position.distanceTo(blueCorePosition);
+            // More damage when closer to core (up to 3x at point blank)
+            const proximityBonus = Math.max(1, 3 - (distance / 30));
+            damage = Math.round(damage * proximityBonus);
+          }
+          
+          gameStats.blueCoreHealth -= damage;
+          playerStats.coreDamage += damage;
+          createExplosion(projectile.position, 0.5, 5);
+          scene.remove(projectile);
+          projectiles.splice(i, 1);
+          
+          if (gameStats.blueCoreHealth <= 0) {
+            gameOver('red');
+          }
+          continue;
+        }
+        
+        // Red core collision
+        if (projectile.team === 'blue' && projectile.position.distanceTo(redCorePosition) < 5) {
+          let damage = projectile.damage;
+          
+          // High-damage shots get bonus damage based on proximity
+          if (projectile.isHighDamage) {
+            const distance = player.position.distanceTo(redCorePosition);
+            // More damage when closer to core (up to 3x at point blank)
+            const proximityBonus = Math.max(1, 3 - (distance / 30));
+            damage = Math.round(damage * proximityBonus);
+          }
+          
+          gameStats.redCoreHealth -= damage;
+          playerStats.coreDamage += damage;
+          createExplosion(projectile.position, 0.5, 5);
+          scene.remove(projectile);
+          projectiles.splice(i, 1);
+          
+          if (gameStats.redCoreHealth <= 0) {
+            gameOver('blue');
+          }
+          continue;
+        }
+      }
+    }
+    
+    // Update particles
+    function updateParticles(delta) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const particle = particles[i];
+        
+        particle.position.add(particle.velocity.clone().multiplyScalar(delta));
+        particle.velocity.y -= 10 * delta;
+        
+        particle.lifetime -= delta;
+        if (particle.lifetime <= 0) {
+          scene.remove(particle);
+          particles.splice(i, 1);
+        }
+      }
+    }
+    
+    // Player death
+    function playerDie() {
+      playerStats.deaths++;
+      playerStats.respawnTime = 10;
+      
+      document.getElementById('respawnTimer').style.display = 'block';
+      document.getElementById('respawnCount').textContent = Math.ceil(playerStats.respawnTime);
+      
+      showConsoleMessage("Your drone was destroyed. Respawning in 10 seconds...");
+      
+      currentState = GameState.DEAD;
+    }
+    
+    // Update respawn timer
+    function updateRespawnTimer(delta) {
+      playerStats.respawnTime -= delta;
+      document.getElementById('respawnCount').textContent = Math.ceil(playerStats.respawnTime);
+      
+      if (playerStats.respawnTime <= 0) {
+        respawnPlayer();
+      }
+    }
+    
+    // Respawn player
+    function respawnPlayer() {
+      playerStats.health = 100;
+      playerStats.energy = 100;
+      playerStats.shield = 100;
+      
+      // Reset position to base
+      const bounds = playerTeam === 'blue' ? blueBaseBounds : redBaseBounds;
+      player.position.set(
+        bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+        1.7,
+        bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ)
+      );
+      player.velocity.set(0, 0, 0);
+      
+      // Set respawn invulnerability
+      player.respawnInvulnerable = true;
+      player.respawnInvulnerableTime = 10;
+      playerStats.respawnInvulnerable = true;
+      playerStats.respawnInvulnerableTime = 10;
+      
+      document.getElementById('respawnTimer').style.display = 'none';
+      currentState = GameState.PLAYING;
+      
+      showConsoleMessage("Drone systems restored. Returning to combat.");
+      showConsoleMessage("You are invulnerable for 10 seconds. Stay in your base!");
+    }
+    
+    // Game over
+    function gameOver(winningTeam) {
+      currentState = GameState.GAME_OVER;
+      
+      if (winningTeam === playerTeam) {
+        document.getElementById('gameOverTitle').textContent = "VICTORY!";
+        document.getElementById('gameOverMessage').textContent = "Enemy core destroyed!";
+        document.getElementById('webxosReward').textContent = "You earned 50 $WEBXOS!";
+        
+        showConsoleMessage("VICTORY! Enemy core destroyed!");
+        showConsoleMessage("You earned 50 $WEBXOS!");
+      } else {
+        document.getElementById('gameOverTitle').textContent = "DEFEAT!";
+        document.getElementById('gameOverMessage').textContent = "Your core was destroyed!";
+        document.getElementById('webxosReward').textContent = "Better luck next time!";
+        
+        showConsoleMessage("DEFEAT! Your core was destroyed.");
+      }
+      
+      // Show game over screen
+      document.getElementById('gameOverScreen').style.display = 'flex';
+    }
+    
+    // Update UI
+    function updateUI() {
+      document.getElementById('kills').textContent = playerStats.kills;
+      document.getElementById('deaths').textContent = playerStats.deaths;
+      
+      // Calculate K/D ratio
+      const kdRatio = playerStats.deaths > 0 ? (playerStats.kills / playerStats.deaths).toFixed(2) : playerStats.kills.toFixed(2);
+      document.getElementById('kdRatio').textContent = kdRatio;
+      
+      // Update core health bars
+      const blueCorePercent = Math.max(0, gameStats.blueCoreHealth / 500000 * 100);
+      const redCorePercent = Math.max(0, gameStats.redCoreHealth / 500000 * 100);
+      
+      document.getElementById('blueCoreFill').style.width = `${blueCorePercent}%`;
+      document.getElementById('redCoreFill').style.width = `${redCorePercent}%`;
+      document.getElementById('blueCoreText').textContent = Math.round(gameStats.blueCoreHealth);
+      document.getElementById('redCoreText').textContent = Math.round(gameStats.redCoreHealth);
+      
+      // Update FPS display
+      frameCount++;
+      const currentTime = performance.now();
+      if (currentTime >= lastFrameTime + 1000) {
+        fps = Math.round((frameCount * 1000) / (currentTime - lastFrameTime));
+        document.getElementById('fpsDisplay').textContent = `FPS: ${fps}`;
+        frameCount = 0;
+        lastFrameTime = currentTime;
+      }
+    }
+    
+    // Add event to kill feed
+    function addKillEvent(killer, victim) {
+      const killFeed = document.getElementById('killFeed');
+      const killEvent = document.createElement('div');
+      killEvent.className = 'kill-event';
+      killEvent.innerHTML = `<span class="killer">${killer}</span> defeated <span class="victim">${victim}</span>`;
+      
+      killFeed.appendChild(killEvent);
+      
+      // Limit to 5 entries
+      if (killFeed.children.length > 5) {
+        killFeed.removeChild(killFeed.children[0]);
+      }
+      
+      // Auto-scroll to bottom
+      killFeed.scrollTop = killFeed.scrollHeight;
+      
+      // Remove after 5 seconds
+      setTimeout(() => {
+        if (killFeed.contains(killEvent)) {
+          killFeed.removeChild(killEvent);
+        }
+      }, 5000);
+    }
+    
+    // Main game loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      const delta = Math.min(clock.getDelta(), 0.1);
+      
+      // Update game state based on current state
+      switch(currentState) {
+        case GameState.PLAYING:
+          updatePlayer(delta);
+          updateDrones(delta);
+          updateProjectiles(delta);
+          updateParticles(delta);
+          break;
+          
+        case GameState.DEAD:
+          updateRespawnTimer(delta);
+          break;
+      }
+      
+      // Always update UI
+      updateUI();
+      
+      // Render the scene
+      renderer.render(scene, camera);
+    }
+    
+    // Initialize the game when the page loads
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
