@@ -1,5 +1,5 @@
 # X-FORCE: PAINTBALL  
-**webXOS 2025 Esports Edition**  
+**browser based Esport FPS**  
 *Desktop Only Beta Test*
 
 # [http://webxos.netlify.app/paintball](http://webxos.netlify.app/paintball)
@@ -81,6 +81,7 @@ Team-based core assault. Destroy enemy core (500k HP). Blue vs Red. Player + AI 
   - Bunkers: Central (0,0), sides (±15-25).
   - Cores: (-90/90,10,0).
 
+**webXOS 2025 webxos.netlify.app**
 ## Settings
 - **Mode**: 3v3/10v10.
 - **Controls**: Mouse/Xbox/PS5/USB.
@@ -88,4 +89,3 @@ Team-based core assault. Destroy enemy core (500k HP). Blue vs Red. Player + AI 
 - Saves to localStorage.
 
 **Rewards**: 50 $WEBXOS on victory.  (BETA TEST PLACEHOLDER)
-**Play Again**: Post-game menu.
