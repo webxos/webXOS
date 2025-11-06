@@ -87,5 +87,5 @@ Team-based core assault. Destroy enemy core (500k HP). Blue vs Red. Player + AI 
 - **Sens**: 0.1-0.5.
 - Saves to localStorage.
 
-**Rewards**: 50 $WEBXOS on victory.  
+**Rewards**: 50 $WEBXOS on victory.  (BETA TEST PLACEHOLDER)
 **Play Again**: Post-game menu.
