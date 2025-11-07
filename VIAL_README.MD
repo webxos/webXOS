@@ -1,209 +1,342 @@
-# Vial MCP Wallet (BETA) - User Guide
+# WebXOS Vial Wallet - README Guide 🚀
 
-## Introduction
-The **Vial MCP Wallet** is a decentralized application (DApp) designed for managing and training AI agents within the WebXOS ecosystem. It provides a blockchain-based interface for interacting with four AI agents (referred to as "vials") and managing a cryptocurrency called `$WEBXOS`. The wallet operates in both online and offline modes, with features for authentication, agent training, blockchain transactions, and API integration. This guide explains how the system works, including agent validation, the `$WEBXOS` conceptual blockchain, and key functionalities.
+<div align="center">
+
+![WebXOS Logo](https://img.shields.io/badge/WebXOS-8BIT-00ff00?style=for-the-badge&logo=matrix&logoColor=white)
+![Version](https://img.shields.io/badge/Version-2.7-00ff00?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-00ff00?style=for-the-badge)
+
+**Agentic Network Management System with Blockchain Integration**
+
+[![Live Demo](https://img.shields.io/badge/LIVE_DEMO-Click_Here-00ff00?style=for-the-badge&logo=github)](https://webxos.netlify.app)
+[![GitHub](https://img.shields.io/badge/GITHUB-WebXOS-00ff00?style=for-the-badge&logo=github)](https://github.com/webxos/webxos)
+
+</div>
+
+## 📖 Table of Contents
+
+- [🌟 Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [🎮 How to Use](#-how-to-use)
+- [🔧 API Commands](#-api-commands)
+- [💼 Wallet Management](#-wallet-management)
+- [🧪 Vial Agents](#-vial-agents)
+- [🔗 Quantum Network](#-quantum-network)
+- [📊 Performance Metrics](#-performance-metrics)
+- [🛠️ Technical Details](#️-technical-details)
+- [🤝 Contributing](#-contributing)
+- [⚠️ Disclaimer](#️-disclaimer)
+- [📄 License](#-license)
+
+## 🌟 Features
+
+<div align="center">
+
+| Category | Features |
+|----------|----------|
+| **🖥️ Interface** | 8-Bit Retro Style • Real-time Terminal • Scanline Effects • Neurot Particles |
+| **💰 Wallet** | $WEBXOS Token • Blockchain Integration • Multi-Vial Distribution • Reputation System |
+| **🤖 AI Agents** | 4 PyTorch Vials • Real-time Training • Quantum State Management • Task Assignment |
+| **🔌 Connectivity** | Online/Offline Modes • API Integration • Quantum Link • Git-style Commands |
+| **📊 Analytics** | FPS Monitoring • Latency Tracking • Performance Bars • Blockchain Explorer |
+
+</div>
+
+## 🚀 Quick Start
+
+### Prerequisites 📋
+- Modern web browser (Chrome, Firefox, Safari)
+- JavaScript enabled
+- Local storage permissions
+
+### Installation 🛠️
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/webxos/webxos.git
+   cd webxos
+   ```
+
+2. **Run Locally**
+   ```bash
+   # Using Python
+   python -m http.server 8000
+   
+   # Using Node.js
+   npx http-server
+   
+   # Using PHP
+   php -S localhost:8000
+   ```
+
+3. **Access Application**
+   Open `http://localhost:8000` in your browser
+
+### Live Demo 🌐
+Visit **[webxos.netlify.app](https://webxos.netlify.app)** for instant access!
+
+## 🎮 How to Use
+
+### Initial Setup 🏁
+
+1. **Click `AUTHENTICATE`** 
+   - Choose **Online Mode** for full features
+   - Choose **Offline Mode** for local testing
+
+2. **Monitor Vial Status** 
+   - Watch the 4 vial agents initialize
+   - Check performance metrics in real-time
+
+3. **Start Training** 
+   - Use `QUANTUM LINK` to sync agents
+   - Assign tasks using commands
+
+### Basic Workflow 🔄
+
+```
+AUTHENTICATE → QUANTUM LINK → TRAIN AGENTS → EARN $WEBXOS → EXPORT DATA
+```
+
+## 🔧 API Commands
+
+### Available Commands 🎯
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| **`/help`** | `/help` | Show all available commands |
+| **`/status`** | `/status` | Display vial status and metrics |
+| **`/balance`** | `/balance` | Check wallet balance & reputation |
+| **`/train <vial>`** | `/train vial1` | Start training specific vial |
+| **`/stop <vial>`** | `/stop vial2` | Stop training specific vial |
+| **`/blockchain`** | `/blockchain` | Show blockchain information |
+
+### Example Session 💬
+```bash
+> /help
+> /status
+vial1: running | FPS: 72 | Latency: 45ms
+vial2: training | FPS: 68 | Latency: 52ms
+> /train vial3
+Training started for vial3
+> /balance
+Wallet Balance: 146094.0000 $WEBXOS
+Reputation: 9838494354407
+```
+
+## 💼 Wallet Management
+
+### $WEBXOS Token 💰
+- **Symbol**: $WEBXOS
+- **Type**: Utility Token
+- **Earning**: Automated through agent activities
+- **Distribution**: Equally among 4 vials
+
+### Wallet Features 🔐
+- ✅ Multi-address support
+- ✅ Blockchain verification
+- ✅ Reputation system
+- ✅ Secure hashing
+- ✅ Export/Import functionality
+
+### Export/Import 📥📤
+
+**Export**: Saves current state as `.md` + `.mu` receipt
+```bash
+# Exports:
+# - vial_wallet_export_TIMESTAMP.md
+# - vial_receipt_TIMESTAMP.mu
+```
+
+**Import**: Load previous sessions from markdown files
+```bash
+# Supports:
+# - Markdown (.md) format
+# - JSON backup files
+# - Cross-session compatibility
+```
+
+## 🧪 Vial Agents
+
+### Agent Architecture 🏗️
+
+| Vial | Neural Network | Activation | Output |
+|------|----------------|------------|--------|
+| **vial1** | Linear(10, 1) | Sigmoid | Binary Classification |
+| **vial2** | Linear(20, 2) | ReLU | Dual Output Regression |
+| **vial3** | Linear(15, 3) | Tanh | Triple Output |
+| **vial4** | Linear(25, 4) | Softmax | Multi-class Classification |
+
+### Training Features 🎓
+- 🧠 **PyTorch Integration**
+- ⚡ **Real-time Processing**
+- 🔄 **Quantum State Sync**
+- 📈 **Performance Optimization**
+- 💾 **Local Data Persistence**
+
+## 🔗 Quantum Network
+
+### Quantum States 🌌
+- **Online**: Full blockchain integration
+- **Offline**: Local simulation mode
+- **Synced**: Real-time agent coordination
+- **Entangled**: Cross-vial communication
+
+### Network Modes 📡
+
+| Mode | Features | Limitations |
+|------|----------|-------------|
+| **🌐 Online** | Full $WEBXOS earning • API Access • Blockchain | Requires authentication |
+| **💻 Offline** | Local training • Agent development • Testing | No token earning |
+
+## 📊 Performance Metrics
+
+### Real-time Monitoring 📈
+
+**FPS (Frames Per Second)**
+- 🟢 **Green Bars**: Higher FPS = Better performance
+- Target: 60-120 FPS
+- Real-time updates
+
+**Latency (Response Time)**
+- 🔴 **Red Bars**: Lower latency = Better response
+- Target: 5-50ms
+- Network simulation
+
+### Status Indicators 🚦
+
+| Status | Color | Meaning |
+|--------|-------|---------|
+| **Running** | 🟢 Green | Normal operation |
+| **Training** | 🟡 Yellow | Active learning |
+| **Stopped** | 🔴 Red | Inactive |
+| **Error** | 🔴 Red | Requires attention |
+
+## 🛠️ Technical Details
+
+### Built With 🏗️
+
+**Frontend Technologies**
+- ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)
+- ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat&logo=css3&logoColor=white)
+- ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)
+
+**AI & Blockchain**
+- ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)
+- ![Blockchain](https://img.shields.io/badge/Blockchain-121D33?style=flat&logo=blockchain-dot-com&logoColor=white)
+
+**Styling & Fonts**
+- ![Press Start 2P](https://img.shields.io/badge/Font-Press_Start_2P-00ff00?style=flat)
+- 8-Bit Retro Design
+- CSS Grid & Flexbox
+
+### Architecture 🏛️
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Web Interface │◄──►│  Vial Controller │◄──►│  Blockchain     │
+│                 │    │                  │    │                 │
+│  - Terminal     │    │  - 4 AI Agents   │    │  - Transactions │
+│  - Status Bars  │    │  - Training      │    │  - Verification │
+│  - Commands     │    │  - Quantum State │    │  - Hashing      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                         │                        │
+         │                         │                        │
+         ▼                         ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Local Storage │    │   $WEBXOS Wallet │    │   API Gateway   │
+│                 │    │                  │    │                 │
+│  - Session Data │    │  - Token Mgmt    │    │  - External     │
+│  - Export Files │    │  - Reputation    │    │    Integration  │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+## 🤝 Contributing
+
+We welcome contributions! 🎉
+
+### How to Contribute 📝
+
+1. **Fork the Repository**
+2. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/AmazingFeature
+   ```
+3. **Commit Your Changes**
+   ```bash
+   git commit -m 'Add some AmazingFeature'
+   ```
+4. **Push to the Branch**
+   ```bash
+   git push origin feature/AmazingFeature
+   ```
+5. **Open a Pull Request**
+
+### Development Setup 🔧
+
+```bash
+# Clone and setup
+git clone https://github.com/webxos/webxos.git
+cd webxos
+
+# Start development server
+python -m http.server 8000
+
+# Access at http://localhost:8000
+```
+
+## ⚠️ Disclaimer
+
+**Important Legal Notice** 📢
+
+```
+$WEBXOS TOKEN IS STILL IN DEVELOPMENT PHASE UNDER MIT OPEN SOURCE LICENSE.
+@WEBXOS WILL CLAIM NO FAULT FOR LOSS OF TOKENS WHILE USING OUR SOFTWARE.
+
+- Use at your own risk
+- Test thoroughly before mainnet deployment
+- Always backup your wallet data
+- Keep API credentials secure
+```
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## System Overview
-The Vial MCP Wallet is a browser-based application built with HTML, CSS, and JavaScript, designed to simulate a decentralized AI training and wallet management system. It supports the following core features:
-- **Agent Management**: Four AI agents (vials), each with simulated PyTorch-based neural network code, can be trained, configured, and tasked.
-- **$WEBXOS Token**: A conceptual cryptocurrency used for rewarding agent activity and tracking reputation.
-- **Blockchain Simulation**: A local blockchain records transactions, agent states, and system events.
-- **Online/Offline Modes**: Supports offline training with limited functionality and online mode for full blockchain and API interactions.
-- **API Integration**: Allows interaction with external systems (e.g., LangChain) using generated credentials.
-- **Quantum Link**: A feature for synchronizing or generating agent states, simulating advanced AI training.
+<div align="center">
+
+### **Support the Project** ❤️
+
+[![Donate](https://img.shields.io/badge/DONATE-PayPal_Coming_Soon-00ff00?style=for-the-badge&logo=paypal)](#)
+
+**Thank you for using WebXOS!** 🎯  
+*Building the future of decentralized AI, one vial at a time.*
+
+[🌐 Website](https://webxos.netlify.app) • [🐙 GitHub](https://github.com/webxos/webxos) • [📧 Contact](mailto:webxos@example.com)
+
+*Made with 💚 by the WebXOS Team • 2025*
+
+</div>
 
 ---
 
-## How the System Validates Agents
-The Vial MCP Wallet ensures the integrity and functionality of its agents (vials) through a robust validation process:
+### 🔄 Changelog
 
-1. **Initialization**:
-   - Each vial is initialized with a predefined PyTorch-based neural network template (simulated in JavaScript as `agentTemplates`).
-   - Vials are assigned unique identifiers (`vial1` to `vial4`), a wallet address, and a `$WEBXOS` hash for tracking.
+**v2.7** (Current)
+- ✅ Markdown wallet support
+- ✅ Enhanced performance metrics
+- ✅ Real-time FPS/latency monitoring
+- ✅ Improved error handling
+- ✅ Donation system integration
 
-2. **Code Validation**:
-   - Each vial’s code is stored as a string and checked for length and language (Python by default).
-   - During import, code blocks in Markdown files are validated to ensure they are Python-based and free of malicious content (e.g., `<script>` tags).
+**v2.6**
+- 🔧 Quantum link optimization
+- 🔧 Blockchain synchronization
+- 🔧 API credential management
 
-3. **Task and Configuration Validation**:
-   - Tasks assigned via `/task` commands are sanitized to prevent injection attacks and stored uniquely to avoid duplication.
-   - Configuration parameters set via `/config` are validated for correct syntax and applied to the respective vial.
-
-4. **Training Data Validation**:
-   - Training data imported from Markdown files is parsed for tasks and parameters under specific headers (e.g., `## Tasks`, `- Parameter:`).
-   - The system checks for valid Markdown format and sanitizes input to remove dangerous characters or scripts.
-
-5. **Quantum State Management**:
-   - Each vial has a `quantumState` object tracking its entanglement status (`initialized`, `local`, or `synced`).
-   - During the "Quantum Link" process, vials are validated to ensure they are in a running state and have valid training data or tasks.
-
-6. **Blockchain Integration**:
-   - Agent actions (e.g., training, task assignment) are recorded as blockchain transactions with SHA-256 hashes.
-   - The blockchain ensures that agent states are tamper-proof by linking each block to the previous one via a hash.
+*For full changelog, see [CHANGELOG.md](CHANGELOG.md)*
 
 ---
 
-## $WEBXOS Conceptual Blockchain
-The `$WEBXOS` token operates within a simulated blockchain that tracks wallet balances, agent activities, and system events. Here’s how it works:
-
-1. **Blockchain Structure**:
-   - The blockchain is a local JavaScript array (`blockchain`) storing blocks with the following properties:
-     - `type`: The action type (e.g., `auth`, `command`, `token_earn`, `train`, `export`, `import`).
-     - `data`: The payload (e.g., wallet address, tasks, or encrypted data).
-     - `timestamp`: The time of the transaction.
-     - `prevHash`: The hash of the previous block.
-     - `hash`: A SHA-256 hash of the block’s data, timestamp, and previous hash.
-
-2. **Token Earning**:
-   - In online mode, the wallet earns 1 `$WEBXOS` every 10 seconds (simulated via `setInterval`).
-   - Tokens are distributed equally among the four vials’ wallets.
-   - Each token earn event is recorded as a blockchain transaction with a unique hash.
-
-3. **Reputation System**:
-   - Reputation points are earned alongside `$WEBXOS` tokens and tied to the wallet’s address.
-   - Reputation is reset in offline mode or when the system is voided.
-
-4. **Security**:
-   - Blockchain transactions use SHA-256 hashing to ensure integrity.
-   - Data encryption (AES-256) is applied to sensitive data during export or training.
-   - Input sanitization prevents injection attacks in commands and imported files.
-
-5. **Offline Mode**:
-   - In offline mode, blockchain transactions are limited to training, import, and export actions.
-   - Token earning and API access are disabled to simulate a disconnected environment.
-
----
-
-## Key Features and Usage
-
-### 1. Authentication
-- **Purpose**: Initializes the wallet and agents in online or offline mode.
-- **How to Use**:
-  - Click the **Authenticate** button and choose online or offline mode.
-  - Online mode generates a wallet address, network ID, and enables token earning.
-  - Offline mode disables token earning and API access but allows local training.
-- **Validation**: Generates a unique `agenticNetworkId` and wallet address, recorded as a blockchain transaction.
-
-### 2. Void
-- **Purpose**: Resets the system to its initial state, clearing all data.
-- **How to Use**: Click the **Void** button to reset wallet, vials, blockchain, and authentication status.
-
-### 3. Troubleshoot
-- **Purpose**: Displays diagnostic information about the system’s state.
-- **How to Use**: Click the **Troubleshoot** button to log the current mode and blockchain length.
-
-### 4. Quantum Link
-- **Purpose**: Trains or synchronizes agents, simulating advanced AI processing.
-- **How to Use**:
-  - Click the **Quantum Link** button to activate training.
-  - In offline mode, agents are generated locally; in online mode, they are synced with the network.
-  - Supports Markdown file input for training data (via file import).
-- **Validation**: Ensures authentication and validates input data before processing.
-
-### 5. Export
-- **Purpose**: Exports the wallet and vial states as a Markdown file.
-- **How to Use**: Click the **Export** button to download a `.md` file containing:
-  - Network ID, wallet details, API credentials, blockchain info, and vial states.
-  - Instructions for reuse, extension, and sharing.
-- **Validation**: Serializes data safely and logs the export as a blockchain transaction.
-
-### 6. Import
-- **Purpose**: Imports a previously exported `.md` file to resume training or merge states.
-- **How to Use**:
-  - Click the **Import** button and select a `.md` file.
-  - The system validates the file format, sanitizes input, and merges data with existing vials.
-- **Validation**: Ensures the file is a valid Markdown with four vials and no malicious content.
-
-### 7. API Access
-- **Purpose**: Generates credentials for external integration (e.g., LangChain).
-- **How to Use**:
-  - Click the **API Access** button (available in online mode only).
-  - Click **Generate New Credentials** to create an API key and secret.
-  - Use these credentials with commands like `/prompt`, `/task`, `/config`, or `/status`.
-- **Validation**: Ensures online mode and authentication before generating credentials.
-
-### 8. Console Commands
-- **Purpose**: Allows interaction with vials via git-like commands.
-- **How to Use**:
-  - Enter commands in the input field (e.g., `/prompt vial1 train dataset`).
-  - Supported commands:
-    - `/help`: Lists available commands.
-    - `/prompt <vial> <text>`: Sends a prompt to a vial.
-    - `/task <vial> <task>`: Assigns a task to a vial.
-    - `/config <vial> <key> <value>`: Sets a configuration parameter.
-    - `/status`: Displays vial statuses.
-- **Validation**: Sanitizes input and checks for restricted keywords (e.g., `system`, `admin`).
-
----
-
-## User Interface
-The interface is designed to resemble a retro terminal with a cyberpunk aesthetic:
-- **Console**: Displays system logs, errors, and balance/reputation updates.
-- **Vial Status Bars**: Show the status, latency, and mode of each vial.
-- **Buttons**: Provide quick access to core functions (Authenticate, Void, etc.).
-- **Prompt Input**: Accepts git-like commands for interacting with vials.
-- **API Popup**: Displays and generates API credentials.
-- **Error Notifications**: Show temporary alerts for errors or warnings.
-
----
-
-## Security Considerations
-- **Input Sanitization**: All user inputs and imported files are sanitized to prevent injection attacks.
-- **Encryption**: Training data is encrypted using AES-256 during export or quantum link.
-- **Blockchain Integrity**: Each block is hashed with SHA-256 and linked to the previous block.
-- **Restricted Keywords**: Commands containing `system`, `admin`, `root`, `eval`, or `exec` are blocked.
-- **File Validation**: Imported `.md` files are checked for size (<1MB), format, and content safety.
-
----
-
-## Getting Started
-1. **Open the Application**:
-   - Load the HTML file in a modern browser.
-2. **Authenticate**:
-   - Click **Authenticate** and choose online or offline mode.
-3. **Train Agents**:
-   - Use **Quantum Link** to train vials or import a `.md` file with training data.
-   - Enter commands like `/prompt vial1 train dataset` to interact with vials.
-4. **Manage Tokens**:
-   - In online mode, earn `$WEBXOS` tokens automatically.
-   - Monitor balance and reputation in the console.
-5. **Export/Import**:
-   - Export your wallet and vials for backup or sharing.
-   - Import a `.md` file to resume training.
-6. **Use API**:
-   - Generate API credentials in online mode for external integration.
-
----
-
-## Limitations
-- **Beta Status**: The system is in development and may have bugs or incomplete features.
-- **Simulated Blockchain**: The blockchain is local and not connected to a real network.
-- **Offline Mode**: Token earning and API access are disabled in offline mode.
-- **File Size Limit**: Imported files must be under 1MB.
-- **Browser Dependency**: Requires a modern browser with Web Crypto API support.
-
----
-
-## Resources
-- **Website**: [webxos.netlify.app](https://webxos.netlify.app)
-- **GitHub**: [github.com/webxos/webxos](https://github.com/webxos/webxos)
-- **License**: MIT Open Source License
-- **Disclaimer**: `$WEBXOS` is in development. WebXOS claims no responsibility for token loss.
-
----
-
-## Example Workflow
-1. Authenticate in online mode.
-2. Run `/prompt vial1 train dataset` to train `vial1`.
-3. Assign a task: `/task vial2 optimize_model`.
-4. Set a config: `/config vial3 lr 0.01`.
-5. Check status: `/status`.
-6. Export the wallet and vials.
-7. Import a `.md` file to resume training.
-8. Generate API credentials for LangChain integration.
-
----
-
-This guide provides a comprehensive overview of the Vial MCP Wallet’s functionality, agent validation, and blockchain system. For further assistance, refer to the `/help` command or the resources above.
+**Ready to start?** 🚀 Visit [webxos.netlify.app](https://webxos.netlify.app) or clone the repository to begin your agentic network journey!
