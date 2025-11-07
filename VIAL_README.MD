@@ -250,40 +250,6 @@ Reputation: 9838494354407
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-## 🤝 Contributing
-
-We welcome contributions! 🎉
-
-### How to Contribute 📝
-
-1. **Fork the Repository**
-2. **Create a Feature Branch**
-   ```bash
-   git checkout -b feature/AmazingFeature
-   ```
-3. **Commit Your Changes**
-   ```bash
-   git commit -m 'Add some AmazingFeature'
-   ```
-4. **Push to the Branch**
-   ```bash
-   git push origin feature/AmazingFeature
-   ```
-5. **Open a Pull Request**
-
-### Development Setup 🔧
-
-```bash
-# Clone and setup
-git clone https://github.com/webxos/webxos.git
-cd webxos
-
-# Start development server
-python -m http.server 8000
-
-# Access at http://localhost:8000
-```
-
 ## ⚠️ Disclaimer
 
 **Important Legal Notice** 📢
@@ -334,9 +300,3 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - 🔧 Quantum link optimization
 - 🔧 Blockchain synchronization
 - 🔧 API credential management
-
-*For full changelog, see [CHANGELOG.md](CHANGELOG.md)*
-
----
-
-**Ready to start?** 🚀 Visit [webxos.netlify.app](https://webxos.netlify.app) or clone the repository to begin your agentic network journey!
