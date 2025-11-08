@@ -7,7 +7,7 @@ webxos.netlify.app/grokseek
 # **GROKSEEK OS**  
 ### *A Unified Hybrid AI Agent OS – GROK + DEEPSEEK = GROKSEEK*  
 
-![GROKSEEK Banner](https://via.placeholder.com/1200x400/0B0E17/00D4FF?text=GROKSEEK+OS+v2.0+–+Bluetooth+Mesh+AI+Gateway)  
+![GROKSEEK Banner]([https://via.placeholder.com/1200x400/0B0E17/00D4FF?text=GROKSEEK+OS+v2.0+–+Bluetooth+Mesh+AI+Gateway](https://github.com/webxos/webXOS/blob/main/assets/grokseek2.jpeg))  
 > **One HTML file. Full OS. Runs on ESP32, Arduino, Raspberry Pi, or any browser.**  
 > **No Wi-Fi. Bluetooth Mesh Only. 8-bit Pixel UI. Windows 95 Vibes.**  
 
