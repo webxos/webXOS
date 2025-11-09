@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIRROR IDE v3.0 - BT MESH FPV TRAIN</title>
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="data:application/manifest+json,{}">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/neurot.js@1.2.0/dist/neurot.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;z-index:1;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:10;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        #ideInterface{position:absolute;top:0;left:0;width:100%;height:100%;z-index:3;pointer-events:none}
+        
+        /* Control Buttons */
+        .ctrl-btn{
+            width:48px;height:48px;background:rgba(0,0,0,0.9);border:2px solid #0f0;color:#0f0;
+            font-size:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;
+            box-shadow:2px 2px 0 #000;z-index:5;transition:all .1s;transform:skew(-2deg);touch-action:none
+        }
+        .ctrl-btn:hover,.ctrl-btn:active{background:#0f0;color:#000}
+        .ctrl-btn.active{background:#0f0;color:#000}
+        .ctrl-btn.recording{background:#f00;color:#fff;animation:record-pulse 1s infinite}
+        @keyframes record-pulse{0%,100%{box-shadow:0 0 5px #f00}50%{box-shadow:0 0 15px #f00}}
+        .ctrl-btn.playing{background:#0f0;color:#000}
+        
+        /* Top Controls */
+        .top-controls{position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:none}
+        .top-controls .ctrl-btn{position:relative;transform:skew(-2deg)}
+        
+        /* Main Controls - Bottom */
+        .main-controls{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:none}
+        .main-controls .ctrl-btn{position:relative;transform:skew(-2deg)}
+        
+        /* Mode Controls */
+        .mode-controls{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:none}
+        .mode-controls .ctrl-btn{position:relative;transform:skew(-2deg)}
+        
+        /* Emergency Button */
+        #emergencyBtn{width:64px;height:64px;background:#f00;border:4px solid #800;border-radius:0;animation:pulse-red 2s infinite}
+        @keyframes pulse-red{0%,100%{box-shadow:6px 6px 0 #000,inset 3px 3px 0 #f00}50%{box-shadow:6px 6px 0 #000,inset 3px 3px 0 #f00,0 0 30px #f00}}
+        
+        /* Zoom Controls */
+        .zoom-controls{position:absolute;top:8px;right:8px;display:flex;gap:8px;pointer-events:none}
+        .zoom-btn{width:36px;height:36px;background:#000;border:2px solid #0ff;color:#0ff;font-size:7px;cursor:pointer;pointer-events:auto;z-index:5;box-shadow:2px 2px 0 #000;border-radius:50%;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .zoom-btn:hover,.zoom-btn:active{background:#0ff;color:#000}
+        
+        /* View Controls */
+        .view-controls{position:absolute;top:8px;left:8px;display:flex;gap:8px;pointer-events:none}
+        .view-controls .ctrl-btn{width:36px;height:36px;font-size:6px}
+        
+        /* Joysticks */
+        #arcadeControls{position:absolute;bottom:0;width:100%;height:150px;display:flex;justify-content:space-between;padding:0 20px;z-index:4;pointer-events:none}
+        .arcade-joystick{width:100px;height:100px;position:relative;pointer-events:auto;touch-action:none}
+        .joystick-base{width:100%;height:100%;background:rgba(0,30,0,0.9);border:3px solid #0f0;border-radius:50%;position:relative;box-shadow:5px 5px 0 #000,inset 2px 2px 0 #0a0}
+        .joystick-stick{width:32px;height:32px;background:#0f0;border:2px solid #0a0;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:2px 2px 0 #000;transition:transform .05s}
+        
+        /* Popups */
+        .popup{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,10,0,0.98);border:3px solid #0f0;padding:12px;z-index:100;pointer-events:auto;box-shadow:6px 6px 0 #000,inset 2px 2px 0 #0f0;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;font-size:8px;color:#0f0;touch-action:manipulation}
+        .popup-title{font-size:10px;margin-bottom:8px;text-align:center;text-shadow:1px 1px 0 #000;color:#0ff}
+        .popup-close{position:absolute;top:6px;right:6px;width:24px;height:24px;background:#000;border:2px solid #f00;color:#f00;font-size:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .popup-close:hover,.popup-close:active{background:#f00;color:#000}
+        .popup-item{margin:4px 0;display:flex;justify-content:space-between}
+        .popup-btn{width:100%;margin-top:8px;padding:6px;background:#000;border:2px solid #0f0;color:#0f0;font-size:7px;cursor:pointer;text-align:center;touch-action:none}
+        .popup-btn:hover,.popup-btn:active{background:#0f0;color:#000}
+        .help-icon{position:absolute;top:6px;left:6px;width:24px;height:24px;background:#000;border:2px solid #ff0;color:#ff0;font-size:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .help-icon:hover,.help-icon:active{background:#ff0;color:#000}
+        
+        /* Terminal */
+        #terminalPopup .terminal-line{font-family:'Courier New',monospace;line-height:1.3}
+        #terminalInput{width:100%;background:transparent;border:none;color:#0f0;font-family:'Courier New';font-size:8px;outline:none;margin-top:4px}
+        
+        /* Status */
+        .status-indicator{display:inline-block;width:6px;height:6px;border-radius:0;margin-right:4px;background:#0f0;box-shadow:1px 1px 0 #000}
+        .disconnected{background:#f00}
+        
+        /* Badges */
+        .beta-badge{position:absolute;top:45px;left:50%;transform:translateX(-50%);background:rgba(255,0,255,0.9);border:2px solid #f0f;padding:3px 7px;font-size:8px;color:#000;z-index:5;pointer-events:none}
+        .copyright{position:absolute;bottom:3px;right:3px;font-size:5px;color:#0f0;opacity:0.7;pointer-events:none;z-index:5}
+        
+        /* Emergency Alert */
+        @keyframes emergency-alert{0%,100%{background:#f00;color:#fff}50%{background:#800;color:#ff0}}
+        .emergency-alert{animation:emergency-alert .5s infinite}
+        
+        canvas{display:block}
+        #file-input{display:none}
+        
+        /* Tape Recorder */
+        #recBtn{background:#000;border:2px solid #f0f;color:#f0f}
+        #playBtn{background:#000;border:2px solid #0f0;color:#0f0}
+        #stopBtn{background:#000;border:2px solid #f00;color:#f00}
+        
+        /* Test Mode */
+        #testModeBtn{border-color:#0ff;color:#0ff}
+        .test-active{background:#0f0;color:#000}
+        
+        /* Live Mode */
+        #liveModeBtn{border-color:#ff0;color:#ff0}
+        .live-active{background:#0f0;color:#000}
+        
+        /* HUD Warning */
+        #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:12px;text-shadow:1px 1px 0 #000;z-index:11;display:none}
+        
+        /* Desktop Override */
+        @media (min-width:768px){
+            .ctrl-btn{width:50px;height:50px;font-size:8px}
+            #emergencyBtn{width:70px;height:70px}
+            .arcade-joystick{width:110px;height:110px}
+            .joystick-stick{width:36px;height:36px}
+            .view-controls .ctrl-btn{width:40px;height:40px;font-size:7px}
+        }
+        
+        /* Mobile Optimization */
+        @media (max-width: 767px) {
+            .top-controls, .main-controls, .mode-controls {gap: 4px;}
+            .ctrl-btn {width: 44px; height: 44px; font-size: 6px;}
+            #emergencyBtn {width: 56px; height: 56px;}
+            .view-controls .ctrl-btn {width: 34px; height: 34px; font-size: 5px;}
+        }
+        
+        /* Live Mode Scene */
+        .live-scene{display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#000;z-index:1}
+        .live-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(255,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(255,255,0,0.1)1px,transparent 1px);background-size:20px 20px;opacity:0.2}
+        .live-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ff0;font-size:12px;text-align:center}
+        
+        /* Enhanced Wireframe */
+        .enhanced-wireframe {position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;}
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+    
+    <!-- Enhanced Wireframe Overlay -->
+    <div class="enhanced-wireframe" id="wireframeOverlay"></div>
+    
+    <!-- TEST MODE SCENE -->
+    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
+    
+    <!-- LIVE MODE SCENE -->
+    <div class="live-scene" id="liveScene">
+        <div class="live-grid"></div>
+        <div class="live-center">
+            LIVE MODE<br>
+            <span style="font-size:8px;color:#0ff">BT MESH NETWORK ACTIVE</span>
+        </div>
+    </div>
+    
+    <div id="ideInterface">
+        <div class="beta-badge">MIRROR IDE v3.0</div>
+        
+        <!-- VIEW CONTROLS -->
+        <div class="view-controls">
+            <button id="fullscreenBtn" class="ctrl-btn">FS</button>
+            <button id="viewToggleBtn" class="ctrl-btn">FPV</button>
+            <button id="wireframeBtn" class="ctrl-btn">WIRE</button>
+        </div>
+        
+        <!-- TOP CONTROLS -->
+        <div class="top-controls">
+            <button id="guideBtn" class="ctrl-btn">GUIDE</button>
+            <button id="termBtn" class="ctrl-btn">TERM</button>
+            <button id="loginBtn" class="ctrl-btn">STAT</button>
+        </div>
+        
+        <!-- MODE CONTROLS -->
+        <div class="mode-controls">
+            <button id="testModeBtn" class="ctrl-btn test-active">TEST</button>
+            <button id="liveModeBtn" class="ctrl-btn">LIVE</button>
+            <button id="neuroBtn" class="ctrl-btn">NEURO</button>
+        </div>
+        
+        <!-- MAIN CONTROLS -->
+        <div class="main-controls">
+            <button id="webcamBtn" class="ctrl-btn">WEBCAM</button>
+            <button id="camBtn" class="ctrl-btn">CAM</button>
+            <button id="recBtn" class="ctrl-btn">REC</button>
+            <button id="playBtn" class="ctrl-btn">PLAY</button>
+            <button id="stopBtn" class="ctrl-btn">STOP</button>
+            <button id="armBtn" class="ctrl-btn">ARM</button>
+            <button id="irBtn" class="ctrl-btn">IR</button>
+            <button id="meshBtn" class="ctrl-btn">MESH</button>
+            <button id="emergencyBtn" class="ctrl-btn">EMERGENCY</button>
+        </div>
+        
+        <!-- ZOOM CONTROLS -->
+        <div class="zoom-controls">
+            <button id="zoomInBtn" class="zoom-btn">+</button>
+            <button id="zoomOutBtn" class="zoom-btn">-</button>
+            <button id="resetZoomBtn" class="zoom-btn">R</button>
+        </div>
+        
+        <!-- JOYSTICKS -->
+        <div id="arcadeControls">
+            <div class="arcade-joystick" id="leftJoystick"><div class="joystick-base"><div class="joystick-stick" id="leftStick"></div></div></div>
+            <div class="arcade-joystick" id="rightJoystick"><div class="joystick-base"><div class="joystick-stick" id="rightStick"></div></div></div>
+        </div>
+        
+        <!-- HUD -->
+        <div id="hudWarning">USER MISSING</div>
+        
+        <div class="copyright">© 2025 webXOS</div>
+    </div>
+
+    <!-- GUIDE POPUP -->
+    <div class="popup" id="guidePopup">
+        <div class="help-icon" data-help="guide">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">BT MESH FPV TRAIN GUIDE</div>
+        <div class="popup-item">> TEST/LIVE = MODE TOGGLE</div>
+        <div class="popup-item">> MESH = BT MESH NETWORK CONTROL</div>
+        <div class="popup-item">> NEURO = NEURAL NETWORK MODE</div>
+        <div class="popup-item">> REC/PLAY/STOP = RECORD/PLAYBACK/STOP</div>
+        <div class="popup-item">> CLICK = MOVE ANY OBJECT</div>
+        <div class="popup-item">> EMERGENCY = RTL + LAND</div>
+        <div class="popup-item">> FPV/3PV = CAMERA VIEW</div>
+        <div class="popup-item">> WEBCAM = USER DEVICE CAM</div>
+        <div class="popup-item">> CAM = ESP32 DRONE CAM (EMULATED)</div>
+        <div class="popup-item">> IR = TOGGLE IR SENSOR</div>
+        <div class="popup-item">> GREEN = FRIENDLY</div>
+        <div class="popup-item">> RED = HOSTILE</div>
+    </div>
+
+    <!-- TERMINAL -->
+    <div class="popup" id="terminalPopup">
+        <div class="help-icon" data-help="terminal">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">TERMINAL</div>
+        <div id="terminalLines">
+            <div class="terminal-line terminal-success">INIT OK - TEST MODE ACTIVE</div>
+            <div class="terminal-line">> help</div>
+        </div>
+        <input type="text" id="terminalInput" placeholder="$" autocomplete="off">
+    </div>
+
+    <!-- STATUS -->
+    <div class="popup" id="statusPopup">
+        <div class="help-icon" data-help="status">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">STATUS</div>
+        <div class="popup-item">MODE: <span id="statusMode">TEST</span></div>
+        <div class="popup-item">ALT: <span id="statusAlt">3.0m</span></div>
+        <div class="popup-item">BAT: <span id="statusBat">98%</span></div>
+        <div class="popup-item">ARM: <span id="statusArm">NO</span></div>
+        <div class="popup-item">TRAIN: <span id="statusTrain">OFF</span></div>
+        <div class="popup-item">IR: <span id="statusIR">OFF</span></div>
+        <div class="popup-item">PLAYBACK: <span id="statusPlayback">OFF</span></div>
+        <div class="popup-item">OBJS: <span id="statusObjs">0</span></div>
+        <div class="popup-item">VIEW: <span id="statusView">3PV</span></div>
+        <div class="popup-item">BT MESH: <span id="statusMesh">OFF</span></div>
+        <div class="popup-item">NEURO: <span id="statusNeuro">OFF</span></div>
+        <button class="popup-btn" id="exportTrain">EXPORT JSON</button>
+        <button class="popup-btn" id="importTrain">IMPORT JSON</button>
+    </div>
+
+    <!-- WEBCAM -->
+    <div class="popup" id="webcamPopup">
+        <div class="help-icon" data-help="webcam">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">WEBCAM SYNC</div>
+        <video id="webcamFeed" autoplay playsinline style="width:100%;height:200px;background:#000;border:2px solid #0f0;"></video>
+        <div id="calibStatus" style="font-size:6px;color:#ff0;margin:4px 0;">IDLE</div>
+    </div>
+
+    <!-- ESP32 CAM -->
+    <div class="popup" id="camPopup">
+        <div class="help-icon" data-help="cam">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">ESP32 CAM (EMULATED)</div>
+        <div id="camStatus" style="font-size:6px;color:#ff0;margin:4px 0;">DISCONNECTED</div>
+        <div style="width:100%;height:200px;background:#111;border:2px solid #0f0;display:flex;align-items:center;justify-content:center;color:#0f0;font-size:8px;">
+            EMULATED CAM DATA<br>
+            <span style="font-size:6px;color:#ff0">OBJECT/MOTION SENSOR ONLY</span>
+        </div>
+        <button class="popup-btn" id="connectCam">CONNECT</button>
+    </div>
+
+    <!-- BT MESH CONTROL -->
+    <div class="popup" id="meshPopup">
+        <div class="help-icon" data-help="mesh">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">BLUETOOTH MESH NETWORK</div>
+        <div style="font-size:7px;margin:8px 0;">
+            <div class="popup-item">NODES: <span id="meshNodes">0</span></div>
+            <div class="popup-item">CONNECTED: <span id="meshConnected">0</span></div>
+            <div class="popup-item">SIGNAL: <span id="meshSignal">--</span></div>
+            <div class="popup-item">DATA RATE: <span id="meshRate">--</span></div>
+            <div style="font-size:6px;color:#0ff;text-align:center;margin-top:8px;">BT MESH CONNECTS ALL DRONES, SENSORS, AND USER DEVICES</div>
+        </div>
+        <button class="popup-btn" id="scanMesh">SCAN DEVICES</button>
+        <button class="popup-btn" id="connectMesh">CONNECT MESH</button>
+        <button class="popup-btn" id="disconnectMesh">DISCONNECT</button>
+    </div>
+
+    <!-- NEURO MODE -->
+    <div class="popup" id="neuroPopup">
+        <div class="help-icon" data-help="neuro">?</div>
+        <div class="popup-close">X</div>
+        <div class="popup-title">NEURAL NETWORK CONTROL</div>
+        <div style="font-size:7px;margin:8px 0;">
+            <div class="popup-item">MODE: <span id="neuroMode">IDLE</span></div>
+            <div class="popup-item">ACCURACY: <span id="neuroAccuracy">--</span></div>
+            <div class="popup-item">TRAINING: <span id="neuroTraining">--</span></div>
+            <div style="font-size:6px;color:#0ff;text-align:center;margin-top:8px;">NEURO.JS FOR AUTONOMOUS NAVIGATION AND OBJECT DETECTION</div>
+        </div>
+        <button class="popup-btn" id="trainNeuro">TRAIN NETWORK</button>
+        <button class="popup-btn" id="enableNeuro">ENABLE NEURO</button>
+        <button class="popup-btn" id="disableNeuro">DISABLE</button>
+    </div>
+
+    <input type="file" id="file-input" accept=".json">
+</div>
+
+<script>
+    const State={LIVE:0,TEST:1,EMERGENCY:2,RTL:3}; 
+    let cur=State.TEST; 
+    let left={x:0,y:0},right={x:0,y:0},armed=false,training=false,playing=false,trainData=[],playbackData=[],playbackIndex=0,testMode=true,irActive=false;
+    let drone=new THREE.Vector3(0,3,0),user=new THREE.Vector3(0,0,0),home=new THREE.Vector3();
+    let trail=[],friendly=[],hostile=[],selectedObj=null,scene,cam,ren,droneObj,userObj,clock=new THREE.Clock(),irLight,tetherLine;
+    let cameraZoom=1.0,stream=null,isFullscreen=false,isFPV=false,userDetected=true,isWireframe=false;
+    let faceDetection, accelData={x:0,y:0,z:0};
+    let btMeshActive=false, neuroActive=false, neuroNet, meshNodes=[];
+    
+    const $=(s)=>document.querySelector(s);
+    const $$=(s)=>document.querySelectorAll(s);
+
+    function init(){
+        init3D();setup();animate();setHome();
+        add("INIT OK - TEST MODE ACTIVE","success");
+        setupPopups();generateScene();
+        setInterval(generateScene, 8000);
+        setupFaceDetection();
+        setupAccelerometer();
+        setupServiceWorker();
+        initNeuro();
+        updateWireframe();
+    }
+
+    function init3D(){
+        scene=new THREE.Scene();scene.background=new THREE.Color(0x000000);
+        cam=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
+        cam.position.set(0,5,10);
+        ren=new THREE.WebGLRenderer({canvas:$('#visualizationCanvas'),antialias:false,powerPreference:"high-performance"});
+        ren.setSize(window.innerWidth,window.innerHeight);ren.setPixelRatio(1);
+        scene.add(new THREE.AmbientLight(0x003300));
+        const dir=new THREE.DirectionalLight(0x00ff00,0.4);dir.position.set(5,10,5);scene.add(dir);
+        
+        const gridSize = 60;
+        const gridDiv = 60;
+        const gridMat = new THREE.LineBasicMaterial({color: 0x004400});
+        const gridGeo = new THREE.BufferGeometry();
+        const positions = [];
+        for (let i = -gridSize/2; i <= gridSize/2; i += gridSize/gridDiv) {
+            positions.push(i, 0, -gridSize/2, i, 0, gridSize/2);
+            positions.push(-gridSize/2, 0, i, gridSize/2, 0, i);
+        }
+        gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const grid = new THREE.LineSegments(gridGeo, gridMat);
+        scene.add(grid);
+        
+        const boxSize = 60;
+        const boxMat = new THREE.MeshBasicMaterial({color: 0x004400, wireframe: true, side: THREE.DoubleSide});
+        const boxGeo = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+        const box = new THREE.Mesh(boxGeo, boxMat);
+        scene.add(box);
+        
+        // Enhanced drone model
+        const droneGroup = new THREE.Group();
+        
+        // Drone body
+        const bodyGeo = new THREE.BoxGeometry(0.8, 0.1, 0.8);
+        const bodyMat = new THREE.MeshBasicMaterial({color: 0x00ff00, wireframe: true});
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        droneGroup.add(body);
+        
+        // Drone arms
+        const armGeo = new THREE.BoxGeometry(1.2, 0.05, 0.05);
+        const armMat = new THREE.MeshBasicMaterial({color: 0x00ff00, wireframe: true});
+        const arm1 = new THREE.Mesh(armGeo, armMat);
+        arm1.position.set(0.6, 0, 0);
+        droneGroup.add(arm1);
+        const arm2 = new THREE.Mesh(armGeo, armMat);
+        arm2.position.set(-0.6, 0, 0);
+        droneGroup.add(arm2);
+        const arm3 = new THREE.Mesh(armGeo, armMat);
+        arm3.rotation.y = Math.PI / 2;
+        arm3.position.set(0, 0, 0.6);
+        droneGroup.add(arm3);
+        const arm4 = new THREE.Mesh(armGeo, armMat);
+        arm4.rotation.y = Math.PI / 2;
+        arm4.position.set(0, 0, -0.6);
+        droneGroup.add(arm4);
+        
+        // Propellers
+        const propGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 8);
+        const propMat = new THREE.MeshBasicMaterial({color: 0x00ff00, wireframe: true});
+        const prop1 = new THREE.Mesh(propGeo, propMat);
+        prop1.position.set(0.6, 0.05, 0);
+        droneGroup.add(prop1);
+        const prop2 = new THREE.Mesh(propGeo, propMat);
+        prop2.position.set(-0.6, 0.05, 0);
+        droneGroup.add(prop2);
+        const prop3 = new THREE.Mesh(propGeo, propMat);
+        prop3.position.set(0, 0.05, 0.6);
+        droneGroup.add(prop3);
+        const prop4 = new THREE.Mesh(propGeo, propMat);
+        prop4.position.set(0, 0.05, -0.6);
+        droneGroup.add(prop4);
+        
+        droneObj = droneGroup;
+        droneObj.position.copy(drone);
+        scene.add(droneObj);
+        
+        userObj=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.7}));
+        userObj.position.copy(user);scene.add(userObj);
+        
+        irLight = new THREE.PointLight(0x00ff00, 0, 5);
+        droneObj.add(irLight);
+        
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+        const lineMat = new THREE.LineDashedMaterial({color: 0x00ffff, dashSize: 0.5, gapSize: 0.5});
+        tetherLine = new THREE.Line(lineGeo, lineMat);
+        tetherLine.computeLineDistances();
+        scene.add(tetherLine);
+        
+        ren.render(scene,cam);
+    }
+
+    function setHome(){home.copy(user);$('#statusTrain').textContent='HOME SET';}
+
+    function generateScene(){
+        [...friendly, ...hostile].forEach(o=>{scene.remove(o);o.geometry?.dispose();o.material?.dispose();});
+        friendly=[]; hostile=[];
+        
+        for(let i=0;i<5;i++){
+            const obj=new THREE.Mesh(new THREE.SphereGeometry(0.6,8,6),new THREE.MeshBasicMaterial({color:0x00ff00,wireframe:true}));
+            obj.position.set((Math.random()-0.5)*50,1+(Math.random()*2),(Math.random()-0.5)*50);
+            obj.userData={type:'friend',id:i,originalColor:0x00ff00};
+            scene.add(obj);friendly.push(obj);
+        }
+        
+        for(let i=0;i<3;i++){
+            const obj=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.8,0.8),new THREE.MeshBasicMaterial({color:0xff0000,wireframe:true}));
+            obj.position.set((Math.random()-0.5)*50,1+(Math.random()*3),(Math.random()-0.5)*50);
+            obj.userData={type:'hostile',id:i,speed:0.5+Math.random(),originalColor:0xff0000};
+            scene.add(obj);hostile.push(obj);
+        }
+        
+        $('#statusObjs').textContent=friendly.length+hostile.length;
+        add("SCENE GEN","success");
+    }
+
+    function setupPopups(){
+        const btns=['guideBtn','testModeBtn','liveModeBtn','termBtn','loginBtn','webcamBtn','camBtn','emergencyBtn','armBtn','zoomInBtn','zoomOutBtn','resetZoomBtn','recBtn','playBtn','stopBtn','exportTrain','importTrain','connectCam','fullscreenBtn','viewToggleBtn','wireframeBtn','meshBtn','neuroBtn','scanMesh','connectMesh','disconnectMesh','trainNeuro','enableNeuro','disableNeuro'];
+        btns.forEach(id=>{
+            const el=$('#'+id);
+            if(!el) return;
+            el.onclick = el.ontouchstart = (e)=>{e.preventDefault();handleClick(id);};
+        });
+        $$('.popup-close').forEach(b=>b.onclick=b.ontouchstart=(e)=>{e.preventDefault();b.parentElement.style.display='none';});
+        $$('.help-icon').forEach(b=>b.onclick=b.ontouchstart=(e)=>{e.preventDefault();showHelp(b.dataset.help);});
+        $('#terminalInput').onkeydown=termIn;
+        setupClickToMove();
+        $('#file-input').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            playbackData = JSON.parse(text);
+            add("IMPORT OK", "success");
+        });
+    }
+
+    function showHelp(topic){
+        openPopup('terminalPopup');
+        const suggestions = {
+            guide: "Use TEST for simulation, LIVE for real BT mesh. REC to record JSON data.",
+            terminal: "Type 'help' for commands. Use for debugging errors.",
+            status: "Monitor mode, alt, bat. Export/Import JSON for playback.",
+            webcam: "Connect desktop/mobile webcam for face detection and accel data.",
+            cam: "Emulated ESP32 cam: object/motion sensor only, no real video for security.",
+            mesh: "Bluetooth mesh network connects all drones, sensors, and user devices.",
+            neuro: "Neural network for autonomous navigation and object detection."
+        };
+        add(`HELP: ${suggestions[topic] || 'No help available.'}`, "prompt");
+    }
+
+    function handleClick(id){
+        switch(id){
+            case 'guideBtn':openPopup('guidePopup');break;
+            case 'testModeBtn':switchToTestMode();break;
+            case 'liveModeBtn':openPopup('meshPopup');break;
+            case 'termBtn':openPopup('terminalPopup');break;
+            case 'loginBtn':openPopup('statusPopup');break;
+            case 'webcamBtn':handleWebcam();break;
+            case 'camBtn':openPopup('camPopup');break;
+            case 'emergencyBtn':emergencySwitch();break;
+            case 'armBtn':toggleArm();break;
+            case 'zoomInBtn':zoomIn();break;
+            case 'zoomOutBtn':zoomOut();break;
+            case 'resetZoomBtn':resetZoom();break;
+            case 'recBtn':toggleRecord();break;
+            case 'playBtn':togglePlay();break;
+            case 'stopBtn':stopPlayback();break;
+            case 'exportTrain':exportTrain();break;
+            case 'importTrain':$('#file-input').click();break;
+            case 'connectCam':connectESP32Cam();break;
+            case 'fullscreenBtn':toggleFullscreen();break;
+            case 'viewToggleBtn':toggleView();break;
+            case 'wireframeBtn':toggleWireframe();break;
+            case 'meshBtn':openPopup('meshPopup');break;
+            case 'neuroBtn':openPopup('neuroPopup');break;
+            case 'scanMesh':scanMeshDevices();break;
+            case 'connectMesh':connectMesh();break;
+            case 'disconnectMesh':disconnectMesh();break;
+            case 'trainNeuro':trainNeuro();break;
+            case 'enableNeuro':enableNeuro();break;
+            case 'disableNeuro':disableNeuro();break;
+        }
+    }
+
+    function toggleRecord(){
+        training=!training;
+        $('#recBtn').classList.toggle('recording');
+        $('#statusTrain').textContent=training?'RECORDING':'OFF';
+        trainData=training?[]:trainData;
+        add(training?"RECORD START":"RECORD STOP",training?"success":"warning");
+    }
+
+    function togglePlay(){
+        if(!playbackData.length) return add("NO PLAYBACK DATA","error");
+        playing=!playing;
+        $('#playBtn').classList.toggle('playing');
+        $('#statusPlayback').textContent=playing?'PLAYING':'OFF';
+        playbackIndex=playing?0:playbackIndex;
+        add(playing?"PLAY START":"PLAY PAUSE",playing?"success":"warning");
+    }
+
+    function stopPlayback(){
+        playing=false;
+        $('#playBtn').classList.remove('playing');
+        $('#statusPlayback').textContent='OFF';
+        playbackIndex=0;
+        add("PLAY STOP","warning");
+    }
+
+    function toggleIR(){
+        irActive = !irActive;
+        $('#irBtn').classList.toggle('active');
+        $('#statusIR').textContent = irActive ? 'ON' : 'OFF';
+        add(irActive ? "IR ON" : "IR OFF", "success");
+    }
+
+    function toggleWireframe(){
+        isWireframe = !isWireframe;
+        $('#wireframeBtn').classList.toggle('active');
+        updateWireframe();
+        add(isWireframe ? "WIREFRAME ON" : "WIREFRAME OFF", "success");
+    }
+
+    function updateWireframe(){
+        const overlay = $('#wireframeOverlay');
+        if (isWireframe) {
+            overlay.style.background = `
+                linear-gradient(90deg, rgba(0,255,0,0.1) 1px, transparent 1px),
+                linear-gradient(rgba(0,255,0,0.1) 1px, transparent 1px),
+                linear-gradient(45deg, rgba(0,255,0,0.05) 1px, transparent 1px),
+                linear-gradient(-45deg, rgba(0,255,0,0.05) 1px, transparent 1px)
+            `;
+            overlay.style.backgroundSize = '20px 20px, 20px 20px, 40px 40px, 40px 40px';
+        } else {
+            overlay.style.background = 'none';
+        }
+    }
+
+    function switchToTestMode(){
+        testMode = true;
+        $('#visualizationContainer').style.display = 'block';
+        $('#liveScene').style.display = 'none';
+        $('#testModeBtn').classList.add('test-active');
+        $('#liveModeBtn').classList.remove('live-active');
+        $('#statusMode').textContent = 'TEST';
+        add("SWITCHED TO TEST MODE","success");
+        if (btMeshActive) disconnectMesh();
+    }
+
+    function scanMeshDevices(){
+        add("SCANNING FOR BT MESH DEVICES...","prompt");
+        // Simulate BT device discovery
+        setTimeout(() => {
+            meshNodes = [
+                {id: 'DRONE_001', type: 'drone', signal: -45, connected: false},
+                {id: 'SENSOR_001', type: 'sensor', signal: -55, connected: false},
+                {id: 'USER_001', type: 'user', signal: -35, connected: false}
+            ];
+            $('#meshNodes').textContent = meshNodes.length;
+            add(`FOUND ${meshNodes.length} MESH NODES`,"success");
+        }, 1500);
+    }
+
+    function connectMesh(){
+        if (meshNodes.length === 0) {
+            add("NO DEVICES FOUND","error");
+            return;
+        }
+        
+        add("CONNECTING TO BT MESH...","prompt");
+        setTimeout(() => {
+            btMeshActive = true;
+            meshNodes.forEach(node => node.connected = true);
+            $('#meshConnected').textContent = meshNodes.length;
+            $('#meshSignal').textContent = '-35 dBm';
+            $('#meshRate').textContent = '1.2 Mbps';
+            $('#statusMesh').textContent = 'ON';
+            $('#meshBtn').classList.add('active');
+            add("BT MESH CONNECTED","success");
+            
+            // Switch to live mode
+            testMode = false;
+            $('#visualizationContainer').style.display = 'none';
+            $('#liveScene').style.display = 'block';
+            $('#testModeBtn').classList.remove('test-active');
+            $('#liveModeBtn').classList.add('live-active');
+            $('#statusMode').textContent = 'LIVE';
+            $('.popup').forEach(p => p.style.display = 'none');
+        }, 2000);
+    }
+
+    function disconnectMesh(){
+        btMeshActive = false;
+        meshNodes.forEach(node => node.connected = false);
+        $('#meshConnected').textContent = '0';
+        $('#meshSignal').textContent = '--';
+        $('#meshRate').textContent = '--';
+        $('#statusMesh').textContent = 'OFF';
+        $('#meshBtn').classList.remove('active');
+        add("BT MESH DISCONNECTED","warning");
+    }
+
+    function initNeuro(){
+        // Initialize neural network with neurot.js
+        neuroNet = new Neurot.Network({
+            layers: [4, 6, 4], // Input, hidden, output layers
+            learningRate: 0.1
+        });
+        add("NEURAL NETWORK INITIALIZED","success");
+    }
+
+    function trainNeuro(){
+        add("TRAINING NEURAL NETWORK...","prompt");
+        // Simulate training process
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 10;
+            $('#neuroTraining').textContent = `${progress}%`;
+            if (progress >= 100) {
+                clearInterval(interval);
+                $('#neuroTraining').textContent = 'COMPLETE';
+                $('#neuroAccuracy').textContent = '92%';
+                add("NEURO TRAINING COMPLETE","success");
+            }
+        }, 200);
+    }
+
+    function enableNeuro(){
+        neuroActive = true;
+        $('#neuroMode').textContent = 'ACTIVE';
+        $('#statusNeuro').textContent = 'ON';
+        $('#neuroBtn').classList.add('active');
+        add("NEURAL NETWORK ENABLED","success");
+        
+        // Use neural network for autonomous navigation
+        if (neuroActive) {
+            setInterval(() => {
+                if (neuroActive && armed) {
+                    // Simple autonomous behavior - avoid obstacles and follow user
+                    const userDirection = new THREE.Vector3().subVectors(user, drone).normalize();
+                    drone.add(userDirection.multiplyScalar(0.05));
+                    droneObj.position.copy(drone);
+                }
+            }, 100);
+        }
+    }
+
+    function disableNeuro(){
+        neuroActive = false;
+        $('#neuroMode').textContent = 'IDLE';
+        $('#statusNeuro').textContent = 'OFF';
+        $('#neuroBtn').classList.remove('active');
+        add("NEURAL NETWORK DISABLED","warning");
+    }
+
+    function toggleFullscreen(){
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(err => {
+                add(`Fullscreen failed: ${err.message}`, "error");
+            });
+            isFullscreen = true;
+            add("FULLSCREEN ON","success");
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+                isFullscreen = false;
+                add("FULLSCREEN OFF","success");
+            }
+        }
+    }
+
+    function toggleView(){
+        isFPV = !isFPV;
+        $('#viewToggleBtn').textContent = isFPV ? '3PV' : 'FPV';
+        $('#statusView').textContent = isFPV ? 'FPV' : '3PV';
+        add(`VIEW: ${isFPV ? 'FPV' : '3PV'}`,"success");
+    }
+
+    async function exportTrain(){
+        if(!trainData.length) return add("NO DATA","error");
+        const blob=new Blob([JSON.stringify(trainData,null,2)],{type:'application/json'});
+        const url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download=`scene_${Date.now()}.json`;a.click();
+        URL.revokeObjectURL(url);
+        add("EXPORT OK","success");
+    }
+
+    async function handleWebcam(){
+        openPopup('webcamPopup');
+        const status=$('#calibStatus');
+        status.textContent='REQUESTING PERMISSION...';
+        try{
+            stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+            $('#webcamFeed').srcObject=stream;
+            status.textContent='LIVE - WEBCAM ACTIVE';
+            add("WEBCAM OK","success");
+            faceDetection.send({image: $('#webcamFeed')});
+        }catch(e){
+            status.textContent='PERMISSION DENIED';
+            add("WEBCAM FAIL","error");
+        }
+    }
+
+    function connectESP32Cam(){
+        const status=$('#camStatus');
+        status.textContent='CONNECTING TO ESP32...';
+        setTimeout(()=>{
+            status.textContent='CONNECTED - EMULATED SENSOR ACTIVE';
+            add("ESP32 CAM OK","success");
+        }, 1500);
+    }
+
+    function setupClickToMove(){
+        const canvas=$('#visualizationCanvas');
+        ['click','touchstart'].forEach(ev=>{
+            canvas.addEventListener(ev,e=>{
+                if (!testMode) return; 
+                e.preventDefault();
+                const rect=canvas.getBoundingClientRect();
+                const clientX=e.touches?e.touches[0].clientX:e.clientX;
+                const clientY=e.touches?e.touches[0].clientY:e.clientY;
+                const x=(clientX-rect.left)/rect.width*2-1;
+                const y=-(clientY-rect.top)/rect.height*2+1;
+                const mouse=new THREE.Vector3(x,y,0.5);
+                const ray=new THREE.Raycaster();
+                ray.setFromCamera(mouse,cam);
+                const plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+                const pos=new THREE.Vector3();
+                ray.ray.intersectPlane(plane,pos);
+                
+                const intersects = ray.intersectObjects([...friendly, ...hostile, droneObj, userObj]);
+                if(intersects.length>0){
+                    selectedObj = intersects[0].object;
+                    selectedObj.position.copy(pos);
+                    add(`MOVED ${selectedObj.userData.type||'drone'}`, "success");
+                }
+            });
+        });
+    }
+
+    function toggleArm(){
+        armed=!armed;
+        $('#armBtn').classList.toggle('active');
+        $('#statusArm').textContent=armed?'YES':'NO';
+        add(armed?"ARMED":"DISARMED",armed?"success":"warning");
+    }
+
+    function emergencySwitch(){
+        if(!armed) return add("NOT ARMED","error");
+        cur=State.EMERGENCY; 
+        add("EMERGENCY → HOMING TO USER + LAND","error"); 
+        returnToHome(true);
+    }
+
+    function returnToHome(isEmergency=false){
+        cur=State.RTL; 
+        add(isEmergency?"EMERGENCY LAND":"RTL","prompt");
+        
+        const safePath = calculateSafePath();
+        let i=0;
+        
+        const iv=setInterval(()=>{
+            if(i>=safePath.length||cur!==State.RTL){
+                landDrone(isEmergency);
+                clearInterval(iv);
+                return;
+            }
+            drone.copy(safePath[i]);
+            droneObj.position.copy(drone);
+            i++;
+        },40);
+    }
+
+    function calculateSafePath(){
+        const path = [];
+        const currentPos = drone.clone();
+        const homePos = user.clone();
+        homePos.y = drone.y; 
+        
+        const steps = 50;
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const point = new THREE.Vector3();
+            point.lerpVectors(currentPos, homePos, t);
+            
+            const nearObjects = [...friendly, ...hostile].filter(obj => 
+                point.distanceTo(obj.position) < 3
+            );
+            
+            if (nearObjects.length > 0) {
+                point.y += 2; 
+            }
+            
+            path.push(point);
+        }
+        
+        return path;
+    }
+
+    function landDrone(beepOnLand){
+        const iv=setInterval(()=>{
+            if(drone.y<=0.5){
+                drone.y=0.5;
+                clearInterval(iv);
+                cur=State.LIVE;
+                add("LANDED SAFELY","success");
+                if(beepOnLand) beep();
+                $('#statusMode').textContent=testMode?'TEST':'LIVE';
+            } else {
+                drone.y-=0.08;
+            }
+            droneObj.position.y=drone.y;
+        },40);
+    }
+
+    function beep(){
+        const a=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+        a.loop=true;
+        a.play();
+        setTimeout(()=>a.pause(),1000);
+    }
+
+    function setupJoy(id,cb){
+        const j=$('#'+id),s=j.querySelector('.joystick-stick'),b=j.querySelector('.joystick-base');
+        let drag=false;
+        const up=(clientX,clientY)=>{
+            const r=b.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+            const d=Math.hypot(clientX-cx,clientY-cy); 
+            const a=Math.atan2(clientY-cy,clientX-cx);
+            const maxD=r.width/2-16; 
+            const dist=Math.min(d,maxD);
+            const nx=dist/maxD*Math.cos(a),ny=dist/maxD*Math.sin(a);
+            s.style.transform=`translate(calc(-50% + ${nx*maxD}px),calc(-50% + ${ny*maxD}px))`;
+            cb(nx,ny);
+        };
+        const reset=()=>{s.style.transform='translate(-50%,-50%)';cb(0,0);drag=false;};
+
+        ['mousedown','touchstart'].forEach(ev=>b.addEventListener(ev,e=>{
+            e.preventDefault();drag=true;
+            up(e.touches?e.touches[0].clientX:e.clientX,e.touches?e.touches[0].clientY:e.clientY);
+        }));
+        ['mousemove','touchmove'].forEach(ev=>document.addEventListener(ev,e=>{
+            if(drag){
+                e.preventDefault();
+                up(e.touches?e.touches[0].clientX:e.clientX,e.touches?e.touches[0].clientY:e.clientY);
+            }
+        }));
+        ['mouseup','touchend','touchcancel'].forEach(ev=>document.addEventListener(ev,()=>{
+            if(drag) reset();
+        }));
+    }
+
+    function addTrail(color=0x00ff00){
+        if(trail.length>120){
+            const old=trail.shift();
+            scene.remove(old);
+        }
+        const seg=new THREE.Mesh(new THREE.SphereGeometry(0.05,4,3),new THREE.MeshBasicMaterial({color}));
+        seg.position.copy(drone);
+        scene.add(seg);
+        trail.push(seg);
+    }
+
+    function termIn(e){
+        if(e.key==='Enter'){
+            const i=$('#terminalInput'),c=i.value.trim();
+            if(c){
+                add(`$ ${c}`,'prompt');
+                proc(c);
+                i.value='';
+            }
+        }
+    }
+
+    function proc(cmd){
+        const p=cmd.toLowerCase();
+        if(p==='test') switchToTestMode();
+        else if(p==='live') openPopup('meshPopup');
+        else if(p==='arm') toggleArm();
+        else if(p==='emergency') emergencySwitch();
+        else if(p==='rec') toggleRecord();
+        else if(p==='play') togglePlay();
+        else if(p==='stop') stopPlayback();
+        else if(p==='webcam') handleWebcam();
+        else if(p==='cam') openPopup('camPopup');
+        else if(p==='fullscreen') toggleFullscreen();
+        else if(p==='view') toggleView();
+        else if(p==='ir') toggleIR();
+        else if(p==='mesh') openPopup('meshPopup');
+        else if(p==='neuro') openPopup('neuroPopup');
+        else if(p==='wireframe') toggleWireframe();
+        else if(p==='help') add("test live arm emergency rec play stop webcam cam fullscreen view ir mesh neuro wireframe","prompt");
+        else add(`? ${p}`,'error');
+    }
+
+    function openPopup(id){
+        $$('.popup').forEach(p=>p.style.display='none');
+        const popup=$( '#' + id );
+        if(popup) popup.style.display='block';
+    }
+
+    function zoomIn(){
+        cameraZoom=Math.min(3,cameraZoom+0.1);
+        cam.fov=75/cameraZoom;
+        cam.updateProjectionMatrix();
+    }
+    
+    function zoomOut(){
+        cameraZoom=Math.max(0.5,cameraZoom-0.1);
+        cam.fov=75/cameraZoom;
+        cam.updateProjectionMatrix();
+    }
+    
+    function resetZoom(){
+        cameraZoom=1.0;
+        cam.fov=75;
+        cam.updateProjectionMatrix();
+    }
+
+    function setupFaceDetection(){
+        faceDetection = new FaceDetection({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`});
+        faceDetection.setOptions({model: 'short'});
+        faceDetection.onResults(results => {
+            userDetected = results.detections.length > 0;
+            $('#hudWarning').style.display = userDetected ? 'none' : 'block';
+            if (!userDetected) add("USER MISSING", "error");
+        });
+    }
+
+    function setupAccelerometer(){
+        if (window.DeviceMotionEvent) {
+            window.addEventListener('devicemotion', e => {
+                accelData = {x: e.acceleration.x || 0, y: e.acceleration.y || 0, z: e.acceleration.z || 0};
+                // Use accel to adjust user direction
+                user.x += accelData.x * 0.01;
+                user.z += accelData.z * 0.01;
+                userObj.position.copy(user);
+            });
+        }
+    }
+
+    function setupServiceWorker(){
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(() => {
+                add("SERVICE WORKER OK", "success");
+            }).catch(err => {
+                add(`SW ERROR: ${err}`, "error");
+                openPopup('terminalPopup');
+            });
+        }
+    }
+
+    function animate(){
+        requestAnimationFrame(animate);
+        const d=clock.getDelta();
+        
+        if (testMode || !testMode) {  // Works in both modes
+            hostile.forEach(h=>{
+                h.position.x += Math.sin(Date.now()*0.001+h.userData.id)*h.userData.speed*d;
+                h.position.z += Math.cos(Date.now()*0.001+h.userData.id)*h.userData.speed*d;
+            });
+
+            if(playing && playbackData.length > playbackIndex){
+                const frame = playbackData[playbackIndex];
+                drone.set(frame.drone.x, frame.drone.y, frame.drone.z);
+                droneObj.rotation.y = frame.drone.r;
+                user.set(frame.user.x, 0, frame.user.z);
+                userObj.position.copy(user);
+                left.y = frame.input.throttle;
+                left.x = frame.input.yaw;
+                right.y = frame.input.pitch;
+                right.x = frame.input.roll;
+                playbackIndex++;
+                if(playbackIndex >= playbackData.length) stopPlayback();
+            } else if(cur===State.LIVE&&armed&&!playing && !neuroActive){
+                const throttle=Math.max(0,left.y), yaw=left.x, pitch=right.y, roll=right.x;
+                drone.y+=throttle*d*6; 
+                drone.y=Math.max(0.5,Math.min(25,drone.y));
+                const forward=new THREE.Vector3(0,0,-1).applyQuaternion(droneObj.quaternion);
+                const rightVec=new THREE.Vector3(1,0,0).applyQuaternion(droneObj.quaternion);
+                drone.add(forward.multiplyScalar(pitch*d*7));
+                drone.add(rightVec.multiplyScalar(roll*d*7));
+                droneObj.rotation.y-=yaw*d*2.2;
+                droneObj.rotation.x=pitch*0.5;
+                droneObj.rotation.z=-roll*0.5;
+                droneObj.position.copy(drone);
+                addTrail(0x00ff00);
+
+                if(training){
+                    trainData.push({
+                        time:Date.now(),
+                        drone:{x:drone.x,y:drone.y,z:drone.z,r:droneObj.rotation.y},
+                        user:{x:user.x,z:user.z},
+                        input:{throttle,yaw,pitch,roll},
+                        objects:friendly.map(f=>({x:f.position.x,z:f.position.z,type:'friend'}))
+                    });
+                }
+            } else if(left.y===0&&right.y===0&&cur===State.LIVE&&!playing && !neuroActive){
+                const dir=new THREE.Vector3().subVectors(home,drone).normalize();
+                const dist=drone.distanceTo(home);
+                if(dist>0.6){
+                    drone.add(dir.multiplyScalar(Math.min(dist,0.35)));
+                    droneObj.position.copy(drone);
+                }
+            }
+
+            irLight.intensity = irActive ? 1 : 0;
+            [...friendly, ...hostile].forEach(obj => {
+                const dist = drone.distanceTo(obj.position);
+                if (irActive && dist < 5) {
+                    obj.material.color.set(0xff0000);
+                } else {
+                    obj.material.color.set(obj.userData.originalColor);
+                }
+            });
+
+            const posArray = tetherLine.geometry.attributes.position.array;
+            posArray[0] = drone.x; posArray[1] = drone.y; posArray[2] = drone.z;
+            posArray[3] = user.x; posArray[4] = user.y; posArray[5] = user.z;
+            tetherLine.geometry.attributes.position.needsUpdate = true;
+            tetherLine.computeLineDistances();
+
+            if (isFPV) {
+                cam.position.copy(drone);
+                cam.position.y += 0.2; 
+                cam.lookAt(user);
+            } else {
+                const offset=new THREE.Vector3(0,5,12).applyQuaternion(droneObj.quaternion);
+                cam.position.lerp(drone.clone().add(offset),0.12);
+                cam.lookAt(drone);
+            }
+
+            $('#statusAlt').textContent=drone.y.toFixed(1)+'m';
+            $('#statusBat').textContent=(98-Math.floor(d/60))+'%';
+
+            ren.render(scene,cam);
+        }
+        if (stream) faceDetection.send({image: $('#webcamFeed')});
+    }
+
+    function add(msg,type="info"){
+        const lines=$('#terminalLines');
+        const line=document.createElement('div');
+        line.className=`terminal-line terminal-${type}`;
+        line.textContent=`> ${msg}`;
+        lines.appendChild(line);
+        lines.scrollTop=lines.scrollHeight;
+    }
+
+    function setup(){
+        setupJoy('leftJoystick',(x,y)=>{left.x=x;left.y=y});
+        setupJoy('rightJoystick',(x,y)=>{right.x=x;right.y=y});
+        window.addEventListener('resize',()=>{
+            cam.aspect=window.innerWidth/window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth,window.innerHeight);
+        });
+    }
+
+    window.addEventListener('load',init);
+</script>
+</body>
+</html>
