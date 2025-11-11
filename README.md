@@ -6,7 +6,51 @@ Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` f
 
 *WEBXOS is pioneering frameworks and tools on a browser first philosophy, emphasizing modularity, efficiency, and environmental responsibility.*
 
-## Why webXOS?
+# Our Vision
+The leading innovator in bridging the gap between high-performance computing and minimalist hardware, redefining the potential of edge computing through intelligent, browser-native solutions.
+
+WebXOS is an Internet of Things (IoT) software development company that specializes in delivering high-performance, modular, and browser-based applications by integrating cutting-edge AI engineering, prompting techniques, and advanced mathematics. Our core philosophy is to create sophisticated software that maximizes computational power on embedded systems like the Raspberry Pi and Arduino, delivering unparalleled performance in 3D engineering, drone IDE development, and browser-based gaming.
+
+Core Specializations
+
+    IoT Software Development: Building the underlying architecture for connected devices, focusing on stability, efficiency, and real-time data processing.
+    AI Engineering & Prompting: Utilizing bespoke AI models and strategic prompting to streamline development, automate complex tasks, and create intelligent, responsive software.
+    Modular Browser-Based Software: Developing applications that run natively in web browsers, ensuring cross-platform compatibility, easy deployment, and zero-installation user experiences.
+    Edge Computing Optimization: Tailoring software to run efficiently on low-power, single-board computers (SBCs) such as the Raspberry Pi and microcontrollers like the Arduino.
+    Advanced Mathematics & Reasoning: Applying sophisticated algorithms and computational logic to maximize processing power, ensuring minimal latency and maximum efficiency.
+
+# Key Product Areas
+1. Three.js 3D Engineering Platform
+We provide the foundation for powerful, web-native 3D engineering environments.
+
+    AutoCAD Style Interface: Intuitive and feature-rich user interfaces that mimic industry-standard CAD software, entirely within the browser.
+    Real-Time Rendering: Utilizing Three.js for high-fidelity 3D visualization, optimized for real-time interaction on Raspberry Pi clients.
+    AI-Assisted Design: Integrating AI tools for feature recognition, predictive modeling, and automated design assistance, speeding up the engineering workflow.
+
+2. Drone Integrated Development Environment (IDE)
+Our browser-based IDE simplifies the programming and management of autonomous drones.
+
+    Modular Programming: Drag-and-drop interfaces and AI-assisted code generation for rapid development of flight plans and behaviors.
+    Real-time Telemetry: Browser-based dashboards that display live data from drones, processed and rendered on the client device.
+    Edge AI for Navigation: Utilizing onboard processing power for autonomous decision-making and navigation, minimizing reliance on cloud connectivity.
+
+3. Browser-Based Gaming Software
+We push the boundaries of what is possible in web gaming by "min-maxing" computational power.
+
+    Performance Optimization: Advanced algorithms and data structures to ensure smooth frame rates and complex game logic, even on resource-constrained hardware.
+    AI-Powered Game Logic: Intelligent NPCs, procedural content generation, and dynamic difficulty scaling driven by advanced AI and reasoning.
+    Cross-Platform Play: Develop once, deploy everywhere—our modular approach ensures games run on any device with a modern web browser, from smartphones to Raspberry Pi systems.
+
+Our Technology Stack
+
+    Frontend: Three.js, React/Vue, WebGL, Web Assembly (Wasm) for high-performance operations.
+    Backend: Node.js, Python (for AI/ML), C++ (for core performance modules), running on embedded Linux systems.
+    Hardware Targets: Raspberry Pi (all models), Arduino boards, and various other SBCs/MCUs.
+    AI/ML: Custom models for specific optimization tasks, delivered via edge computing frameworks.
+
+# Why WebXOS?
+We believe in the power of the open web and the potential of small form-factor hardware. By combining the accessibility of the browser with the power of modern AI and advanced mathematics, WebXOS delivers solutions that are not only innovative but also incredibly efficient and accessible to all. We turn embedded devices into powerful computing stations, delivering enterprise-grade performance at a fraction of the cost and energy consumption.
+
 
 - **Front-end Architectures**: Single `.html` files encapsulate all code and assets, ensuring portability and ease of deployment.
 - **Decentralized Designs**: Supports P2P Web3 for resilient, serverless applications ideal for edge computing.
@@ -15,15 +59,14 @@ Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` f
 - **Eco-Friendly & PWA-Ready**: Optimized for low-end devices (≥320px screens), offline functionality, and minimal resource consumption. Raspberry Pi, Arduino, IoT Devices +more.
 
 ## webXOS Ecosystem
-
 Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.app) and in the `apps/` directory of our [GitHub repository](https://github.com/webxos/webxos):
+
 - **Eco-Friendly Apps**: PWAs for file sharing, data visualization, and task management, optimized for mobile and offline use.
 - **Retro Games**: HTML5 games using WebGL and Stuart rendering for high-performance, nostalgic experiences.
 - **AI Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
 - **P2P Applications**: Decentralized tools for secure networking and data exchange, built for performance and scalability.
 
-## More info
-
+# More info
 WEBXOS's approach to client-side processing fundamentally enhances user privacy by keeping data on the user's device and not on a server. This model avoids the privacy vulnerabilities of server-side systems, where user data can be vulnerable to breaches or surveillance. 
 Here are specific examples of how different WEBXOS tools and agents use client-side processing to protect privacy: 
 Secure Data Storage with Exoskeleton AI
