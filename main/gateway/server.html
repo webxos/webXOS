@@ -5,26 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1e1e2e">
     <title>webXOS Gaming Server IDE</title>
-    <link rel="manifest" href="/gateway/manifest.json">
-    <link rel="icon" href="/gateway/icon.png">
+    <link rel="manifest" href="/main/gateway/manifest.json">
+    <link rel="icon" href="/main/gateway/icon.png">
     <style>
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; height: 100vh; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4; height: 100vh; display: flex; }
         #container { display: flex; flex: 1; gap: 10px; padding: 10px; }
         #editor { flex: 1; display: flex; flex-direction: column; gap: 10px; }
         #code-editor { flex: 1; border-radius: 8px; overflow: hidden; }
         #controls { display: flex; gap: 10px; }
+        #access-buttons { display: flex; gap: 10px; margin-bottom: 10px; }
         button { padding: 8px 16px; background: #89b4fa; color: #1e1e2e; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #b4befe; }
         #output { flex: 1; display: flex; flex-direction: column; gap: 10px; }
         #game-output, #terminal { flex: 1; background: #181825; border: none; border-radius: 8px; padding: 10px; color: #cdd6f4; resize: none; font-family: 'Consolas', monospace; }
         #terminal { background: #11111b; }
+        #wizard { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; }
+        #wizard-content { background: #2e2e3e; padding: 20px; border-radius: 8px; color: #cdd6f4; max-width: 500px; }
+        #wizard-content button { margin-top: 10px; }
         @media (max-width: 768px) { #container { flex-direction: column; } }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.4.12/src-min-noconflict/ace.js"></script>
 </head>
 <body>
+    <div id="wizard" style="display: none;">
+        <div id="wizard-content">
+            <h2>webXOS IDE Setup</h2>
+            <p id="wizard-step">Checking backend connectivity...</p>
+            <button onclick="nextWizardStep()">Next</button>
+        </div>
+    </div>
     <div id="container">
         <div id="editor">
+            <div id="access-buttons">
+                <button onclick="window.location.href='https://webxos.netlify.app/main/gateway/server.html'">Open IDE</button>
+                <button onclick="checkBackendStatus()">Check Backend</button>
+                <button onclick="window.open('https://vercel.com/your-project', '_blank')">Node.js Status</button>
+                <button onclick="window.open('https://render.com/your-project', '_blank')">FastAPI Status</button>
+            </div>
             <div id="code-editor"></div>
             <div id="controls">
                 <button onclick="runCode()">Run</button>
@@ -43,14 +60,21 @@
             mode: "ace/mode/javascript",
             value: `// webXOS Game Server Code\nconsole.log("Hello, webXOS!");\n`
         });
-        editor.setStyle({ height: "calc(100vh - 70px)", width: "100%" });
+        editor.setStyle({ height: "calc(100vh - 100px)", width: "100%" });
 
         const terminal = document.getElementById("terminal");
         const gameOutput = document.getElementById("game-output");
+        const wizard = document.getElementById("wizard");
+        const wizardStep = document.getElementById("wizard-step");
 
-        // Local URLs for testing; update for cloud deployment
-        const NODE_API = 'http://localhost:3000';
-        const FASTAPI_API = 'http://localhost:8000';
+        // Replace with your deployed backend URLs
+        const NODE_API = 'https://your-node-backend.vercel.app'; // Vercel URL
+        const FASTAPI_API = 'https://your-fastapi-backend.onrender.com'; // Render URL
+
+        // Sanitize input to prevent injection
+        function sanitizeCode(code) {
+            return code.replace(/[<>{}]/g, '').replace(/(\bexec\b|\bsystem\b|\beval\b)/gi, '');
+        }
 
         async function makeRequest(url, method, body) {
             terminal.value += `Sending ${method} to ${url}...\n`;
@@ -69,7 +93,7 @@
         }
 
         async function runCode() {
-            const code = editor.getValue();
+            const code = sanitizeCode(editor.getValue());
             terminal.value = "Running...\n";
             try {
                 const nodeResult = await makeRequest(`${NODE_API}/run`, 'POST', { code });
@@ -80,16 +104,61 @@
         }
 
         async function saveCode() {
-            const code = editor.getValue();
+            const code = sanitizeCode(editor.getValue());
             try {
                 const result = await makeRequest(`${NODE_API}/save`, 'POST', { code });
                 terminal.value += `Saved: ${result.message}\n`;
             } catch (error) {}
         }
 
+        // Backend status check
+        async function checkBackendStatus() {
+            terminal.value += "Checking backend status...\n";
+            try {
+                await makeRequest(`${NODE_API}/health`, 'GET');
+                terminal.value += "Node.js backend: Online\n";
+            } catch (error) {
+                terminal.value += "Node.js backend: Offline\n";
+            }
+            try {
+                await makeRequest(`${FASTAPI_API}/health`, 'GET');
+                terminal.value += "FastAPI backend: Online\n";
+            } catch (error) {
+                terminal.value += "FastAPI backend: Offline\n";
+            }
+        }
+
+        // Install wizard
+        let wizardState = 0;
+        async function nextWizardStep() {
+            if (wizardState === 0) {
+                wizardStep.textContent = "Checking backend connectivity...";
+                await checkBackendStatus();
+                wizardStep.textContent = "Backends checked. Install as PWA?";
+                wizardState++;
+            } else if (wizardState === 1) {
+                if ('BeforeInstallPromptEvent' in window) {
+                    window.addEventListener('beforeinstallprompt', e => {
+                        e.prompt();
+                    });
+                }
+                wizardStep.textContent = "Setup complete! Click to start.";
+                wizardState++;
+            } else {
+                wizard.style.display = 'none';
+            }
+        }
+
+        // Start wizard on load
+        window.onload = () => {
+            wizard.style.display = 'flex';
+            nextWizardStep();
+        };
+
+        // Service worker registration
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/gateway/sw.js')
+                navigator.serviceWorker.register('/main/gateway/sw.js', { scope: '/main/gateway/' })
                     .then(reg => terminal.value += 'Service Worker registered\n')
                     .catch(err => terminal.value += `Service Worker error: ${err}\n`);
             });
