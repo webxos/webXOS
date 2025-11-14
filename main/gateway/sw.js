@@ -1,14 +1,16 @@
 const CACHE_NAME = 'webxos-ide-v1';
 const urlsToCache = [
-    '/gateway/server.html',
+    '/main/gateway/server.html',
     'https://cdn.jsdelivr.net/npm/ace-builds@1.4.12/src-min-noconflict/ace.js',
-    '/gateway/icon.png'
+    '/main/gateway/icon.png',
+    '/main/gateway/manifest.json'
 ];
 
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(urlsToCache))
+            .catch(err => console.error('Cache open error:', err))
     );
 });
 
@@ -34,6 +36,7 @@ self.addEventListener('fetch', event => {
         event.respondWith(
             caches.match(event.request)
                 .then(response => response || fetch(event.request))
+                .catch(() => caches.match('/main/gateway/server.html'))
         );
     }
 });
@@ -43,7 +46,7 @@ self.addEventListener('activate', event => {
         caches.keys().then(cacheNames => {
             return Promise.all(
                 cacheNames.filter(name => name !== CACHE_NAME)
-                    .map(name => caches.delete(name))
+                .map(name => caches.delete(name))
             );
         })
     );
