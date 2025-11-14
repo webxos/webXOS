@@ -4,8 +4,10 @@ const { Isolate } = require('isolated-vm');
 const fs = require('fs').promises;
 
 const app = express();
-app.use(cors({ origin: '*' })); // Update to GitHub Pages URL in production
+app.use(cors({ origin: 'https://webxos.netlify.app' }));
 app.use(express.json());
+
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.post('/run', async (req, res) => {
     try {
