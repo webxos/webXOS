@@ -6,13 +6,17 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update to GitHub Pages URL in production
+    allow_origins=["https://webxos.netlify.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 class CodeInput(BaseModel):
     code: str
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/game")
 async def game(input: CodeInput):
