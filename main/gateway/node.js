@@ -1,34 +1,43 @@
 const express = require('express');
 const cors = require('cors');
-const { Isolate } = require('isolated-vm');
-const fs = require('fs').promises;
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
+const server = http.createServer(app);
 app.use(cors({ origin: 'https://webxos.netlify.app' }));
 app.use(express.json());
 
+const games = {};
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.post('/run', async (req, res) => {
-    try {
-        const code = req.body.code;
-        const isolate = new Isolate({ memoryLimit: 8 });
-        const context = isolate.createContextSync();
-        const script = await isolate.compileScript(code);
-        const result = await script.run(context);
-        res.json({ output: result || 'No output' });
-    } catch (error) {
-        res.status(500).json({ output: `Error: ${error.message}` });
+app.post('/create', (req, res) => {
+    const { gameName, port, maxPlayers } = req.body;
+    if (!gameName || !port || !maxPlayers) {
+        return res.status(400).json({ error: 'Invalid input' });
     }
+    if (games[gameName]) {
+        return res.status(400).json({ error: 'Game exists' });
+    }
+    const wss = new WebSocket.Server({ port });
+    const players = {};
+    wss.on('connection', ws => {
+        ws.on('message', data => {
+            const player = JSON.parse(data);
+            players[player.id] = player;
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(players));
+                }
+            });
+        });
+        ws.on('close', () => {
+            delete players[player.id];
+        });
+    });
+    games[gameName] = { port, maxPlayers, wss };
+    res.json({ message: `Game ${gameName} created on port ${port}` });
 });
 
-app.post('/save', async (req, res) => {
-    try {
-        await fs.writeFile('saved.js', req.body.code);
-        res.json({ message: 'Code saved' });
-    } catch (error) {
-        res.status(500).json({ message: `Save error: ${error.message}` });
-    }
-});
-
-app.listen(3000, () => console.log('Node.js on port 3000'));
+server.listen(3000, () => console.log('Node.js on port 3000'));
