@@ -51,7 +51,7 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 
 *We may update this policy to reflect changes in the App (e.g., new features). Check the GitHub repo for the latest version. Continued use after updates implies acceptance.*
 
-## 7. Contact Us
+## Contact Us
 
 - GitHub: [github.com/webxos](https://github.com/webxos) (file issues or pull requests).
 - X (Twitter): [@webxos](https://x.com/webxos).
