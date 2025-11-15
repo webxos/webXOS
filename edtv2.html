@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>edTV: CHANNEL 2</title>
+    <meta name="theme-color" content="#000000">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        #ideInterface{position:absolute;top:0;left:0;width:100%;height:100%;z-index:10}
+        
+        /* Top Banner */
+        .top-banner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 40px;
+            background: rgba(255, 0, 255, 0.9);
+            border-bottom: 2px solid #f0f;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 12;
+            overflow: hidden;
+        }
+        
+        .top-banner-text {
+            font-size: 12px;
+            color: #000;
+            text-shadow: 1px 1px 0 #fff;
+            letter-spacing: 1px;
+        }
+        
+        /* Mirror Button */
+        .mirror-btn{
+            width:200px;height:52px;background:#000;border:3px solid #0ff;color:#0ff;
+            font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+            box-shadow:3px 3px 0 #000;transform:skew(-2deg);transition:background 0.1s,color 0.1s;
+            touch-action:none;
+            position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:11
+        }
+        .mirror-btn:hover,.mirror-btn:active{background:#0ff;color:#000}
+        .mirror-btn.active{background:#0ff;color:#000}
+        
+        /* PPV Face View */
+        .ppv-face-view {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 140px;
+            height: 105px;
+            background: #000;
+            border: 2px solid #0ff;
+            z-index: 15;
+            overflow: hidden;
+        }
+        
+        .ppv-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Status Panel */
+        .status-panel {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            font-size: 8px;
+            color: #0ff;
+            z-index: 11;
+            background: rgba(0,0,0,0.7);
+            padding: 5px;
+            border: 1px solid #0ff;
+        }
+        
+        /* Timer Panel */
+        .timer-panel {
+            position: absolute;
+            top: 120px;
+            left: 10px;
+            font-size: 10px;
+            color: #ff0;
+            z-index: 11;
+            background: rgba(0,0,0,0.7);
+            padding: 8px;
+            border: 1px solid #ff0;
+        }
+        
+        /* Export Panel */
+        .export-panel {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 11;
+        }
+        
+        .export-btn {
+            width: 120px;
+            height: 40px;
+            background: #000;
+            border: 2px solid #0f0;
+            color: #0f0;
+            font-size: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .recalibrate-btn {
+            width: 120px;
+            height: 40px;
+            background: #000;
+            border: 2px solid #ff0;
+            color: #ff0;
+            font-size: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .export-btn:hover,.export-btn:active{background:#0f0;color:#000}
+        .recalibrate-btn:hover,.recalibrate-btn:active{background:#ff0;color:#000}
+        
+        /* JSON Panel */
+        .json-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            border: 3px solid #0ff;
+            padding: 15px;
+            z-index: 30;
+            width: 80%;
+            max-width: 500px;
+            display: none;
+        }
+        
+        .json-title {
+            font-size: 12px;
+            color: #0ff;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .json-content {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            border: 2px solid #0f0;
+            color: #0f0;
+            font-size: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            overflow: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        
+        .json-btn {
+            width: 120px;
+            height: 40px;
+            background: #000;
+            border: 2px solid #0f0;
+            color: #0f0;
+            font-size: 10px;
+            cursor: pointer;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .json-btn:hover,.json-btn:active{background:#0f0;color:#000}
+        
+        /* Mobile Optimization */
+        @media (max-width:767px){
+            .mirror-btn{width:180px;height:48px;font-size:9px}
+            .ppv-face-view{width:100px;height:75px}
+            .export-panel{flex-direction:column;align-items:center}
+        }
+        
+        /* Focus styles */
+        .mirror-btn:focus, .export-btn:focus, .recalibrate-btn:focus {
+            outline: 2px solid #0ff;
+            outline-offset: 2px;
+        }
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+    
+    <!-- Top Banner -->
+    <div class="top-banner">
+        <div class="top-banner-text">edTV: CHANNEL 2</div>
+    </div>
+    
+    <!-- PPV Face View -->
+    <div class="ppv-face-view" id="ppvFaceView">
+        <canvas class="ppv-canvas" id="ppvCanvas"></canvas>
+    </div>
+    
+    <!-- Status Panel -->
+    <div class="status-panel" id="statusPanel">
+        VECTORS: <span id="vectorCount">0/400</span><br>
+        FPS: <span id="fpsCounter">60</span><br>
+        STATUS: <span id="statusText">READY</span>
+    </div>
+    
+    <!-- Timer Panel -->
+    <div class="timer-panel" id="timerPanel">
+        PROCESSING: <span id="timerDisplay">400s</span><br>
+        PROGRESS: <span id="progressDisplay">0%</span>
+    </div>
+    
+    <!-- Export Panel -->
+    <div class="export-panel" id="exportPanel" style="display: none;">
+        <button class="export-btn" id="exportBtn">EXPORT DATA</button>
+        <button class="recalibrate-btn" id="recalibrateBtn">RECALIBRATE</button>
+    </div>
+    
+    <!-- JSON Panel -->
+    <div class="json-panel" id="jsonPanel">
+        <div class="json-title">FACE VECTOR DATA EXPORT</div>
+        <div class="json-content" id="jsonContent"></div>
+        <button class="json-btn" id="copyJsonBtn">COPY TO CLIPBOARD</button>
+    </div>
+    
+    <!-- 3D SCENE -->
+    <div id="visualizationContainer">
+        <canvas id="visualizationCanvas"></canvas>
+    </div>
+    
+    <div id="ideInterface">
+        <!-- MIRROR BUTTON -->
+        <button id="mirrorBtn" class="mirror-btn" aria-label="Start Processing">START FACE PROCESSING</button>
+    </div>
+</div>
+
+<script>
+    // Main Application Variables
+    let scene, cam, ren, clock;
+    let faceMesh, camera, stream;
+    let animationId = null;
+    let isProcessing = false;
+    let processingTimer = 400; // 400 seconds
+    let timerInterval = null;
+    
+    // Face vector data
+    let faceVectors = [];
+    let vectorPoints = [];
+    let wireframeLines = null;
+    let frameCount = 0;
+    let lastFpsUpdate = 0;
+    const fpsUpdateInterval = 1000;
+
+    // DOM utility functions
+    const $ = s => document.querySelector(s);
+
+    function init() {
+        try {
+            init3D();
+            setupFaceDetection();
+            setupEventListeners();
+            animate();
+            
+            console.log("NeuroTS Face Vector Processing initialized");
+        } catch (error) {
+            console.error('Initialization error:', error);
+            $('#statusText').textContent = 'INIT FAILED';
+        }
+    }
+
+    function init3D() {
+        try {
+            // Initialize Three.js scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            cam.position.set(0, 0, 5);
+            
+            const canvas = $('#visualizationCanvas');
+            ren = new THREE.WebGLRenderer({ 
+                canvas: canvas, 
+                antialias: false, 
+                powerPreference: "high-performance" 
+            });
+            ren.setSize(window.innerWidth, window.innerHeight);
+            ren.setPixelRatio(1); // Force 1x for performance
+            
+            clock = new THREE.Clock();
+
+            // Simple grid for reference
+            const gridHelper = new THREE.GridHelper(10, 10, 0x004400, 0x002200);
+            scene.add(gridHelper);
+
+            // Add some ambient light
+            scene.add(new THREE.AmbientLight(0x333333));
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(5, 10, 5);
+            scene.add(directionalLight);
+
+            ren.render(scene, cam);
+            
+        } catch (error) {
+            console.error('3D initialization error:', error);
+            throw new Error(`3D setup failed: ${error.message}`);
+        }
+    }
+
+    function setupFaceDetection() {
+        try {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                }
+            });
+            
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
+            faceMesh.onResults(onFaceMeshResults);
+            
+            console.log("Face Mesh detection initialized");
+        } catch (error) {
+            console.error('Face detection setup error:', error);
+        }
+    }
+
+    function onFaceMeshResults(results) {
+        const ppvCanvas = $('#ppvCanvas');
+        const ppvCtx = ppvCanvas.getContext('2d');
+        
+        // Clear and draw the video frame
+        ppvCtx.clearRect(0, 0, ppvCanvas.width, ppvCanvas.height);
+        
+        if (results.image) {
+            ppvCtx.drawImage(results.image, 0, 0, ppvCanvas.width, ppvCanvas.height);
+        }
+
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            const landmarks = results.multiFaceLandmarks[0];
+            
+            // Draw face mesh wireframe
+            drawConnectors(ppvCtx, landmarks, FACEMESH_TESSELATION, { color: '#C0C0C070', lineWidth: 1 });
+            drawConnectors(ppvCtx, landmarks, FACEMESH_RIGHT_EYE, { color: '#FF3030', lineWidth: 1 });
+            drawConnectors(ppvCtx, landmarks, FACEMESH_LEFT_EYE, { color: '#30FF30', lineWidth: 1 });
+            drawConnectors(ppvCtx, landmarks, FACEMESH_FACE_OVAL, { color: '#E0E0E0', lineWidth: 2 });
+            
+            // Process face vectors if we're in processing mode
+            if (isProcessing && faceVectors.length < 400) {
+                processFaceVectors(landmarks);
+            }
+        }
+    }
+    
+    function processFaceVectors(landmarks) {
+        // Convert landmarks to 3D points
+        const vectors = [];
+        
+        // Sample key landmarks for our vector points (we don't need all 468)
+        const keyLandmarkIndices = [10, 33, 61, 199, 263, 291, 1, 152, 234, 454];
+        
+        keyLandmarkIndices.forEach(index => {
+            if (landmarks[index]) {
+                const landmark = landmarks[index];
+                // Convert to 3D space (scaled appropriately)
+                const x = (landmark.x - 0.5) * 10;
+                const y = (0.5 - landmark.y) * 10; // Flip Y axis
+                const z = landmark.z * 5; // Use Z for depth
+                
+                vectors.push({ x, y, z });
+            }
+        });
+        
+        // Store the vector set with timestamp
+        faceVectors.push({
+            timestamp: Date.now(),
+            vectors: vectors
+        });
+        
+        // Update UI
+        $('#vectorCount').textContent = `${faceVectors.length}/400`;
+        
+        // Update 3D visualization
+        update3DVisualization();
+    }
+    
+    function update3DVisualization() {
+        // Clear previous points and lines
+        if (wireframeLines) {
+            scene.remove(wireframeLines);
+        }
+        vectorPoints.forEach(point => scene.remove(point));
+        vectorPoints = [];
+        
+        // Create new points from all collected vectors
+        const points = [];
+        faceVectors.forEach(vectorSet => {
+            vectorSet.vectors.forEach(vector => {
+                points.push(new THREE.Vector3(vector.x, vector.y, vector.z));
+                
+                // Create a visual point
+                const pointGeometry = new THREE.SphereGeometry(0.05, 6, 6);
+                const pointMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+                const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+                pointMesh.position.set(vector.x, vector.y, vector.z);
+                scene.add(pointMesh);
+                vectorPoints.push(pointMesh);
+            });
+        });
+        
+        // Create wireframe connections between points
+        if (points.length > 1) {
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xff0000,
+                linewidth: 1
+            });
+            wireframeLines = new THREE.Line(lineGeometry, lineMaterial);
+            scene.add(wireframeLines);
+        }
+    }
+
+    function startWebcam() {
+        if (stream) {
+            return; // Webcam already running
+        }
+        
+        try {
+            // Request camera access
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: 'user',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                } 
+            })
+            .then(s => {
+                stream = s;
+                
+                // Create video element for face detection
+                const video = document.createElement('video');
+                video.id = 'webcamVideo';
+                video.srcObject = stream;
+                video.autoplay = true;
+                video.playsInline = true;
+                video.style.display = 'none';
+                document.body.appendChild(video);
+                
+                // Setup camera for face detection
+                camera = new Camera(video, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: video });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                
+                camera.start();
+                
+                // Setup PPV canvas
+                const ppvCanvas = $('#ppvCanvas');
+                ppvCanvas.width = $('#ppvFaceView').clientWidth;
+                ppvCanvas.height = $('#ppvFaceView').clientHeight;
+                
+                $('#statusText').textContent = 'PROCESSING';
+                
+                console.log("Webcam started successfully");
+            })
+            .catch(error => {
+                console.error('Webcam error:', error);
+                $('#statusText').textContent = 'CAMERA ERROR';
+                stream = null;
+            });
+            
+        } catch (error) {
+            console.error('Webcam setup error:', error);
+            $('#statusText').textContent = 'WEBCAM SETUP FAILED';
+        }
+    }
+
+    function stopWebcam() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            
+            if (camera) {
+                camera.stop();
+            }
+            
+            if (faceMesh) {
+                faceMesh.close();
+            }
+            
+            // Remove hidden video element
+            const video = $('#webcamVideo');
+            if (video) video.remove();
+            
+            console.log("Webcam stopped");
+        }
+    }
+    
+    function startProcessing() {
+        // Reset data
+        faceVectors = [];
+        $('#vectorCount').textContent = '0/400';
+        $('#statusText').textContent = 'PROCESSING';
+        
+        // Start webcam
+        startWebcam();
+        
+        // Start processing timer
+        isProcessing = true;
+        processingTimer = 400;
+        
+        // Update timer display
+        $('#timerDisplay').textContent = `${processingTimer}s`;
+        $('#progressDisplay').textContent = '0%';
+        
+        // Hide export panel during processing
+        $('#exportPanel').style.display = 'none';
+        
+        // Start countdown
+        timerInterval = setInterval(() => {
+            processingTimer--;
+            $('#timerDisplay').textContent = `${processingTimer}s`;
+            
+            // Update progress
+            const progress = ((400 - processingTimer) / 400) * 100;
+            $('#progressDisplay').textContent = `${Math.round(progress)}%`;
+            
+            // When timer reaches 0, stop processing
+            if (processingTimer <= 0) {
+                finishProcessing();
+            }
+        }, 1000);
+    }
+    
+    function finishProcessing() {
+        clearInterval(timerInterval);
+        isProcessing = false;
+        
+        // Stop webcam
+        stopWebcam();
+        
+        // Update UI
+        $('#statusText').textContent = 'COMPLETE';
+        $('#mirrorBtn').textContent = 'PROCESSING COMPLETE';
+        
+        // Show export options
+        $('#exportPanel').style.display = 'flex';
+    }
+    
+    function exportData() {
+        // Prepare data for export
+        const exportData = {
+            timestamp: new Date().toISOString(),
+            processingTime: 400,
+            vectorCount: faceVectors.length,
+            vectors: faceVectors
+        };
+        
+        // Format JSON with proper indentation
+        const jsonString = JSON.stringify(exportData, null, 2);
+        $('#jsonContent').textContent = jsonString;
+        $('#jsonPanel').style.display = 'block';
+    }
+    
+    function copyToClipboard() {
+        const jsonContent = $('#jsonContent').textContent;
+        
+        // Check if clipboard API is available
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(jsonContent).then(() => {
+                alert('Face vector data copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                fallbackCopyToClipboard(jsonContent);
+            });
+        } else {
+            fallbackCopyToClipboard(jsonContent);
+        }
+    }
+    
+    function fallbackCopyToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            document.execCommand('copy');
+            alert('Face vector data copied to clipboard!');
+        } catch (err) {
+            console.error('Fallback copy failed: ', err);
+            alert('Failed to copy data. Please select and copy manually.');
+        }
+        
+        document.body.removeChild(textArea);
+    }
+    
+    function recalibrate() {
+        // Reset UI
+        $('#mirrorBtn').textContent = 'START FACE PROCESSING';
+        $('#statusText').textContent = 'READY';
+        $('#exportPanel').style.display = 'none';
+        
+        // Clear 3D visualization
+        if (wireframeLines) {
+            scene.remove(wireframeLines);
+            wireframeLines = null;
+        }
+        vectorPoints.forEach(point => scene.remove(point));
+        vectorPoints = [];
+    }
+
+    function setupEventListeners() {
+        // Mirror button event listener
+        $('#mirrorBtn').addEventListener('click', () => {
+            if (!isProcessing) {
+                startProcessing();
+                $('#mirrorBtn').classList.add('active');
+                $('#mirrorBtn').textContent = 'PROCESSING...';
+            }
+        });
+        
+        // Export button
+        $('#exportBtn').addEventListener('click', exportData);
+        
+        // Recalibrate button
+        $('#recalibrateBtn').addEventListener('click', recalibrate);
+        
+        // JSON copy button
+        $('#copyJsonBtn').addEventListener('click', copyToClipboard);
+        
+        // Close JSON panel when clicking outside
+        $('#jsonPanel').addEventListener('click', (e) => {
+            if (e.target === $('#jsonPanel')) {
+                $('#jsonPanel').style.display = 'none';
+            }
+        });
+        
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            cam.aspect = window.innerWidth / window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth, window.innerHeight);
+            
+            // Update PPV canvas size
+            const ppvCanvas = $('#ppvCanvas');
+            const ppvView = $('#ppvFaceView');
+            ppvCanvas.width = ppvView.clientWidth;
+            ppvCanvas.height = ppvView.clientHeight;
+        }, { passive: true });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanup);
+        
+        console.log("Event listeners setup complete");
+    }
+
+    function cleanup() {
+        // Stop animation loop
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+        }
+        
+        // Stop processing timer
+        if (timerInterval) {
+            clearInterval(timerInterval);
+        }
+        
+        // Stop webcam
+        if (stream) {
+            stopWebcam();
+        }
+        
+        // Clean up Three.js resources
+        if (scene) {
+            scene.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(material => material.dispose());
+                    } else {
+                        object.material.dispose();
+                    }
+                }
+            });
+        }
+        
+        console.log("Cleanup completed");
+    }
+
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        const deltaTime = clock.getDelta();
+        
+        // Rotate camera slowly for better visualization
+        if (faceVectors.length > 0) {
+            cam.position.x = Math.sin(Date.now() * 0.0005) * 5;
+            cam.position.z = Math.cos(Date.now() * 0.0005) * 5;
+            cam.lookAt(0, 0, 0);
+        }
+        
+        // Render scene
+        ren.render(scene, cam);
+        
+        // Update FPS counter
+        const now = performance.now();
+        if (now - lastFpsUpdate > fpsUpdateInterval) {
+            const fps = Math.round((frameCount * 1000) / (now - lastFpsUpdate));
+            $('#fpsCounter').textContent = fps;
+            frameCount = 0;
+            lastFpsUpdate = now;
+        }
+        
+        frameCount++;
+    }
+
+    // Initialize the application when the window loads
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>
