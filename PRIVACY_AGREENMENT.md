@@ -8,7 +8,7 @@ MIRROR IDE and related techonology (webxos.netlify.app/mirror webcam use and rel
 
 *By using the App, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration of AR face-tracking technologies (e.g., mesh synchronization via webcam). It is not a production service and should not be used for sensitive or real-world applications.*
 
-## 1. Information We Collect:
+## 1. No Information Collected:
 
 The App is designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
 
