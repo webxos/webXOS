@@ -16,7 +16,7 @@ We do **not collect, store, or share any personal data** from users.
 
 - **No Personal Identifiable Information (PII)**: We do not request, collect, or process names, emails, IP addresses, device IDs, or any other identifiers.
 - 
-- **Camera and Media Access**: The App may request permission to access your device's webcam for real-time AR face scanning (e.g., overlaying meshes on detected facial features).
+- **Camera and Media Access**: The App may request permission to access your device's webcam for real-time AR face scanning (e.g., overlaying meshes on detected facial features). For Testing Purposes locally.
 
 # This access is:
 
