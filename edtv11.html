@@ -652,39 +652,206 @@
         cam.lookAt(user);
     }
     function setupEventListeners() {
-        // ... existing
+        // Mirror button
+        $('#mirrorBtn').addEventListener('click', () => {
+            if ($('#mirrorPopup').style.display === 'block') {
+                closeMirror();
+            } else {
+                openMirror();
+                startWebcam();
+            }
+        });
+       
+        // Export button
+        $('#exportBtn').addEventListener('click', exportGeometryData);
+       
+        // Clear button
+        $('#clearBtn').addEventListener('click', clearData);
+       
+        // Gimbal button
         $('#gimbalBtn').addEventListener('click', () => {
             gimbalMode = !gimbalMode;
             $('#gimbalBtn').classList.toggle('active');
+            updateCameraForGimbal();
         });
+       
+        // IDE button
         $('#ideBtn').addEventListener('click', () => {
-            $('#idePanel').style.display = $('#idePanel').style.display === 'none' ? 'block' : 'none';
-            $('#codeEditor').value = JSON.stringify(geometryDataSchema, null, 2);
+            const panel = $('#idePanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            if (panel.style.display === 'block') {
+                $('#codeEditor').value = JSON.stringify(geometryDataSchema, null, 2);
+            }
         });
-        $('#zoomInBtn').addEventListener('click', () => {
-            cameraDistance = Math.max(1, cameraDistance - 1);
-            updateCameraForGimbal();
-        });
-        $('#zoomOutBtn').addEventListener('click', () => {
-            cameraDistance = Math.min(10, cameraDistance + 1);
-            updateCameraForGimbal();
-        });
-        $('#resetBtn').addEventListener('click', () => {
-            cameraDistance = 5;
-            faceDirection = 0;
-            gimbalMode = false;
-            $('#gimbalBtn').classList.remove('active');
-            updateCameraForGimbal();
-        });
-        // Add to controls-container zoom etc from template
+       
+        // Mirror close button
+        $('.mirror-close').addEventListener('click', closeMirror);
+       
+        // Scene click area
+        $('#sceneClickArea').addEventListener('click', centerView);
+       
+        // Mirror dragging
+        const mirrorHeader = $('.mirror-header');
+        const mirrorPopup = $('#mirrorPopup');
+       
+        mirrorHeader.addEventListener('mousedown', startDrag);
+        mirrorHeader.addEventListener('touchstart', startDrag);
+       
+        function startDrag(e) {
+            e.preventDefault();
+            mirrorDragging = true;
+           
+            const rect = mirrorPopup.getBoundingClientRect();
+            if (e.type === 'mousedown') {
+                mirrorOffset.x = e.clientX - rect.left;
+                mirrorOffset.y = e.clientY - rect.top;
+            } else if (e.type === 'touchstart') {
+                mirrorOffset.x = e.touches[0].clientX - rect.left;
+                mirrorOffset.y = e.touches[0].clientY - rect.top;
+            }
+           
+            document.addEventListener('mousemove', dragMirror);
+            document.addEventListener('touchmove', dragMirror);
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchend', stopDrag);
+        }
+       
+        function dragMirror(e) {
+            if (!mirrorDragging) return;
+            e.preventDefault();
+           
+            let clientX, clientY;
+            if (e.type === 'mousemove') {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            } else if (e.type === 'touchmove') {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            }
+           
+            mirrorPopup.style.left = (clientX - mirrorOffset.x) + 'px';
+            mirrorPopup.style.top = (clientY - mirrorOffset.y) + 'px';
+            mirrorPopup.style.transform = 'none';
+        }
+       
+        function stopDrag() {
+            mirrorDragging = false;
+            document.removeEventListener('mousemove', dragMirror);
+            document.removeEventListener('touchmove', dragMirror);
+            document.removeEventListener('mouseup', stopDrag);
+            document.removeEventListener('touchend', stopDrag);
+        }
+       
+        // Window resize
+        window.addEventListener('resize', () => {
+            cam.aspect = window.innerWidth / window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth, window.innerHeight);
+        }, { passive: true });
+       
+        // Cleanup
+        window.addEventListener('beforeunload', cleanup);
+       
+        console.log("Event listeners setup complete");
     }
-    // Update animate to call updateCameraForGimbal
+    function startWebcam() {
+        if (stream) {
+            return;
+        }
+       
+        const status = $('#calibStatus');
+        status.textContent = 'INITIALIZING CAMERA...';
+       
+        try {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            isFrontCam = isMobile;
+           
+            navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: isFrontCam ? 'user' : 'environment',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            })
+            .then(s => {
+                stream = s;
+               
+                const video = document.createElement('video');
+                video.id = 'webcamVideo';
+                video.srcObject = stream;
+                video.autoplay = true;
+                video.playsInline = true;
+                video.style.display = 'none';
+                document.body.appendChild(video);
+               
+                camera = new Camera(video, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: video });
+                        const detections = await objectDetector.detect(video);
+                        onObjectDetectionResults({detections});
+                        detectArUco(video);
+                        detectSphere(video);
+                    },
+                    width: 640,
+                    height: 480
+                });
+               
+                camera.start();
+               
+                const canvas = $('#webcamCanvas');
+                canvas.width = 300;
+                canvas.height = 200;
+               
+                status.textContent = 'READY FOR 3D CAPTURE';
+               
+                console.log("Webcam started successfully");
+            })
+            .catch(error => {
+                console.error('Webcam error:', error);
+               
+                let errorMessage = 'CAMERA ACCESS DENIED';
+                if (error.name === 'NotAllowedError') {
+                    errorMessage = 'CAMERA ACCESS DENIED BY USER';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage = 'NO CAMERA FOUND';
+                } else if (error.name === 'NotSupportedError') {
+                    errorMessage = 'CAMERA NOT SUPPORTED';
+                }
+               
+                status.textContent = errorMessage;
+                stream = null;
+            });
+           
+        } catch (error) {
+            console.error('Webcam setup error:', error);
+            status.textContent = 'WEBCAM SETUP FAILED';
+        }
+    }
+    // ... rest of the code as is
     function animate() {
         animationId = requestAnimationFrame(animate);
+        const deltaTime = clock.getDelta();
+       
+        // Update user arrow direction
+        if (userObj && userObj.children.length > 0) {
+            const arrow = userObj.children[0];
+            arrow.rotation.y = -faceDirection * Math.PI / 180;
+        }
+       
+        // Animate objects
+        objects.forEach((obj, index) => {
+            obj.rotation.y += deltaTime * 0.5;
+           
+            // Add subtle floating animation
+            obj.position.y += Math.sin(Date.now() * 0.001 + index) * 0.005;
+        });
+       
         updateCameraForGimbal();
+       
+        // Render scene
         ren.render(scene, cam);
     }
-    // ... rest of the code as in edtv5.html
+    window.addEventListener('load', init);
 </script>
 </body>
 </html>
