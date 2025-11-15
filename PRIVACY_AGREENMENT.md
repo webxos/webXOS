@@ -2,7 +2,7 @@
 
 **Effective Date: November 14, 2025**
 
-FaceCam AR Scanner ("the App") and related techonology (webxos.netlify.app/mirror webcam use etc) is an free open sourced experimental browser-based augmented reality (AR) tool developed as part of the WebXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/pm](https://webxos.netlify.app/) and available under the open-source [MIT License] on GitHub at [github.com/webxos](https://github.com/webxos). 
+MIRROR IDE and related techonology (webxos.netlify.app/mirror webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/pm](https://webxos.netlify.app/) and available under the open-source [MIT License] on GitHub at [github.com/webxos](https://github.com/webxos). 
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
