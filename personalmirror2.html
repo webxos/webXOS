@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Mirror IDE AR Scanner</title>
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="data:application/manifest+json,{
+        \"name\": \"Mirror IDE AR Scanner\",
+        \"short_name\": \"Mirror IDE AR\",
+        \"description\": \"Lightweight AR face mesh scanner\",
+        \"start_url\": \"./\",
+        \"display\": \"fullscreen\",
+        \"background_color\": \"#000000\",
+        \"theme_color\": \"#000000\",
+        \"icons\": [
+            {
+                \"src\": \"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiBmaWxsPSIjMDAwMDAwIi8+CjxwYXRoIGQ9Ik05NiAxMjhMMTI4IDk2SDY0TDEyOCA2NEw5NiAzMkw2NCA2NEgxMjhMNjQgOTZIMTI4TDk2IDEyOFoiIGZpbGw9IiMwMGZmMDAiLz4KPC9zdmc+Cg==\",
+                \"sizes\": \"192x192\",
+                \"type\": \"image/svg+xml\"
+            }
+        ]
+    }">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        .top-banner{position:absolute;top:0;left:0;width:100%;height:40px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12;animation:glitch 3s infinite}
+        @keyframes glitch{0%,100%{transform:translateX(0)}5%{transform:translateX(-2px)}10%{transform:translateX(2px)}15%{transform:translateX(-1px)}20%{transform:translateX(1px)}25%,75%{transform:translateX(0)}55%{transform:translateX(-1px) skewX(-2deg)}60%{transform:translateX(1px) skewX(2deg)}65%{transform:translateX(-1px) skewX(-1deg)}70%{transform:translateX(1px) skewX(1deg)}}
+        .top-banner::before{content:'';position:absolute;top:0;left:-10%;width:120%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);animation:shimmer 2s infinite}
+        @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+        .top-banner-text{font-size:12px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
+        .ctrl-btn{width:48px;height:48px;background:#000;border:2px solid #0f0;color:#0f0;font-size:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:2px 2px 0 #000;transform:skew(-2deg);transition:background 0.1s,color 0.1s;touch-action:none;position:relative;z-index:11}
+        .ctrl-btn:hover,.ctrl-btn:active{background:#0f0;color:#000}
+        .ctrl-btn.active{background:#0f0;color:#000}
+        .main-controls{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:11}
+        .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+        .ctrl-btn:focus{outline:2px solid #0ff;outline-offset:2px}
+        @media (min-width:768px){.ctrl-btn{width:56px;height:56px;font-size:8px}}
+        @media (max-width:767px){.main-controls{gap:4px}.ctrl-btn{width:44px;height:44px;font-size:5px}}
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+    <div class="top-banner">
+        <div class="top-banner-text">Mirror IDE AR Scanner</div>
+    </div>
+    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
+    <div class="main-controls">
+        <button id="toggleMeshBtn" class="ctrl-btn" aria-label="Toggle Mesh">MESH ON</button>
+    </div>
+</div>
+
+<script>
+    let scene, cam, ren, clock;
+    let faceMesh, objects = [];
+    let faceDirection = 0;
+    let animationId;
+    const user = new THREE.Vector3(0, 1, 0);
+    const $ = s => document.querySelector(s);
+
+    function init() {
+        init3D();
+        setupFaceMesh();
+        setupEventListeners();
+        animate();
+    }
+
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+        cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        cam.position.set(0, 1, 2);
+        ren = new THREE.WebGLRenderer({ canvas: $('#visualizationCanvas'), antialias: false, powerPreference: "low-power" });
+        ren.setSize(window.innerWidth, window.innerHeight);
+        ren.setPixelRatio(1);
+        clock = new THREE.Clock();
+        scene.add(new THREE.AmbientLight(0x003300));
+        const dir = new THREE.DirectionalLight(0x00ff00, 0.3);
+        dir.position.set(5, 5, 5);
+        scene.add(dir);
+        cam.lookAt(user);
+    }
+
+    function setupFaceMesh() {
+        // Simplified face mesh with 30% fewer vectors (approx. 350 points)
+        const geometry = new THREE.BufferGeometry();
+        const vertices = new Float32Array(350 * 3);
+        const indices = [];
+        for (let i = 0; i < 350; i++) {
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            vertices[i * 3] = 0.5 * Math.sin(phi) * Math.cos(theta);
+            vertices[i * 3 + 1] = 0.5 * Math.sin(phi) * Math.sin(theta);
+            vertices[i * 3 + 2] = 0.5 * Math.cos(phi);
+        }
+        for (let i = 0; i < 300; i += 3) {
+            indices.push(i, i + 1, i + 2);
+        }
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.setIndex(indices);
+        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+        faceMesh = new THREE.Mesh(geometry, material);
+        faceMesh.position.copy(user);
+        scene.add(faceMesh);
+        updateObjects();
+    }
+
+    function updateObjects() {
+        objects.forEach(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+            scene.remove(obj);
+        });
+        objects = [];
+        const numObjects = 3;
+        for (let i = 0; i < numObjects; i++) {
+            const isFriendly = Math.random() > 0.5;
+            const angle = (Math.random() * 90 - 45 + faceDirection) * Math.PI / 180;
+            const distance = 2 + Math.random() * 3;
+            const pos = new THREE.Vector3(
+                user.x + Math.sin(angle) * distance,
+                user.y + Math.random(),
+                user.z + Math.cos(angle) * distance
+            );
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshBasicMaterial({ color: isFriendly ? 0x00ff00 : 0xff0000, wireframe: true });
+            const obj = new THREE.Mesh(geometry, material);
+            obj.position.copy(pos);
+            obj.userData = { type: isFriendly ? 'friendly' : 'hostile', id: i, distance: distance };
+            scene.add(obj);
+            objects.push(obj);
+        }
+    }
+
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        const deltaTime = clock.getDelta();
+        faceDirection += deltaTime * 30;
+        if (faceDirection > 360) faceDirection -= 360;
+        faceMesh.rotation.y = -faceDirection * Math.PI / 180;
+        objects.forEach((obj, index) => {
+            obj.rotation.y += deltaTime * (obj.userData.type === 'hostile' ? 1 : 0.5);
+        });
+        cam.position.set(
+            user.x + Math.sin(faceDirection * Math.PI / 180) * 2,
+            user.y + 0.5,
+            user.z + Math.cos(faceDirection * Math.PI / 180) * 2
+        );
+        cam.lookAt(user);
+        ren.render(scene, cam);
+    }
+
+    function setupEventListeners() {
+        $('#toggleMeshBtn').addEventListener('click', () => {
+            faceMesh.visible = !faceMesh.visible;
+            $('#toggleMeshBtn').textContent = faceMesh.visible ? 'MESH ON' : 'MESH OFF';
+            $('#toggleMeshBtn').classList.toggle('active');
+        });
+        window.addEventListener('resize', () => {
+            cam.aspect = window.innerWidth / window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth, window.innerHeight);
+        }, { passive: true });
+        window.addEventListener('beforeunload', cleanup);
+    }
+
+    function cleanup() {
+        cancelAnimationFrame(animationId);
+        scene.traverse(object => {
+            if (object.geometry) object.geometry.dispose();
+            if (object.material) object.material.dispose();
+        });
+    }
+
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>
