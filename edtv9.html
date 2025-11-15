@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>edTV: CHANNEL 9</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:monospace;font-size:10px;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none}
+        #appContainer{position:relative;width:100%;height:100vh}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        .top-banner{position:absolute;top:0;left:0;width:100%;height:30px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12}
+        .top-banner-text{font-size:10px;color:#000;text-shadow:1px 1px 0 #fff}
+        .ctrl-btn{width:100px;height:40px;background:#000;border:2px solid #0ff;color:#0ff;display:flex;align-items:center;justify-content:center;cursor:pointer;margin:5px}
+        .ctrl-btn:hover,.ctrl-btn:active{background:#0ff;color:#000}
+        .export-btn{border-color:#f0f;color:#f0f}
+        .export-btn:hover,.export-btn:active{background:#f0f;color:#000}
+        .controls-container{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:11}
+        .mirror-popup{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,10,0,0.95);border:2px solid #0ff;padding:8px;z-index:100;width:280px;height:300px;font-size:8px;color:#0ff}
+        .mirror-header{display:flex;justify-content:space-between;align-items:center;padding:4px;background:rgba(0,255,255,0.2);border-bottom:2px solid #0ff;margin-bottom:8px;cursor:move}
+        .mirror-title{font-size:10px;color:#0ff}
+        .mirror-close{width:20px;height:20px;background:#000;border:2px solid #f00;color:#f00;font-size:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+        .mirror-close:hover,.mirror-close:active{background:#f00;color:#000}
+        .webcam-mesh-container{width:100%;height:150px;background:#000;border:2px solid #0f0;position:relative;overflow:hidden}
+        .webcam-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:20px 20px;z-index:1}
+        #calibStatus{font-size:6px;color:#ff0;margin:4px 0;text-align:center}
+        #webcamCanvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:10px;z-index:11;display:none}
+        @media (max-width:767px){.mirror-popup{width:260px;height:280px}.ctrl-btn{width:90px;height:36px;font-size:8px}}
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="top-banner">
+        <div class="top-banner-text">edTV: CHANNEL 9</div>
+    </div>
+    <div id="visualizationContainer">
+        <canvas id="visualizationCanvas"></canvas>
+    </div>
+    <div id="ideInterface">
+        <div class="controls-container">
+            <button id="mirrorBtn" class="ctrl-btn">CAPTURE</button>
+            <button id="exportBtn" class="ctrl-btn export-btn">EXPORT</button>
+        </div>
+        <div id="hudWarning">NO DATA CAPTURED</div>
+    </div>
+    <div class="mirror-popup" id="mirrorPopup">
+        <div class="mirror-header">
+            <div class="mirror-title">3D DATA CAPTURE</div>
+            <div class="mirror-close">X</div>
+        </div>
+        <div class="webcam-mesh-container">
+            <canvas id="webcamCanvas"></canvas>
+            <div class="webcam-grid"></div>
+        </div>
+        <div id="calibStatus">CALIBRATING...</div>
+    </div>
+</div>
+<script src="./lib/three.min.js"></script>
+<script src="./lib/camera_utils.js"></script>
+<script src="./lib/drawing_utils.js"></script>
+<script src="./lib/face_mesh.js"></script>
+<script>
+    let scene, cam, ren, clock, userObj, faceMesh, camera, stream;
+    let userDetected = false, faceDirection = 0;
+    const user = new THREE.Vector3(0, 1, 0);
+    let animationId, mirrorDragging = false, mirrorOffset = {x:0,y:0};
+    const geometryData = {version:"1.0",timestamp:"",faceGeometry:{vertices:[],normals:[],faces:[]}};
+    const $ = s => document.querySelector(s);
+    function init() {
+        init3D();
+        setupFaceDetection();
+        setupEventListeners();
+        autoStartMirror();
+        animate();
+    }
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+        cam = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        cam.position.set(0,2,5);
+        ren = new THREE.WebGLRenderer({canvas:$('#visualizationCanvas'),antialias:false});
+        ren.setSize(window.innerWidth,window.innerHeight);
+        clock = new THREE.Clock();
+        scene.add(new THREE.AmbientLight(0x003300));
+        const dir = new THREE.DirectionalLight(0x00ff00,0.4);
+        dir.position.set(5,10,5);
+        scene.add(dir);
+        const gridGeo = new THREE.BufferGeometry();
+        const positions = [];
+        for(let i=-10;i<=10;i+=1){positions.push(i,0,-10,i,0,10,-10,0,i,10,0,i);}
+        gridGeo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+        scene.add(new THREE.LineSegments(gridGeo,new THREE.LineBasicMaterial({color:0x004400})));
+        userObj = new THREE.Mesh(new THREE.SphereGeometry(0.2,16,16),new THREE.MeshBasicMaterial({color:0x00ffff}));
+        userObj.position.copy(user);
+        scene.add(userObj);
+        cam.lookAt(user);
+        ren.render(scene,cam);
+    }
+    function setupFaceDetection() {
+        faceMesh = new FaceMesh({locateFile:(file)=>`./lib/${file}`});
+        faceMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+        faceMesh.onResults(onFaceMeshResults);
+    }
+    function generateFaceGeometry(landmarks) {
+        const vertices = [], normals = [], faces = [];
+        landmarks.forEach((l,i)=>{vertices.push(l.x*2,l.y*2,(l.z||0)*2);normals.push(0,1,0);});
+        for(let i=0;i<landmarks.length-2;i+=3){faces.push(i,i+1,i+2);}
+        return {vertices,normals,faces};
+    }
+    function onFaceMeshResults(results) {
+        userDetected = results.multiFaceLandmarks?.length>0;
+        $('#hudWarning').style.display = userDetected?'none':'block';
+        const canvas = $('#webcamCanvas'), ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(results.image){ctx.drawImage(results.image,0,0,canvas.width,canvas.height);}
+        if(userDetected){
+            const landmarks = results.multiFaceLandmarks[0];
+            drawConnectors(ctx,landmarks,FACEMESH_TESSELATION,{color:'#C0C0C070',lineWidth:1});
+            drawConnectors(ctx,landmarks,FACEMESH_RIGHT_EYE,{color:'#FF3030',lineWidth:1});
+            drawConnectors(ctx,landmarks,FACEMESH_LEFT_EYE,{color:'#30FF30',lineWidth:1});
+            drawConnectors(ctx,landmarks,FACEMESH_FACE_OVAL,{color:'#E0E0E0',lineWidth:2});
+            geometryData.faceGeometry = generateFaceGeometry(landmarks);
+            const leftCheek=landmarks[234],rightCheek=landmarks[454];
+            faceDirection = Math.atan2((rightCheek.x-leftCheek.x)*canvas.width,(rightCheek.z-leftCheek.z)*1000)*180/Math.PI;
+            $('#calibStatus').textContent = `CAPTURING - FACING: ${faceDirection.toFixed(0)}°`;
+        }else{
+            $('#calibStatus').textContent = 'CALIBRATING - NO FACE';
+        }
+    }
+    function exportGeometryData() {
+        geometryData.timestamp = new Date().toISOString();
+        const exportData = JSON.parse(JSON.stringify(geometryData,(k,v)=>typeof v==='string'?v.replace(/[<>"'&]/g,''):v));
+        navigator.clipboard.writeText(JSON.stringify(exportData,null,2)).then(()=>{
+            $('#calibStatus').textContent = 'DATA COPIED';
+            setTimeout(()=>$('#calibStatus').textContent=userDetected?'CAPTURING - FACING: '+faceDirection.toFixed(0)+'°':'CALIBRATING - NO FACE',1000);
+        }).catch(()=>$('#calibStatus').textContent='EXPORT FAILED');
+    }
+    function autoStartMirror() {
+        setTimeout(()=>{openMirror();startWebcam();},1000);
+    }
+    function openMirror() {
+        $('#mirrorPopup').style.display = 'block';
+        $('#mirrorBtn').classList.add('active');
+    }
+    function closeMirror() {
+        $('#mirrorPopup').style.display = 'none';
+        $('#mirrorBtn').classList.remove('active');
+        stopWebcam();
+    }
+    function startWebcam() {
+        if(stream)return;
+        $('#calibStatus').textContent = 'INIT CAMERA...';
+        navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:320},height:{ideal:240}}}).then(s=>{
+            stream = s;
+            const video = document.createElement('video');
+            video.id = 'webcamVideo';
+            video.srcObject = stream;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.style.display = 'none';
+            document.body.appendChild(video);
+            camera = new Camera(video,{onFrame:async()=>{await faceMesh.send({image:video});},width:320,height:240});
+            camera.start();
+            const canvas = $('#webcamCanvas');
+            canvas.width=280;canvas.height=150;
+            $('#calibStatus').textContent = 'READY';
+        }).catch(e=>{
+            $('#calibStatus').textContent = e.name==='NotAllowedError'?'CAMERA DENIED':e.name==='NotFoundError'?'NO CAMERA':'CAMERA ERROR';
+            stream = null;
+        });
+    }
+    function stopWebcam() {
+        if(stream){
+            stream.getTracks().forEach(t=>t.stop());
+            stream = null;
+            if(camera)camera.stop();
+            const video = $('#webcamVideo');
+            if(video)video.remove();
+            $('#calibStatus').textContent = 'WEBCAM STOPPED';
+        }
+    }
+    function setupEventListeners() {
+        $('#mirrorBtn').addEventListener('click',()=>$('#mirrorPopup').style.display==='block'?closeMirror():openMirror()||startWebcam());
+        $('#exportBtn').addEventListener('click',exportGeometryData);
+        $('.mirror-close').addEventListener('click',closeMirror);
+        const mirrorHeader = $('.mirror-header'), mirrorPopup = $('#mirrorPopup');
+        mirrorHeader.addEventListener('mousedown',e=>{e.preventDefault();mirrorDragging=true;const rect=mirrorPopup.getBoundingClientRect();mirrorOffset.x=e.clientX-rect.left;mirrorOffset.y=e.clientY-rect.top;document.addEventListener('mousemove',dragMirror);document.addEventListener('mouseup',stopDrag);});
+        mirrorHeader.addEventListener('touchstart',e=>{e.preventDefault();mirrorDragging=true;const rect=mirrorPopup.getBoundingClientRect();mirrorOffset.x=e.touches[0].clientX-rect.left;mirrorOffset.y=e.touches[0].clientY-rect.top;document.addEventListener('touchmove',dragMirror);document.addEventListener('touchend',stopDrag);});
+        function dragMirror(e){
+            if(!mirrorDragging)return;
+            e.preventDefault();
+            const clientX=e.type==='mousemove'?e.clientX:e.touches[0].clientX,clientY=e.type==='mousemove'?e.clientY:e.touches[0].clientY;
+            mirrorPopup.style.left=(clientX-mirrorOffset.x)+'px';
+            mirrorPopup.style.top=(clientY-mirrorOffset.y)+'px';
+            mirrorPopup.style.transform='none';
+        }
+        function stopDrag(){
+            mirrorDragging=false;
+            document.removeEventListener('mousemove',dragMirror);
+            document.removeEventListener('touchmove',dragMirror);
+            document.removeEventListener('mouseup',stopDrag);
+            document.removeEventListener('touchend',stopDrag);
+        }
+        window.addEventListener('resize',()=>{cam.aspect=window.innerWidth/window.innerHeight;cam.updateProjectionMatrix();ren.setSize(window.innerWidth,window.innerHeight);});
+        window.addEventListener('beforeunload',()=>{if(animationId)cancelAnimationFrame(animationId);if(stream)stopWebcam();scene.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});});
+    }
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        cam.position.set(user.x+Math.sin(faceDirection*Math.PI/180)*5,user.y+2,user.z+Math.cos(faceDirection*Math.PI/180)*5);
+        cam.lookAt(user);
+        ren.render(scene,cam);
+    }
+    window.addEventListener('load',init);
+</script>
+</body>
+</html>
