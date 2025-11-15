@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>edTV: CHANNEL 3</title>
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="edTV Channel 3: Full-screen 3D face scan hero experience">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+
+        /* Full Hero 3D Scene */
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:1}
+
+        /* Top Banner */
+        .top-banner{position:absolute;top:0;left:0;width:100%;height:50px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12;animation:glitch 3s infinite}
+        .top-banner-text{font-size:14px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
+        @keyframes glitch{0%,100%{transform:translateX(0)}5%{transform:translateX(-2px)}10%{transform:translateX(2px)}15%{transform:translateX(-1px)}20%{transform:translateX(1px)}55%{transform:translateX(-1px) skewX(-2deg)}60%{transform:translateX(1px) skewX(2deg)}}
+
+        /* PiP Camera (Top-Right Corner) */
+        .pip-cam{
+            position:absolute;top:60px;right:10px;width:140px;height:105px;background:#000;border:2px solid #0ff;z-index:15;overflow:hidden;cursor:pointer;transition:all .3s;
+            box-shadow:0 0 15px rgba(0,255,255,0.6);
+        }
+        .pip-cam.expanded{width:300px;height:225px;z-index:20}
+        .scanner{position:absolute;top:0;left:0;width:100%;height:4px;background:red;box-shadow:0 0 20px red;animation:scan 2s linear infinite;display:none}
+        @keyframes scan{0%{top:0}100%{top:100%}}
+
+        /* All Buttons Hidden Off-Screen — Only Appear on Tap */
+        .controls-panel{
+            position:absolute;bottom:-100px;left:0;width:100%;background:rgba(0,0,0,0.9);border-top:3px solid #0ff;
+            padding:20px 10px  env(safe-area-inset-bottom,30px) 10px;transition:bottom .4s cubic-bezier(0.25,0.8,0.25,1);z-index:11;
+            display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px;align-items:center;justify-items:center;
+        }
+        .controls-panel.visible{bottom:0}
+
+        button.ctrl{
+            width:100%;max-width:180px;height:56px;background:#000;border:3px solid #0ff;color:#0ff;font-size:11px;
+            display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .1s;
+        }
+        button.ctrl:active,button.ctrl.active{background:#0ff;color:#000}
+        .zoom-out{border-color:#f00;color:#f00}
+        .zoom-out:active{background:#f00;color:#000}
+        .reset{border-color:#ff0;color:#ff0}
+        .reset:active{background:#ff0;color:#000}
+
+        /* Tap-to-Show Controls Hint */
+        #tapHint{
+            position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+            color:#0ff;font-size:10px;background:rgba(0,0,0,0.7);padding:8px 16px;border:1px solid #0ff;
+            border-radius:4px;z-index:10;opacity:0;animation:fade 4s infinite;
+        }
+        @keyframes fade{0%,80%,100%{opacity:0}10%,70%{opacity:1}}
+
+        /* Minimal Status (only when needed) */
+        #hudWarning{
+            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+            color:#f00;font-size:16px;background:rgba(0,0,0,0.8);padding:15px 25px;border:2px solid #f00;
+            z-index:20;display:none;text-align:center;
+        }
+
+        /* Panels */
+        .calibration-panel,.json-panel{
+            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+            background:rgba(0,0,0,0.95);border:3px solid #0ff;padding:25px;max-width:90%;z-index:30;
+            text-align:center;display:none;
+        }
+
+        /* Mobile Safe Areas */
+        @media (max-width:767px){
+            .top-banner{height:60px;padding-top:env(safe-area-inset-top)}
+            .pip-cam{top:70px;width:110px;height:82px}
+            .pip-cam.expanded{width:280px;height:210px}
+            #tapHint{font-size:9px}
+        }
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+
+    <!-- Full Hero 3D Scene -->
+    <div id="visualizationContainer">
+        <canvas id="visualizationCanvas"></canvas>
+    </div>
+
+    <!-- Top Banner -->
+    <div class="top-banner"><div class="top-banner-text">edTV: CHANNEL 3</div></div>
+
+    <!-- PiP Camera Feed (Top-Right) -->
+    <div class="pip-cam" id="pipCam">
+        <canvas id="ppvCanvas"></canvas>
+        <div class="scanner" id="scanner"></div>
+    </div>
+
+    <!-- Tap Hint -->
+    <div id="tapHint">TAP ANYWHERE FOR CONTROLS</div>
+
+    <!-- Hidden Controls Panel (slides up on tap) -->
+    <div class="controls-panel" id="controlsPanel">
+        <button class="ctrl active" id="startBtn">START SCAN</button>
+        <button class="ctrl zoom-in" id="zoomInBtn">ZOOM IN</button>
+        <button class="ctrl zoom-out" id="zoomOutBtn">ZOOM OUT</button>
+        <button class="ctrl" id="resetViewBtn">RESET VIEW</button>
+        <button class="ctrl reset" id="resetBtn">NEW SCAN</button>
+    </div>
+
+    <!-- Warning -->
+    <div id="hudWarning">STAY IN FRAME<br>SCANNING FACE...</div>
+
+    <!-- Panels -->
+    <div class="calibration-panel" id="calibrationPanel">
+        <div style="color:#0ff;font-size:12px;line-height:1.8">
+            Look UP → then DOWN<br>
+            Slowly turn 360°<br><br>
+            400-second scan starts after
+        </div>
+        <button class="ctrl" style="margin-top:20px" id="startCalibrationBtn">BEGIN</button>
+    </div>
+
+    <div class="json-panel" id="jsonPanel">
+        <div style="color:#0ff;font-size:14px;margin-bottom:15px">3D FACE SCAN COMPLETE</div>
+        <div id="jsonContent" style="background:#000;border:2px solid #0f0;color:#0f0;padding:15px;height:200px;overflow:auto;font-family:monospace;font-size:8px;white-space:pre-wrap"></div>
+        <button class="ctrl" id="copyJsonBtn" style="margin-top:15px">COPY JSON</button>
+    </div>
+</div>
+
+<script>
+    // Core variables (same as before)
+    let scene, cam, ren, controls;
+    let faceWireframe;
+    let stream, faceMesh, camera;
+    let isProcessing = false, calibrationComplete = false;
+    let processingTimer = 400, timerInterval = null;
+    let faceLandmarksHistory = [];
+    const maxHistory = 120;
+
+    const $ = s => document.querySelector(s);
+
+    function init() {
+        // 3D Scene
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+        cam = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+        cam.position.set(0,0,5);
+
+        ren = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias:false});
+        ren.setSize(innerWidth, innerHeight);
+        ren.setPixelRatio(1);
+
+        controls = new THREE.OrbitControls(cam, ren.domElement);
+        controls.enableDamping = true;
+        controls.minDistance = 1;
+        controls.maxDistance = 15;
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0x003300));
+        scene.add(new THREE.DirectionalLight(0x00ff00, 0.6));
+
+        // Giant Face Wireframe at origin
+        faceWireframe = createFaceWireframe();
+        faceWireframe.scale.set(12,12,12);
+        scene.add(faceWireframe);
+
+        // Face Mesh
+        faceMesh = new FaceMesh({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.7, minTrackingConfidence:0.7});
+        faceMesh.onResults(onResults);
+
+        // Events
+        $('#pipCam').onclick = () => $('#pipCam').classList.toggle('expanded');
+        $('#visualizationCanvas').onclick = toggleControls;
+        $('#startBtn').onclick = startScan;
+        $('#startCalibrationBtn').onclick = startScan;
+        $('#zoomInBtn').onclick = () => controls.dollyIn();
+        $('#zoomOutBtn').onclick = () => controls.dollyOut();
+        $('#resetViewBtn').onclick = () => controls.reset();
+        $('#copyJsonBtn').onclick = () => navigator.clipboard.writeText($('#jsonContent').textContent).then(()=>alert("JSON copied!"));
+
+        window.onresize = () => {
+            cam.aspect = innerWidth/innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(innerWidth, innerHeight);
+        };
+
+        showCalibration();
+        animate();
+    }
+
+    function createFaceWireframe() {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(468*3);
+        geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+        const idx = [];
+        FACEMESH_TESSELATION.forEach(p=>idx.push(p[0],p[1]));
+        geo.setIndex(idx);
+        const mat = new THREE.LineBasicMaterial({color:0x00ffff});
+        return new THREE.LineSegments(geo, mat);
+    }
+
+    function updateFace(landmarks) {
+        const pos = faceWireframe.geometry.attributes.position.array;
+        landmarks.forEach((l,i)=>{
+            pos[i*3]   = (l.x-0.5)*2;
+            pos[i*3+1] = -(l.y-0.5)*2;
+            pos[i*3+2] = l.z*-3;
+        });
+        faceWireframe.geometry.attributes.position.needsUpdate = true;
+    }
+
+    function onResults(results) {
+        const canvas = $('#ppvCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if (results.image) ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+
+        if (results.multiFaceLandmarks?.length) {
+            const lm = results.multiFaceLandmarks[0];
+            drawConnectors(ctx, lm, FACEMESH_TESSELATION, {color:'#0ff', lineWidth:1});
+            updateFace(lm);
+            $('#hudWarning').style.display = 'none';
+
+            if (isProcessing && calibrationComplete && faceLandmarksHistory.length < maxHistory) {
+                faceLandmarksHistory.push(lm.map(p=>({x:p.x,y:p.y,z:p.z})));
+            }
+        } else {
+            $('#hudWarning').style.display = 'block';
+        }
+    }
+
+    function startScan() {
+        $('#calibrationPanel').style.display = 'none';
+        $('#startBtn').classList.add('active');
+        $('#startBtn').textContent = 'SCANNING...';
+        $('#scanner').style.display = 'block';
+        $('#hudWarning').style.display = 'none';
+
+        navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}}).then(s=>{
+            stream = s;
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.play();
+            camera = new Camera(video, {onFrame:()=>faceMesh.send({image:video}), width:640, height:480});
+            camera.start();
+
+            $('#ppvCanvas').width = $('#pipCam').clientWidth;
+            $('#ppvCanvas').height = $('#pipCam').clientHeight;
+
+            // Quick calibration skip for hero flow
+            setTimeout(()=>{ calibrationComplete = true; startTimer(); }, 2000);
+        });
+    }
+
+    function startTimer() {
+        isProcessing = true;
+        timerInterval = setInterval(()=>{
+            processingTimer--;
+            if (processingTimer <= 0) {
+                clearInterval(timerInterval);
+                finishScan();
+            }
+        },1000);
+    }
+
+    function finishScan() {
+        isProcessing = false;
+        $('#scanner').style.display = 'none';
+        stream?.getTracks().forEach(t=>t.stop());
+
+        if (faceLandmarksHistory.length > 20) {
+            const avg = faceLandmarksHistory.reduce((a,c)=>a.map((v,i)=>({x:v.x+c[i].x,y:v.y+c[i].y,z:v.z+c[i].z})))
+                .map(p=>({x:p.x/faceLandmarksHistory.length, y:p.y/faceLandmarksHistory.length, z:p.z/faceLandmarksHistory.length}));
+            updateFace(avg);
+
+            const json = JSON.stringify({
+                name: "edTV Face Mask",
+                landmarks: avg,
+                connections: FACEMESH_TESSELATION,
+                timestamp: new Date().toISOString()
+            }, null, 2);
+            $('#jsonContent').textContent = json;
+            $('#jsonPanel').style.display = 'block';
+        }
+
+        $('#startBtn').textContent = 'SCAN COMPLETE';
+        $('#startBtn').classList.remove('active');
+    }
+
+    function toggleControls() {
+        $('#controlsPanel').classList.toggle('visible');
+    }
+
+    function showCalibration() {
+        $('#calibrationPanel').style.display = 'block';
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        ren.render(scene, cam);
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
