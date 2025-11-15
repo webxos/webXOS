@@ -1,4 +1,4 @@
-# Privacy Policy for webXOS Software webxos.netlify.app and github.com/webxos:
+# Privacy Policy for webXOS Software 
 
 **Effective Date: November 14, 2025**
 
