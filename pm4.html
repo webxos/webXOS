@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Mirror IDE</title>
+    <meta name="theme-color" content="#000000">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+            image-rendering: pixelated;
+        }
+        
+        body {
+            background: #000;
+            color: #0f0;
+            overflow: hidden;
+            height: 100vh;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        #appContainer {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .matrix-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(rgba(0, 255, 0, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 0, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.3;
+            z-index: 1;
+        }
+        
+        .crt-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0, 20, 0, 0.1) 50%);
+            background-size: 100% 4px;
+            z-index: 5;
+            pointer-events: none;
+            animation: scanline 8s linear infinite;
+        }
+        
+        @keyframes scanline {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+        
+        #visualizationContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+        
+        #ideInterface {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        /* Header with Glitch Effect */
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 40px;
+            background: rgba(0, 0, 0, 0.8);
+            border-bottom: 1px solid #0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 12;
+            overflow: hidden;
+            animation: glitch 5s infinite;
+            pointer-events: none;
+        }
+        
+        @keyframes glitch {
+            0%, 100% { transform: translateX(0); }
+            5% { transform: translateX(-1px); }
+            10% { transform: translateX(1px); }
+            15% { transform: translateX(-1px); }
+            20% { transform: translateX(1px); }
+            25% { transform: translateX(0); }
+            50% { transform: translateX(0); }
+            55% { transform: translateX(-1px) skewX(-1deg); }
+            60% { transform: translateX(1px) skewX(1deg); }
+            65% { transform: translateX(-1px) skewX(-1deg); }
+            70% { transform: translateX(1px) skewX(1deg); }
+            75% { transform: translateX(0); }
+        }
+        
+        .header-text {
+            font-size: 14px;
+            color: #0f0;
+            letter-spacing: 1px;
+            text-shadow: 0 0 5px #0f0;
+        }
+        
+        /* Control Buttons */
+        .ctrl-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #0f0;
+            color: #0f0;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 2px 2px 0 #000;
+            transform: skew(-2deg);
+            transition: all 0.2s;
+            pointer-events: auto;
+            position: relative;
+            z-index: 11;
+        }
+        
+        .ctrl-btn:hover, .ctrl-btn:active {
+            background: #0f0;
+            color: #000;
+        }
+        
+        .ctrl-btn.active {
+            background: #0f0;
+            color: #000;
+        }
+        
+        /* Control Containers */
+        .main-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 11;
+            pointer-events: none;
+        }
+        
+        .main-controls > * {
+            pointer-events: auto;
+        }
+        
+        /* Status Panel */
+        .status-panel {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #0f0;
+            padding: 10px;
+            font-size: 10px;
+            z-index: 11;
+            pointer-events: none;
+            max-width: 200px;
+        }
+        
+        .status-item {
+            margin-bottom: 5px;
+        }
+        
+        .status-value {
+            color: #0ff;
+        }
+        
+        /* Mobile Optimization */
+        @media (max-width: 767px) {
+            .ctrl-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 7px;
+            }
+            
+            .main-controls {
+                bottom: 15px;
+                gap: 8px;
+            }
+            
+            .status-panel {
+                font-size: 8px;
+                max-width: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="appContainer">
+        <div class="matrix-grid"></div>
+        <div class="crt-overlay"></div>
+        
+        <!-- Header -->
+        <div class="header">
+            <div class="header-text">PERSONAL MIRROR IDE v1.0</div>
+        </div>
+        
+        <!-- 3D SCENE -->
+        <div id="visualizationContainer">
+            <canvas id="visualizationCanvas"></canvas>
+        </div>
+        
+        <div id="ideInterface">
+            <!-- STATUS PANEL -->
+            <div class="status-panel">
+                <div class="status-item">FRAMES: <span id="fpsCounter" class="status-value">60</span></div>
+                <div class="status-item">OBJECTS: <span id="objectCount" class="status-value">0</span></div>
+                <div class="status-item">FACING: <span id="faceDirection" class="status-value">0°</span></div>
+                <div class="status-item">MODE: <span id="modeStatus" class="status-value">MIRROR</span></div>
+            </div>
+            
+            <!-- MAIN CONTROLS -->
+            <div class="main-controls">
+                <button id="modeBtn" class="ctrl-btn" aria-label="Toggle Mode">MODE</button>
+                <button id="resetBtn" class="ctrl-btn" aria-label="Reset Scene">RESET</button>
+                <button id="debugBtn" class="ctrl-btn" aria-label="Toggle Debug">DEBUG</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script>
+        // Main Application Variables
+        let scene, camera, renderer, clock;
+        let faceMesh, objects = [];
+        let faceDirection = 0;
+        let isMirrorMode = true;
+        let isDebugMode = false;
+        let animationId = null;
+        let frameCount = 0;
+        let lastTime = 0;
+        let fps = 60;
+        
+        // Simplified face geometry data (70% of original complexity)
+        const faceGeometry = {
+            vertices: [
+                // Simplified face outline (reduced from 20+ points to 12)
+                0, 0, 0,           // Center
+                0, 0.8, 0,         // Top
+                0, -0.8, 0,        // Bottom
+                -0.8, 0, 0,        // Left
+                0.8, 0, 0,         // Right
+                -0.5, 0.5, 0.2,    // Left eye area
+                0.5, 0.5, 0.2,     // Right eye area
+                -0.3, -0.3, 0.2,   // Left mouth area
+                0.3, -0.3, 0.2,    // Right mouth area
+                -0.6, 0.2, 0,      // Left cheek
+                0.6, 0.2, 0,       // Right cheek
+                0, -0.6, 0.1       // Chin
+            ],
+            indices: [
+                // Simplified connections (reduced complexity)
+                0,1, 0,2, 0,3, 0,4, // Center connections
+                1,3, 1,4, 2,3, 2,4, // Outer connections
+                3,5, 4,6, 5,9, 6,10, // Eye/cheek connections
+                7,8, 7,9, 8,10, 7,11, 8,11 // Mouth/chin connections
+            ]
+        };
+
+        // Initialize the application
+        function init() {
+            try {
+                init3D();
+                createFaceMesh();
+                setupEventListeners();
+                animate();
+                
+                console.log("Personal Mirror IDE initialized successfully");
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        }
+
+        function init3D() {
+            try {
+                // Initialize Three.js scene
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x000000);
+                
+                // Create camera with optimized settings
+                camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+                camera.position.set(0, 0, 5);
+                
+                // Create renderer with performance optimizations
+                const canvas = document.getElementById('visualizationCanvas');
+                renderer = new THREE.WebGLRenderer({ 
+                    canvas: canvas, 
+                    antialias: false,
+                    powerPreference: "low-power"
+                });
+                
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(1); // Limit pixel ratio for performance
+                
+                // Add subtle ambient light
+                scene.add(new THREE.AmbientLight(0x003300));
+                
+                // Create a simple grid for reference
+                const gridHelper = new THREE.GridHelper(10, 10, 0x004400, 0x002200);
+                scene.add(gridHelper);
+                
+                clock = new THREE.Clock();
+                
+            } catch (error) {
+                console.error('3D initialization error:', error);
+            }
+        }
+
+        function createFaceMesh() {
+            // Create a simplified face geometry
+            const geometry = new THREE.BufferGeometry();
+            
+            // Set vertices
+            const vertices = new Float32Array(faceGeometry.vertices);
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            
+            // Set indices for lines
+            geometry.setIndex(faceGeometry.indices);
+            
+            // Create material
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0x00ff00,
+                linewidth: 1
+            });
+            
+            // Create mesh
+            faceMesh = new THREE.LineSegments(geometry, material);
+            scene.add(faceMesh);
+            
+            console.log("Face mesh created with simplified geometry");
+        }
+
+        function updateFaceDirection() {
+            // Simulate face movement based on time and user interaction
+            const time = clock.getElapsedTime();
+            
+            // Gentle swaying motion for the face
+            faceDirection = Math.sin(time * 0.5) * 30; // -30 to 30 degrees
+            
+            // Update face mesh rotation
+            if (faceMesh) {
+                faceMesh.rotation.y = faceDirection * Math.PI / 180;
+            }
+            
+            // Update status display
+            document.getElementById('faceDirection').textContent = `${faceDirection.toFixed(0)}°`;
+        }
+
+        function generateObjects() {
+            // Clear existing objects
+            objects.forEach(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+                scene.remove(obj);
+            });
+            objects = [];
+            
+            // Create a small number of objects for performance
+            const numObjects = 5 + Math.floor(Math.random() * 3); // 5-7 objects
+            
+            for (let i = 0; i < numObjects; i++) {
+                const isFriendly = Math.random() > 0.3; // 70% friendly
+                
+                // Position objects around the face
+                const angle = (i / numObjects) * Math.PI * 2;
+                const distance = 2 + Math.random() * 3; // 2-5 units away
+                
+                const x = Math.sin(angle) * distance;
+                const y = (Math.random() - 0.5) * 2; // Vary height
+                const z = Math.cos(angle) * distance;
+                
+                // Use simple geometries for performance
+                let geometry;
+                const shapeType = Math.floor(Math.random() * 3);
+                
+                switch(shapeType) {
+                    case 0:
+                        geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+                        break;
+                    case 1:
+                        geometry = new THREE.SphereGeometry(0.15, 6, 4);
+                        break;
+                    case 2:
+                        geometry = new THREE.ConeGeometry(0.1, 0.3, 5);
+                        break;
+                }
+                
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: isFriendly ? 0x00ff00 : 0xff0000,
+                    wireframe: true
+                });
+                
+                const obj = new THREE.Mesh(geometry, material);
+                obj.position.set(x, y, z);
+                
+                // Add user data for tracking
+                obj.userData = {
+                    type: isFriendly ? 'friendly' : 'hostile',
+                    id: i,
+                    initialAngle: angle
+                };
+                
+                scene.add(obj);
+                objects.push(obj);
+            }
+            
+            // Update object count display
+            document.getElementById('objectCount').textContent = objects.length;
+        }
+
+        function updateObjects() {
+            const time = clock.getElapsedTime();
+            
+            // Animate objects
+            objects.forEach((obj, index) => {
+                const initialAngle = obj.userData.initialAngle;
+                const radius = 2 + Math.sin(time * 0.5 + index) * 0.5;
+                
+                // Orbit around the face
+                obj.position.x = Math.sin(initialAngle + time * 0.3) * radius;
+                obj.position.z = Math.cos(initialAngle + time * 0.3) * radius;
+                
+                // Add slight floating motion
+                obj.position.y = (Math.sin(time * 0.7 + index) * 0.5);
+                
+                // Rotate objects
+                obj.rotation.x += 0.01;
+                obj.rotation.y += 0.02;
+                
+                // Pulse effect for hostile objects
+                if (obj.userData.type === 'hostile') {
+                    const scale = 1 + Math.sin(time * 3) * 0.2;
+                    obj.scale.set(scale, scale, scale);
+                }
+            });
+        }
+
+        function toggleMode() {
+            isMirrorMode = !isMirrorMode;
+            document.getElementById('modeStatus').textContent = isMirrorMode ? 'MIRROR' : 'SCANNER';
+            document.getElementById('modeBtn').classList.toggle('active');
+            
+            // Regenerate objects when mode changes
+            generateObjects();
+            
+            console.log(`Mode switched to: ${isMirrorMode ? 'Mirror' : 'Scanner'}`);
+        }
+
+        function resetScene() {
+            // Reset face direction
+            faceDirection = 0;
+            
+            // Regenerate objects
+            generateObjects();
+            
+            console.log("Scene reset");
+        }
+
+        function toggleDebug() {
+            isDebugMode = !isDebugMode;
+            document.getElementById('debugBtn').classList.toggle('active');
+            
+            // In a real implementation, you would show/hide debug information
+            console.log(`Debug mode: ${isDebugMode ? 'ON' : 'OFF'}`);
+        }
+
+        function setupEventListeners() {
+            // Button event listeners
+            document.getElementById('modeBtn').addEventListener('click', toggleMode);
+            document.getElementById('resetBtn').addEventListener('click', resetScene);
+            document.getElementById('debugBtn').addEventListener('click', toggleDebug);
+            
+            // Window resize handler
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, { passive: true });
+            
+            // Mouse movement for interactive face control (optional)
+            window.addEventListener('mousemove', (e) => {
+                // Map mouse position to face rotation (-30 to 30 degrees)
+                const normalizedX = (e.clientX / window.innerWidth) * 2 - 1;
+                faceDirection = normalizedX * 30;
+            }, { passive: true });
+            
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', cleanup);
+            
+            console.log("Event listeners setup complete");
+        }
+
+        function cleanup() {
+            // Stop animation loop
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            // Clean up Three.js resources
+            if (scene) {
+                scene.traverse(object => {
+                    if (object.geometry) object.geometry.dispose();
+                    if (object.material) {
+                        if (Array.isArray(object.material)) {
+                            object.material.forEach(material => material.dispose());
+                        } else {
+                            object.material.dispose();
+                        }
+                    }
+                });
+            }
+            
+            console.log("Cleanup completed");
+        }
+
+        function calculateFPS() {
+            frameCount++;
+            const currentTime = performance.now();
+            
+            if (currentTime - lastTime >= 1000) {
+                fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                document.getElementById('fpsCounter').textContent = fps;
+                frameCount = 0;
+                lastTime = currentTime;
+            }
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            
+            // Calculate FPS
+            calculateFPS();
+            
+            // Update face direction
+            updateFaceDirection();
+            
+            // Update objects
+            updateObjects();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+
+        // Initialize the application when the window loads
+        window.addEventListener('load', () => {
+            init();
+            generateObjects(); // Create initial objects
+        });
+    </script>
+</body>
+</html>
