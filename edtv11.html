@@ -394,7 +394,7 @@
     let stream, faceMesh, camera, objectDetector;
     let isFrontCam = true;
     const user = new THREE.Vector3(0, 1, 0);
-    let animationId = null;
+    let animationId = null; let pipVideo; let face3DLines;
     let serviceWorkerUrl = null;
     let mirrorDragging = false;
     let mirrorOffset = { x: 0, y: 0 };
@@ -489,6 +489,9 @@
             userArrow.position.set(0, 0.3, 0);
             userArrow.rotation.x = Math.PI / 2;
             userObj.add(userArrow);
+face3DLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: 0x00ff00}));
+scene.add(face3DLines);
+
             cam.lookAt(user);
             ren.render(scene, cam);
            
@@ -537,8 +540,20 @@
         }
         if (userDetected) {
             const landmarks = results.multiFaceLandmarks[0];
-            drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#00ffff', lineWidth: 1});
+            drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#00ff00', lineWidth: 1});
+const positions = [];
+FACEMESH_TESSELATION.forEach(conn => {
+    const p1 = landmarks[conn[0]];
+    const p2 = landmarks[conn[1]];
+    positions.push(p1.x * 4 - 2, -p1.y * 4 + 2, p1.z * 4);
+    positions.push(p2.x * 4 - 2, -p2.y * 4 + 2, p2.z * 4);
+});
+face3DLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+face3DLines.position.set(0,1,0);
+
             geometryDataSchema.faceGeometry.landmarks = landmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z}));
+geometryDataSchema.faceGeometry.vertices = landmarks.flatMap(lm => [lm.x, lm.y, lm.z]);
+
             // Add to vertices etc if needed
             const left = landmarks[234], right = landmarks[454];
             const yaw = Math.atan2(right.x - left.x, right.z - left.z) * 180 / Math.PI;
@@ -652,6 +667,30 @@
         cam.lookAt(user);
     }
     function setupEventListeners() {
+let lastTap = 0;
+$('#mirrorPopup').addEventListener('touchstart', (e) => {
+    const now = new Date().getTime();
+    if (now - lastTap < 300) {
+        toggleViewMode();
+    }
+    lastTap = now;
+}, {passive: true});
+function toggleViewMode() {
+    if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().then(() => {
+            $('#mirrorPopup')[0].requestFullscreen();
+        });
+    } else if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        $('#mirrorPopup').style.display = 'none';
+        pipVideo.requestPictureInPicture();
+    }
+}
+document.addEventListener('leavepictureinpicture', () => {
+    $('#mirrorPopup').style.display = 'block';
+});
+
         // Mirror button
         $('#mirrorBtn').addEventListener('click', () => {
             if ($('#mirrorPopup').style.display === 'block') {
@@ -797,6 +836,11 @@
                 });
                
                 camera.start();
+pipVideo = document.createElement('video');
+pipVideo.style.display = 'none';
+document.body.appendChild(pipVideo);
+pipVideo.srcObject = $('#webcamCanvas').captureStream(25);
+
                
                 const canvas = $('#webcamCanvas');
                 canvas.width = 300;
