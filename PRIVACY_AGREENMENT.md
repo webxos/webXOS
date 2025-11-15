@@ -1,4 +1,4 @@
-# Privacy Policy for FaceCam AR Scanner
+# Privacy Policy for webXOS Software:
 
 **Effective Date: November 14, 2025**
 
