@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PERSONAL MIRROR</title>
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="data:application/manifest+json,{
+        \"name\": \"PERSONAL MIRROR\",
+        \"short_name\": \"Mirror AR\",
+        \"description\": \"Webcam-based AR object recognition with AutoCAD scene\",
+        \"start_url\": \"./\",
+        \"display\": \"fullscreen\",
+        \"background_color\": \"#000000\",
+        \"theme_color\": \"#000000\",
+        \"icons\": [
+            {
+                \"src\": \"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiBmaWxsPSIjMDAwMDAwIi8+CjxwYXRoIGQ9Ik05NiAxMjhMMTI4IDk2SDY0TDEyOCA2NEw5NiAzMkw2NCA2NEgxMjhMNjQgOTZIMTI4TDk2IDEyOFoiIGZpbGw9IiMwMGZmMDAiLz4KPC9zdmc+Cg==\",
+                \"sizes\": \"192x192\",
+                \"type\": \"image/svg+xml\"
+            }
+        ]
+    }">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        #webcamCanvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        .top-banner{position:absolute;top:0;left:0;width:100%;height:40px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12;animation:glitch 3s infinite}
+        @keyframes glitch{0%,100%{transform:translateX(0)}5%{transform:translateX(-2px)}10%{transform:translateX(2px)}15%{transform:translateX(-1px)}20%{transform:translateX(1px)}25%,75%{transform:translateX(0)}55%{transform:translateX(-1px) skewX(-2deg)}60%{transform:translateX(1px) skewX(2deg)}65%{transform:translateX(-1px) skewX(-1deg)}70%{transform:translateX(1px) skewX(1deg)}}
+        .top-banner::before{content:'';position:absolute;top:0;left:-10%;width:120%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);animation:shimmer 2s infinite}
+        @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+        .top-banner-text{font-size:12px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
+        .ctrl-btn{width:48px;height:48px;background:#000;border:2px solid #0f0;color:#0f0;font-size:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:2px 2px 0 #000;transform:skew(-2deg);transition:background 0.1s,color 0.1s;touch-action:none;position:absolute;z-index:11}
+        .ctrl-btn:hover,.ctrl-btn:active{background:#0f0;color:#000}
+        .ctrl-btn.active{background:#0f0;color:#000}
+        #webcamBtn{top:33%;left:16px;transform:translateY(-50%)}
+        #objectBtn{top:50%;left:16px;transform:translateY(-50%)}
+        #wallsBtn{top:66%;left:16px;transform:translateY(-50%)}
+        #modeBtn{top:50%;right:16px;transform:translateY(-50%)}
+        .popup{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,10,0,0.98);border:none;padding:0;z-index:100;font-size:8px;color:#0f0}
+        .popup-close{position:absolute;top:16px;right:16px;width:32px;height:32px;background:#000;border:2px solid #f00;color:#f00;font-size:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .popup-close:hover,.popup-close:active{background:#f00;color:#000}
+        .popup-btn{width:48px;height:48px;margin:8px;padding:8px;background:#000;border:2px solid #0f0;color:#0f0;font-size:6px;cursor:pointer;text-align:center;touch-action:none;position:absolute;bottom:16px;left:50%;transform:translateX(-50%)}
+        .popup-btn:hover,.popup-btn:active{background:#0f0;color:#000}
+        .webcam-mesh-container{width:100%;height:100%;background:#000;border:none;position:relative;overflow:hidden}
+        .webcam-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:20px 20px;z-index:1}
+        #calibStatus{font-size:6px;color:#ff0;margin:8px 16px;position:absolute;bottom:0;left:0}
+        #levelStatus{font-size:6px;color:#0ff;margin:8px 16px;position:absolute;bottom:16px;left:0}
+        #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:12px;text-shadow:1px 1px 0 #000;z-index:11;display:none}
+        .terminal{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:90%;max-width:600px;height:120px;background:rgba(0,10,0,0.9);border:2px solid #0f0;padding:8px;font-size:8px;color:#0f0;overflow-y:auto;z-index:10}
+        .terminal-line{margin-bottom:4px}
+        @media (min-width:768px){.ctrl-btn{width:56px;height:56px;font-size:8px}}
+        .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+        .ctrl-btn:focus,.popup-btn:focus{outline:2px solid #0ff;outline-offset:2px}
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+    <div class="top-banner">
+        <div class="top-banner-text">PERSONAL MIRROR</div>
+    </div>
+    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
+    <canvas id="webcamCanvas"></canvas>
+    <div id="ideInterface">
+        <button id="webcamBtn" class="ctrl-btn" aria-label="Toggle Webcam">MIRROR</button>
+        <button id="objectBtn" class="ctrl-btn" aria-label="Detect Objects">OBJECT</button>
+        <button id="wallsBtn" class="ctrl-btn" aria-label="Toggle Walls">WALLS</button>
+        <button id="modeBtn" class="ctrl-btn" aria-label="Toggle Mode">DESKTOP</button>
+        <div id="hudWarning">USER MISSING</div>
+        <div class="terminal" id="terminal"></div>
+    </div>
+    <div class="popup" id="webcamPopup">
+        <div class="popup-close" aria-label="Close Webcam">X</div>
+        <div class="webcam-mesh-container" id="webcamMeshContainer">
+            <canvas id="webcamCanvasPopup"></canvas>
+            <div class="webcam-grid"></div>
+        </div>
+        <div id="calibStatus">IDLE</div>
+        <div id="levelStatus">LEVEL: CENTERED</div>
+        <button class="popup-btn" id="stopWebcam" aria-label="Stop Webcam">STOP</button>
+        <button class="popup-btn" id="autoBtn" aria-label="Auto Reset Webcam" style="left:calc(50% + 56px);">AUTO</button>
+    </div>
+</div>
+
+<script>
+    let scene, cam, ren, clock;
+    let userObj, objects = [], walls = [];
+    let userDetected = false, wallsVisible = false;
+    let stream, faceMesh, camera;
+    let isDesktopMode = true;
+    const user = new THREE.Vector3(0, 1, 0);
+    let animationId = null, objectId = 1, terminalLines = [];
+    let levelAngle = 0, isCentered = true;
+
+    const $ = s => document.querySelector(s);
+    const $$ = s => document.querySelectorAll(s);
+
+    function init() {
+        init3D();
+        setupFaceDetection();
+        setupServiceWorker();
+        setupEventListeners();
+        animate();
+        logToTerminal('System initialized');
+    }
+
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+        cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        cam.position.set(0, 2, 5);
+        const canvas = $('#visualizationCanvas');
+        ren = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "low-power" });
+        ren.setSize(window.innerWidth, window.innerHeight);
+        ren.setPixelRatio(1);
+        clock = new THREE.Clock();
+        scene.add(new THREE.AmbientLight(0x003300));
+        const dir = new THREE.DirectionalLight(0x00ff00, 0.4);
+        dir.position.set(5, 10, 5);
+        scene.add(dir);
+        const gridSize = 20, gridDiv = 20;
+        const gridMat = new THREE.LineBasicMaterial({ color: 0x004400 });
+        const gridGeo = new THREE.BufferGeometry();
+        const positions = [];
+        for (let i = -gridSize / 2; i <= gridSize / 2; i += gridSize / gridDiv) {
+            positions.push(i, 0, -gridSize / 2, i, 0, gridSize / 2);
+            positions.push(-gridSize / 2, 0, i, gridSize / 2, 0, i);
+        }
+        gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        scene.add(new THREE.LineSegments(gridGeo, gridMat));
+        userObj = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0x00ffff })
+        );
+        userObj.position.copy(user);
+        scene.add(userObj);
+        initRoom();
+        cam.lookAt(user);
+        ren.render(scene, cam);
+    }
+
+    function initRoom() {
+        const wallMat = new THREE.MeshBasicMaterial({ color: 0x00b7eb, wireframe: true, transparent: true, opacity: 0.5 });
+        const wallGeo = new THREE.PlaneGeometry(10, 5);
+        const wallPositions = [
+            { pos: [0, 2.5, -5], rot: [0, 0, 0] }, // Back
+            { pos: [-5, 2.5, 0], rot: [0, Math.PI / 2, 0] }, // Left
+            { pos: [5, 2.5, 0], rot: [0, -Math.PI / 2, 0] }, // Right
+            { pos: [0, 0, 0], rot: [Math.PI / 2, 0, 0] } // Floor
+        ];
+        wallPositions.forEach(({ pos, rot }) => {
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.set(...pos);
+            wall.rotation.set(...rot);
+            wall.visible = false;
+            scene.add(wall);
+            walls.push(wall);
+        });
+    }
+
+    function toggleWalls() {
+        wallsVisible = !wallsVisible;
+        walls.forEach(wall => wall.visible = wallsVisible);
+        $('#wallsBtn').classList.toggle('active');
+        logToTerminal(`Walls ${wallsVisible ? 'enabled' : 'disabled'}`);
+    }
+
+    function setupFaceDetection() {
+        faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        faceMesh.onResults(onFaceMeshResults);
+    }
+
+    function onFaceMeshResults(results) {
+        userDetected = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
+        $('#hudWarning').style.display = userDetected ? 'none' : 'block';
+        const canvas = $('#webcamPopup').style.display === 'block' ? $('#webcamCanvasPopup') : $('#webcamCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (results.image) {
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+        }
+        if (userDetected) {
+            const landmarks = results.multiFaceLandmarks[0];
+            drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: '#C0C0C070', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_RIGHT_EYE, { color: '#FF3030', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_LEFT_EYE, { color: '#30FF30', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_FACE_OVAL, { color: '#E0E0E0', lineWidth: 1 });
+            const center = landmarks[1];
+            const cx = center.x * canvas.width;
+            const cy = center.y * canvas.height;
+            ctx.strokeStyle = '#00FF00';
+            ctx.lineWidth = 1;
+            for (let i = -40; i <= 40; i += 20) {
+                ctx.beginPath();
+                ctx.moveTo(cx - 40, cy + i);
+                ctx.lineTo(cx + 40, cy + i);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(cx + i, cy - 40);
+                ctx.lineTo(cx + i, cy + 40);
+                ctx.stroke();
+            }
+            updateLevel(landmarks);
+            $('#calibStatus').textContent = `LIVE - OBJECTS: ${objects.length}`;
+        } else {
+            $('#calibStatus').textContent = 'NO FACE DETECTED';
+        }
+    }
+
+    function updateLevel(landmarks) {
+        const leftEye = landmarks[33];
+        const rightEye = landmarks[263];
+        levelAngle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * 180 / Math.PI;
+        isCentered = Math.abs(levelAngle) < 5;
+        $('#levelStatus').textContent = `LEVEL: ${isCentered ? 'CENTERED' : `${levelAngle.toFixed(1)}°`}`;
+        logToTerminal(`Level: ${isCentered ? 'Centered' : `${levelAngle.toFixed(1)}°`}`);
+    }
+
+    function detectObjects() {
+        if (objects.length >= 300) {
+            logToTerminal('Max 300 objects reached');
+            return;
+        }
+        const types = ['chair', 'table', 'lamp', 'box'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        const id = String(objectId++).padStart(3, '0');
+        const angle = (Math.random() * 360) * Math.PI / 180;
+        const distance = 2 + Math.random() * 3;
+        const pos = new THREE.Vector3(
+            user.x + Math.sin(angle) * distance,
+            user.y + (Math.random() * 1),
+            user.z + Math.cos(angle) * distance
+        );
+        const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
+        const obj = new THREE.Mesh(geometry, material);
+        obj.position.copy(pos);
+        obj.userData = { id, type, distance, lastPos: pos.clone(), redTime: Date.now() };
+        scene.add(obj);
+        objects.push(obj);
+        logToTerminal(`Detected ${type} [ID:${id}] at ${distance.toFixed(1)}m`);
+        if (navigator.serviceWorker?.controller) {
+            navigator.serviceWorker.controller.postMessage({
+                type: 'store_object',
+                object: { id, type, position: pos }
+            });
+        }
+        setTimeout(() => {
+            if (obj.material) obj.material.color.set(0x00ff00);
+        }, 3000);
+    }
+
+    function trackObjects() {
+        objects.forEach(obj => {
+            const currentPos = obj.position.clone();
+            if (currentPos.distanceTo(obj.userData.lastPos) > 0.1) {
+                obj.material.color.set(0xff0000);
+                obj.userData.lastPos = currentPos.clone();
+                obj.userData.redTime = Date.now();
+                logToTerminal(`Object [ID:${obj.userData.id}] moved`);
+                setTimeout(() => {
+                    if (obj.material && Date.now() - obj.userData.redTime >= 3000) {
+                        obj.material.color.set(0x00ff00);
+                    }
+                }, 3000);
+            }
+        });
+    }
+
+    function handleWebcam() {
+        if (stream) {
+            openPopup('webcamPopup');
+            return;
+        }
+        $('#calibStatus').textContent = 'REQUESTING CAMERA ACCESS...';
+        navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 360 } } 
+        })
+        .then(s => {
+            stream = s;
+            const video = document.createElement('video');
+            video.id = 'webcamVideo';
+            video.srcObject = stream;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.style.display = 'none';
+            document.body.appendChild(video);
+            camera = new Camera(video, {
+                onFrame: async () => await faceMesh.send({ image: video }),
+                width: 480,
+                height: 360
+            });
+            camera.start();
+            const canvas = $('#webcamCanvas');
+            const canvasPopup = $('#webcamCanvasPopup');
+            canvas.width = 480;
+            canvas.height = 360;
+            canvasPopup.width = window.innerWidth;
+            canvasPopup.height = window.innerHeight;
+            $('#calibStatus').textContent = 'LIVE - OBJECT DETECTION ACTIVE';
+            $('#webcamBtn').classList.add('active');
+            openPopup('webcamPopup');
+            logToTerminal('Webcam initialized');
+        })
+        .catch(error => {
+            const msg = error.name === 'NotAllowedError' ? 'CAMERA ACCESS DENIED' :
+                        error.name === 'NotFoundError' ? 'NO CAMERA FOUND' :
+                        error.name === 'OverconstrainedError' ? 'CAMERA NOT SUPPORTED' : 'CAMERA ERROR';
+            $('#calibStatus').textContent = msg;
+            $('#webcamBtn').classList.remove('active');
+            logToTerminal(`Webcam error: ${msg}`);
+        });
+    }
+
+    function autoResetWebcam() {
+        if (stream) {
+            stopWebcam();
+            setTimeout(handleWebcam, 500);
+            logToTerminal('Webcam auto reset');
+        } else {
+            handleWebcam();
+        }
+    }
+
+    function stopWebcam() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            if (camera) camera.stop();
+            const video = $('#webcamVideo');
+            if (video) video.remove();
+            $('#webcamBtn').classList.remove('active');
+            $('#calibStatus').textContent = 'WEBCAM STOPPED';
+            $('#webcamPopup').style.display = 'none';
+            logToTerminal('Webcam stopped');
+        }
+    }
+
+    function toggleMode() {
+        isDesktopMode = !isDesktopMode;
+        $('#modeBtn').textContent = isDesktopMode ? 'DESKTOP' : 'MOBILE';
+        $('#modeBtn').classList.toggle('active');
+        ren.setSize(window.innerWidth, window.innerHeight);
+        cam.aspect = window.innerWidth / window.innerHeight;
+        cam.updateProjectionMatrix();
+        logToTerminal(`Mode switched to ${isDesktopMode ? 'Desktop' : 'Mobile'}`);
+    }
+
+    function logToTerminal(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        terminalLines.push(`[${timestamp}] ${message}`);
+        if (terminalLines.length > 10) terminalLines.shift();
+        const terminal = $('#terminal');
+        terminal.innerHTML = terminalLines.map(line => `<div class="terminal-line">${line}</div>`).join('');
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function setupServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            const swScript = `
+                const CACHE_NAME = 'personal-mirror-v1';
+                const urlsToCache = [
+                    '/',
+                    'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js',
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js',
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js',
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js',
+                    'https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap'
+                ];
+                let objects = [];
+                self.addEventListener('install', event => {
+                    self.skipWaiting();
+                    event.waitUntil(
+                        caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
+                    );
+                });
+                self.addEventListener('activate', event => self.clients.claim());
+                self.addEventListener('fetch', event => {
+                    event.respondWith(
+                        caches.match(event.request).then(response => response || fetch(event.request))
+                    );
+                });
+                self.addEventListener('message', event => {
+                    if (event.data.type === 'store_object') {
+                        objects.push(event.data.object);
+                        if (objects.length > 300) objects.shift();
+                    } else if (event.data.type === 'get_objects') {
+                        self.clients.matchAll().then(clients => {
+                            clients.forEach(client => client.postMessage({ type: 'objects', objects }));
+                        });
+                    }
+                });
+            `;
+            const swBlob = new Blob([swScript], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(swBlob);
+            navigator.serviceWorker.register(swUrl).then(() => {
+                navigator.serviceWorker.addEventListener('message', event => {
+                    if (event.data.type === 'objects') {
+                        event.data.objects.forEach(obj => {
+                            if (objects.length >= 300) return;
+                            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+                            const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+                            const mesh = new THREE.Mesh(geometry, material);
+                            mesh.position.set(obj.position.x, obj.position.y, obj.position.z);
+                            mesh.userData = { id: obj.id, type: obj.type, distance: obj.distance, lastPos: mesh.position.clone() };
+                            scene.add(mesh);
+                            objects.push(mesh);
+                            logToTerminal(`Loaded ${obj.type} [ID:${obj.id}] from cache`);
+                        });
+                    }
+                });
+                navigator.serviceWorker.controller?.postMessage({ type: 'get_objects' });
+            });
+        }
+    }
+
+    function setupEventListeners() {
+        $('#webcamBtn').addEventListener('click', handleWebcam);
+        $('#objectBtn').addEventListener('click', detectObjects);
+        $('#wallsBtn').addEventListener('click', toggleWalls);
+        $('#stopWebcam').addEventListener('click', stopWebcam);
+        $('#autoBtn').addEventListener('click', autoResetWebcam);
+        $('#modeBtn').addEventListener('click', toggleMode);
+        $$('.popup-close').forEach(button => {
+            button.addEventListener('click', () => {
+                const popup = button.closest('.popup');
+                popup.style.display = 'none';
+                if (popup.id === 'webcamPopup' && stream) stopWebcam();
+            });
+        });
+        window.addEventListener('resize', () => {
+            cam.aspect = window.innerWidth / window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth, window.innerHeight);
+            const canvasPopup = $('#webcamCanvasPopup');
+            const aspect = 480 / 360;
+            canvasPopup.width = window.innerWidth;
+            canvasPopup.height = window.innerWidth / aspect;
+            if (canvasPopup.height > window.innerHeight) {
+                canvasPopup.height = window.innerHeight;
+                canvasPopup.width = window.innerHeight * aspect;
+            }
+        }, { passive: true });
+        window.addEventListener('beforeunload', cleanup);
+    }
+
+    function cleanup() {
+        if (animationId) cancelAnimationFrame(animationId);
+        if (stream) stopWebcam();
+        if (scene) {
+            scene.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(mat => mat.dispose());
+                    } else {
+                        object.material.dispose();
+                    }
+                }
+            });
+        }
+    }
+
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        const deltaTime = clock.getDelta();
+        trackObjects();
+        objects.forEach((obj, index) => {
+            if (obj.userData.type === 'chair') {
+                obj.rotation.y += deltaTime * 0.3;
+            }
+        });
+        cam.position.set(user.x, user.y + 2, user.z + 5);
+        cam.lookAt(user);
+        ren.render(scene, cam);
+    }
+
+    function openPopup(id) {
+        $$('.popup').forEach(popup => popup.style.display = 'none');
+        $('#' + id).style.display = 'block';
+    }
+
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>
