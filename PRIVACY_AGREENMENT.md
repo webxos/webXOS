@@ -1,47 +1,59 @@
-# Privacy Policy for webXOS Software:
+# Privacy Policy for webXOS Software webxos.netlify.app and github.com/webxos:
 
 **Effective Date: November 14, 2025**
 
-FaceCam AR Scanner ("the App") is an experimental browser-based augmented reality (AR) tool developed as part of the WebXOS project. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/pm](https://webxos.netlify.app/pm) and available under the open-source [MIT License](https://opensource.org/license/mit/) on GitHub at [github.com/webxos](https://github.com/webxos). This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.
+FaceCam AR Scanner ("the App") and related techonology (webxos.netlify.app/mirror webcam use etc) is an free open sourced experimental browser-based augmented reality (AR) tool developed as part of the WebXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/pm](https://webxos.netlify.app/) and available under the open-source [MIT License] on GitHub at [github.com/webxos](https://github.com/webxos). 
 
-By using the App, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration of AR face-tracking technologies (e.g., mesh synchronization via webcam). It is not a production service and should not be used for sensitive or real-world applications.
+**This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
-## 1. Information We Collect
-The App is designed to operate **entirely client-side** in your web browser, with no server-side data storage or transmission. We do **not collect, store, or share any personal data** from users.
+*By using the App, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration of AR face-tracking technologies (e.g., mesh synchronization via webcam). It is not a production service and should not be used for sensitive or real-world applications.*
+
+## 1. Information We Collect:
+
+The App is designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
+
+We do **not collect, store, or share any personal data** from users.
 
 - **No Personal Identifiable Information (PII)**: We do not request, collect, or process names, emails, IP addresses, device IDs, or any other identifiers.
-- **Camera and Media Access**: The App may request permission to access your device's webcam for real-time AR face scanning (e.g., overlaying meshes on detected facial features). This access is:
+- 
+- **Camera and Media Access**: The App may request permission to access your device's webcam for real-time AR face scanning (e.g., overlaying meshes on detected facial features).
+
+# This access is:
+
   - Processed locally using browser APIs (e.g., WebGL, MediaStream).
   - Not recorded, saved, or uploaded anywhere.
   - Limited to the duration of your session; data is discarded immediately upon closing the tab or denying/revoking permissions.
-- **Usage Data**: No analytics, logs, or telemetry are collected. Any "live" indicators (e.g., facing angle) are computed on-device and not retained.
-- **No Cookies or Tracking**: The App does not use cookies, local storage for tracking, or third-party scripts.
-
-If you upload or share screenshots (as in testing scenarios), any embedded metadata (e.g., EXIF) is not handled by us—review and strip it yourself before sharing.
+    
+**Usage Data**: No analytics, logs, or telemetry are collected. Any "live" indicators (e.g., facing angle) are computed on-device and not retained.
+**No Cookies or Tracking**: The App does not use cookies, local storage for tracking, or third-party scripts.
 
 ## 2. How We Use Your Information
-Since no data is collected:
+
+*Since no data is collected:*
+
 - There is **no use** of your information for advertising, profiling, or any other purpose.
 - For research and testing: Developers and contributors (under the MIT License) may access anonymized, aggregated feedback if voluntarily provided via GitHub issues or the developer's X account (@webxos). No raw video or images are requested.
 
-The App's purpose is to demonstrate AR capabilities for browser-based research, such as mesh synchronization and facial landmark detection, without compromising user privacy.
+**The App's purpose is to demonstrate AR capabilities for browser-based research, such as mesh synchronization and facial landmark detection, without compromising user privacy.**
 
 ## 3. Sharing Your Information
-We do **not share, sell, or disclose** any data because none is collected. The MIT License allows forking and modification of the source code, but users/contributors are expected to uphold similar privacy standards in derivatives.
+
+Use our software at your own risk. We do **not share, sell, or disclose** any data because none is collected. The MIT License allows forking and modification of the source code, but users/contributors are expected to uphold similar privacy standards in derivatives.
 
 ## 4. Data Security
+
 - All processing occurs in your browser, reducing risks from server breaches.
 - We recommend using HTTPS-enabled browsers and revoking camera permissions after use.
-- As an open-source project, the code is publicly auditable on GitHub—review it for peace of mind.
+- As an open-source project, the code is publicly auditable on GitHub—review it for peace of mind. (github.com/webxos)
 
-## 5. Children's Privacy
-The App is not directed at children under 13 (or the applicable age in your jurisdiction). If you believe a child has interacted with it, contact us immediately.
 
-## 6. Changes to This Policy
-We may update this policy to reflect changes in the App (e.g., new features). Check the GitHub repo for the latest version. Continued use after updates implies acceptance.
+## 5. *Changes to This Policy*
+
+*We may update this policy to reflect changes in the App (e.g., new features). Check the GitHub repo for the latest version. Continued use after updates implies acceptance.*
 
 ## 7. Contact Us
-For questions, feedback, or research collaboration:
+
+**x.com/webXOS**
 - GitHub: [github.com/webxos](https://github.com/webxos) (file issues or pull requests).
 - X (Twitter): [@webxos](https://x.com/webxos).
 - Email: Not provided; use GitHub for inquiries.
