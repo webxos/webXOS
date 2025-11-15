@@ -53,7 +53,6 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 
 ## 7. Contact Us
 
-**x.com/webXOS**
 - GitHub: [github.com/webxos](https://github.com/webxos) (file issues or pull requests).
 - X (Twitter): [@webxos](https://x.com/webxos).
 
