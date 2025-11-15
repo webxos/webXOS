@@ -56,8 +56,7 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 **x.com/webXOS**
 - GitHub: [github.com/webxos](https://github.com/webxos) (file issues or pull requests).
 - X (Twitter): [@webxos](https://x.com/webxos).
-- Email: Not provided; use GitHub for inquiries.
 
 This policy is provided "as is" under the MIT License. WebXOS and its contributors disclaim liability for misuse. For legal advice, consult a professional.
 
-**Thank you for testing with us!** Your engagement helps advance open-source AR research.
+
