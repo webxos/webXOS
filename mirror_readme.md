@@ -1,4 +1,4 @@
-# MIRROR IDE BETA TEST - BTMESH GIMBLE DRONE Train Guide
+# MIRROR IDE BETA TEST - BTMESH GIMBAL DRONE Train Guide
 
 MIRROR IDE is a web-based platform for simulating and controlling First-Person View (FPV) drones using Bluetooth Mesh networking. It provides a 3D visualization environment, terminal interface, webcam integration for face detection, accelerometer support, and an ESP32 SDK for programming drones with JavaScript.
 
