@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>FaceCam AR Scanner</title>
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="data:application/manifest+json,{
+        \"name\": \"FaceCam AR Scanner\",
+        \"short_name\": \"FaceCam AR\",
+        \"description\": \"Face detection with AR object assignment and radar scanner\",
+        \"start_url\": \"./\",
+        \"display\": \"fullscreen\",
+        \"background_color\": \"#000000\",
+        \"theme_color\": \"#000000\",
+        \"icons\": [
+            {
+                \"src\": \"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiBmaWxsPSIjMDAwMDAwIi8+CjxwYXRoIGQ9Ik05NiAxMjhMMTI4IDk2SDY0TDEyOCA2NEw5NiAzMkw2NCA2NEgxMjhMNjQgOTZIMTI4TDk2IDEyOFoiIGZpbGw9IiMwMGZmMDAiLz4KPC9zdmc+Cg==\",
+                \"sizes\": \"192x192\",
+                \"type\": \"image/svg+xml\"
+            }
+        ]
+    }">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+        #ideInterface{position:absolute;top:0;left:0;width:100%;height:100%;z-index:10}
+        
+        /* Top Banner with Glitch Effect */
+        .top-banner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 40px;
+            background: rgba(255, 0, 255, 0.9);
+            border-bottom: 2px solid #f0f;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 12;
+            overflow: hidden;
+            animation: glitch 3s infinite;
+        }
+        
+        @keyframes glitch {
+            0%, 100% { transform: translateX(0); }
+            5% { transform: translateX(-2px); }
+            10% { transform: translateX(2px); }
+            15% { transform: translateX(-1px); }
+            20% { transform: translateX(1px); }
+            25% { transform: translateX(0); }
+            50% { transform: translateX(0); }
+            55% { transform: translateX(-1px) skewX(-2deg); }
+            60% { transform: translateX(1px) skewX(2deg); }
+            65% { transform: translateX(-1px) skewX(-1deg); }
+            70% { transform: translateX(1px) skewX(1deg); }
+            75% { transform: translateX(0); }
+        }
+        
+        .top-banner::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -10%;
+            width: 120%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .top-banner-text {
+            font-size: 12px;
+            color: #000;
+            text-shadow: 1px 1px 0 #fff;
+            letter-spacing: 1px;
+        }
+        
+        /* Control Buttons */
+        .ctrl-btn{
+            width:52px;height:52px;background:#000;border:2px solid #0f0;color:#0f0;
+            font-size:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+            box-shadow:2px 2px 0 #000;transform:skew(-2deg);transition:background 0.1s,color 0.1s;
+            touch-action:none;
+            position:relative;z-index:11
+        }
+        .ctrl-btn:hover,.ctrl-btn:active{background:#0f0;color:#000}
+        .ctrl-btn.active{background:#0f0;color:#000}
+        #webcamBtn{border-color:#0af;color:#0af}
+        #webcamBtn.active{background:#0af;color:#000}
+        #camToggleBtn{border-color:#ff0;color:#ff0}
+        #camToggleBtn.active{background:#ff0;color:#000}
+        #modeBtn{border-color:#0ff;color:#0ff}
+        #modeBtn.active{background:#0ff;color:#000}
+        
+        /* Control Containers */
+        .main-controls{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:11}
+        
+        /* Popups */
+        .popup{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,10,0,0.98);border:3px solid #0f0;padding:12px;z-index:100;box-shadow:6px 6px 0 #000,inset 2px 2px 0 #0f0;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;font-size:8px;color:#0f0}
+        .popup-title{font-size:10px;margin-bottom:8px;text-align:center;text-shadow:1px 1px 0 #000;color:#0ff}
+        .popup-close{position:absolute;top:6px;right:6px;width:24px;height:24px;background:#000;border:2px solid #f00;color:#f00;font-size:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .popup-close:hover,.popup-close:active{background:#f00;color:#000}
+        .popup-btn{width:100%;margin-top:8px;padding:6px;background:#000;border:2px solid #0f0;color:#0f0;font-size:7px;cursor:pointer;text-align:center;touch-action:none}
+        .popup-btn:hover,.popup-btn:active{background:#0f0;color:#000}
+        
+        /* Webcam Mesh Styles */
+        .webcam-mesh-container {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            border: 2px solid #0f0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .webcam-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(rgba(0, 255, 0, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 0, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            z-index: 1;
+        }
+        
+        .face-direction-arrow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            transform-origin: center;
+            z-index: 3;
+            transition: transform 0.1s ease;
+        }
+        
+        .face-direction-arrow::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 20px solid #f00;
+        }
+        
+        .face-direction-arrow::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 20px;
+            background: #f00;
+        }
+        
+        .user-position-marker {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #0ff;
+            border-radius: 50%;
+            z-index: 2;
+            box-shadow: 0 0 10px #0ff;
+        }
+        
+        #calibStatus{font-size:6px;color:#ff0;margin:4px 0}
+        
+        /* Radar Canvas Styles */
+        #radarCanvas {
+            width: 100%;
+            height: 100px;
+            border: 2px solid #0f0;
+            background: #000;
+            display: block;
+            margin-top: 8px;
+        }
+        
+        .radar-container {
+            position: relative;
+            width: 100%;
+            height: 100px;
+        }
+        
+        /* HUD Warning */
+        #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:12px;text-shadow:1px 1px 0 #000;z-index:11;display:none}
+        
+        /* Desktop Override */
+        @media (min-width:768px){
+            .ctrl-btn{width:56px;height:56px;font-size:8px}
+        }
+        
+        /* Mobile Optimization */
+        @media (max-width:767px){
+            .main-controls{gap:6px}
+            .ctrl-btn{width:48px;height:48px;font-size:6px}
+        }
+        
+        /* Accessibility improvements */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        
+        /* Focus styles for accessibility */
+        .ctrl-btn:focus, .popup-btn:focus {
+            outline: 2px solid #0ff;
+            outline-offset: 2px;
+        }
+        
+        /* Webcam Canvas */
+        #webcamCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+    
+    <!-- Top Banner with Glitch Effect -->
+    <div class="top-banner">
+        <div class="top-banner-text">FaceCam AR Scanner</div>
+    </div>
+    
+    <!-- 3D SCENE -->
+    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
+    
+    <div id="ideInterface">
+        <!-- MAIN CONTROLS -->
+        <div class="main-controls">
+            <button id="webcamBtn" class="ctrl-btn" aria-label="Toggle Webcam">WEBCAM</button>
+            <button id="camToggleBtn" class="ctrl-btn" aria-label="Toggle Camera Direction">FRONT</button>
+            <button id="modeBtn" class="ctrl-btn" aria-label="Toggle Mode">DESKTOP</button>
+        </div>
+        
+        <!-- HUD -->
+        <div id="hudWarning">USER MISSING</div>
+    </div>
+
+    <!-- WEBCAM POPUP -->
+    <div class="popup" id="webcamPopup">
+        <div class="popup-close" aria-label="Close Webcam">X</div>
+        <div class="popup-title">WEBCAM MESH SYNC</div>
+        <div class="webcam-mesh-container" id="webcamMeshContainer">
+            <canvas id="webcamCanvas"></canvas>
+            <div class="webcam-grid"></div>
+            <div class="face-direction-arrow" id="faceDirectionArrow"></div>
+            <div class="user-position-marker" id="userPositionMarker" style="top: 50%; left: 50%;"></div>
+        </div>
+        <div id="calibStatus">IDLE - FACING: 0°</div>
+        <button class="popup-btn" id="stopWebcam" aria-label="Stop Webcam">STOP WEBCAM</button>
+        <div class="radar-container">
+            <canvas id="radarCanvas"></canvas>
+        </div>
+    </div>
+
+    <!-- SETUP WIZARD -->
+    <div class="popup" id="setupWizard">
+        <div class="popup-close" aria-label="Close Setup">X</div>
+        <div class="popup-title">WEBCAM SETUP WIZARD</div>
+        <div style="font-size:8px;margin:8px 0;text-align:center">Select camera direction for optimal face detection:</div>
+        <button class="popup-btn" id="frontCam" aria-label="Use Front Camera">FRONT CAMERA</button>
+        <button class="popup-btn" id="backCam" aria-label="Use Back Camera">BACK CAMERA</button>
+        <div style="font-size:6px;color:#0ff;margin-top:8px;text-align:center">
+            Front camera: For self-facing mode<br>
+            Back camera: For environment scanning
+        </div>
+    </div>
+</div>
+
+<script>
+    // Main Application Variables
+    let scene, cam, ren, clock;
+    let userObj, objects = [];
+    let faceDirection = 0, userDetected = false;
+    let stream, faceMesh, camera;
+    let isFrontCam = true, isDesktopMode = true;
+    const user = new THREE.Vector3(0, 1, 0);
+    let animationId = null;
+    let serviceWorkerUrl = null;
+
+    // DOM utility functions
+    const $ = s => document.querySelector(s);
+    const $$ = s => document.querySelectorAll(s);
+
+    function init() {
+        try {
+            init3D();
+            setupFaceDetection();
+            setupServiceWorker();
+            setupEventListeners();
+            showSetupWizard();
+            animate();
+            
+            console.log("FaceCam AR Scanner initialized successfully");
+        } catch (error) {
+            console.error('Initialization error:', error);
+        }
+    }
+
+    function init3D() {
+        try {
+            // Initialize Three.js scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            cam.position.set(0, 2, 5);
+            
+            const canvas = $('#visualizationCanvas');
+            ren = new THREE.WebGLRenderer({ 
+                canvas: canvas, 
+                antialias: false, 
+                powerPreference: "high-performance" 
+            });
+            ren.setSize(window.innerWidth, window.innerHeight);
+            ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            clock = new THREE.Clock();
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0x003300));
+            const dir = new THREE.DirectionalLight(0x00ff00, 0.4);
+            dir.position.set(5, 10, 5);
+            scene.add(dir);
+
+            // Grid
+            const gridSize = 20, gridDiv = 20;
+            const gridMat = new THREE.LineBasicMaterial({ color: 0x004400 });
+            const gridGeo = new THREE.BufferGeometry();
+            const positions = [];
+            for (let i = -gridSize / 2; i <= gridSize / 2; i += gridSize / gridDiv) {
+                positions.push(i, 0, -gridSize / 2, i, 0, gridSize / 2);
+                positions.push(-gridSize / 2, 0, i, gridSize / 2, 0, i);
+            }
+            gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            scene.add(new THREE.LineSegments(gridGeo, gridMat));
+
+            // User object
+            userObj = new THREE.Mesh(
+                new THREE.SphereGeometry(0.2, 16, 16), 
+                new THREE.MeshBasicMaterial({ color: 0x00ffff })
+            );
+            userObj.position.copy(user);
+            scene.add(userObj);
+
+            // User direction arrow
+            const arrowGeometry = new THREE.ConeGeometry(0.1, 0.3, 8);
+            const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const userArrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
+            userArrow.position.set(0, 0.3, 0);
+            userArrow.rotation.x = Math.PI / 2;
+            userObj.add(userArrow);
+
+            cam.lookAt(user);
+            ren.render(scene, cam);
+            
+        } catch (error) {
+            console.error('3D initialization error:', error);
+            throw new Error(`3D setup failed: ${error.message}`);
+        }
+    }
+
+    function setupFaceDetection() {
+        try {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                }
+            });
+            
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
+            faceMesh.onResults(onFaceMeshResults);
+            
+            console.log("Face Mesh detection initialized");
+        } catch (error) {
+            console.error('Face detection setup error:', error);
+        }
+    }
+
+    function onFaceMeshResults(results) {
+        userDetected = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
+        $('#hudWarning').style.display = userDetected ? 'none' : 'block';
+        
+        const canvas = $('#webcamCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Clear and draw the video frame
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (results.image) {
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+        }
+
+        if (userDetected) {
+            const landmarks = results.multiFaceLandmarks[0];
+            
+            // Draw face mesh
+            drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: '#C0C0C070', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_RIGHT_EYE, { color: '#FF3030', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_LEFT_EYE, { color: '#30FF30', lineWidth: 1 });
+            drawConnectors(ctx, landmarks, FACEMESH_FACE_OVAL, { color: '#E0E0E0', lineWidth: 2 });
+            
+            // Draw grid overlay centered on face
+            const center = landmarks[1]; // Use nose bridge as center
+            const scaleX = canvas.width / (results.image ? results.image.width : canvas.width);
+            const scaleY = canvas.height / (results.image ? results.image.height : canvas.height);
+            const cx = center.x * canvas.width;
+            const cy = center.y * canvas.height;
+            
+            ctx.strokeStyle = '#00FF00';
+            ctx.lineWidth = 1;
+            for (let i = -80; i <= 80; i += 20) {
+                ctx.beginPath();
+                ctx.moveTo(cx - 80, cy + i);
+                ctx.lineTo(cx + 80, cy + i);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(cx + i, cy - 80);
+                ctx.lineTo(cx + i, cy + 80);
+                ctx.stroke();
+            }
+            
+            // Calculate face direction (yaw) using cheek landmarks
+            const leftCheek = landmarks[234];
+            const rightCheek = landmarks[454];
+            const yaw = Math.atan2(
+                (rightCheek.x - leftCheek.x) * canvas.width,
+                (rightCheek.z - leftCheek.z) * 1000 // Approximate depth
+            ) * 180 / Math.PI;
+            
+            faceDirection = yaw;
+            $('#calibStatus').textContent = `LIVE - FACING: ${yaw.toFixed(0)}°`;
+            $('#faceDirectionArrow').style.transform = `translate(-50%, -50%) rotate(${yaw}deg)`;
+            
+            // Update 3D objects based on face direction
+            updateObjects(landmarks);
+            
+            // Update radar display
+            updateRadar();
+            
+            // Send data to service worker if available
+            if (navigator.serviceWorker?.controller) {
+                navigator.serviceWorker.controller.postMessage({ 
+                    type: 'face_data', 
+                    landmarks: landmarks,
+                    direction: yaw, 
+                    detected: userDetected 
+                });
+            }
+        } else {
+            $('#calibStatus').textContent = 'NO FACE DETECTED';
+            $('#faceDirectionArrow').style.transform = `translate(-50%, -50%) rotate(0deg)`;
+        }
+    }
+
+    function updateObjects(landmarks) {
+        // Clear existing objects
+        objects.forEach(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+            scene.remove(obj);
+        });
+        objects = [];
+        
+        // Create new objects based on face direction
+        const numObjects = Math.floor(Math.random() * 5) + 3; // 3-7 objects
+        
+        for (let i = 0; i < numObjects; i++) {
+            const isFriendly = Math.random() > 0.3; // 70% friendly, 30% hostile
+            
+            // Position objects in a semi-circle in front of the user
+            const angle = (Math.random() * 120 - 60 + faceDirection) * Math.PI / 180;
+            const distance = 2 + Math.random() * 5; // 2-7 units away
+            
+            const pos = new THREE.Vector3(
+                user.x + Math.sin(angle) * distance,
+                user.y + (Math.random() * 2), // Vary height
+                user.z + Math.cos(angle) * distance
+            );
+            
+            // Create different shapes for variety
+            let geometry;
+            const shapeType = Math.floor(Math.random() * 3);
+            
+            switch(shapeType) {
+                case 0:
+                    geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+                    break;
+                case 1:
+                    geometry = new THREE.SphereGeometry(0.2, 8, 6);
+                    break;
+                case 2:
+                    geometry = new THREE.ConeGeometry(0.15, 0.4, 8);
+                    break;
+            }
+            
+            const material = new THREE.MeshBasicMaterial({ 
+                color: isFriendly ? 0x00ff00 : 0xff0000,
+                wireframe: true
+            });
+            
+            const obj = new THREE.Mesh(geometry, material);
+            obj.position.copy(pos);
+            
+            // Add user data for tracking
+            obj.userData = {
+                type: isFriendly ? 'friendly' : 'hostile',
+                id: i,
+                distance: distance
+            };
+            
+            scene.add(obj);
+            objects.push(obj);
+        }
+    }
+
+    function updateRadar() {
+        const canvas = $('#radarCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Clear radar
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw radar circles
+        ctx.strokeStyle = '#0f0';
+        ctx.lineWidth = 1;
+        
+        // Outer circle
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 40, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Middle circle
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 25, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Inner circle
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 10, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Draw crosshairs
+        ctx.beginPath();
+        ctx.moveTo(width/2, 10);
+        ctx.lineTo(width/2, height - 10);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(10, height/2);
+        ctx.lineTo(width - 10, height/2);
+        ctx.stroke();
+        
+        // Draw objects on radar
+        objects.forEach(obj => {
+            const dx = obj.position.x - user.x;
+            const dz = (isFrontCam ? 1 : -1) * (obj.position.z - user.z);
+            const angle = Math.atan2(dx, dz) - (faceDirection * Math.PI / 180);
+            const distance = Math.hypot(dx, dz);
+            
+            if (distance < 7) { // Only show objects within radar range
+                const radarX = width/2 + Math.sin(angle) * (distance / 7) * 40;
+                const radarY = height/2 - Math.cos(angle) * (distance / 7) * 40;
+                
+                ctx.fillStyle = obj.userData.type === 'friendly' ? '#0f0' : '#f00';
+                ctx.beginPath();
+                ctx.arc(radarX, radarY, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Add glow effect for hostile objects
+                if (obj.userData.type === 'hostile') {
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    ctx.beginPath();
+                    ctx.arc(radarX, radarY, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        });
+        
+        // Draw user position (center)
+        ctx.fillStyle = '#0ff';
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw direction indicator
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(width/2, height/2);
+        ctx.lineTo(
+            width/2 + Math.sin(faceDirection * Math.PI / 180) * 15,
+            height/2 - Math.cos(faceDirection * Math.PI / 180) * 15
+        );
+        ctx.stroke();
+    }
+
+    function handleWebcam() {
+        if (stream) {
+            openPopup('webcamPopup');
+            return;
+        }
+        
+        const status = $('#calibStatus');
+        status.textContent = 'REQUESTING CAMERA ACCESS...';
+        
+        try {
+            // Request camera access
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: isFrontCam ? 'user' : 'environment',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                } 
+            })
+            .then(s => {
+                stream = s;
+                
+                // Create video element for face detection
+                const video = document.createElement('video');
+                video.id = 'webcamVideo';
+                video.srcObject = stream;
+                video.autoplay = true;
+                video.playsInline = true;
+                video.style.display = 'none';
+                document.body.appendChild(video);
+                
+                // Setup camera for face detection
+                camera = new Camera(video, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: video });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                
+                camera.start();
+                
+                // Setup webcam canvas
+                const canvas = $('#webcamCanvas');
+                canvas.width = 320;
+                canvas.height = 240;
+                
+                status.textContent = 'LIVE - FACE DETECTION ACTIVE';
+                $('#webcamBtn').classList.add('active');
+                openPopup('webcamPopup');
+                
+                console.log("Webcam started successfully");
+            })
+            .catch(error => {
+                console.error('Webcam error:', error);
+                
+                let errorMessage = 'CAMERA ACCESS DENIED';
+                if (error.name === 'NotAllowedError') {
+                    errorMessage = 'CAMERA ACCESS DENIED BY USER';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage = 'NO CAMERA FOUND';
+                } else if (error.name === 'NotSupportedError') {
+                    errorMessage = 'CAMERA NOT SUPPORTED';
+                }
+                
+                status.textContent = errorMessage;
+                stream = null;
+                $('#webcamBtn').classList.remove('active');
+            });
+            
+        } catch (error) {
+            console.error('Webcam setup error:', error);
+            status.textContent = 'WEBCAM SETUP FAILED';
+        }
+    }
+
+    function stopWebcam() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            
+            if (camera) {
+                camera.stop();
+            }
+            
+            // Remove hidden video element
+            const video = $('#webcamVideo');
+            if (video) video.remove();
+            
+            $('#webcamBtn').classList.remove('active');
+            $('#calibStatus').textContent = 'WEBCAM STOPPED';
+            $('#webcamPopup').style.display = 'none';
+            
+            console.log("Webcam stopped");
+        }
+    }
+
+    function toggleCamera() {
+        isFrontCam = !isFrontCam;
+        $('#camToggleBtn').textContent = isFrontCam ? 'FRONT' : 'BACK';
+        $('#camToggleBtn').classList.toggle('active');
+        
+        if (stream) {
+            stopWebcam();
+            setTimeout(handleWebcam, 500);
+        }
+        
+        console.log(`Camera switched to: ${isFrontCam ? 'Front' : 'Back'}`);
+    }
+
+    function toggleMode() {
+        isDesktopMode = !isDesktopMode;
+        $('#modeBtn').textContent = isDesktopMode ? 'DESKTOP' : 'ANDROID';
+        $('#modeBtn').classList.toggle('active');
+        
+        // Adjust rendering for mode
+        if (isDesktopMode) {
+            ren.setSize(window.innerWidth, window.innerHeight);
+            $('#webcamCanvas').width = 320;
+            $('#webcamCanvas').height = 240;
+        } else {
+            // Android mode - reduce canvas size for performance
+            ren.setSize(window.innerWidth, window.innerHeight * 0.8);
+            $('#webcamCanvas').width = 240;
+            $('#webcamCanvas').height = 180;
+        }
+        
+        cam.aspect = window.innerWidth / window.innerHeight;
+        cam.updateProjectionMatrix();
+        
+        console.log(`Mode switched to: ${isDesktopMode ? 'Desktop' : 'Android'}`);
+    }
+
+    function showSetupWizard() {
+        openPopup('setupWizard');
+        
+        $('#frontCam').addEventListener('click', () => {
+            isFrontCam = true;
+            $('#setupWizard').style.display = 'none';
+            handleWebcam();
+        });
+        
+        $('#backCam').addEventListener('click', () => {
+            isFrontCam = false;
+            $('#setupWizard').style.display = 'none';
+            handleWebcam();
+        });
+    }
+
+    function setupEventListeners() {
+        // Button event listeners
+        $('#webcamBtn').addEventListener('click', handleWebcam);
+        $('#stopWebcam').addEventListener('click', stopWebcam);
+        $('#camToggleBtn').addEventListener('click', toggleCamera);
+        $('#modeBtn').addEventListener('click', toggleMode);
+        
+        // Popup close buttons
+        $$('.popup-close').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const popup = button.closest('.popup');
+                if (popup) {
+                    popup.style.display = 'none';
+                    if (popup.id === 'webcamPopup' && stream) {
+                        stopWebcam();
+                    }
+                }
+            });
+        });
+        
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            cam.aspect = window.innerWidth / window.innerHeight;
+            cam.updateProjectionMatrix();
+            ren.setSize(window.innerWidth, window.innerHeight);
+        }, { passive: true });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanup);
+        
+        console.log("Event listeners setup complete");
+    }
+
+    function cleanup() {
+        // Stop animation loop
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+        }
+        
+        // Stop webcam
+        if (stream) {
+            stopWebcam();
+        }
+        
+        // Clean up Three.js resources
+        if (scene) {
+            scene.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(material => material.dispose());
+                    } else {
+                        object.material.dispose();
+                    }
+                }
+            });
+        }
+        
+        // Revoke service worker URL
+        if (serviceWorkerUrl) {
+            URL.revokeObjectURL(serviceWorkerUrl);
+        }
+        
+        console.log("Cleanup completed");
+    }
+
+    function setupServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            try {
+                const swScript = `
+                    const CACHE_NAME = 'facecam-ar-cache-v1';
+                    const urlsToCache = [
+                        '/',
+                        '/index.html',
+                        'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh_solution_packed_assets_loader.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh_wasm_internal.wasm',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh_solution_packed_assets.data',
+                        'https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap'
+                    ];
+                    
+                    self.addEventListener('install', (event) => {
+                        self.skipWaiting();
+                        event.waitUntil(
+                            caches.open(CACHE_NAME).then((cache) => {
+                                return cache.addAll(urlsToCache);
+                            })
+                        );
+                        console.log('Service Worker: Installed');
+                    });
+                    
+                    self.addEventListener('activate', (event) => {
+                        self.clients.claim();
+                        console.log('Service Worker: Activated');
+                    });
+                    
+                    self.addEventListener('fetch', (event) => {
+                        event.respondWith(
+                            caches.match(event.request).then(response => {
+                                return response || fetch(event.request);
+                            })
+                        );
+                    });
+                    
+                    self.addEventListener('message', (event) => {
+                        if (event.data && event.data.type === 'face_data') {
+                            // Process face data if needed
+                            self.clients.matchAll().then(clients => {
+                                clients.forEach(client => {
+                                    client.postMessage({ 
+                                        type: 'face_direction', 
+                                        direction: event.data.direction, 
+                                        detected: event.data.detected 
+                                    });
+                                });
+                            });
+                        }
+                    });
+                `;
+                
+                const swBlob = new Blob([swScript], { type: 'application/javascript' });
+                serviceWorkerUrl = URL.createObjectURL(swBlob);
+                
+                navigator.serviceWorker.register(serviceWorkerUrl)
+                    .then((registration) => {
+                        console.log('Service Worker registered successfully');
+                        
+                        // Listen for messages from service worker
+                        navigator.serviceWorker.addEventListener('message', (event) => {
+                            if (event.data && event.data.type === 'face_direction') {
+                                // Update face direction if needed
+                                faceDirection = event.data.direction;
+                                userDetected = event.data.detected;
+                            }
+                        });
+                    })
+                    .catch((error) => {
+                        console.error('Service Worker registration failed:', error);
+                    });
+                
+            } catch (error) {
+                console.error('Service Worker setup error:', error);
+            }
+        } else {
+            console.log("Service Worker not supported");
+        }
+    }
+
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        const deltaTime = clock.getDelta();
+        
+        // Update user arrow direction in 3D scene
+        if (userObj && userObj.children.length > 0) {
+            const arrow = userObj.children[0];
+            arrow.rotation.y = -faceDirection * Math.PI / 180;
+        }
+        
+        // Animate objects slightly for visual interest
+        objects.forEach((obj, index) => {
+            if (obj.userData.type === 'hostile') {
+                // Hostile objects pulse
+                obj.scale.x = 1 + Math.sin(Date.now() * 0.005 + index) * 0.2;
+                obj.scale.y = 1 + Math.sin(Date.now() * 0.005 + index) * 0.2;
+                obj.scale.z = 1 + Math.sin(Date.now() * 0.005 + index) * 0.2;
+            } else {
+                // Friendly objects rotate slowly
+                obj.rotation.y += deltaTime * 0.5;
+            }
+        });
+        
+        // Update camera to follow user
+        cam.position.set(
+            user.x + Math.sin(faceDirection * Math.PI / 180) * 5,
+            user.y + 2,
+            user.z + Math.cos(faceDirection * Math.PI / 180) * 5
+        );
+        cam.lookAt(user);
+        
+        // Render scene
+        ren.render(scene, cam);
+    }
+
+    function openPopup(id) {
+        $$('.popup').forEach(popup => popup.style.display = 'none');
+        const targetPopup = $('#' + id);
+        if (targetPopup) {
+            targetPopup.style.display = 'block';
+        }
+    }
+
+    // Initialize the application when the window loads
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>
