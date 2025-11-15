@@ -361,7 +361,7 @@
     let stream, faceMesh, camera, objectDetector;
     let isFrontCam = true;
     const user = new THREE.Vector3(0, 1, 0);
-    let animationId = null;
+    let animationId = null;\nlet gimbalYaw = 0;\nlet gimbalPitch = 0;\nlet facePitch = 0;
     let serviceWorkerUrl = null;
     let mirrorDragging = false;
     let mirrorOffset = { x: 0, y: 0 };
@@ -412,7 +412,11 @@
             scene.background = new THREE.Color(0x000000);
            
             cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            cam.position.set(0, 2, 5);
+            cam.position.set(
+            user.x + Math.sin(faceDirection * Math.PI / 180) * Math.cos(facePitch * Math.PI / 180) * 5,
+            user.y + 2 + Math.sin(facePitch * Math.PI / 180) * 5,
+            user.z + Math.cos(faceDirection * Math.PI / 180) * Math.cos(facePitch * Math.PI / 180) * 5
+        );
            
             const canvas = $('#visualizationCanvas');
             ren = new THREE.WebGLRenderer({
@@ -547,6 +551,22 @@
                 (rightCheek.x - leftCheek.x) * canvas.width,
                 (rightCheek.z - leftCheek.z) * 1000
             ) * 180 / Math.PI;
+\n            const forehead = landmarks[10];
+            const chin = landmarks[152];
+            const pitch = Math.atan2(
+              (chin.y - forehead.y) * canvas.height,
+              (forehead.z - chin.z) * 1000 + 0.001
+            ) * 180 / Math.PI;
+            facePitch = pitch;
+            const nose = landmarks[1];
+            const normX = nose.x;
+            const normY = nose.y;
+            const errorX = normX - 0.5;
+            const errorY = normY - 0.5;
+            gimbalYaw -= errorX * 0.1;
+            gimbalPitch -= errorY * 0.1;
+            faceDirection = yaw + gimbalYaw;
+            facePitch = pitch + gimbalPitch;
            
             faceDirection = yaw;
             $('#calibStatus').textContent = `CAPTURING - FACING: ${yaw.toFixed(0)}°`;
@@ -579,7 +599,7 @@
             updateStatusPanel();
         }
     }
-    async function runObjectDetection(image) {
+    async function runObjectDetection(image) {\n        detectColoredSphere(image);\n
         try {
             const predictions = await objectDetector.detect(image);
            
@@ -1123,7 +1143,59 @@
             }
         }
     }
-    function animate() {
+    
+function detectColoredSphere(image) {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const r = imageData.data[i];
+    const g = imageData.data[i+1];
+    const b = imageData.data[i+2];
+    if (r > 150 && g < 80 && b < 80) {
+      const x = (i / 4) % canvas.width;
+      const y = Math.floor((i / 4) / canvas.width);
+      sumX += x;
+      sumY += y;
+      count++;
+    }
+  }
+  if (count > 100) {
+    const centerX = sumX / count;
+    const centerY = sumY / count;
+    const radius = Math.sqrt(count / Math.PI);
+    const f = 640;
+    const realRadius = 0.1;
+    const pixelRadius = radius;
+    let z = (f * realRadius) / pixelRadius;
+    if (!isFinite(z) || z < 0.1) z = 3;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const posX = (centerX - cx) * z / f;
+    const posY = (cy - centerY) * z / f;
+    const posZ = z;
+    const geometry = new THREE.SphereGeometry(realRadius, 8, 6);
+    const material = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
+    const obj = new THREE.Mesh(geometry, material);
+    obj.position.set(posX, posY + 1, posZ);
+    obj.userData = { type: 'colored_sphere', confidence: count / (canvas.width * canvas.height) };
+    scene.add(obj);
+    objects.push(obj);
+    geometryDataSchema.environmentObjects.push({
+      class: 'colored_sphere',
+      confidence: obj.userData.confidence,
+      position: { x: posX, y: posY + 1, z: posZ },
+      geometry: { type: 'SphereGeometry', parameters: geometry.parameters }
+    });
+  }
+}
+\nfunction animate() {
         animationId = requestAnimationFrame(animate);
         const deltaTime = clock.getDelta();
        
