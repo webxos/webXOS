@@ -36,34 +36,34 @@
         .btn.fullscreen:hover{background:#ff0;color:#000}
         .btn.disabled{opacity:0.5;pointer-events:none}
 
-        /* PIP - Top Center (below banner) */
+        /* PIP - Top Center (webcam feed with mask overlay) */
         .ppv-face-view{position:absolute;top:55px;left:50%;transform:translateX(-50%);width:260px;height:195px;background:#000;border:3px solid #f00;z-index:18;overflow:hidden;cursor:pointer;box-shadow:0 0 20px rgba(255,0,0,0.7)}
         .ppv-face-view.enlarged{width:100%;height:100%;top:0;left:0;transform:none;z-index:30}
         .ppv-canvas{width:100%;height:100%}
 
-        /* Scanner bar inside PIP (only visible when scanning) */
+        /* Scanner bar inside PIP */
         .scanner{position:absolute;top:0;left:0;width:100%;height:4px;background:rgba(255,0,0,0.9);box-shadow:0 0 15px 3px #f00;z-index:19;opacity:0;animation:scanner 2s linear infinite}
         .scanner.active{opacity:1}
 
-        /* Terminal fills remaining screen - newest at top */
-        .terminal-panel{position:absolute;top:255px;left:0;width:100%;height:calc(100vh - 255px);background:rgba(0,0,0,0.95);border-top:2px solid #f00;display:flex;flex-direction:column;z-index:15}
-        .terminal-body{flex:1;overflow-y:auto;padding:10px 12px;color:#ff5555;font-size:7px;line-height:1.5;background:repeating-linear-gradient(0deg,#000 0px,#000 1px,#0a0a0a 1px,#0a0a0a 2px);display:flex;flex-direction:column}
-        .log-line{margin-bottom:4px;word-break:break-all}
+        /* Small Terminal - Bottom (smaller height) */
+        .terminal-panel{position:absolute;bottom:0;left:0;width:100%;height:120px;background:rgba(0,0,0,0.95);border-top:2px solid #f00;display:flex;flex-direction:column;z-index:15}
+        .terminal-body{flex:1;overflow-y:auto;padding:6px 8px;color:#ff5555;font-size:6px;line-height:1.3;background:repeating-linear-gradient(0deg,#000 0px,#000 1px,#0a0a0a 1px,#0a0a0a 2px);display:flex;flex-direction:column-reverse}
+        .log-line{margin-bottom:2px;word-break:break-all}
         .log-error{color:#ff3333}
         .log-success{color:#33ff33}
         .log-data{color:#ffff55}
         .log-hash{color:#ff55ff;font-weight:bold}
         .log-badge{color:#0ff;font-weight:bold}
 
-        /* Badge Overlay */
+        /* Badge Overlay (with serial for screenshot) */
         .badge-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:340px;padding:15px;background:rgba(0,0,0,0.9);border:3px solid #0ff;color:#0ff;font-size:8px;line-height:1.5;text-align:center;z-index:40;display:none}
 
         @media (max-width:767px){
             .top-controls{top:50px;right:5px;gap:6px}
             .btn{height:36px;min-width:78px;font-size:8px}
             .ppv-face-view{top:52px;width:200px;height:150px}
-            .terminal-panel{top:205px;height:calc(100vh - 205px)}
-            .terminal-body{font-size:6.5px;padding:8px}
+            .terminal-panel{height:100px}
+            .terminal-body{font-size:5.5px;padding:5px}
         }
     </style>
 </head>
@@ -81,7 +81,7 @@
     <!-- Top-Right Buttons -->
     <div class="top-controls">
         <button id="startBtn" class="btn">START SCAN</button>
-        <button id="exportBtn" class="btn export disabled">EXPORT BADGE</button>
+        <button id="exportBtn" class="btn export disabled">EXPORT JSON</button>
         <button id="fullscreenBtn" class="btn fullscreen">FULL SCREEN</button>
     </div>
 
@@ -91,7 +91,7 @@
         <div class="scanner" id="scanner"></div>
     </div>
 
-    <!-- Terminal (newest at top) -->
+    <!-- Small Terminal (oldest at top, newest at bottom for small size) -->
     <div class="terminal-panel">
         <div class="terminal-body" id="terminalLog">
             <div class="log-line log-success">> SYSTEM ONLINE - NEWS FEED ACTIVE</div>
@@ -99,7 +99,7 @@
         </div>
     </div>
 
-    <!-- Badge Overlay -->
+    <!-- Badge Overlay (serial tied to 3D data for screenshot) -->
     <div class="badge-overlay" id="badgeOverlay">
         <div class="badge-title">BADGE</div>
         <div class="badge-id" id="badgeId">ID: BADGE_XXXXXX</div>
@@ -107,7 +107,7 @@
         <div class="badge-hash" id="badgeHash">HASH: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
     </div>
 
-    <!-- 3D Scene -->
+    <!-- Large 3D Scene (main view, spinning mask) -->
     <div id="visualizationContainer">
         <canvas id="visualizationCanvas"></canvas>
     </div>
@@ -116,11 +116,11 @@
 </div>
 
 <script>
-    let scene, cam, ren, clock;
+    let scene, cam, ren, clock, faceGroup;
     let faceMesh, camera, stream;
     let isProcessing = false, timerInterval = null;
-    let faceVectors = [];
-    let vectorPoints = [], wireframeLines = null;
+    let landmarks = [];
+    let wireframe = null;
 
     const $ = s => document.querySelector(s);
     const ppvFaceView = $('#ppvFaceView');
@@ -145,12 +145,13 @@
     function init3D() {
         scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000);
         cam = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
-        cam.position.set(0,0,3);
+        cam.position.set(0,0,1.5);
         ren = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias:false});
         ren.setSize(innerWidth, innerHeight); ren.setPixelRatio(1);
         clock = new THREE.Clock();
         scene.add(new THREE.AmbientLight(0x404040));
         scene.add(new THREE.DirectionalLight(0xffffff,1).position.set(5,5,5));
+        faceGroup = new THREE.Group(); scene.add(faceGroup);
     }
 
     function setupFaceDetection() {
@@ -168,34 +169,25 @@
             drawConnectors(ppvCtx, lm, FACEMESH_RIGHT_EYE, {color:'#FF3030',lineWidth:1});
             drawConnectors(ppvCtx, lm, FACEMESH_LEFT_EYE, {color:'#30FF30',lineWidth:1});
             drawConnectors(ppvCtx, lm, FACEMESH_FACE_OVAL, {color:'#E0E0E0',lineWidth:2});
-            if (isProcessing) processFaceVectors(lm);
+            if (isProcessing) processLandmarks(lm);
         }
     }
 
-    function processFaceVectors(lm) {
-        const vectors = [];
-        const idx = [1,33,263,61,291,199,10,152];
-        idx.forEach(i => {
-            const l = lm[i];
-            vectors.push({x:(l.x-0.5)*2, y:(0.5-l.y)*2, z:l.z*0.5});
-        });
-        faceVectors.push({timestamp:Date.now(), vectors});
-        update3DVisualization();
+    function processLandmarks(lm) {
+        landmarks = lm.map(l => ({x: (l.x - 0.5) * 2, y: (0.5 - l.y) * 2, z: l.z * -0.5}));
+        update3DMask();
     }
 
-    function update3DVisualization() {
-        vectorPoints.forEach(p=>scene.remove(p)); vectorPoints=[];
-        if (wireframeLines) scene.remove(wireframeLines);
-        const pts = [];
-        faceVectors.forEach(set=>set.vectors.forEach(v=>{
-            pts.push(new THREE.Vector3(v.x,v.y,v.z));
-            const sph = new THREE.Mesh(new THREE.SphereGeometry(0.03,6,6), new THREE.MeshBasicMaterial({color:0x00ffff}));
-            sph.position.set(v.x,v.y,v.z); scene.add(sph); vectorPoints.push(sph);
-        }));
-        if (pts.length>1) {
-            wireframeLines = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:0xff0000}));
-            scene.add(wireframeLines);
-        }
+    function update3DMask() {
+        if (wireframe) faceGroup.remove(wireframe);
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(landmarks.length * 3);
+        landmarks.forEach((l, i) => { pos[i*3] = l.x; pos[i*3+1] = l.y; pos[i*3+2] = l.z; });
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const indices = []; FACEMESH_TESSELATION.forEach(([a,b]) => indices.push(a,b));
+        geo.setIndex(indices);
+        wireframe = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color: 0x00ff00}));
+        faceGroup.add(wireframe);
     }
 
     function startWebcam() {
@@ -216,11 +208,11 @@
     }
 
     function startProcessing() {
-        faceVectors=[]; isProcessing=true;
+        landmarks=[]; isProcessing=true;
         startBtn.classList.add('disabled'); startBtn.textContent='SCANNING...';
         exportBtn.classList.add('disabled');
         scannerBar.classList.add('active');
-        log('SCAN ACTIVE - HOLD FACE CENTER', 'log-success');
+        log('SCAN ACTIVE - CENTER FACE', 'log-success');
         startWebcam();
         let sec=0; timerInterval=setInterval(()=>{ if(++sec>=5) finishProcessing(); },1000);
     }
@@ -228,18 +220,18 @@
     async function finishProcessing() {
         clearInterval(timerInterval); isProcessing=false; stopWebcam();
         scannerBar.classList.remove('active');
-        if (!faceVectors.length) { log('NO FACE DATA', 'log-error'); resetScan(); return; }
-        const kp = faceVectors[faceVectors.length-1].vectors;
-        const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(kp)))
+        if (!landmarks.length) { log('NO FACE DATA', 'log-error'); resetScan(); return; }
+        const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(landmarks)))
             .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''));
         const serial = Array.from(crypto.getRandomValues(new Uint32Array(8)),x=>x.toString(36).toUpperCase().padStart(5,'0')).join('-');
         const id = `BADGE_${hash.slice(0,8).toUpperCase()}`;
         badgeId.textContent=id; badgeSerial.textContent=`SERIAL: ${serial}`; badgeHash.textContent=`HASH: ${hash}`;
         badgeOverlay.style.display='block';
-        badgeDataEl.textContent=JSON.stringify({badgeId:id,serial,hash,timestamp:new Date().toISOString(),keyLandmarks:kp,totalVectors:faceVectors.length},null,2);
+        badgeDataEl.textContent=JSON.stringify({badgeId:id,serial,hash,timestamp:new Date().toISOString(),landmarks,totalLandmarks:landmarks.length},null,2);
         log(`BADGE ISSUED: ${id}`, 'log-badge');
         log(`SERIAL: ${serial}`, 'log-data');
         log(`HASH: ${hash}`, 'log-hash');
+        log('SCREENSHOT READY', 'log-success');
         startBtn.textContent='START SCAN'; startBtn.classList.remove('disabled');
         exportBtn.classList.remove('disabled');
     }
@@ -248,19 +240,22 @@
         isProcessing=false; startBtn.textContent='START SCAN'; startBtn.classList.remove('disabled');
         exportBtn.classList.add('disabled'); badgeOverlay.style.display='none';
         scannerBar.classList.remove('active');
-        faceVectors=[]; update3DVisualization();
+        landmarks=[]; if (wireframe) faceGroup.remove(wireframe); wireframe=null;
     }
 
     function log(msg, type='') {
         const line = document.createElement('div');
         line.className = `log-line ${type}`;
         line.textContent = '> ' + msg;
-        logEl.insertBefore(line, logEl.firstChild); // newest at top
+        logEl.appendChild(line); // oldest at top for small terminal
+        logEl.scrollTop = logEl.scrollHeight;
     }
 
     function exportData() {
-        const text = `BADGE DATA\nID: ${badgeId.textContent}\n${badgeSerial.textContent}\n${badgeHash.textContent}\n\nJSON:\n${badgeDataEl.textContent}`;
-        navigator.clipboard.writeText(text).then(()=>log('BADGE COPIED TO CLIPBOARD', 'log-success'));
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([badgeDataEl.textContent], {type: 'application/json'}));
+        a.download = 'face_mask.json'; a.click();
+        log('JSON EXPORTED', 'log-success');
     }
 
     function toggleFullscreen() {
@@ -282,11 +277,7 @@
 
     function animate() {
         requestAnimationFrame(animate);
-        if (faceVectors.length) {
-            cam.position.x = Math.sin(Date.now()*0.0005)*3;
-            cam.position.z = Math.cos(Date.now()*0.0005)*3;
-            cam.lookAt(0,0,0);
-        }
+        if (wireframe) faceGroup.rotation.y += 0.005;
         ren.render(scene,cam);
     }
 
