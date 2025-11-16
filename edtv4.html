@@ -23,6 +23,12 @@
     }">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/WebGL.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/renderers/CSS3DRenderer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/effects/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/effects/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/effects/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/shaders/CopyShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -65,7 +71,6 @@
         .face-direction-arrow::after{content:'';position:absolute;top:20px;left:50%;transform:translateX(-50%);width:4px;height:20px;background:#f00}
         .user-position-marker{position:absolute;width:12px;height:12px;background:#0ff;border-radius:50%;z-index:2;box-shadow:0 0 10px #0ff}
         #calibStatus{font-size:6px;color:#ff0;margin:4px 0;text-align:center}
-        #radarCanvas{width:100%;height:100px;border:2px solid #0f0;background:#000;display:block;margin-top:8px}
         .radar-container{position:relative;width:100%;height:100px;display:none}
         #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:12px;text-shadow:1px 1px 0 #000;z-index:11;display:none}
         @media (max-width:767px){.mirror-popup{width:200px;height:150px}.controls-container{flex-direction:column;align-items:center;}.ctrl-btn{width:140px;height:56px;font-size:12px}}
@@ -93,9 +98,10 @@
     </div>
     <div id="ideInterface">
         <div class="controls-container">
-            <button id="mirrorBtn" class="ctrl-btn" aria-label="Calibrate 3D Capture">CALIBRATE</button>
-            <button id="exportBtn" class="ctrl-btn export-btn" aria-label="Export 3D Data">EXPORT</button>
-            <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0" aria-label="Reset Scene">RESET</button>
+            <button id="mirrorBtn" class="ctrl-btn">CALIBRATE</button>
+            <button id="exportBtn" class="ctrl-btn export-btn">EXPORT</button>
+            <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0">RESET</button>
+            <button id="arBtn" class="ctrl-btn" style="border-color:#0f0;color:#0f0">AR MODE</button>
         </div>
         <div id="hudWarning">NO DATA CAPTURED</div>
     </div>
@@ -112,52 +118,29 @@
                 <div class="user-position-marker" id="userPositionMarker" style="top:50%;left:50%;"></div>
             </div>
             <div id="calibStatus">CALIBRATING...</div>
-            <div class="radar-container">
-                <canvas id="radarCanvas"></canvas>
-            </div>
         </div>
     </div>
     <div id="errorLog"></div>
 </div>
 <video id="pip" autoplay playsinline muted style="display:none"></video>
 <script>
-    let scene, cam, ren, clock;
+    let scene, cam, ren, clock, composer, thermalPass;
     let userObj, objects = [], lightPoints = [];
     let faceDirection = 0, userDetected = false;
     let stream, faceMesh, camera, objectDetector;
     let isFrontCam = true;
     const user = new THREE.Vector3(0, 0, 0);
     let animationId = null; let pipVideo; let face3DLines;
-    let serviceWorkerUrl = null;
     let mirrorDragging = false;
     let mirrorOffset = { x: 0, y: 0 };
     let cameraDistance = 5;
     let mask, lightSource;
-    const geometryDataSchema = {
-        version: "1.0",
-        timestamp: "",
-        metadata: {
-            app: "edTV_CHANNEL_4",
-            captureType: "face_objects_3d_thermal",
-            coordinateSystem: "right_handed"
-        },
-        faceGeometry: {
-            vertices: [],
-            normals: [],
-            faces: [],
-            landmarks: []
-        },
-        environmentObjects: [],
-        camera: {
-            position: { x: 0, y: 0, z: 0 },
-            rotation: { x: 0, y: 0, z: 0 },
-            fov: 75
-        }
-    };
+    let xrSession;
+    const geometryDataSchema = { version: "1.0", timestamp: "", metadata: { app: "edTV_CHANNEL_4", captureType: "face_objects_3d_thermal", coordinateSystem: "right_handed" }, faceGeometry: { vertices: [], normals: [], faces: [], landmarks: [] }, environmentObjects: [], camera: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, fov: 75 } };
     const $ = s => document.querySelector(s);
     function logError(msg) {
         const log = $('#errorLog');
-        log.innerHTML += `${new Date().toISOString()}: ${msg}<br>`;
+        log.innerHTML += `${new Date().toISOString().slice(11,19)}: ${msg}<br>`;
         log.scrollTop = log.scrollHeight;
     }
     function init() {
@@ -165,461 +148,217 @@
             init3D();
             setupFaceDetection();
             setupObjectDetection();
-            setupServiceWorker();
             setupEventListeners();
             autoStartMirror();
             animate();
-        } catch (error) {
-            logError(error.message);
-        }
+        } catch (e) { logError(e.message); }
     }
     function init3D() {
-        try {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x000000);
-            cam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            cam.position.set(0, 0, cameraDistance);
-            const canvas = $('#visualizationCanvas');
-            ren = new THREE.WebGLRenderer({canvas: canvas, antialias: false});
-            ren.setSize(window.innerWidth, window.innerHeight);
-            ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            clock = new THREE.Clock();
-            scene.add(new THREE.AmbientLight(0x003300));
-            lightSource = new THREE.PointLight(0xffffff, 1, 100);
-            lightSource.position.set(0,0,0);
-            scene.add(lightSource);
-            const gridSize = 20, gridDiv = 20;
-            const gridMat = new THREE.LineBasicMaterial({ color: 0x004400 });
-            const gridGeo = new THREE.BufferGeometry();
-            const positions = [];
-            for (let i = -gridSize / 2; i <= gridSize / 2; i += gridSize / gridDiv) {
-                positions.push(i, 0, -gridSize / 2, i, 0, gridSize / 2);
-                positions.push(-gridSize / 2, 0, i, gridSize / 2, 0, i);
-            }
-            gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            scene.add(new THREE.LineSegments(gridGeo, gridMat));
-            userObj = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
-            userObj.position.copy(user);
-            scene.add(userObj);
-            const arrowGeometry = new THREE.ConeGeometry(0.1, 0.3, 8);
-            const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            const userArrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
-            userArrow.position.set(0, 0.3, 0);
-            userArrow.rotation.x = Math.PI / 2;
-            userObj.add(userArrow);
-            face3DLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: 0x00ff00}));
-            scene.add(face3DLines);
-            const maskUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf';
-            const loader = new THREE.GLTFLoader();
-            loader.load(maskUrl, (gltf) => {
-                mask = gltf.scene;
-                mask.scale.set(1.5,1.5,1.5);
-                mask.position.set(0,0,0);
-                scene.add(mask);
-            });
-            cam.lookAt(user);
-            ren.render(scene, cam);
-        } catch (error) {
-            logError(`3D init: ${error.message}`);
-        }
+        scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000);
+        cam = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+        cam.position.set(0, 0, cameraDistance);
+        const canvas = $('#visualizationCanvas');
+        ren = new THREE.WebGLRenderer({canvas, antialias: false, powerPreference: "low-power"});
+        ren.setSize(innerWidth, innerHeight); ren.setPixelRatio(1); ren.xr.enabled = true;
+        clock = new THREE.Clock();
+        scene.add(new THREE.AmbientLight(0x003300));
+        lightSource = new THREE.PointLight(0xffffff, 1, 100); lightSource.position.set(0,0,0); scene.add(lightSource);
+        const grid = new THREE.GridHelper(10, 10, 0x004400, 0x004400); scene.add(grid);
+        userObj = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        userObj.position.copy(user); scene.add(userObj);
+        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 4), new THREE.MeshBasicMaterial({color: 0xff0000}));
+        arrow.position.set(0,0.3,0); arrow.rotation.x = Math.PI/2; userObj.add(arrow);
+        face3DLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: 0x00ff00}));
+        scene.add(face3DLines);
+        const loader = new THREE.GLTFLoader();
+        loader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf', gltf => {
+            mask = gltf.scene; mask.scale.set(1.5,1.5,1.5); scene.add(mask);
+        });
+        composer = new THREE.EffectComposer(ren);
+        composer.addPass(new THREE.RenderPass(scene, cam));
+        thermalPass = new THREE.ShaderPass({
+            uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+            vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+            fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+                void main() {
+                    vec4 c = texture2D(tDiffuse, vUv);
+                    float l = dot(c.rgb, vec3(0.299,0.587,0.114));
+                    vec3 thermal = mix(vec3(0.0,0.0,1.0), vec3(1.0,0.0,0.0), l);
+                    float d = fract(sin(dot(vUv*100.0 + time, vec2(12.9898,78.233))) * 43758.5453);
+                    gl_FragColor = vec4(thermal + (d-0.5)*0.1, c.a);
+                }`
+        });
+        composer.addPass(thermalPass);
+        cam.lookAt(user);
     }
-    function setupFaceDetection() {
-        try {
-            faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-            faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-            faceMesh.onResults(onFaceMeshResults);
-        } catch (error) {
-            logError(`Face detection: ${error.message}`);
-        }
+    async function setupFaceDetection() {
+        faceMesh = new FaceMesh({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.7, minTrackingConfidence:0.7});
+        await faceMesh.initialize();
+        faceMesh.onResults(onFaceMeshResults);
     }
     async function setupObjectDetection() {
-        try {
-            objectDetector = await cocoSsd.load();
-        } catch (error) {
-            logError(`Object detection: ${error.message}`);
-        }
+        try { objectDetector = await cocoSsd.load(); } catch(e) { logError('COCO-SSD: '+e.message); }
     }
     function onFaceMeshResults(results) {
         try {
-            userDetected = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
-            const canvas = $('#webcamCanvas');
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (results.image) {
-                ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-            }
+            userDetected = !!(results.multiFaceLandmarks?.length);
+            const ctx = $('#webcamCanvas').getContext('2d');
+            ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+            if (results.image) ctx.drawImage(results.image,0,0,ctx.canvas.width,ctx.canvas.height);
             if (userDetected) {
-                const landmarks = results.multiFaceLandmarks[0];
-                drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#00ff00', lineWidth: 1});
-                const positions = [];
-                FACEMESH_TESSELATION.forEach(conn => {
-                    const p1 = landmarks[conn[0]];
-                    const p2 = landmarks[conn[1]];
-                    positions.push(p1.x * 4 - 2, -p1.y * 4 + 2, p1.z * 4);
-                    positions.push(p2.x * 4 - 2, -p2.y * 4 + 2, p2.z * 4);
+                const lm = results.multiFaceLandmarks[0];
+                drawConnectors(ctx, lm, FACEMESH_TESSELATION, {color:'#00ff00', lineWidth:1});
+                const pos = [];
+                FACEMESH_TESSELATION.forEach(c=> {
+                    pos.push(lm[c[0]].x*4-2, -lm[c[0]].y*4+2, lm[c[0]].z*4,
+                             lm[c[1]].x*4-2, -lm[c[1]].y*4+2, lm[c[1]].z*4);
                 });
-                face3DLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                face3DLines.position.set(0,0,0);
-                geometryDataSchema.faceGeometry.landmarks = landmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z}));
-                geometryDataSchema.faceGeometry.vertices = landmarks.flatMap(lm => [lm.x, lm.y, lm.z]);
-                const nose = landmarks[1];
-                const left = landmarks[234];
-                const right = landmarks[454];
-                const center = {x: (left.x + right.x)/2, y: (left.y + right.y)/2, z: (left.z + right.z)/2};
+                face3DLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+                geometryDataSchema.faceGeometry.landmarks = lm.map(p=>({x:p.x,y:p.y,z:p.z}));
+                geometryDataSchema.faceGeometry.vertices = lm.flatMap(p=>[p.x,p.y,p.z]);
+                const nose = lm[1], left = lm[234], right = lm[454];
+                const center = {x:(left.x+right.x)/2, y:(left.y+right.y)/2, z:(left.z+right.z)/2};
                 if (mask) {
-                    mask.position.x = (center.x - 0.5) * 0.005;
-                    mask.position.y = -(center.y - 0.5) * 0.005;
-                    mask.position.z = -center.z * 0.01;
-                    const dx = right.x - left.x;
-                    const dy = right.y - left.y;
-                    mask.rotation.y = Math.atan2(dy, dx) * -2;
-                    mask.rotation.x = (center.y - 0.5) * -1.5;
-                    lightSource.position.copy(mask.position);
+                    mask.position.set((center.x-0.5)*0.005, -(center.y-0.5)*0.005, -center.z*0.01);
+                    mask.rotation.y = Math.atan2(right.y-left.y, right.x-left.x)*-2;
                 }
-                const leftEye = landmarks[33], rightEye = landmarks[263];
-                faceDirection = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * 180 / Math.PI;
+                const le = lm[33], re = lm[263];
+                faceDirection = Math.atan2(re.y-le.y, re.x-le.x)*180/Math.PI;
             }
             updateThermalMap(results.image);
             updateStatusPanel();
-        } catch (error) {
-            logError(`Face results: ${error.message}`);
-        }
+        } catch(e) { logError('Face: '+e.message); }
     }
     function updateThermalMap(video) {
-        try {
-            if (!video) return;
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = 32;
-            tempCanvas.height = 24;
-            const ctx = tempCanvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-            const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            lightPoints.forEach(pt => scene.remove(pt));
-            lightPoints = [];
-            let count = 0;
-            for (let y = 0; y < tempCanvas.height; y += 1) {
-                for (let x = 0; x < tempCanvas.width; x += 1) {
-                    if (count >= 100) break;
-                    const i = (y * tempCanvas.width + x) * 4;
-                    const r = imageData.data[i];
-                    const g = imageData.data[i+1];
-                    const b = imageData.data[i+2];
-                    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                    if (lum > 50) {
-                        const pos = new THREE.Vector3((x / tempCanvas.width - 0.5) * 10, (0.5 - y / tempCanvas.height) * 7.5, (lum / 255 * 2 - 1));
-                        const mat = new THREE.PointsMaterial({size: 0.1, color: new THREE.Color().setHSL(lum / 255, 1, 0.5)});
-                        const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([pos.x, pos.y, pos.z], 3));
-                        const pt = new THREE.Points(geo, mat);
-                        scene.add(pt);
-                        lightPoints.push(pt);
-                        count++;
-                    }
-                }
-                if (count >= 100) break;
+        if (!video) return;
+        lightPoints.forEach(p=>scene.remove(p)); lightPoints=[];
+        const tc = document.createElement('canvas'); tc.width=16; tc.height=12;
+        const ctx = tc.getContext('2d'); ctx.drawImage(video,0,0,16,12);
+        const id = ctx.getImageData(0,0,16,12);
+        let cnt=0;
+        for (let y=0; y<12 && cnt<80; y++) for (let x=0; x<16 && cnt<80; x++) {
+            const i=(y*16+x)*4;
+            const lum = 0.299*id.data[i] + 0.587*id.data[i+1] + 0.114*id.data[i+2];
+            if (lum>60) {
+                const pos = new THREE.Vector3((x/16-0.5)*10, (0.5-y/12)*7.5, (lum/255*2-1));
+                const pt = new THREE.Points(
+                    new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([pos.x,pos.y,pos.z],3)),
+                    new THREE.PointsMaterial({size:0.15, color:new THREE.Color().setHSL(lum/255,1,0.5)})
+                );
+                scene.add(pt); lightPoints.push(pt); cnt++;
             }
-        } catch (error) {
-            logError(`Thermal map: ${error.message}`);
         }
     }
-    function onObjectDetectionResults(results) {
-        try {
-            if (results.detections) {
-                let added = 0;
-                results.detections.forEach(detection => {
-                    if (added >= 10 || objects.length >= 100) return;
-                    if (detection.categories[0].score > 0.5) {
-                        addVoidObject(detection, detection.categories[0].categoryName);
-                        added++;
-                    }
-                });
+    function onObjectDetectionResults(res) {
+        if (!res.detections) return;
+        res.detections.slice(0,5).forEach(d=> {
+            if (d.score>0.5 && objects.length<50) {
+                const a=Math.random()*Math.PI*2, dist=Math.random()*5+2;
+                const obj = new THREE.Mesh(new THREE.SphereGeometry(0.5,4,4), new THREE.MeshBasicMaterial({color:0x000000, wireframe:true}));
+                obj.position.set(Math.sin(a)*dist, Math.random()*2, Math.cos(a)*dist);
+                obj.userData = {type:'void', class:d.class};
+                scene.add(obj); objects.push(obj);
+                geometryDataSchema.environmentObjects.push({class:d.class, type:'void', position:{x:obj.position.x,y:obj.position.y,z:obj.position.z}});
             }
-        } catch (error) {
-            logError(`Object results: ${error.message}`);
-        }
-    }
-    function addVoidObject(detection, className) {
-        if (objects.length >= 100) return;
-        const angle = Math.random() * Math.PI * 2;
-        const distance = Math.random() * 5 + 2;
-        const pos = new THREE.Vector3(Math.sin(angle) * distance, Math.random() * 2, Math.cos(angle) * distance);
-        const geometry = new THREE.SphereGeometry(0.5, 8, 6);
-        const material = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true });
-        const obj = new THREE.Mesh(geometry, material);
-        obj.position.copy(pos);
-        obj.userData = { type: 'void', class: className };
-        scene.add(obj);
-        objects.push(obj);
-        geometryDataSchema.environmentObjects.push({
-            class: className,
-            type: 'void',
-            position: { x: pos.x, y: pos.y, z: pos.z }
         });
     }
-    function detectArUco(video) {
-        try {
-            let src = cv.matFromImageData(video);
-            let dst = new cv.Mat();
-            cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
-            let dictionary = new cv.Dictionary(cv.DICT_6X6_250);
-            let parameters = new cv.DetectorParameters();
-            let markerCorners = new cv.MatVector();
-            let markerIds = new cv.Mat();
-            cv.detectMarkers(dst, dictionary, markerCorners, markerIds, parameters);
-            if (markerIds.rows > 0) {
-                for (let i = 0; i < Math.min(markerIds.rows, 5); ++i) {
-                    if (objects.length >= 100) break;
-                    addVoidObject({}, 'planar');
-                }
-            }
-            src.delete(); dst.delete(); markerCorners.delete(); markerIds.delete();
-        } catch (error) {
-            logError(`ArUco: ${error.message}`);
-        }
-    }
-    function detectSphere(video) {
-        try {
-            let src = cv.matFromImageData(video);
-            let hsv = new cv.Mat();
-            cv.cvtColor(src, hsv, cv.COLOR_RGB2HSV);
-            let low = new cv.Scalar(0, 100, 100);
-            let high = new cv.Scalar(10, 255, 255);
-            let mask = new cv.Mat();
-            cv.inRange(hsv, low, high, mask);
-            let contours = new cv.MatVector();
-            let hierarchy = new cv.Mat();
-            cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-            for (let i = 0; i < Math.min(contours.size(), 5); ++i) {
-                let cnt = contours.get(i);
-                let area = cv.contourArea(cnt);
-                if (area > 100) {
-                    if (objects.length >= 100) break;
-                    addVoidObject({}, 'sphere');
-                }
-            }
-            src.delete(); hsv.delete(); mask.delete(); contours.delete(); hierarchy.delete();
-        } catch (error) {
-            logError(`Sphere detect: ${error.message}`);
-        }
-    }
-    function setupServiceWorker() {
-        try {
-            if ('serviceWorker' in navigator) {
-                const swCode = `
-                self.addEventListener('message', async (event) => {
-                    if (event.data.type === 'fuseTensors') {
-                        const tf = await import('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs');
-                        const tensor1 = tf.tensor(event.data.tensor1);
-                        const tensor2 = tf.tensor(event.data.tensor2);
-                        const fused = tensor1.add(tensor2);
-                        event.ports[0].postMessage({result: fused.arraySync()});
-                    }
-                });
-                `;
-                const blob = new Blob([swCode], {type: 'application/javascript'});
-                serviceWorkerUrl = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(serviceWorkerUrl).then(reg => {});
-            }
-        } catch (error) {
-            logError(`SW: ${error.message}`);
-        }
-    }
-    function fuseTensors(tensor1, tensor2) {
-        if (navigator.serviceWorker.controller) {
-            const channel = new MessageChannel();
-            channel.port1.onmessage = (event) => {};
-            navigator.serviceWorker.controller.postMessage({type: 'fuseTensors', tensor1, tensor2}, [channel.port2]);
-        }
-    }
     function setupEventListeners() {
-        try {
-            let lastTap = 0;
-            $('#mirrorPopup').addEventListener('touchstart', (e) => {
-                const now = new Date().getTime();
-                if (now - lastTap < 300) {
-                    togglePiP();
-                }
-                lastTap = now;
-            }, {passive: true});
-            function togglePiP() {
-                const pip = $('#pip');
-                pip.classList.toggle('fullscreen');
-            }
-            $('#pip').ondblclick = togglePiP;
-            $('#mirrorBtn').addEventListener('click', () => {
-                if ($('#mirrorPopup').style.display === 'block') {
-                    closeMirror();
-                } else {
-                    openMirror();
-                    startWebcam();
-                }
-            });
-            $('#exportBtn').addEventListener('click', exportGeometryData);
-            $('#resetBtn').addEventListener('click', resetScene);
-            $('.mirror-close').addEventListener('click', closeMirror);
-            $('#sceneClickArea').addEventListener('click', centerView);
-            const mirrorHeader = $('.mirror-header');
-            const mirrorPopup = $('#mirrorPopup');
-            mirrorHeader.addEventListener('mousedown', startDrag);
-            mirrorHeader.addEventListener('touchstart', startDrag);
-            function startDrag(e) {
-                e.preventDefault();
-                mirrorDragging = true;
-                const rect = mirrorPopup.getBoundingClientRect();
-                mirrorOffset.x = (e.type === 'mousedown' ? e.clientX : e.touches[0].clientX) - rect.left;
-                mirrorOffset.y = (e.type === 'mousedown' ? e.clientY : e.touches[0].clientY) - rect.top;
-                document.addEventListener('mousemove', dragMirror);
-                document.addEventListener('touchmove', dragMirror);
-                document.addEventListener('mouseup', stopDrag);
-                document.addEventListener('touchend', stopDrag);
-            }
-            function dragMirror(e) {
-                if (!mirrorDragging) return;
-                e.preventDefault();
-                let clientX = (e.type === 'mousemove' ? e.clientX : e.touches[0].clientX);
-                let clientY = (e.type === 'mousemove' ? e.clientY : e.touches[0].clientY);
-                mirrorPopup.style.left = (clientX - mirrorOffset.x) + 'px';
-                mirrorPopup.style.top = (clientY - mirrorOffset.y) + 'px';
-                mirrorPopup.style.transform = 'none';
-            }
-            function stopDrag() {
-                mirrorDragging = false;
-                document.removeEventListener('mousemove', dragMirror);
-                document.removeEventListener('touchmove', dragMirror);
-                document.removeEventListener('mouseup', stopDrag);
-                document.removeEventListener('touchend', stopDrag);
-            }
-            window.addEventListener('resize', () => {
-                cam.aspect = window.innerWidth / window.innerHeight;
-                cam.updateProjectionMatrix();
-                ren.setSize(window.innerWidth, window.innerHeight);
-            }, { passive: true });
-            window.addEventListener('beforeunload', cleanup);
-        } catch (error) {
-            logError(`Events: ${error.message}`);
+        $('#mirrorBtn').onclick = () => { $('#mirrorPopup').style.display === 'block' ? closeMirror() : (openMirror(), startWebcam()); };
+        $('#exportBtn').onclick = exportGeometryData;
+        $('#resetBtn').onclick = resetScene;
+        $('#arBtn').onclick = startAR;
+        $('.mirror-close').onclick = closeMirror;
+        $('#sceneClickArea').onclick = () => { cam.position.set(0,0,cameraDistance); cam.lookAt(user); };
+        $('#pip').ondblclick = () => $('#pip').classList.toggle('fullscreen');
+        const header = $('.mirror-header'), popup = $('#mirrorPopup');
+        header.onmousedown = header.ontouchstart = e => {
+            e.preventDefault(); mirrorDragging=true;
+            const r=popup.getBoundingClientRect();
+            mirrorOffset.x = (e.clientX||e.touches[0].clientX) - r.left;
+            mirrorOffset.y = (e.clientY||e.touches[0].clientY) - r.top;
+            document.onmousemove = document.ontouchmove = drag;
+            document.onmouseup = document.ontouchend = () => { mirrorDragging=false; document.onmousemove=document.ontouchmove=document.onmouseup=document.ontouchend=null; };
+        };
+        function drag(e) { if(!mirrorDragging) return;
+            const x=e.clientX||e.touches[0].clientX, y=e.clientY||e.touches[0].clientY;
+            popup.style.left=(x-mirrorOffset.x)+'px'; popup.style.top=(y-mirrorOffset.y)+'px'; popup.style.transform='none';
         }
+        window.onresize = () => {
+            cam.aspect = innerWidth/innerHeight; cam.updateProjectionMatrix();
+            ren.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+        };
     }
-    function startWebcam() {
+    async function startAR() {
+        if (!navigator.xr) return logError('No WebXR');
         try {
-            if (stream) return;
-            const status = $('#calibStatus');
-            status.textContent = 'INITIALIZING CAMERA...';
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            isFrontCam = isMobile;
-            navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: isFrontCam ? 'user' : 'environment',
-                    width: { ideal: 320 },
-                    height: { ideal: 240 }
-                }
-            }).then(s => {
-                stream = s;
-                const video = document.createElement('video');
-                video.id = 'webcamVideo';
-                video.srcObject = stream;
-                video.autoplay = true;
-                video.playsInline = true;
-                video.style.display = 'none';
-                document.body.appendChild(video);
-                camera = new Camera(video, {
-                    onFrame: async () => {
-                        await faceMesh.send({ image: video });
-                        const detections = await objectDetector.detect(video);
-                        onObjectDetectionResults({detections});
-                        detectArUco(video);
-                        detectSphere(video);
-                    },
-                    width: 320,
-                    height: 240
-                });
-                camera.start();
-                pipVideo = $('#pip');
-                pipVideo.srcObject = $('#webcamCanvas').captureStream(15);
-                pipVideo.style.display = 'block';
-                const canvas = $('#webcamCanvas');
-                canvas.width = 240;
-                canvas.height = 180;
-                status.textContent = 'READY FOR 3D CAPTURE';
-            }).catch(error => {
-                status.textContent = 'CAMERA ACCESS DENIED';
-                logError(`Webcam: ${error.message}`);
+            xrSession = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: {root: document.body}
             });
-        } catch (error) {
-            logError(`Webcam start: ${error.message}`);
+            ren.xr.setSession(xrSession);
+            $('#arBtn').classList.add('active');
+        } catch(e) { logError('AR: '+e.message); }
+    }
+    async function startWebcam() {
+        if (stream) return;
+        const status = $('#calibStatus'); status.textContent = 'INITIALIZING CAMERA...';
+        const mobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+        isFrontCam = mobile;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: isFrontCam?'user':'environment', width:{ideal:640}, height:{ideal:480} }
+            });
+            const video = document.createElement('video'); video.autoplay=video.playsInline=true; video.srcObject=stream;
+            camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({image: video});
+                    if (objectDetector) {
+                        const det = await objectDetector.detect(video);
+                        onObjectDetectionResults({detections:det});
+                    }
+                },
+                width: 320, height: 240
+            });
+            camera.start();
+            pipVideo = $('#pip'); pipVideo.srcObject = stream; pipVideo.style.display='block'; pipVideo.play();
+            $('#webcamCanvas').width=240; $('#webcamCanvas').height=180;
+            status.textContent = 'READY FOR 3D CAPTURE';
+        } catch(e) {
+            status.textContent = 'CAMERA DENIED';
+            logError('Webcam: '+e.message);
         }
     }
     function animate() {
-        try {
-            animationId = requestAnimationFrame(animate);
-            const deltaTime = clock.getDelta();
-            if (userObj && userObj.children.length > 0) {
-                userObj.children[0].rotation.y = -faceDirection * Math.PI / 180;
-            }
-            objects.forEach((obj, index) => {
-                obj.rotation.y += deltaTime * 0.2;
-                obj.position.y += Math.sin(Date.now() * 0.001 + index) * 0.005;
-            });
-            cam.lookAt(user);
-            ren.render(scene, cam);
-        } catch (error) {
-            logError(`Animate: ${error.message}`);
-        }
+        animationId = requestAnimationFrame(animate);
+        const dt = clock.getDelta();
+        thermalPass.uniforms.time.value += dt;
+        if (userObj.children[0]) userObj.children[0].rotation.y = -faceDirection * Math.PI/180;
+        objects.forEach((o,i)=>{ o.rotation.y += dt*0.2; o.position.y += Math.sin(Date.now()*0.001+i)*0.005; });
+        cam.lookAt(user);
+        composer.render();
     }
-    function openMirror() {
-        $('#mirrorPopup').style.display = 'block';
-    }
-    function closeMirror() {
-        $('#mirrorPopup').style.display = 'none';
-    }
+    function openMirror() { $('#mirrorPopup').style.display='block'; }
+    function closeMirror() { $('#mirrorPopup').style.display='none'; }
     function exportGeometryData() {
-        try {
-            geometryDataSchema.timestamp = new Date().toISOString();
-            const dataStr = JSON.stringify(geometryDataSchema);
-            const blob = new Blob([dataStr], {type: 'application/json'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'geometry_data.json';
-            a.click();
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            logError(`Export: ${error.message}`);
-        }
+        geometryDataSchema.timestamp = new Date().toISOString();
+        const blob = new Blob([JSON.stringify(geometryDataSchema)], {type:'application/json'});
+        const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='geometry_data.json'; a.click();
     }
     function resetScene() {
-        try {
-            objects.forEach(obj => scene.remove(obj));
-            objects = [];
-            geometryDataSchema.environmentObjects = [];
-            lightPoints.forEach(pt => scene.remove(pt));
-            lightPoints = [];
-            updateStatusPanel();
-            startWebcam();
-        } catch (error) {
-            logError(`Reset: ${error.message}`);
-        }
-    }
-    function centerView() {
-        cam.position.set(0, 0, cameraDistance);
-        cam.lookAt(user);
-    }
-    function autoStartMirror() {
-        openMirror();
-        startWebcam();
+        objects.forEach(o=>scene.remove(o)); objects=[];
+        lightPoints.forEach(p=>scene.remove(p)); lightPoints=[];
+        geometryDataSchema.environmentObjects=[]; geometryDataSchema.faceGeometry={vertices:[],normals:[],faces:[],landmarks:[]};
+        updateStatusPanel();
     }
     function updateStatusPanel() {
         $('#objectCount').textContent = objects.length;
-        $('#faceCount').textContent = userDetected ? 1 : 0;
-        $('#dataPointCount').textContent = geometryDataSchema.faceGeometry.vertices.length / 3 + objects.length;
+        $('#faceCount').textContent = userDetected?1:0;
+        $('#dataPointCount').textContent = (geometryDataSchema.faceGeometry.vertices.length/3) + objects.length;
     }
-    function cleanup() {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        if (animationId) {
-            cancelAnimationFrame(animationId);
-        }
-    }
-    window.addEventListener('load', init);
+    function autoStartMirror() { openMirror(); startWebcam(); }
+    window.onload = init;
 </script>
 </body>
 </html>
