@@ -5,258 +5,407 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>edTV: CHANNEL 7</title>
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="edTV Channel 7: Object guessing app with face and hand detection in full screen webcam.">
-    <meta name="keywords" content="AR, webcam, face detection, hand detection, object guessing">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <!-- Three.js for 3D Hero Scene -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <!-- TensorFlow.js + face-api.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
         body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
-        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
-        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3;z-index:0}
-        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:1;pointer-events:none;animation:scanline 8s linear infinite}
+        #app{position:relative;width:100%;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3;pointer-events:none}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;pointer-events:none;animation:scanline 8s linear infinite}
         @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
-        .top-banner{position:absolute;top:0;left:0;width:100%;height:50px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12;animation:glitch 3s infinite}
-        @keyframes glitch{0%,100%{transform:translateX(0)}5%{transform:translateX(-2px)}10%{transform:translateX(2px)}15%{transform:translateX(-1px)}20%{transform:translateX(1px)}25%{transform:translateX(0)}55%{transform:translateX(-1px) skewX(-2deg)}60%{transform:translateX(1px) skewX(2deg)}65%{transform:translateX(-1px) skewX(-1deg)}70%{transform:translateX(1px) skewX(1deg)}75%{transform:translateX(0)}}
-        .top-banner-text{font-size:14px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
-        .mirror-btn{width:200px;height:60px;background:#000;border:3px solid #0ff;color:#0ff;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:3px 3px 0 #000;transform:skew(-2deg);transition:0.1s;position:absolute;top:70px;left:20px;z-index:11;padding:10px;margin-bottom:20px}
-        .mirror-btn:hover,.mirror-btn:active,.mirror-btn.active{background:#0ff;color:#000}
-        .ppv-face-view{position:absolute;top:0;left:0;width:100%;height:100%;background:#000;z-index:2;overflow:hidden}
-        .ppv-canvas{width:100%;height:100%}
-        .scanner{position:absolute;top:0;left:0;width:100%;height:4px;background:red;box-shadow:0 0 20px red;animation:scan 2s linear infinite;display:none}
-        @keyframes scan{0%{top:0%}100%{top:100%}}
-        .status-panel{position:absolute;top:70px;right:20px;font-size:10px;color:#0ff;z-index:11;background:rgba(0,0,0,0.7);padding:10px;border:1px solid #0ff}
-        .guess-text{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:16px;color:#ff0;z-index:11;background:rgba(0,0,0,0.7);padding:10px;border:1px solid #ff0}
-        #hudWarning{position:absolute;top:20%;left:50%;transform:translate(-50%,-50%);color:#f00;font-size:12px;text-shadow:1px 1px #000;z-index:11;display:none}
-        #visualizationContainer{position:absolute;top:10px;right:10px;width:140px;height:105px;z-index:15;cursor:pointer;transition:0.3s;background:#000;border:2px solid #0ff;overflow:hidden}
-        #visualizationContainer.expanded{width:300px;height:225px;z-index:20}
-        @media(max-width:767px){.mirror-btn{width:180px;height:70px;font-size:16px;left:calc(50% - 90px);top:auto;bottom:100px}.status-panel{top:10px;right:10px;font-size:8px}.guess-text{font-size:14px;bottom:180px}}
+        .infrared{position:absolute;top:0;left:0;width:100%;height:4px;background:rgba(255,0,0,0.8);box-shadow:0 0 20px 5px rgba(255,0,0,0.8);animation:scanner 4s linear infinite}
+        @keyframes scanner{0%{top:0}50%{top:100%}100%{top:0}}
+
+        /* TOP: 3D HERO SCENE + PIP */
+        #heroContainer{
+            flex:1;position:relative;overflow:hidden;
+            background:#000;z-index:1;
+        }
+        #heroCanvas{width:100%;height:100%}
+        #pipCam{
+            position:absolute;top:10px;right:10px;width:180px;height:180px;
+            border:3px solid #f00;background:#000;z-index:10;
+            overflow:hidden;cursor:pointer;transition:transform .3s;
+            box-shadow:0 0 15px rgba(255,0,0,0.6);
+        }
+        #pipCam.enlarged{
+            width:100%;height:100%;top:0;right:0;z-index:30;
+            box-shadow:0 0 40px rgba(255,0,0,0.9);
+        }
+        #pipVideo{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+        #pipOverlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+
+        /* BOTTOM: CONSOLE + BUTTONS */
+        #consolePanel{
+            height:220px;background:rgba(0,0,0,0.95);border-top:3px solid #f00;
+            display:flex;flex-direction:column;z-index:20;
+        }
+        .console-header{
+            height:30px;background:#300;border-bottom:2px solid #f00;
+            display:flex;align-items:center;padding:0 10px;color:#f00;font-size:9px;
+        }
+        .console-title{flex:1}
+        .console-body{
+            flex:1;overflow-y:auto;padding:8px;
+            color:#ff5555;font-size:6.5px;line-height:1.4;
+            background:repeating-linear-gradient(0deg,#000,#000 1px,#0a0a0a 1px,#0a0a0a 2px);
+        }
+        .log-line{margin-bottom:3px}
+        .log-error{color:#ff3333}
+        .log-success{color:#33ff33}
+        .log-data{color:#ffff55;word-break:break-all}
+        .log-hash{color:#ff55ff;font-weight:bold}
+        .log-badge{color:#0ff;font-weight:bold}
+
+        .control-panel{
+            height:50px;display:flex;gap:8px;padding:0 10px;align-items:center;
+        }
+        .btn{
+            flex:1;height:40px;background:#000;border:2px solid #0ff;color:#0ff;
+            font-size:9px;display:flex;align-items:center;justify-content:center;
+            cursor:pointer;transition:background .1s,color .1s;
+        }
+        .btn:hover,.btn:active{background:#0ff;color:#000}
+        .btn.export{border-color:#0f0;color:#0f0}
+        .btn.export:hover,.btn.export:active{background:#0f0;color:#000}
+        .btn.disabled{opacity:0.5;pointer-events:none}
+
+        /* BADGE OVERLAY (FOR SCREENSHOT) */
+        #badgeOverlay{
+            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+            width:320px;padding:15px;background:rgba(0,0,0,0.9);border:3px solid #0ff;
+            color:#0ff;font-size:8px;line-height:1.5;text-align:center;z-index:40;
+            display:none;pointer-events:none;
+        }
+        .badge-title{font-size:10px;color:#0ff;margin-bottom:8px}
+        .badge-id{font-size:12px;color:#ff0;margin:5px 0}
+        .badge-serial{font-size:9px;color:#f0f;word-break:break-all;margin:5px 0}
+        .badge-hash{font-size:7px;color:#0f0;word-break:break-all}
+
+        @media (max-width:767px){
+            #pipCam{width:140px;height:140px}
+            #consolePanel{height:260px}
+            .console-body{font-size:6px}
+            .btn{height:36px;font-size:8px}
+            #badgeOverlay{width:90%;font-size:7px}
+        }
     </style>
 </head>
 <body>
-<div id="appContainer">
+<div id="app">
     <div class="matrix-grid"></div>
     <div class="crt-overlay"></div>
-    <div class="top-banner"><div class="top-banner-text">edTV: CHANNEL 7</div></div>
-    <div class="ppv-face-view" id="ppvFaceView">
-        <canvas class="ppv-canvas" id="ppvCanvas"></canvas>
-        <div class="scanner" id="scanner"></div>
+    <div class="infrared"></div>
+
+    <!-- TOP: 3D HERO + PIP -->
+    <div id="heroContainer">
+        <canvas id="heroCanvas"></canvas>
+        <div id="pipCam">
+            <video id="pipVideo" autoplay playsinline muted></video>
+            <canvas id="pipOverlay"></canvas>
+        </div>
     </div>
-    <div class="status-panel" id="statusPanel">
-        FPS: <span id="fpsCounter">60</span><br>
-        SCENE: <span id="sceneStatus">READY</span>
+
+    <!-- BOTTOM: CONSOLE + BUTTONS -->
+    <div id="consolePanel">
+        <div class="console-header">
+            <div class="console-title">edTV: CHANNEL 7</div>
+        </div>
+        <div class="console-body" id="terminalLog">
+            <div class="log-line log-success">> SYSTEM ONLINE</div>
+            <div class="log-line">> DOUBLE-CLICK PIP TO CENTER FACE</div>
+        </div>
+        <div class="control-panel">
+            <button id="startBtn" class="btn">START SCAN</button>
+            <button id="exportBtn" class="btn export disabled">EXPORT BADGE</button>
+        </div>
     </div>
-    <div class="guess-text" id="guessDisplay">Guessing...</div>
-    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
-    <button id="mirrorBtn" class="mirror-btn" aria-label="Start Scan">START SCAN</button>
-    <div id="hudWarning">NO DETECTION - STAY IN CAMERA</div>
+
+    <!-- BADGE OVERLAY (SCREENSHOT READY) -->
+    <div id="badgeOverlay">
+        <div class="badge-title">BADGE</div>
+        <div class="badge-id" id="badgeId">ID: BADGE_XXXXXX</div>
+        <div class="badge-serial" id="badgeSerial">SERIAL: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</div>
+        <div class="badge-hash" id="badgeHash">HASH: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
+    </div>
+
+    <!-- Hidden JSON -->
+    <pre id="badgeData"></pre>
 </div>
 
 <script>
-    let scene, cam, ren, controls, clock;
-    let faceWireframe, handWireframes = [];
-    let userDetected = false;
-    let stream, faceMesh, hands, camera;
-    let animationId = null;
-    let frameCount = 0, lastFpsUpdate = 0;
-    const fpsUpdateInterval = 1000;
-    let worker;
-    let faceScale = 12, handScale = 12;
-    const targetScale = 10;
-
-    const HAND_CONNECTIONS = [
-        [0,1],[1,2],[2,3],[3,4],
-        [0,5],[5,6],[6,7],[7,8],
-        [5,9],[9,10],[10,11],[11,12],
-        [9,13],[13,14],[14,15],[15,16],
-        [13,17],[17,18],[18,19],[19,20],
-        [0,17]
-    ];
-
+    // DOM
     const $ = s => document.querySelector(s);
+    const heroCanvas = $('#heroCanvas');
+    const pipCam = $('#pipCam');
+    const pipVideo = $('#pipVideo');
+    const pipOverlay = $('#pipOverlay');
+    const pipCtx = pipOverlay.getContext('2d');
+    const logEl = $('#terminalLog');
+    const startBtn = $('#startBtn');
+    const exportBtn = $('#exportBtn');
+    const badgeOverlay = $('#badgeOverlay');
+    const badgeId = $('#badgeId');
+    const badgeSerial = $('#badgeSerial');
+    const badgeHash = $('#badgeHash');
+    const badgeDataEl = $('#badgeData');
 
-    function init() {
-        init3D();
-        setupFaceDetection();
-        setupHandDetection();
-        setupServiceWorker();
-        setupEventListeners();
-        animate();
-    }
+    // 3D Scene
+    let scene, camera, renderer, controls, faceMesh;
+    let stream = null, isRunning = false, isScanning = false, detector = null;
+    let currentFaceData = null, hash = '', serial = '';
 
+    // Init 3D Scene
     function init3D() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x000000);
-        cam = new THREE.PerspectiveCamera(75, 140/105, 0.1, 1000);
-        cam.position.z = 5;
-        ren = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias:false});
-        ren.setSize(140, 105);
-        ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        controls = new THREE.OrbitControls(cam, ren.domElement);
+
+        camera = new THREE.PerspectiveCamera(45, heroCanvas.clientWidth / heroCanvas.clientHeight, 0.1, 100);
+        camera.position.set(0, 0, 3);
+
+        renderer = new THREE.WebGLRenderer({ canvas: heroCanvas, antialias: false });
+        renderer.setSize(heroCanvas.clientWidth, heroCanvas.clientHeight);
+        renderer.setPixelRatio(1);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        clock = new THREE.Clock();
-        scene.add(new THREE.AmbientLight(0x003300));
-        scene.add(new THREE.DirectionalLight(0x00ff00, 0.4).position.set(5,10,5));
-        scene.add(new THREE.GridHelper(20,20,0x004400,0x002200));
-        faceWireframe = createWireframe(468, 0x00ff00); // green for face
-        scene.add(faceWireframe);
+        controls.enableZoom = false;
+        controls.enablePan = false;
+
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 5, 5);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        animate3D();
     }
 
-    function createWireframe(numPoints, color) {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(numPoints*3), 3));
-        const mat = new THREE.LineBasicMaterial({color});
-        return new THREE.LineSegments(geo, mat);
-    }
-
-    function updateWireframe(wireframe, landmarks, connections, scale) {
-        const pos = wireframe.geometry.attributes.position.array;
-        landmarks.forEach((lm, i) => {
-            pos[i*3] = (lm.x - 0.5) * 2 * scale;
-            pos[i*3 + 1] = -(lm.y - 0.5) * 2 * scale;
-            pos[i*3 + 2] = lm.z * -2 * scale;
-        });
-        wireframe.geometry.attributes.position.needsUpdate = true;
-        const indices = [];
-        connections.forEach(([a,b]) => indices.push(a,b));
-        wireframe.geometry.setIndex(indices);
-    }
-
-    function animateWireframe() {
-        if (faceScale > targetScale) faceScale -= 0.1;
-        if (handScale > targetScale) handScale -= 0.1;
-    }
-
-    function setupFaceDetection() {
-        faceMesh = new FaceMesh({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-        faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-        faceMesh.onResults(onFaceResults);
-    }
-
-    function setupHandDetection() {
-        hands = new Hands({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-        hands.onResults(onHandResults);
-    }
-
-    function onFaceResults(results) {
-        userDetected = !!results.multiFaceLandmarks?.length;
-        const ppvCtx = $('#ppvCanvas').getContext('2d');
-        ppvCtx.clearRect(0,0, ppvCtx.canvas.width, ppvCtx.canvas.height);
-        if (results.image) ppvCtx.drawImage(results.image, 0, 0, ppvCtx.canvas.width, ppvCtx.canvas.height);
-        if (userDetected) {
-            const landmarks = results.multiFaceLandmarks[0];
-            drawConnectors(ppvCtx, landmarks, FACEMESH_TESSELATION, {color: '#00FF00', lineWidth: 1}); // green
-            updateWireframe(faceWireframe, landmarks, FACEMESH_TESSELATION, faceScale);
-            if (worker) worker.postMessage({type: 'face'});
-        }
-        $('#hudWarning').style.display = userDetected ? 'none' : 'block';
-    }
-
-    function onHandResults(results) {
-        const ppvCtx = $('#ppvCanvas').getContext('2d');
-        if (results.multiHandLandmarks) {
-            results.multiHandLandmarks.forEach((landmarks, i) => {
-                drawConnectors(ppvCtx, landmarks, HAND_CONNECTIONS, {color: '#FF0000', lineWidth: 1}); // red
-                if (!handWireframes[i]) {
-                    handWireframes[i] = createWireframe(21, 0xFF0000);
-                    scene.add(handWireframes[i]);
-                }
-                updateWireframe(handWireframes[i], landmarks, HAND_CONNECTIONS, handScale);
-                if (worker) worker.postMessage({type: 'hand'});
-            });
-        }
-    }
-
-    async function setupServiceWorker() {
-        if ('serviceWorker' in navigator) {
-            const swCode = `
-                self.addEventListener('message', (event) => {
-                    const data = event.data;
-                    let guess = 'unknown object';
-                    if (data.type === 'face') guess = Math.random() > 0.5 ? 'a face' : 'a mask?';
-                    if (data.type === 'hand') guess = Math.random() > 0.5 ? 'a hand' : 'a glove?';
-                    event.source.postMessage({guess});
-                });
-            `;
-            const blob = new Blob([swCode], {type: 'application/javascript'});
-            const url = URL.createObjectURL(blob);
-            const reg = await navigator.serviceWorker.register(url);
-            worker = reg.active || (await navigator.serviceWorker.ready).active;
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                $('#guessDisplay').textContent = `Guess: ${event.data.guess}`;
-            });
-        }
-    }
-
-    function startWebcam() {
-        navigator.mediaDevices.getUserMedia({video: {facingMode: 'user'}}).then(s => {
-            stream = s;
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.autoplay = true;
-            video.playsInline = true;
-            video.style.display = 'none';
-            document.body.appendChild(video);
-            camera = new Camera(video, {
-                onFrame: async () => {
-                    await faceMesh.send({image: video});
-                    await hands.send({image: video});
-                },
-                width: 640,
-                height: 480
-            });
-            camera.start();
-            $('#ppvCanvas').width = window.innerWidth;
-            $('#ppvCanvas').height = window.innerHeight;
-        }).catch(e => alert('Camera error'));
-    }
-
-    function setupEventListeners() {
-        $('#mirrorBtn').addEventListener('click', () => {
-            $('#mirrorBtn').classList.add('active');
-            $('#mirrorBtn').textContent = 'SCANNING';
-            startWebcam();
-            $('#scanner').style.display = 'block';
-            faceScale = 12;
-            handScale = 12;
-        });
-        $('#visualizationContainer').addEventListener('click', () => {
-            $('#visualizationContainer').classList.toggle('expanded');
-            const w = $('#visualizationContainer').clientWidth;
-            const h = $('#visualizationContainer').clientHeight;
-            cam.aspect = w / h;
-            cam.updateProjectionMatrix();
-            ren.setSize(w, h);
-        });
-        window.addEventListener('resize', () => {
-            $('#ppvCanvas').width = window.innerWidth;
-            $('#ppvCanvas').height = window.innerHeight;
-        });
-    }
-
-    function animate() {
-        animationId = requestAnimationFrame(animate);
+    function animate3D() {
+        requestAnimationFrame(animate3D);
         controls.update();
-        animateWireframe();
-        ren.render(scene, cam);
-        const now = performance.now();
-        if (now - lastFpsUpdate > fpsUpdateInterval) {
-            const fps = Math.round((frameCount * 1000) / (now - lastFpsUpdate));
-            $('#fpsCounter').textContent = fps;
-            frameCount = 0;
-            lastFpsUpdate = now;
-        }
-        frameCount++;
+        renderer.render(scene, camera);
     }
 
-    window.addEventListener('load', init);
+    // Log
+    function log(msg, type = '') {
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        line.textContent = '> ' + msg;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Generate Serial (Base32)
+    function generateSerial() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        let result = '';
+        for (let i = 0; i < 32; i++) {
+            result += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return result.match(/.{1,8}/g).join('-');
+    }
+
+    // SHA-256 Hash
+    async function generateHash(str) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Extract 3D Data
+    function extract3DFaceData(landmarks) {
+        const points = landmarks.map(p => ({
+            x: parseFloat((p[0] / pipVideo.videoWidth).toFixed(6)),
+            y: parseFloat((p[1] / pipVideo.videoHeight).toFixed(6)),
+            z: parseFloat(p[2]?.toFixed(6) || '0.000000')
+        }));
+
+        const keyIndices = [1, 33, 263, 61, 291, 199, 10, 152];
+        const keyPoints = keyIndices.filter(i => points[i]).map(i => points[i]);
+
+        return { keyLandmarks: keyPoints, fullLandmarks: points, totalLandmarks: landmarks.length };
+    }
+
+    // Build 3D Face Mesh
+    function build3DMesh(faceData) {
+        if (faceMesh) scene.remove(faceMesh);
+        const geometry = new THREE.BufferGeometry();
+        const positions = [];
+
+        faceData.fullLandmarks.forEach(p => {
+            positions.push((p.x - 0.5) * 2, (0.5 - p.y) * 2, p.z * 0.5);
+        });
+
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+        const material = new THREE.PointsMaterial({ color: 0x00ffff, size: 0.03 });
+        faceMesh = new THREE.Points(geometry, material);
+        scene.add(faceMesh);
+
+        log('3D HERO MESH RENDERED', 'log-success');
+    }
+
+    // Draw PIP Wireframe
+    function drawWireframe(landmarks) {
+        pipCtx.strokeStyle = '#f00';
+        pipCtx.lineWidth = 1.5;
+        const connections = [[33,133],[133,144],[144,145],[145,153],[153,154],[154,155],[155,133],[263,362],[362,385],[385,386],[386,387],[387,388],[388,466],[466,263]];
+        connections.forEach(([i,j]) => {
+            const p1 = landmarks[i], p2 = landmarks[j];
+            if (p1 && p2) {
+                const x1 = pipVideo.videoWidth - p1[0], y1 = p1[1];
+                const x2 = pipVideo.videoWidth - p2[0], y2 = p2[1];
+                pipCtx.beginPath(); pipCtx.moveTo(x1,y1); pipCtx.lineTo(x2,y2); pipCtx.stroke();
+            }
+        });
+    }
+
+    // Start Scan
+    async function startScan() {
+        if (isScanning) return;
+        isScanning = true;
+        startBtn.classList.add('disabled');
+        startBtn.textContent = 'SCANNING...';
+        exportBtn.classList.add('disabled');
+
+        log('SCAN ACTIVE – HOLD CENTER', 'log-success');
+        let progress = 0;
+        const timer = setInterval(async () => {
+            progress += 20;
+            if (progress >= 100) {
+                clearInterval(timer);
+                await finalizeBadge();
+            }
+        }, 1000);
+    }
+
+    // Finalize Badge
+    async function finalizeBadge() {
+        try {
+            const faces = await faceapi.detectAllFaces(pipVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+            if (faces.length === 0) throw new Error('NO FACE');
+
+            const faceData = extract3DFaceData(faces[0].landmarks);
+            hash = await generateHash(JSON.stringify(faceData.keyLandmarks));
+            serial = generateSerial();
+
+            const badge = {
+                badgeId: `BADGE_${hash.slice(0,8).toUpperCase()}`,
+                serial: serial,
+                hash: hash,
+                timestamp: new Date().toISOString(),
+                ...faceData
+            };
+
+            badgeDataEl.textContent = JSON.stringify(badge, null, 2);
+            badgeId.textContent = badge.badgeId;
+            badgeSerial.textContent = `SERIAL: ${serial}`;
+            badgeHash.textContent = `HASH: ${hash}`;
+            badgeOverlay.style.display = 'block';
+
+            build3DMesh(faceData);
+
+            log(`BADGE CREATED: ${badge.badgeId}`, 'log-badge');
+            log(`SERIAL: ${serial}`, 'log-data');
+            log(`HASH: ${hash}`, 'log-hash');
+            log(`SCREENSHOT READY`, 'log-success');
+
+            startBtn.textContent = 'START SCAN';
+            startBtn.classList.remove('disabled');
+            exportBtn.classList.remove('disabled');
+            isScanning = false;
+        } catch (err) {
+            log(`BADGE FAILED: ${err.message}`, 'log-error');
+            resetScan();
+        }
+    }
+
+    function resetScan() {
+        isScanning = false;
+        startBtn.textContent = 'START SCAN';
+        startBtn.classList.remove('disabled');
+        exportBtn.classList.add('disabled');
+        badgeOverlay.style.display = 'none';
+    }
+
+    // Export
+    exportBtn.onclick = async () => {
+        const data = `BADGE DATA\nID: ${badgeId.textContent}\nSERIAL: ${badgeSerial.textContent.replace('SERIAL: ','')}\nHASH: ${badgeHash.textContent.replace('HASH: ','')}\n\nJSON:\n${badgeDataEl.textContent}`;
+        try {
+            await navigator.clipboard.writeText(data);
+            log('BADGE + SERIAL + JSON COPIED', 'log-success');
+        } catch {
+            log('COPY FAILED', 'log-error');
+        }
+    };
+
+    // PIP Toggle
+    pipCam.ondblclick = () => {
+        pipCam.classList.toggle('enlarged');
+        log(pipCam.classList.contains('enlarged') ? 'PIP ENLARGED – CENTER FACE' : 'PIP RESTORED', 'log-success');
+    };
+
+    // Resize
+    function resize() {
+        renderer.setSize(heroCanvas.clientWidth, heroCanvas.clientHeight);
+        camera.aspect = heroCanvas.clientWidth / heroCanvas.clientHeight;
+        camera.updateProjectionMatrix();
+        if (pipVideo.videoWidth) {
+            pipOverlay.width = pipVideo.videoWidth;
+            pipOverlay.height = pipVideo.videoHeight;
+        }
+    }
+    window.addEventListener('resize', resize);
+
+    // Start Webcam
+    async function startWebcam() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+            pipVideo.srcObject = stream;
+            await new Promise(r => pipVideo.onloadedmetadata = r);
+            pipOverlay.width = pipVideo.videoWidth;
+            pipOverlay.height = pipVideo.videoHeight;
+
+            await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/');
+
+            isRunning = true;
+            detectLoop();
+            log('WEBCAM + MODELS READY', 'log-success');
+        } catch (err) {
+            log(`WEBCAM ERROR: ${err.message}`, 'log-error');
+        }
+    }
+
+    // Detection Loop
+    async function detectLoop() {
+        if (!isRunning) return;
+        try {
+            const faces = await faceapi.detectAllFaces(pipVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+            pipCtx.clearRect(0,0,pipOverlay.width,pipOverlay.height);
+            if (faces.length > 0) drawWireframe(faces[0].landmarks);
+        } catch (err) { log(`DETECT ERROR: ${err.message}`, 'log-error'); }
+        requestAnimationFrame(detectLoop);
+    }
+
+    // Init
+    window.onload = () => {
+        init3D();
+        startWebcam();
+        startBtn.onclick = () => isRunning && !isScanning && startScan();
+        log('CORPORATE BADGE SYSTEM READY', 'log-success');
+        log('> DOUBLE-CLICK PIP TO CENTER', '');
+    };
 </script>
 </body>
 </html>
