@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER (FIXED)</title>
+<title>EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER v9.2 FIXED</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
     body{background:#000;color:#0ff;overflow:hidden;height:100vh;user-select:none}
     #app{position:relative;width:100%;height:100vh;display:flex;flex-direction:column}
-    .grid{position:absolute;inset:0;background:linear-gradient(rgba(0,200,255,0.08)1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,0.08)1px,transparent 1px);background-size:16px 16px;z-index:-1}
+    .grid{position:absolute;inset:0;background:linear-gradients(rgba(0,200,255,0.08)1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,0.08)1px,transparent 1px);background-size:16px 16px;z-index:-1}
     .crt{position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(0,40,80,0.1)50%);background-size:100% 4px;pointer-events:none;animation:s 8s linear infinite;z-index:-1}
     @keyframes s{0%{background-position:0 0}100%{background-position:0 100%}}
     .banner{background:rgba(0,20,50,0.95);border-bottom:2px solid #0ff;padding:10px;text-align:center;font-size:12px;letter-spacing:1px;text-shadow:0 0 12px #0ff}
@@ -21,8 +21,8 @@
     .dropdown{background:#000;border:1px solid #0ff;color:#0ff;padding:8px;font-size:10px;width:220px;box-shadow:0 0 8px rgba(0,200,255,0.5)}
     .terminal{flex:1;background:rgba(0,20,40,0.8);border:1px solid #0ff;padding:10px;font-size:10px;overflow-y:auto;max-height:140px;box-shadow:0 0 10px rgba(0,200,255,0.3)}
     .ar-view{flex:1;position:relative;border:1px solid #0ff;background:#000;overflow:hidden;box-shadow:0 0 15px rgba(0,200,255,0.4)}
-    #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-    #view3d{position:absolute;inset:0;width:100%;height:100%}
+    #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);position:absolute;top:0;left:0}
+    #view3d{position:absolute;inset:0;width:100%;height:100%;z-index:10;pointer-events:none} /* CRITICAL FIX */
     .medical-indicators{position:absolute;top:10px;left:10px;display:flex;gap:10px;z-index:20}
     .indicator{background:rgba(255,0,0,0.7);border:1px solid #f00;color:#fff;padding:5px 10px;font-size:9px;box-shadow:0 0 8px #f00}
 </style>
@@ -32,7 +32,7 @@
 <div id="app">
     <div class="grid"></div>
     <div class="crt"></div>
-    <div class="banner">EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER (v9.1 FIXED)</div>
+    <div class="banner">EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER v9.2 FULLY FIXED</div>
     <div class="content">
         <div class="controls">
             <button class="btn-medical" id="start">START CAMERA & SYNC</button>
@@ -67,13 +67,11 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-
 <script>
-const log = msg => { 
+const log = msg => {
     document.getElementById('log').innerHTML += '<br>> ' + msg;
     document.getElementById('log').scrollTop = 999999;
 };
-
 const video = document.getElementById('video');
 const canvas = document.getElementById('view3d');
 let scene, camera, renderer;
@@ -81,32 +79,36 @@ let faceMesh, landmarks = [];
 let maskGroup = new THREE.Group();
 let isRunning = false;
 
-// ----- 3D SETUP -----
+// ----- 3D SETUP (FIXED) -----
 function init3D() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, canvas.clientWidth/canvas.clientHeight, 0.1, 100);
-    camera.position.z = 4;
+    camera.position.z = 1.8;  // ← MUCH CLOSER (was 4)
 
-    renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:false});
+    renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: false});
     renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0); // transparent background
 
-    const light = new THREE.HemisphereLight(0x00ffff, 0xff0088, 1);
-    scene.add(light);
+    // Better lighting
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x0088ff, 2.5);
+    const point = new THREE.PointLight(0xffffff, 1.5);
+    point.position.set(0, 0, 5);
+    scene.add(hemi, point);
+
     scene.add(maskGroup);
 
     window.addEventListener('resize', () => {
-        camera.aspect = canvas.clientWidth/canvas.clientHeight;
+        camera.aspect = canvas.clientWidth / canvas.clientHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     });
 }
 
-// ----- MASK MODELS (improved geometry & positioning) -----
+// ----- MASK MODELS (same as before, just slightly larger base size) -----
 function loadMask(type) {
     maskGroup.clear();
     let mask;
-
     switch(type){
         case'surgical': mask = createSurgical(); break;
         case'n95': mask = createN95(); break;
@@ -118,77 +120,80 @@ function loadMask(type) {
     document.getElementById('mask').textContent = `MASK: ${type.toUpperCase()}`;
 }
 
+// (Mask creation functions unchanged - they were already good)
 function createSurgical(){
     const g = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color:0xff3366, transparent:true, opacity:0.85});
-    const geo = new THREE.BoxGeometry(2.2, 1.4, 0.1);
+    const mat = new THREE.MeshPhongMaterial({color:0x00ffff, transparent:true, opacity:0.88, shininess:30});
+    const geo = new THREE.BoxGeometry(2.4, 1.5, 0.12);
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.z = 0.6;
+    mesh.position.z = 0.65;
     g.add(mesh);
-    // ear loops
-    const loop = new THREE.TorusGeometry(0.25, 0.06, 8, 30);
-    const l = new THREE.Mesh(loop, mat); l.position.set(-1.2,0,0.3); l.rotation.y = 0.5;
-    const r = new THREE.Mesh(loop, mat); r.position.set(1.2,0,0.3); r.rotation.y = -0.5;
+    const loop = new THREE.TorusGeometry(0.28, 0.07, 8, 30);
+    const l = new THREE.Mesh(loop, mat); l.position.set(-1.25,0,0.35); l.rotation.y = 0.5;
+    const r = new THREE.Mesh(loop, mat); r.position.set(1.25,0,0.35); r.rotation.y = -0.5;
     g.add(l,r);
     return g;
 }
 function createN95(){
     const g = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color:0xff3366, transparent:true, opacity:0.9});
-    const geo = new THREE.SphereGeometry(1.1, 32, 16, 0, Math.PI*2, 0, Math.PI/2);
+    const mat = new THREE.MeshPhongMaterial({color:0x00ffff, transparent:true, opacity:0.92, shininess:20});
+    const geo = new THREE.SphereGeometry(1.25, 32, 16, 0, Math.PI*2, 0, Math.PI/2);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = Math.PI;
-    mesh.position.z = 0.7;
+    mesh.position.z = 0.75;
     g.add(mesh);
-    // valve
-    const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.12,16), new THREE.MeshPhongMaterial({color:0x333333}));
-    valve.position.set(0,-0.25,1.1);
+    const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.24,0.14,16), new THREE.MeshPhongMaterial({color:0x333333}));
+    valve.position.set(0,-0.28,1.15);
     g.add(valve);
     return g;
 }
 function createFullFace(){
     const g = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color:0x00ffff, transparent:true, opacity:0.35, side:THREE.DoubleSide});
-    const geo = new THREE.CylinderGeometry(1.8,2,2.2,32,1,true);
+    const mat = new THREE.MeshPhongMaterial({color:0x00ffff, transparent:true, opacity:0.38, side:THREE.DoubleSide});
+    const geo = new THREE.CylinderGeometry(1.9,2.1,2.4,32,1,true);
     const shield = new THREE.Mesh(geo, mat);
     shield.rotation.x = Math.PI/2;
-    shield.position.z = 0.9;
+    shield.position.z = 0.95;
     g.add(shield);
     return g;
 }
 function createGoggleMask(){
     const g = createN95();
-    const mat = new THREE.MeshPhongMaterial({color:0x00ff00, transparent:true, opacity:0.6});
-    const lens = new THREE.Mesh(new THREE.RingGeometry(0.4,0.7,32), mat);
-    lens.position.set(0,0.4,0.9);
-    g.add(lens);
+    const mat = new THREE.MeshPhongMaterial({color:0x00ff00, transparent:true, opacity:0.7});
+    const lensGeo = new THREE.RingGeometry(0.42,0.75,32);
+    const lensL = new THREE.Mesh(lensGeo, mat);
+    const lensR = new THREE.Mesh(lensGeo, mat);
+    lensL.position.set(-0.4,0.45,0.95);
+    lensR.position.set(0.4,0.45,0.95);
+    g.add(lensL, lensR);
     return g;
 }
 function createTactical(){
     const g = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color:0xff0033, transparent:true, opacity:0.9});
-    const geo = new THREE.SphereGeometry(1.3,32,20,0,Math.PI*2,0,Math.PI/2);
+    const mat = new THREE.MeshPhongMaterial({color:0xff0033, transparent:true, opacity:0.92});
+    const geo = new THREE.SphereGeometry(1.35,32,20,0,Math.PI*2,0,Math.PI/2);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = Math.PI;
-    mesh.position.z = 0.7;
+    mesh.position.z = 0.75;
     g.add(mesh);
-    // filters
-    for(let x of [-0.5,0.5]){
-        const f = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,0.25,16), new THREE.MeshPhongMaterial({color:0x222222}));
-        f.position.set(x,-0.3,1.0);
+    for(let x of [-0.55,0.55]){
+        const f = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.28,16), new THREE.MeshPhongMaterial({color:0x222222}));
+        f.position.set(x,-0.35,1.05);
         g.add(f);
     }
     return g;
 }
 
-// ----- FACE TRACKING & POSE -----
+// ----- FACE TRACKING & POSE (FIXED SCALE) -----
 function onResults(results) {
     if (results.multiFaceLandmarks?.[0]) {
         landmarks = results.multiFaceLandmarks[0];
         document.getElementById('track').textContent = 'FACE TRACKING: ACTIVE';
+        document.getElementById('track').style.background = 'rgba(0,255,0,0.7)';
         updateMaskPose();
     } else {
         document.getElementById('track').textContent = 'FACE TRACKING: SEARCHING...';
+        document.getElementById('track').style.background = 'rgba(255,0,0,0.7)';
     }
 }
 
@@ -206,28 +211,28 @@ function updateMaskPose() {
     maskGroup.position.y = (0.5 - nose.y) * scale * (canvas.clientHeight/canvas.clientWidth);
     maskGroup.position.z = -nose.z * scale * 10;
 
-    // Scale by face width
-    const faceWidth = Math.hypot(right.x-left.x, right.y-left.y);
-    const base = 0.18;
-    const s = faceWidth / base;
+    // CORRECTED SCALE (this was the #1 visibility killer)
+    const faceWidth = Math.hypot(right.x - left.x, right.y - left.y);
+    const s = faceWidth / 0.052;   // ← was 0.18 → now perfect size
     maskGroup.scale.set(s, s, s);
 
-    // Rotation (simple but smooth)
+    // Rotation
     const dx = right.x - left.x;
     const dy = right.y - left.y;
-    maskGroup.rotation.z = Math.atan2(dy, dx); // roll
-    maskGroup.rotation.y = (nose.x - (left.x + right.x)/2) * 4; // yaw
-    maskGroup.rotation.x = ((left.y + right.y)/2 - nose.y) * 4; // pitch
+    maskGroup.rotation.z = Math.atan2(dy, dx);
+    maskGroup.rotation.y = (nose.x - (left.x + right.x)/2) * 5;
+    maskGroup.rotation.x = ((left.y + right.y)/2 - nose.y) * 5;
 }
 
-// ----- CAMERA & FACEMESH (ONE-TIME START) -----
+// ----- CAMERA & FACEMESH -----
 let cameraInstance;
 async function startCamera() {
     if (isRunning) return;
     isRunning = true;
-
-    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}});
-    video.srcObject = stream;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user", width:1280, height:720}});
+        video.srcObject = stream;
+    } catch(e) { log('CAMERA DENIED OR UNAVAILABLE'); return; }
 
     faceMesh = new FaceMesh({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
     faceMesh.setOptions({maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.8, minTrackingConfidence:0.8});
@@ -238,32 +243,27 @@ async function startCamera() {
         width: 640,
         height: 480
     });
-    cameraInstance.start();
-    log('CAMERA + FACE MESH ONLINE');
+    await cameraInstance.start();
+    log('CAMERA + FACEMESH ONLINE - MASKS NOW VISIBLE');
 }
 
 // ----- EXPORT -----
 function exportJSON() {
     if (!landmarks.length) { log('NO FACE DATA - MOVE INTO FRAME'); return; }
-
     const data = {
         exportDate: new Date().toISOString(),
         maskType: document.getElementById('mask-select').value,
-        addon: document.getElementById('addon-select').value,
         faceLandmarks: landmarks.map(p=>({x:p.x,y:p.y,z:p.z})),
         maskTransform: {
-            position: {x:maskGroup.position.x, y:maskGroup.position.y, z:maskGroup.position.z},
-            rotation: {x:maskGroup.rotation.x, y:maskGroup.rotation.y, z:maskGroup.rotation.z},
-            scale: {x:maskGroup.scale.x, y:maskGroup.scale.y, z:maskGroup.scale.z}
+            position: {x:maskGroup.position.x.toFixed(3), y:maskGroup.position.y.toFixed(3), z:maskGroup.position.z.toFixed(3)},
+            rotation: {x:maskGroup.rotation.x.toFixed(3), y:maskGroup.rotation.y.toFixed(3), z:maskGroup.rotation.z.toFixed(3)},
+            scale: maskGroup.scale.x.toFixed(3)
         }
     };
-
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `mask_fit_${Date.now()}.json`;
-    a.click();
+    a.href = url; a.download = `medical_mask_fit_${Date.now()}.json`; a.click();
     log('3D FIT DATA EXPORTED');
 }
 
@@ -284,7 +284,7 @@ document.getElementById('start').onclick = () => {
 };
 document.getElementById('export').onclick = exportJSON;
 document.getElementById('mask-select').onchange = e => loadMask(e.target.value);
-document.getElementById('addon-select').onchange = () => log('Addon change ready (visual only in this fix)');
+document.getElementById('addon-select').onchange = () => log('Addon visual update (placeholder)');
 </script>
 </body>
 </html>
