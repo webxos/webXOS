@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WIRESHARK — Core Defense</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P','Courier New',monospace;}
+    body{background:#000;color:#00f8ff;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent;}
+    #gameContainer{position:relative;width:100%;height:100vh;overflow:hidden;}
+    #gameCanvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;}
+
+    .hud{position:absolute;inset:0;z-index:2;pointer-events:none;}
+    .ui-panel{background:rgba(0,20,40,0.8);border:2px solid #00ff00;padding:8px;box-shadow:0 0 12px #00ff00;font-size:10px;}
+
+    .core-health{position:absolute;top:10px;left:10px;width:200px;height:20px;background:#001;border:2px solid #00ff00;}
+    .core-fill{height:100%;background:linear-gradient(90deg,#00ff00,#00ff88);width:100%;transition:width 0.2s linear;}
+    .core-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:9px;color:#000;text-shadow:0 0 3px #00ff00;}
+
+    .shark-health{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:320px;height:20px;background:#001;border:2px solid #ff1040;display:none;}
+    .shark-fill{height:100%;background:linear-gradient(90deg,#ff1040,#ff0033);width:100%;transition:width 0.25s ease;}
+    .shark-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:9px;color:#fff;text-shadow:0 0 3px #000;}
+
+    .timer{position:absolute;top:50px;left:50%;transform:translateX(-50%);padding:5px 12px;font-size:16px;text-shadow:0 0 15px #00ff00;}
+    .wave{position:absolute;top:80px;left:50%;transform:translateX(-50%);padding:5px 10px;font-size:12px;}
+    .score{position:absolute;top:110px;left:50%;transform:translateX(-50%);padding:5px 10px;font-size:11px;}
+
+    .crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:20px;height:20px;pointer-events:none;}
+    .crosshair::before,.crosshair::after{content:'';position:absolute;background:#00ff00;box-shadow:0 0 4px #00ff00;}
+    .crosshair::before{top:50%;left:0;width:100%;height:1px;transform:translateY(-50%);}
+    .crosshair::after{left:50%;top:0;height:100%;width:1px;transform:translateX(-50%);}
+    .crosshair>div{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:3px;height:3px;background:#00ff00;border-radius:50%;box-shadow:0 0 5px #00ff00;}
+
+    .harpoon-count{position:absolute;bottom:60px;right:20px;padding:5px 10px;font-size:12px;color:#00ff00;text-shadow:0 0 8px #00ff00;}
+    .snare-status{position:absolute;bottom:90px;right:20px;padding:5px 10px;font-size:12px;color:#ff1040;text-shadow:0 0 8px #ff1040;}
+    .companion-status{position:absolute;bottom:20px;right:20px;padding:5px 10px;font-size:12px;color:#00aaff;text-shadow:0 0 8px #00aaff;display:none;}
+    .companion-health{width:160px;height:8px;background:#001;border:1px solid #00aaff;margin-top:5px;}
+    .companion-fill{height:100%;background:linear-gradient(90deg,#00aaff,#66ddff);width:100%;transition:width 0.2s linear;}
+
+    .ability-cooldowns{position:absolute;bottom:130px;right:20px;display:flex;gap:8px;}
+    .cd{width:40px;height:40px;border:2px solid #00ff00;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;color:#00ff00;text-shadow:0 0 5px #00ff00;overflow:hidden;position:relative;}
+    .cd .overlay{position:absolute;bottom:0;left:0;width:100%;height:0%;background:rgba(0,0,0,0.7);display:none;transition:height 0.2s linear;}
+    .cd.r{border-color:#00ff00;color:#00ff00}
+    .cd.s{border-color:#ff1040;color:#ff1040}
+
+    .loading-screen{position:absolute;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;}
+    .loading-bar{width:300px;height:16px;background:#001;border:1px solid #00ff00;margin-top:15px;overflow:hidden;}
+    .loading-fill{height:100%;background:#00ff00;width:0%;transition:width 0.3s;}
+
+    .menu{position:absolute;inset:0;background:rgba(0,10,30,0.98);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:10;text-shadow:0 0 20px #00ff00,0 0 40px #00ff00;animation:glow 2s infinite alternate;}
+    @keyframes glow{from{text-shadow:0 0 15px #00ff00,0 0 30px #00ff00;}to{text-shadow:0 0 25px #00ff00,0 0 50px #00ff00;}}
+    .title{font-size:48px;margin-bottom:10px;color:#00ff00;letter-spacing:3px;}
+    .subtitle{font-size:14px;margin-bottom:30px;color:#00aa00;}
+    .menu-btn{padding:12px 30px;background:rgba(0,60,0,0.8);border:2px solid #00ff00;color:#00ff00;font-size:16px;cursor:pointer;margin:10px;transition:all 0.3s;pointer-events:auto;box-shadow:0 0 15px #00ff00;}
+    .menu-btn:hover{background:rgba(0,120,0,0.9);box-shadow:0 0 25px #00ff00;}
+
+    .controls-info{position:absolute;bottom:10px;left:10px;padding:5px 10px;font-size:8px;color:#00ff00;background:rgba(0,20,0,0.5);border:1px solid #00ff00;display:none;}
+    .fullscreen-btn{position:absolute;top:10px;right:10px;padding:6px 12px;background:rgba(0,60,0,0.8);border:1px solid #00ff00;color:#00ff00;font-size:10px;cursor:pointer;z-index:100;}
+
+    .game-over{position:absolute;inset:0;background:rgba(0,0,0,0.9);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:20;}
+    .game-over-title{font-size:50px;color:#00ff00;text-shadow:0 0 20px #00ff00;margin-bottom:20px;}
+    .stats{background:rgba(0,20,0,0.8);border:1px solid #00ff00;padding:15px;margin:20px 0;min-width:320px;}
+    .stat{font-size:12px;margin:5px 0;display:flex;justify-content:space-between;}
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <div class="loading-screen" id="loadingScreen">
+      <h1 class="title">WIRESHARK</h1>
+      <div class="subtitle">CORE DEFENSE</div>
+      <div class="loading-bar"><div class="loading-fill" id="loadingFill"></div></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="hud">
+      <div class="core-health ui-panel">
+        <div class="core-fill" id="coreFill"></div>
+        <div class="core-text">CORE: <span id="corePercent">100%</span></div>
+      </div>
+
+      <div class="shark-health ui-panel" id="sharkHealth">
+        <div class="shark-fill" id="sharkFill"></div>
+        <div class="shark-text">BOSS: <span id="sharkPercent">100%</span></div>
+      </div>
+
+      <div class="timer ui-panel" id="timer">00:00</div>
+      <div class="wave ui-panel" id="wave">WAVE 1/4</div>
+      <div class="score ui-panel" id="scoreHUD">SCORE: 0 (lower is better)</div>
+
+      <div class="harpoon-count ui-panel" id="harpoonHUD">LMB: LASER HARPOON (AUTO)</div>
+      <div class="snare-status ui-panel" id="snareHUD">RMB: CAGE LAUNCH (Ready)</div>
+
+      <div class="companion-status ui-panel" id="companionStatus">
+        SIDEKICK: READY
+        <div class="companion-health"><div class="companion-fill" id="companionFill"></div></div>
+      </div>
+
+      <div class="ability-cooldowns">
+        <div class="cd r" title="Enrage (R)"><span>R</span><div class="overlay" id="enrageOverlay"></div></div>
+        <div class="cd s" title="Snare (RMB)"><span>⧉</span><div class="overlay" id="snareOverlay"></div></div>
+      </div>
+
+      <div class="crosshair"><div></div></div>
+      <div class="controls-info" id="controlsInfo">WASD: MOVE | MOUSE: AIM | LMB: AUTO FIRE | RMB: CAGE SNARE | SHIFT: BOOST | R: ENRAGE SIDEKICK</div>
+      <div class="fullscreen-btn" id="fullscreenBtn">FULL</div>
+    </div>
+
+    <div class="game-over" id="gameOver">
+      <h1 class="game-over-title" id="endTitle">MISSION COMPLETE</h1>
+      <div class="stats">
+        <div class="stat"><span>TIME:</span> <span id="finalTime">00:00</span></div>
+        <div class="stat"><span>SHARKS:</span> <span id="finalSharks">0</span></div>
+        <div class="stat"><span>COMPANION LEVEL:</span> <span id="finalCompanionLevel">1</span></div>
+        <div class="stat"><span>CORE DAMAGE:</span> <span id="finalCoreDamage">0</span></div>
+        <div class="stat"><span>BOSS DAMAGE TO PLAYER:</span> <span id="finalBossDamage">0</span></div>
+        <div class="stat"><span>FINAL SCORE:</span> <span id="finalScore">0</span></div>
+      </div>
+      <div class="menu-btn" id="playAgain">REBOOT CORE</div>
+      <div class="menu-btn" id="menuBtn">ABORT MISSION</div>
+    </div>
+
+    <div class="menu" id="menu">
+      <h1 class="title">WIRESHARK</h1>
+      <div class="subtitle">CORE DEFENSE</div>
+      <div class="menu-btn" id="startBtn">INITIATE CORE</div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+    const TAU=Math.PI*2;
+
+    const Game={
+      state:'loading',
+      scene:null,camera:null,renderer:null,
+      player:null,gun:null,
+      sharks:[],harpoons:[],bubbles:[],snares:[],
+      cage:null,core:null,companion:null,
+      clock:new THREE.Clock(),
+      stats:{
+        coreHealth:100,wave:1,time:0,sharksKilled:0,
+        companionLevel:1,companionExp:0,companionActive:false,
+        enrageCooldown:0,snareCooldown:0,
+        timerHandle:null,coreDamageTaken:0,bossDamageToPlayer:0
+      },
+      controls:{forward:false,backward:false,left:false,right:false,boost:false,fire:false},
+      pointerLocked:false,moveSpeed:15,boostSpeed:30,
+      pitch:0,yaw:0,
+      zones:{outer:22},
+      harpoonPoolSize:160,fireIntervalMs:80,lastFire:0,
+      currentTarget:null
+    };
+
+    // Glow trail (additive)
+    function makeGlowTrail(color=0x66ffcc, len=1.8, width=0.22){
+      const geom = new THREE.PlaneGeometry(width,len);
+      const mat  = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.45, side:THREE.DoubleSide, blending:THREE.AdditiveBlending });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.rotation.x = Math.PI/2;
+      return mesh;
+    }
+
+    // Bubbles
+    function createBubble(){
+      const m=new THREE.Mesh(
+        new THREE.SphereGeometry(0.1+Math.random()*0.2,6,4),
+        new THREE.MeshBasicMaterial({ color:0x00ff00, wireframe:true, transparent:true, opacity:0.6 })
+      );
+      m.position.set((Math.random()-0.5)*40,-20,(Math.random()-0.5)*40);
+      m.velocity=new THREE.Vector3((Math.random()-0.5)*0.1,0.5+Math.random()*0.5,(Math.random()-0.5)*0.1);
+      m.life=10+Math.random()*10;
+      return m;
+    }
+    function createBubbleTrail(shark,color=0xff0000){
+      const t=new THREE.Mesh(
+        new THREE.SphereGeometry(0.05+Math.random()*0.1,4,3),
+        new THREE.MeshBasicMaterial({ color, wireframe:true, transparent:true, opacity:0.6 })
+      );
+      const off=new THREE.Vector3(0,0,-1).applyQuaternion(shark.quaternion);
+      t.position.copy(shark.position).add(off);
+      t.velocity=new THREE.Vector3((Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2);
+      t.life=1.3+Math.random()*1.3;
+      return t;
+    }
+
+    // Gun
+    function createGatlingHarpoonGun(){
+      const group=new THREE.Group();
+      const body=new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35,0.35,1.2,12),
+        new THREE.MeshLambertMaterial({ color:0x00ff00, wireframe:true })
+      );
+      body.rotation.x=Math.PI/2; body.position.z=0.6; group.add(body);
+
+      const barrels=new THREE.Group();
+      for(let i=0;i<6;i++){
+        const ang=(i/6)*TAU;
+        const barrel=new THREE.Mesh(
+          new THREE.CylinderGeometry(0.05,0.05,1.5,12),
+          new THREE.MeshLambertMaterial({ color:0x00ff00, wireframe:true })
+        );
+        barrel.rotation.x=Math.PI/2;
+        barrel.position.set(Math.cos(ang)*0.22,Math.sin(ang)*0.22,0.8);
+        barrels.add(barrel);
+      }
+      group.add(barrels); group.barrels=barrels;
+
+      const handle=new THREE.Mesh(
+        new THREE.BoxGeometry(0.2,0.35,0.5),
+        new THREE.MeshLambertMaterial({ color:0x004400, wireframe:true })
+      );
+      handle.position.set(0,-0.25,0.2);
+      group.add(handle);
+
+      const drum=new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35,0.35,0.35,12),
+        new THREE.MeshLambertMaterial({ color:0x00aa00, wireframe:true })
+      );
+      drum.rotation.x=Math.PI/2; drum.position.set(0,0,-0.25); group.add(drum);
+
+      return group;
+    }
+
+    // Laser harpoon bolt (larger, wireframe + additive trail)
+    function createHarpoon(){
+      const group=new THREE.Group();
+      const shaft=new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045,0.045,1.6,16),
+        new THREE.MeshLambertMaterial({ color:0x00ff55, wireframe:true })
+      );
+      shaft.rotation.x=Math.PI/2; shaft.position.z=0.8;
+
+      const tip=new THREE.Mesh(
+        new THREE.ConeGeometry(0.08,0.28,14),
+        new THREE.MeshLambertMaterial({ color:0x00ff88, wireframe:true })
+      );
+      tip.position.z=1.4;
+
+      const trail=makeGlowTrail(0x99ffdd, 2.2, 0.28); trail.position.z=0.2;
+
+      group.add(shaft,tip,trail);
+      group.velocity=new THREE.Vector3();
+      group.damage=65;
+      group.spawnTime=performance.now();
+      return group;
+    }
+
+    // Core
+    function createCore(){
+      const group=new THREE.Group();
+      const core=new THREE.Mesh(
+        new THREE.SphereGeometry(1.5,16,12),
+        new THREE.MeshStandardMaterial({ color:0x00ff00, wireframe:true, emissive:0x00ff00, emissiveIntensity:0.7 })
+      );
+      const innerGlow=new THREE.Mesh(
+        new THREE.SphereGeometry(0.8,12,8),
+        new THREE.MeshStandardMaterial({ color:0x00ff00, wireframe:false, transparent:true, opacity:0.25, emissive:0x00ff00, emissiveIntensity:1.0 })
+      );
+      core.pulseTime=0; innerGlow.pulseTime=0;
+      group.add(core,innerGlow); group.core=core; group.innerGlow=innerGlow;
+      return group;
+    }
+    function updateCoreAnimation(c,d){
+      c.core.pulseTime+=d; c.innerGlow.pulseTime+=d;
+      const p=Math.sin(c.core.pulseTime*3)*0.1+0.9;
+      const ip=Math.sin(c.innerGlow.pulseTime*5)*0.2+0.8;
+      c.core.scale.set(p,p,p); c.innerGlow.scale.set(ip,ip,ip);
+    }
+
+    // Cage
+    function createGlobeCage(){
+      const r=Game.zones.outer;
+      return new THREE.Mesh(
+        new THREE.SphereGeometry(r,32,24),
+        new THREE.MeshLambertMaterial({ color:0x00ff00, wireframe:true, transparent:true, opacity:0.12 })
+      );
+    }
+
+    // Sharks
+    function createShark({color=0x000000, size=1.2, health=1000, isBoss=false, isCompanion=false}){
+      const group=new THREE.Group();
+      const body=new THREE.Mesh(
+        new THREE.TetrahedronGeometry(size,0),
+        new THREE.MeshLambertMaterial({ color, wireframe:true, emissive:isCompanion?0x0088ff:0xff0011, emissiveIntensity:isBoss?0.9:(isCompanion?0.8:0.6) })
+      );
+      body.rotation.x=Math.PI/2; group.add(body);
+
+      const tail=new THREE.Mesh(
+        new THREE.ConeGeometry(size*0.45,size*0.85,8),
+        new THREE.MeshLambertMaterial({ color, wireframe:true })
+      );
+      tail.position.z=-size*0.85; tail.rotation.x=Math.PI;
+      group.add(tail);
+
+      // Neural glow helpers
+      const glowColor = isCompanion ? 0x33bbff : 0xff1133;
+      group.add(new THREE.PointLight(glowColor, 0.7, isBoss?22:14));
+
+      group.health=health; group.maxHealth=health;
+      group.speed=(isBoss?3.0:(isCompanion?4.4:3.6)) + Math.random()*1.2;
+      group.isBoss=isBoss; group.isCompanion=isCompanion;
+      group.animationTime=0; group.tail=tail;
+      group.lastAttack=0; group.lastBubble=0;
+      group.snaredUntil=0; group.snareCage=null;
+      // Boss charge
+      group.chargeCooldown= isBoss ? 6 : 0; // seconds
+      group.charging=false; group.chargeUntil=0;
+      return group;
+    }
+    function updateSharkAnimation(s,d){
+      s.animationTime+=d;
+      if (s.tail) s.tail.rotation.x = Math.PI + Math.sin(s.animationTime*10)*0.3;
+      if (s.isBoss){
+        const p = Math.sin(s.animationTime*2.2)*0.15 + 0.85;
+        s.scale.set(p,p,p);
+      }
+    }
+
+    // Snare projectile
+    function createSnareCubeProjectile(){
+      const cube=new THREE.Mesh(
+        new THREE.BoxGeometry(0.45,0.45,0.45),
+        new THREE.MeshBasicMaterial({ color:0xff1040, wireframe:true })
+      );
+      cube.velocity=new THREE.Vector3();
+      cube.spawnTime=performance.now();
+      cube.life=2500; // ms
+      return cube;
+    }
+    function applySnareToShark(s){
+      const cage=new THREE.Mesh(
+        new THREE.BoxGeometry(2.4,2.4,2.4),
+        new THREE.MeshBasicMaterial({ color:0xff1040, wireframe:true, transparent:true, opacity:0.9 })
+      );
+      s.add(cage); s.snareCage=cage; s.snaredUntil=performance.now()+10000;
+    }
+    function clearSnare(s){
+      if (s.snareCage){ s.remove(s.snareCage); s.snareCage=null; }
+      s.snaredUntil=0;
+    }
+
+    function init(){
+      const canvas=document.getElementById('gameCanvas');
+      Game.renderer=new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'low-power' });
+      Game.renderer.setPixelRatio(1);
+      Game.renderer.setSize(innerWidth,innerHeight);
+
+      Game.scene=new THREE.Scene();
+      Game.scene.background=new THREE.Color(0x00001a);
+      Game.scene.fog=new THREE.Fog(0x00001a,10,60);
+
+      Game.camera=new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 120);
+      Game.camera.position.set(0,5,15);
+
+      const ambient=new THREE.AmbientLight(0x003300,0.95);
+      const dir=new THREE.DirectionalLight(0x00ff88,0.5); dir.position.set(10,20,10);
+      const back=new THREE.DirectionalLight(0x008800,0.3); back.position.set(-10,10,-10);
+      Game.scene.add(ambient,dir,back);
+
+      Game.cage=createGlobeCage(); Game.scene.add(Game.cage);
+      Game.core=createCore(); Game.core.position.set(0,5,0); Game.scene.add(Game.core);
+
+      for(let i=0;i<40;i++){ const b=createBubble(); Game.bubbles.push(b); Game.scene.add(b); }
+
+      Game.player=new THREE.Group();
+      Game.gun=createGatlingHarpoonGun();
+      Game.gun.position.set(0.6,-0.4,-1.0);
+      Game.gun.scale.set(0.9,0.9,0.9);
+      Game.player.add(Game.gun);
+      Game.camera.add(Game.player);
+      Game.scene.add(Game.camera);
+
+      window.addEventListener('resize', onResize); onResize();
+
+      setTimeout(()=>{
+        const lf=document.getElementById('loadingFill'); lf.style.width='100%';
+        setTimeout(()=>{
+          document.getElementById('loadingScreen').remove();
+          document.getElementById('menu').style.display='flex';
+          document.getElementById('controlsInfo').style.display='block';
+          Game.state='menu';
+        },300);
+      },400);
+    }
+    function onResize(){
+      const w=innerWidth,h=innerHeight;
+      Game.camera.aspect=w/h; Game.camera.updateProjectionMatrix();
+      Game.renderer.setSize(w,h,false);
+    }
+
+    // Streamlined waves: 1–3 normal; 4 is boss
+    function startWave(wave){
+      Game.stats.wave=wave;
+      document.getElementById('wave').textContent=`WAVE ${wave}/4`;
+      const isBoss = wave===4;
+      document.getElementById('sharkHealth').style.display = isBoss ? 'block' : 'none';
+
+      // remove non-companions
+      Game.sharks = Game.sharks.filter(s=>s.isCompanion);
+
+      const sizes=[1.1,1.3,1.5,4.2];
+      const healths=[900,1400,2000,26000];
+      const counts=[5,7,9,12]; // last wave lots of adds + boss
+
+      // Spawn adds (black wireframe + red neural glow)
+      for(let i=0;i<counts[wave-1];i++){
+        const s=createShark({ color:0x000000, size:sizes[wave-1], health:healths[wave-1], isBoss:false, isCompanion:false });
+        const ang=(i/counts[wave-1])*TAU; const r=Game.zones.outer-2;
+        s.position.set(Math.cos(ang)*r, 5+Math.random()*6, Math.sin(ang)*r);
+        Game.sharks.push(s); Game.scene.add(s);
+      }
+
+      // Boss wave
+      if (isBoss){
+        const boss=createShark({ color:0x000000, size:sizes[wave-1], health:healths[wave-1], isBoss:true, isCompanion:false });
+        // Red neural glow boost
+        boss.children.forEach(c=>{ if (c.isLight) c.color=new THREE.Color(0xff2233); });
+        boss.position.set(0,7,Game.zones.outer-3);
+        Game.sharks.push(boss); Game.scene.add(boss);
+        const pct=(boss.health/boss.maxHealth)*100;
+        document.getElementById('sharkFill').style.width=`${pct}%`;
+        document.getElementById('sharkPercent').textContent=`${Math.round(pct)}%`;
+      }
+
+      // Sidekick ensure
+      ensureSidekick();
+
+      // Timer and score HUD
+      if (Game.stats.timerHandle) clearInterval(Game.stats.timerHandle);
+      Game.stats.time=0;
+      Game.stats.timerHandle=setInterval(()=>{
+        Game.stats.time++;
+        const m=String(Math.floor(Game.stats.time/60)).padStart(2,'0');
+        const s=String(Game.stats.time%60).padStart(2,'0');
+        document.getElementById('timer').textContent=`${m}:${s}`;
+        document.getElementById('scoreHUD').textContent = `SCORE: ${Game.stats.coreDamageTaken + Game.stats.bossDamageToPlayer} (lower is better)`;
+      },1000);
+    }
+
+    function ensureSidekick(){
+      if (Game.companion) return;
+      const sidekick = createShark({ color:0x000000, size:1.6, health:900, isBoss:false, isCompanion:true });
+      sidekick.position.copy(Game.core.position).add(new THREE.Vector3(4,0,0));
+      Game.companion=sidekick; Game.sharks.push(sidekick); Game.scene.add(sidekick);
+      Game.stats.companionActive=true;
+      document.getElementById('companionStatus').style.display='block';
+      document.getElementById('companionStatus').innerHTML = `SIDEKICK: LEVEL ${Game.stats.companionLevel}<div class="companion-health"><div class="companion-fill" id="companionFill"></div></div>`;
+    }
+
+    // Enrage (R) — 10s giant form, 60s cooldown
+    function triggerEnrage(){
+      if (!Game.companion || Game.stats.enrageCooldown>0) return;
+      const c=Game.companion;
+      const originalScale=c.scale.clone();
+      const originalSpeed=c.speed;
+      c.scale.set(3.0,3.0,3.0);
+      c.speed=originalSpeed*1.6;
+      c.enragedUntil=performance.now()+10000;
+      Game.stats.enrageCooldown=60;
+      const ov=document.getElementById('enrageOverlay');
+      ov.style.display='block'; ov.style.height='100%';
+      setTimeout(()=>{ c.scale.copy(originalScale); c.speed=originalSpeed; c.enragedUntil=0; },10000);
+    }
+
+    // RMB snare fire
+    function fireSnare(){
+      if (Game.stats.snareCooldown>0) return;
+      const cube=createSnareCubeProjectile();
+      const dir=new THREE.Vector3(0,0,-1).applyQuaternion(Game.camera.quaternion);
+      cube.position.copy(Game.camera.position).add(dir.clone().multiplyScalar(2.0));
+      cube.velocity.copy(dir.multiplyScalar(58));
+      Game.scene.add(cube);
+      Game.snares.push(cube);
+      Game.stats.snareCooldown=5;
+      const ov=document.getElementById('snareOverlay'); ov.style.display='block'; ov.style.height='100%';
+      document.getElementById('snareHUD').textContent='RMB: CAGE LAUNCH (Cooling...)';
+    }
+
+    // LMB fire laser harpoon
+    function fireHarpoon(now){
+      if (Game.harpoons.length >= Game.harpoonPoolSize) return;
+      const h=createHarpoon();
+      h.scale.set(0.9,0.9,0.9);
+      const dir=new THREE.Vector3(0,0,-1).applyQuaternion(Game.camera.quaternion);
+      h.position.copy(Game.camera.position).add(dir.clone().multiplyScalar(2.4));
+      h.velocity.copy(dir.multiplyScalar(95));
+      h.quaternion.copy(Game.camera.quaternion);
+      Game.scene.add(h);
+      Game.harpoons.push(h);
+    }
+
+    function update(){
+      if (Game.state!=='playing') return;
+      const d=Math.min(Game.clock.getDelta(),0.05);
+      const now=performance.now();
+
+      // Barrel spin
+      if (Game.gun?.barrels){ Game.gun.barrels.rotation.z += (Game.controls.fire?22:6)*d; }
+
+      // Cooldowns
+      if (Game.stats.enrageCooldown>0){
+        Game.stats.enrageCooldown=Math.max(0,Game.stats.enrageCooldown-d);
+        const pct=(Game.stats.enrageCooldown/60)*100;
+        const ov=document.getElementById('enrageOverlay'); ov.style.display='block'; ov.style.height=`${pct}%`; if (pct<=0) ov.style.display='none';
+      }
+      if (Game.stats.snareCooldown>0){
+        Game.stats.snareCooldown=Math.max(0,Game.stats.snareCooldown-d);
+        const pct=(Game.stats.snareCooldown/5)*100;
+        const ov=document.getElementById('snareOverlay'); ov.style.display='block'; ov.style.height=`${pct}%`; if (pct<=0){ ov.style.display='none'; document.getElementById('snareHUD').textContent='RMB: CAGE LAUNCH (Ready)'; }
+      }
+
+      // Auto fire cadence
+      if (Game.controls.fire && (now - Game.lastFire) >= Game.fireIntervalMs){ Game.lastFire=now; fireHarpoon(now); }
+
+      // Movement
+      const speed=Game.controls.boost?Game.boostSpeed:Game.moveSpeed;
+      const forward=new THREE.Vector3(); Game.camera.getWorldDirection(forward); forward.y=0; forward.normalize();
+      const right=new THREE.Vector3().crossVectors(forward,Game.camera.up).normalize();
+      const move=new THREE.Vector3();
+      if (Game.controls.forward) move.add(forward);
+      if (Game.controls.backward) move.sub(forward);
+      if (Game.controls.left) move.sub(right);
+      if (Game.controls.right) move.add(right);
+      if (move.length()>0){ move.normalize().multiplyScalar(speed*d); Game.camera.position.add(move); }
+
+      // Cage limit
+      const center=new THREE.Vector3(0,5,0);
+      const dist=Game.camera.position.distanceTo(center);
+      if (dist>Game.zones.outer){
+        const dir=new THREE.Vector3().subVectors(Game.camera.position,center).normalize();
+        Game.camera.position.copy(center).add(dir.multiplyScalar(Game.zones.outer*0.96));
+      }
+
+      updateCoreAnimation(Game.core,d);
+
+      // Bubbles
+      for(let i=Game.bubbles.length-1;i>=0;i--){
+        const b=Game.bubbles[i];
+        b.position.addScaledVector(b.velocity,d);
+        b.life-=d;
+        if (b.position.y>25 || b.life<=0){
+          Game.scene.remove(b);
+          const nb=createBubble(); Game.bubbles[i]=nb; Game.scene.add(nb);
+        }
+      }
+
+      // Harpoons
+      for(let i=Game.harpoons.length-1;i>=0;i--){
+        const h=Game.harpoons[i];
+        h.position.addScaledVector(h.velocity,d);
+        h.rotation.z+=d*24;
+        if (h.children[2]) h.children[2].position.z -= d*36;
+        if (h.position.length()>75 || (now - h.spawnTime)>4500){
+          Game.scene.remove(h); Game.harpoons.splice(i,1); continue;
+        }
+        // collisions
+        for(let j=0;j<Game.sharks.length;j++){
+          const s=Game.sharks[j];
+          if (s.isCompanion || s.health<=0) continue;
+          const hitR=s.isBoss?3.2:2.2;
+          if (h.position.distanceTo(s.position) < hitR){
+            s.health -= h.damage;
+            Game.scene.remove(h); Game.harpoons.splice(i,1);
+
+            Game.currentTarget = s;
+
+            // Companion exp
+            if (Game.companion){
+              Game.stats.companionExp += 8;
+              if (Game.stats.companionExp>=100){
+                Game.stats.companionLevel++;
+                Game.stats.companionExp=0;
+                Game.companion.health += 120;
+                Game.companion.maxHealth += 120;
+                document.getElementById('companionStatus').innerHTML = `SIDEKICK: LEVEL ${Game.stats.companionLevel}<div class="companion-health"><div class="companion-fill" id="companionFill"></div></div>`;
+              }
+            }
+
+            if (s.isBoss){
+              const pct=clamp((s.health/s.maxHealth)*100,0,100);
+              document.getElementById('sharkFill').style.width=`${pct}%`;
+              document.getElementById('sharkPercent').textContent=`${Math.round(pct)}%`;
+            }
+
+            if (s.health<=0){
+              clearSnare(s);
+              Game.scene.remove(s);
+              Game.sharks.splice(j,1);
+              Game.stats.sharksKilled++;
+              // End only on boss death if last wave
+              const remainingEnemies = Game.sharks.filter(x=>!x.isCompanion);
+              const bossAlive = remainingEnemies.some(x=>x.isBoss);
+              if (!bossAlive && Game.stats.wave===4){
+                win(); // boss defeated
+              } else if (remainingEnemies.length===0 && Game.stats.wave<4){
+                setTimeout(()=>startWave(Game.stats.wave+1),1500);
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      // Snares
+      for (let i=Game.snares.length-1;i>=0;i--){
+        const c=Game.snares[i];
+        c.position.addScaledVector(c.velocity,d);
+        if ((now - c.spawnTime)>c.life || c.position.length()>70){
+          Game.scene.remove(c); Game.snares.splice(i,1); continue;
+        }
+        for(let j=0;j<Game.sharks.length;j++){
+          const s=Game.sharks[j];
+          if (s.isCompanion || s.health<=0) continue;
+          if (c.position.distanceTo(s.position) < (s.isBoss?3.0:2.0)){
+            applySnareToShark(s);
+            Game.scene.remove(c); Game.snares.splice(i,1);
+            break;
+          }
+        }
+      }
+
+      // Sharks
+      Game.sharks.forEach(s=>{
+        if (s.health<=0) return;
+        updateSharkAnimation(s,d);
+
+        if ((now - s.lastBubble)>180){
+          const t=createBubbleTrail(s, s.isCompanion?0x00aaff:0xff0000);
+          Game.bubbles.push(t); Game.scene.add(t); s.lastBubble=now;
+        }
+
+        const snared = s.snaredUntil && now < s.snaredUntil;
+        if (!snared && s.snaredUntil && now >= s.snaredUntil){ clearSnare(s); }
+
+        // Targeting and boss charge
+        let targetPos;
+        if (s.isCompanion){
+          // Follow current target or player's aim direction
+          const dirAim=new THREE.Vector3(0,0,-1).applyQuaternion(Game.camera.quaternion);
+          targetPos = Game.currentTarget && Game.currentTarget.health>0 ? Game.currentTarget.position.clone() : Game.camera.position.clone().add(dirAim.multiplyScalar(6));
+        } else {
+          // Normal enemies: target core; Boss (wave 4): target player with charge
+          if (s.isBoss && Game.stats.wave===4){
+            // Charge attack: periodically dash toward player
+            if (!snared){
+              s.chargeCooldown -= d;
+              if (!s.charging && s.chargeCooldown <= 0){
+                s.charging = true;
+                s.chargeUntil = now + 1200; // 1.2s charge window
+                s.chargeCooldown = 6 + Math.random()*2;
+              }
+              if (s.charging && now < s.chargeUntil){
+                const dirToPlayer = new THREE.Vector3().subVectors(Game.camera.position, s.position).normalize();
+                s.position.addScaledVector(dirToPlayer, s.speed * 2.3 * d); // fast burst
+                s.lookAt(Game.camera.position);
+              } else if (s.charging && now >= s.chargeUntil){
+                s.charging = false;
+              }
+            }
+            targetPos = Game.camera.position;
+          } else {
+            targetPos = Game.core.position;
+          }
+        }
+
+        if (!snared){
+          const dir=new THREE.Vector3().subVectors(targetPos, s.position).normalize();
+          // Boss charge adds movement above; normal move:
+          if (!(s.isBoss && s.charging)) s.position.addScaledVector(dir, s.speed*d);
+          s.lookAt(targetPos);
+        }
+
+        // Sidekick melee
+        if (s.isCompanion){
+          let target = Game.currentTarget && Game.currentTarget.health>0 ? Game.currentTarget : null;
+          if (!target){
+            let nearest=null, nd=Infinity;
+            for (const e of Game.sharks){
+              if (e.isCompanion || e.health<=0) continue;
+              const dd=s.position.distanceTo(e.position);
+              if (dd<9 && dd<nd){ nd=dd; nearest=e; }
+            }
+            target=nearest;
+          }
+          if (target && (now - s.lastAttack) > 420){
+            const enraged = Game.companion.enragedUntil && now < Game.companion.enragedUntil;
+            const dmg = enraged ? (30 + Game.stats.companionLevel*9) : (20 + Game.stats.companionLevel*7);
+            target.health -= dmg; s.lastAttack=now;
+            if (target.isBoss){
+              const pct=clamp((target.health/target.maxHealth)*100,0,100);
+              document.getElementById('sharkFill').style.width=`${pct}%`;
+              document.getElementById('sharkPercent').textContent=`${Math.round(pct)}%`;
+            }
+            if (target.health<=0){
+              clearSnare(target);
+              Game.scene.remove(target);
+              Game.sharks = Game.sharks.filter(x=>x!==target);
+              Game.stats.sharksKilled++;
+              Game.currentTarget=null;
+              const remainingEnemies=Game.sharks.filter(x=>!x.isCompanion);
+              const bossAlive=remainingEnemies.some(x=>x.isBoss);
+              if (!bossAlive && Game.stats.wave===4){ win(); }
+              else if (remainingEnemies.length===0 && Game.stats.wave<4){ setTimeout(()=>startWave(Game.stats.wave+1),1500); }
+            }
+          }
+          const pct=clamp((s.health/s.maxHealth)*100,0,100);
+          const cf=document.getElementById('companionFill'); if (cf) cf.style.width=`${pct}%`;
+        }
+
+        // Enemy attacks core (core tracks damage, never dies)
+        if (!s.isCompanion){
+          const distToCore = s.position.distanceTo(Game.core.position);
+          if (distToCore < 3 && (now - s.lastAttack) > 950){
+            const dmg = s.isBoss ? 7 : 2;
+            Game.stats.coreHealth = clamp(Game.stats.coreHealth - dmg, 0, 100);
+            Game.stats.coreDamageTaken += dmg;
+            document.getElementById('coreFill').style.width = `${Game.stats.coreHealth}%`;
+            document.getElementById('corePercent').textContent = `${Game.stats.coreHealth}%`;
+            s.lastAttack = now;
+            // No fail state on core; score increases
+          }
+          // Boss “damage to player” tracking
+          if (s.isBoss && Game.stats.wave===4){
+            const dP = s.position.distanceTo(Game.camera.position);
+            if (dP < 3 && (now - s.lastAttack) > 800){
+              Game.stats.bossDamageToPlayer += s.charging ? 6 : 4; // charge hits harder
+              s.lastAttack = now;
+            }
+          }
+        }
+      });
+    }
+
+    function win(){
+      Game.state='gameover';
+      if (Game.stats.timerHandle) clearInterval(Game.stats.timerHandle);
+      const finalScore = Game.stats.coreDamageTaken + Game.stats.bossDamageToPlayer;
+      document.getElementById('endTitle').textContent='BOSS DEFEATED — CORE SECURED!';
+      document.getElementById('finalTime').textContent=document.getElementById('timer').textContent;
+      document.getElementById('finalSharks').textContent=String(Game.stats.sharksKilled);
+      document.getElementById('finalCompanionLevel').textContent=String(Game.stats.companionLevel);
+      document.getElementById('finalCoreDamage').textContent=String(Game.stats.coreDamageTaken);
+      document.getElementById('finalBossDamage').textContent=String(Game.stats.bossDamageToPlayer);
+      document.getElementById('finalScore').textContent=String(finalScore);
+      document.getElementById('gameOver').style.display='flex';
+    }
+
+    function animate(){ requestAnimationFrame(animate); update(); Game.renderer.render(Game.scene, Game.camera); }
+
+    // Input
+    document.addEventListener('keydown', e=>{
+      if (Game.state!=='playing') return;
+      const k=e.key;
+      if (k==='w'||k==='W') Game.controls.forward=true;
+      if (k==='s'||k==='S') Game.controls.backward=true;
+      if (k==='a'||k==='A') Game.controls.left=true;
+      if (k==='d'||k==='D') Game.controls.right=true;
+      if (k==='Shift') Game.controls.boost=true;
+      if (k==='r'||k==='R') triggerEnrage();
+    });
+    document.addEventListener('keyup', e=>{
+      const k=e.key;
+      if (k==='w'||k==='W') Game.controls.forward=false;
+      if (k==='s'||k==='S') Game.controls.backward=false;
+      if (k==='a'||k==='A') Game.controls.left=false;
+      if (k==='d'||k==='D') Game.controls.right=false;
+      if (k==='Shift') Game.controls.boost=false;
+    });
+
+    // Mouse: LMB fire, RMB snare
+    document.addEventListener('mousedown', e=>{
+      if (Game.state!=='playing') return;
+      if (e.button===0){ Game.controls.fire=true; } // LMB
+      if (e.button===2){ fireSnare(); }            // RMB
+    });
+    document.addEventListener('mouseup', e=>{
+      if (e.button===0){ Game.controls.fire=false; }
+    });
+    document.addEventListener('contextmenu', e=>{ e.preventDefault(); });
+
+    document.addEventListener('mousemove', e=>{
+      if (!Game.pointerLocked || Game.state!=='playing') return;
+      Game.yaw   -= e.movementX*0.002;
+      Game.pitch -= e.movementY*0.002;
+      Game.pitch = clamp(Game.pitch,-Math.PI/2,Math.PI/2);
+      Game.camera.rotation.set(Game.pitch,Game.yaw,0,'YXZ');
+    });
+
+    document.addEventListener('click', ()=>{
+      if (Game.state==='menu'){
+        document.getElementById('menu').style.display='none';
+        Game.state='playing';
+        Game.camera.position.set(0,5,10);
+        document.body.requestPointerLock();
+        Game.pointerLocked=true;
+        ensureSidekick();
+        startWave(1);
+      } else if (Game.state==='playing' && !Game.pointerLocked){
+        document.body.requestPointerLock();
+        Game.pointerLocked=true;
+      }
+    });
+
+    document.addEventListener('pointerlockchange', ()=>{
+      Game.pointerLocked = (document.pointerLockElement === document.body);
+    });
+
+    // Buttons
+    document.getElementById('startBtn').onclick=()=>{
+      document.getElementById('menu').style.display='none';
+      Game.state='playing';
+      document.body.requestPointerLock();
+      Game.pointerLocked=true;
+      ensureSidekick();
+      startWave(1);
+    };
+    document.getElementById('playAgain').onclick=()=>location.reload();
+    document.getElementById('menuBtn').onclick=()=>location.reload();
+    document.getElementById('fullscreenBtn').onclick=()=>document.documentElement.requestFullscreen();
+
+    window.onload=()=>{ init(); animate(); };
+  </script>
+</body>
+</html>
+
