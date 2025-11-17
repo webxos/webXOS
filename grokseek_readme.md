@@ -31,28 +31,7 @@ It fuses **Grok (xAI)** and **DeepSeek** into a **hybrid AI agent**, accessible 
 - **API popup wizard** for Grok & DeepSeek  
 - **Git push/pull directly from OS**  
 - **Runs on Netlify, GitHub Pages, or locally**
-
----
-
-## 🎮 **Live Demo**
-
-**[▶️ Try GROKSEEK OS Now](https://grokseek.netlify.app)**  
-*(Open on phone, tablet, or desktop – works everywhere)*
-
----
-
-## 🖼️ **Screenshots**
-
-| **Boot Screen** | **Desktop** | **Terminal** |
-|------------------|-------------|------------|
-| ![Boot](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=BOOT+SCREEN) | ![Desktop](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=DESKTOP) | ![Terminal](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=TERMINAL) |
-
-| **Bluetooth Mesh** | **API Wizard** | **Git Control** |
-|--------------------|----------------|-----------------|
-| ![BT Mesh](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=BT+MESH) | ![API](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=API+WIZARD) | ![Git](https://via.placeholder.com/300x200/0B0E17/00D4FF?text=GIT+PUSH) |
-
----
-
+- 
 ## ⚡ **Features**
 
 | Feature | Description |
