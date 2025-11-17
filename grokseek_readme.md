@@ -1,4 +1,4 @@
-# *webXOS has no link to Xai or DEEPSEEK, this is a prototype concept only and open sourced for free research. Not for promotional gain*
+# *webXOS has no link to Xai or DEEPSEEK - this is a prototype concept only and open sourced for free research. GROKSEEK is not desgined for promotional gain*
 
 demo: webxos.netlify.app/grokseek
 
