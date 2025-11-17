@@ -7,11 +7,6 @@
 <meta name="theme-color" content="#000000">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/postprocessing/EffectComposer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/postprocessing/RenderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/postprocessing/ShaderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/shaders/CopyShader.js"></script>
-<script src="https://alanross.github.io/AlvaAR/examples/js/alva.js"></script>
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
     body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none}
@@ -27,7 +22,7 @@
     .export-btn{border-color:#f0f;color:#f0f}
     .export-btn:hover{background:#f0f;color:#000}
     .controls-container{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:11;flex-wrap:wrap;justify-content:center}
-    #pip{position:fixed;top:20px;right:20px;width:240px;height:180px;border:4px solid #0ff;border-radius:8px;z-index:10;cursor:pointer}
+    #pip{position:fixed;top:20px;right:20px;width:240px;height:180px;border:4px solid #0ff;border-radius:8px;z-index:10;cursor:pointer;display:none}
     .pip-grid{position:fixed;top:20px;right:20px;width:240px;height:180px;background:linear-gradient(rgba(0,255,0,0.5)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.5)1px,transparent 1px);background-size:20px 20px;opacity:0.6;pointer-events:none;z-index:11}
     .status-panel{position:absolute;top:50px;right:10px;background:rgba(0,0,0,0.8);border:2px solid #0ff;padding:8px;font-size:8px;color:#0ff;z-index:11}
     #errorLog{position:absolute;top:40px;left:10px;background:rgba(0,0,0,0.8);border:2px solid #f00;padding:8px;font-size:8px;color:#f00;max-height:200px;overflow:auto;z-index:11;width:200px}
@@ -41,179 +36,185 @@
     <div class="top-banner"><div class="top-banner-text">edTV: CHANNEL 4</div></div>
     <canvas id="visualizationCanvas"></canvas>
     <div class="status-panel">
-        <div>POINTS: <span id="pointCount">0</span></div>
+        <div>STATUS: <span id="pointCount">READY</span></div>
     </div>
     <div class="controls-container">
-        <button id="exportBtn" class="ctrl-btn export-btn">EXPORT</button>
+        <button id="syncArBtn" class="ctrl-btn" style="border-color:#0ff;color:#0ff;background:#000">
+            SYNC AR
+        </button>
         <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0">RESET</button>
-        <button id="arBtn" class="ctrl-btn" style="border-color:#0f0;color:#0f0">AR MODE</button>
+        <button id="exportBtn" class="ctrl-btn export-btn">EXPORT</button>
     </div>
     <video id="pip" autoplay playsinline muted></video>
     <div class="pip-grid"></div>
     <div id="errorLog"></div>
 </div>
 
-<script>
-    let scene, camera, renderer, composer, thermalPass;
-    let stream, video, alva, lastRender = 0;
-    let slamburger, points = [], lightRays = [], shadows = [];
-    let xrSession = null;
-    const $ = s => document.querySelector(s);
-    function log(e){$('#errorLog').innerHTML+=`${new Date().toISOString().slice(11,19)}: ${e}<br>`;$('#errorLog').scrollTop=$('#errorLog').scrollHeight;}
+<script type="module">
+import { ARButton } from 'https://unpkg.com/three@0.158.0/examples/jsm/webxr/ARButton.js';
 
-    function init(){
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x000000);
-        camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
-        camera.position.set(0,0,5);
-        renderer = new THREE.WebGLRenderer({canvas:$('#visualizationCanvas'), antialias:false});
-        renderer.setSize(innerWidth, innerHeight);
-        renderer.setPixelRatio(1);
-        renderer.xr.enabled = true;
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+let scene, camera, renderer, controller;
+let reticle, heroGroup;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let isARActive = false;
 
-        composer = new THREE.EffectComposer(renderer);
-        composer.addPass(new THREE.RenderPass(scene, camera));
+const $ = s => document.querySelector(s);
+const video = $('#pip');
 
-        thermalPass = new THREE.ShaderPass({
-            uniforms:{tDiffuse:{value:null},time:{value:0}},
-            vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-            fragmentShader:`uniform sampler2D tDiffuse;uniform float time;varying vec2 vUv;
-                void main(){
-                    vec4 c=texture2D(tDiffuse,vUv);
-                    float l=dot(c.rgb,vec3(0.299,0.587,0.114));
-                    vec3 col=mix(vec3(0.0,0.0,1.0),vec3(1.0,0.0,0.0),l);
-                    float n=fract(sin(dot(vUv*100.0+time,vec2(12.9898,78.233)))*43758.5453);
-                    gl_FragColor=vec4(col+(n-0.5)*0.1,c.a);
-                }`
+function log(msg) {
+    $('#errorLog').innerHTML += `${new Date().toISOString().slice(11,19)}: ${msg}<br>`;
+    $('#errorLog').scrollTop = $('#errorLog').scrollHeight;
+}
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 20);
+   
+    renderer = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias: false, alpha: true});
+    renderer.setPixelRatio(1);
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.xr.enabled = true;
+
+    // Neuro wireframe hero (low-poly icosahedron head)
+    heroGroup = new THREE.Group();
+    const geometry = new THREE.IcosahedronGeometry(0.4, 1);
+    const material = new THREE.MeshBasicMaterial({color: 0x00ffff, wireframe: true});
+    const hero = new THREE.Mesh(geometry, material);
+    heroGroup.add(hero);
+    heroGroup.scale.set(2,2,2);
+    heroGroup.visible = false;
+    scene.add(heroGroup);
+
+    // Grid floor
+    const grid = new THREE.GridHelper(10, 40, 0x00ff00, 0x00ff00);
+    grid.material.opacity = 0.3; grid.material.transparent = true;
+    scene.add(grid);
+
+    // Reticle for placement
+    reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI/2),
+        new THREE.MeshBasicMaterial({color: 0x00ffff, opacity: 0.8, transparent: true})
+    );
+    reticle.visible = false;
+    scene.add(reticle);
+
+    // Lights
+    const ambient = new THREE.HemisphereLight(0x00ff00, 0x00ffff, 0.8);
+    scene.add(ambient);
+
+    window.addEventListener('resize', onWindowResize);
+}
+
+function onWindowResize() {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+}
+
+// SYNC AR BUTTON
+$('#syncArBtn').onclick = async () => {
+    if (isARActive) return;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
+        video.srcObject = stream;
+        video.style.display = 'block';
+        video.play();
+
+        const session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['hit-test'],
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: {root: document.body}
         });
-        composer.addPass(thermalPass);
 
-        const grid = new THREE.GridHelper(10,20,0x00ff00,0x00ff00);
-        grid.material.opacity = 0.5;
-        grid.material.transparent = true;
-        scene.add(grid);
+        renderer.xr.setSession(session);
+        isARActive = true;
+        $('#syncArBtn').classList.add('active');
+        $('#syncArBtn').textContent = 'AR ACTIVE';
+        $('#pointCount').textContent = 'SYNCED';
 
-        slamburger = new THREE.Group();
-        const bun = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.2,16), new THREE.MeshBasicMaterial({color:0xffa500}));
-        bun.position.y=0.3; slamburger.add(bun);
-        const bun2 = bun.clone(); bun2.position.y=-0.3; slamburger.add(bun2);
-        const patty = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.1,16), new THREE.MeshBasicMaterial({color:0x8b4513}));
-        slamburger.add(patty);
-        const cheese = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.05,0.8), new THREE.MeshBasicMaterial({color:0xffff00}));
-        cheese.position.y=0.1; slamburger.add(cheese);
-        slamburger.scale.set(1.5,1.5,1.5);
-        scene.add(slamburger);
+        controller = renderer.xr.getController(0);
+        controller.addEventListener('select', onSelect);
+        scene.add(controller);
 
-        const ambient = new THREE.AmbientLight(0x003300); scene.add(ambient);
+        session.addEventListener('end', () => {
+            isARActive = false;
+            heroGroup.visible = false;
+            reticle.visible = false;
+            $('#syncArBtn').classList.remove('active');
+            $('#syncArBtn').textContent = 'SYNC AR';
+            $('#pointCount').textContent = 'READY';
+        });
 
-        startWebcam();
-        requestAnimationFrame(animate);
-        window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);composer.setSize(innerWidth,innerHeight);});
+        animate();
+    } catch(e) {
+        log('AR FAIL: ' + e);
+        $('#pointCount').textContent = 'ERROR';
     }
+};
 
-    async function startWebcam(){
-        try{
-            stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:640},height:{ideal:480}}});
-            video = document.createElement('video');
-            video.srcObject = stream;
-            video.autoplay = video.playsInline = true;
-            video.onloadedmetadata = ()=>{
-                alva = new AlvaAR();
-                alva.Initialize(video.videoWidth, video.videoHeight);
-                const pip = $('#pip');
-                pip.srcObject = stream;
-                pip.style.display = 'block';
-                pip.play();
-            };
-        }catch(e){log('Webcam: '+e);}
+function onSelect() {
+    if (reticle.visible) {
+        heroGroup.position.setFromMatrixPosition(reticle.matrix);
+        heroGroup.visible = true;
     }
+}
 
-    async function startAR(){
-        if(!navigator.xr) return log('No WebXR');
-        try{
-            xrSession = await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay'],domOverlay:{root:document.body}});
-            renderer.xr.setSession(xrSession);
-            $('#arBtn').classList.add('active');
-        }catch(e){log('AR: '+e);}
-    }
+function animate() {
+    renderer.setAnimationLoop((timestamp, frame) => {
+        if (!frame) return;
 
-    function animate(t){
-        requestAnimationFrame(animate);
-        if(t-lastRender < 1000/15) return;
-        lastRender = t;
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
 
-        if(alva && video && video.readyState===video.HAVE_ENOUGH_DATA){
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video,0,0);
-            const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-            const gray = new Uint8Array(canvas.width*canvas.height);
-            for(let i=0,j=0;i<img.data.length;i+=4,j++) gray[j] = img.data[i]*0.3 + img.data[i+1]*0.59 + img.data[i+2]*0.11;
-
-            const pose = alva.findCameraPose(gray);
-            if(pose){
-                const m = new THREE.Matrix4().fromArray(pose).invert();
-                camera.matrixAutoUpdate = false;
-                camera.matrix.copy(m);
-                camera.matrixWorldNeedsUpdate = true;
-            }
-
-            const pts = alva.getFramePoints();
-            points.forEach(p=>scene.remove(p));
-            lightRays.forEach(r=>scene.remove(r));
-            shadows.forEach(s=>scene.remove(s));
-            points = []; lightRays = []; shadows = [];
-
-            pts.forEach((p, i)=>{
-                const light = new THREE.PointLight(0xffffff, 0.5, 5);
-                light.position.set(p.x,p.y,p.z);
-                light.castShadow = true;
-                light.shadow.mapSize.width = 512;
-                light.shadow.mapSize.height = 512;
-                light.shadow.camera.near = 0.1;
-                light.shadow.camera.far = 10;
-                scene.add(light);
-                points.push(light);
-
-                const gridMat = new THREE.LineBasicMaterial({color:0x00ff00});
-                const gridGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(1,1,1)]);
-                const ray = new THREE.Line(gridGeo, gridMat);
-                ray.position.copy(light.position);
-                scene.add(ray);
-                lightRays.push(ray);
-
-                const shadowMat = new THREE.MeshBasicMaterial({color:0x000000, opacity:0.5, transparent:true});
-                const shadowGeo = new THREE.PlaneGeometry(1,1);
-                const shadow = new THREE.Mesh(shadowGeo, shadowMat);
-                shadow.position.set(p.x, p.y-0.5, p.z);
-                shadow.rotation.x = -Math.PI/2;
-                shadow.receiveShadow = true;
-                scene.add(shadow);
-                shadows.push(shadow);
-
-                light.userData = {tooltip: 'LAMP'};
+        if (!hitTestSourceRequested) {
+            session.requestReferenceSpace('viewer').then(refSpace => {
+                session.requestHitTestSource({space: refSpace}).then(source => {
+                    hitTestSource = source;
+                });
             });
-            $('#pointCount').textContent = pts.length;
+            hitTestSourceRequested = true;
         }
 
-        composer.render();
-    }
+        if (hitTestSource && frame) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length) {
+                const hit = hitTestResults[0];
+                const pose = hit.getPose(referenceSpace);
+                reticle.visible = true;
+                reticle.matrix.fromArray(pose.transform.matrix);
+            } else {
+                reticle.visible = false;
+            }
+        }
 
-    $('#exportBtn').onclick = ()=>{
-        const data = {version:"1.0",timestamp:new Date().toISOString(),points:points.map(p=>({position:p.position, tooltip:p.userData.tooltip}))};
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
-        a.download = 'ar_hero_room.json';
-        a.click();
+        if (heroGroup.visible) {
+            heroGroup.rotation.y += 0.01;
+            heroGroup.scale.setScalar(2 + Math.sin(timestamp * 0.002) * 0.2);
+        }
+
+        renderer.render(scene, camera);
+    });
+}
+
+$('#resetBtn').onclick = () => {
+    heroGroup.visible = false;
+    reticle.visible = false;
+};
+
+$('#exportBtn').onclick = () => {
+    const data = {
+        version: "2.0",
+        timestamp: new Date().toISOString(),
+        heroPosition: heroGroup.visible ? heroGroup.position.toArray() : null
     };
-    $('#resetBtn').onclick =()=>{points.forEach(p=>scene.remove(p));lightRays.forEach(r=>scene.remove(r));shadows.forEach(s=>scene.remove(s));points=[];lightRays=[];shadows=[];alva?.Reset?.();};
-    $('#arBtn').onclick = startAR;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
+    a.download = 'neuro_hero_sync.json';
+    a.click();
+};
 
-    window.onload = init;
+init();
 </script>
 </body>
 </html>
