@@ -3,77 +3,89 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="description" content="edTV: CHANNEL 4 // NEUROSYNC ACTIVE - WebXR Immersive AR Experience">
-<title>edTV: CHANNEL 4</title>
+<meta name="description" content="edTV: CHANNEL 4 // DOGSYNC ACTIVE - Cyber Dog AR Mask">
+<title>edTV: CHANNEL 4 // DOGSYNC</title>
 <meta name="theme-color" content="#000000">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
     body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
     #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
     canvas{display:block;width:100%;height:100%}
-
     .matrix-grid{position:absolute;inset:0;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3;pointer-events:none}
     .crt{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;pointer-events:none;animation:stripes 8s linear infinite}
     .scanline{position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(255,0,255,0.03));background-size:100% 4px;animation:scan 6s linear infinite;pointer-events:none;opacity:0.6}
     @keyframes stripes{0%{background-position:0 0}100%{background-position:0 100%}}
     @keyframes scan{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
-
-    /* All UI now inside #xr-overlay to satisfy iOS dom-overlay requirements */
+    
     #xr-overlay > * { pointer-events: auto; }
-
     .top-banner{position:absolute;top:0;left:0;width:100%;height:44px;background:rgba(255,0,255,0.92);border-bottom:3px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:100;animation:glitch 3s infinite}
     @keyframes glitch{
-        0%,100%{transform:translateX(0)}
-        5%{transform:translateX(-2px)}
-        10%{transform:translateX(2px)}
-        55%{transform:translateX(-1px) skewX(-2deg)}
-        60%{transform:translateX(1px) skewX(2deg)}
+        0%,100%{transform:translate(0)}
+        10%,30%,50%,70%,90%{transform:translate(-2px, -2px)}
+        20%,40%,60%,80%{transform:translate(4px, 2px)}
+        15%,45%,75%{clip-path: polygon(0 0, 100% 0, 100% 20%, 0 20%)}
+        25%,55%{clip-path: polygon(0 80%, 100% 80%, 100% 100%, 0 100%)}
     }
     .top-banner-text{font-size:11px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
 
+    /* CENTERED PIP + DOG MASK OVERLAY */
+    #pip{
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 380px;
+        height: 380px;
+        border: 6px solid #0ff;
+        border-radius: 12px;
+        z-index: 14;
+        object-fit: cover;
+        background: #000;
+        box-shadow: 0 0 30px #0ff, inset 0 0 40px rgba(0,255,255,0.2);
+        image-rendering: pixelated;
+    }
+    #pip-canvas{
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 380px;
+        height: 380px;
+        z-index: 15;
+        pointer-events: none;
+    }
+    .dog-detected .top-banner{
+        animation: glitch 0.15s infinite !important;
+        background: #f0f !important;
+    }
+    .dog-detected #pip{
+        border-color: #f0f;
+        box-shadow: 0 0 60px #f0f, 0 0 100px #f0f;
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse{
+        0%,100%{ transform: translate(-50%,-50%) scale(1); }
+        50%{ transform: translate(-50%,-50%) scale(1.05); }
+    }
+
     .controls-container{
         position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
-        display:flex;flex-direction:column;gap:14px;z-index:100;align-items:center;width:90%;max-width:420px;
+        display:flex;gap:14px;z-index:100;
     }
     .ctrl-btn{
-        width:100%;max-width:320px;height:66px;background:#000;border:4px solid #0ff;color:#0ff;
-        font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;
-        box-shadow:5px 5px 0 #000;transform:skew(-3deg);transition:all .15s;touch-action:manipulation;
+        width:140px;height:66px;background:#000;border:4px solid #0ff;color:#0ff;
+        font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+        box-shadow:5px 5px 0 #000;transform:skew(-3deg);transition:all .15s;
     }
-    .ctrl-btn:hover,.ctrl-btn:active,.ctrl-btn.active{background:#0ff;color:#000}
-    .export-btn{border-color:#f0f;color:#f0f}
-    .export-btn:hover{background:#f0f;color:#000}
-
-    .status-panel{
-        position:absolute;top:54px;right:10px;background:rgba(0,0,0,0.9);border:2px solid #0ff;padding:8px;
-        font-size:7px;color:#0ff;z-index:15;line-height:1.4;max-width:180px;
-    }
+    .ctrl-btn:active{background:#0ff;color:#000}
 
     #errorLog{
-        position:absolute;top:54px;left:10px;background:rgba(0,0,0,0.96);border:3px double #f00;padding:8px;
-        font-size:6.8px;color:#f00;z-index:15;max-height:300px;overflow:auto;width:calc(100% - 20px);
-        line-height:1.35;text-shadow:0 0 6px #f00;opacity:0.98;
-    }
-    .error-line{color:#ff3333}
-    .warn-line{color:#ff8800}
-
-    #pip{
-        position:absolute;top:54px;right:10px;width:180px;height:135px;border:4px solid #0ff;
-        border-radius:6px;z-index:14;object-fit:cover;background:#000;
-    }
-    .pip-grid{
-        position:absolute;top:54px;right:10px;width:180px;height:135px;
-        background:linear-gradient(rgba(0,255,0,0.5)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.5)1px,transparent 1px);
-        background-size:20px 20px;opacity:0.6;pointer-events:none;z-index:15;
-    }
-
-    @media (max-width:480px){
-        .top-banner-text{font-size:10px}
-        #errorLog{font-size:6.2px;top:50px}
-        #pip{width:160px;height:120px}
-        .pip-grid{width:160px;height:120px}
+        position:absolute;bottom:100px;left:10px;background:rgba(0,0,0,0.96);border:3px double #f00;padding:8px;
+        font-size:7px;color:#f00;z-index:15;max-height:200px;overflow:auto;width:calc(100% - 20px);opacity:0.9;
     }
 </style>
 </head>
@@ -83,244 +95,150 @@
     <div class="crt"></div>
     <div class="scanline"></div>
 
-    <!-- Dedicated overlay root — required for iOS dom-overlay -->
     <div id="xr-overlay">
         <div class="top-banner">
-            <div class="top-banner-text">edTV: CHANNEL 4</div>
+            <div class="top-banner-text">edTV: CHANNEL 4 // DOGSYNC ACTIVE</div>
         </div>
 
-        <div class="status-panel">
-            <div>STATUS: <span id="pointCount">AWAITING SYNC</span></div>
-            <div>MODE: IMMERSIVE-AR</div>
-            <div>NODE: <span id="nodeId">ED-04</span></div>
+        <!-- CENTERED PIP VIDEO + 3D MASK CANVAS -->
+        <video id="pip" autoplay playsinline muted></video>
+        <canvas id="pip-canvas"></canvas>
+
+        <div class="controls-container">
+            <button id="startDogSync" class="ctrl-btn">DOGSYNC</button>
+            <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0">RESET</button>
         </div>
 
         <div id="errorLog">
-            <div>14:27:08 INFO edTV: CHANNEL 4 initialized</div>
-            <div>14:27:08 INFO Awaiting neuro sync...</div>
+            <div>14:27:08 INFO edTV: CHANNEL 4 // DOGSYNC READY</div>
         </div>
-
-        <div class="controls-container">
-            <button id="syncArBtn" class="ctrl-btn">SYNC AR</button>
-            <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0">RESET</button>
-            <button id="exportBtn" class="ctrl-btn export-btn">EXPORT</button>
-        </div>
-
-        <video id="pip" autoplay playsinline muted></video>
-        <div class="pip-grid"></div>
     </div>
-
-    <canvas id="visualizationCanvas"></canvas>
 </div>
 
 <script type="module">
-import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/ARButton.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
 
-let scene, camera, renderer, controller;
-let reticle, heroGroup;
-let hitTestSource = null;
-let hitTestSourceRequested = false;
-let isARActive = false;
-let stream = null;
-let realARButton = null; // The actual working AR button from three.js
+const video = document.getElementById('pip');
+const canvas = document.getElementById('pip-canvas');
+const ctx = canvas.getContext('2d');
+const logEl = document.getElementById('errorLog');
+let model, dogMask, scene, camera, renderer, glitchMaterial;
 
-const $ = s => document.querySelector(s);
-const video = $('#pip');
-const statusText = $('#pointCount');
-
-function log(level, msg, details = '') {
+function log(msg, color = '#00ff00') {
     const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
     const line = document.createElement('div');
-    line.innerHTML = `${time} <span style="color:${level==='ERROR'?'#ff0000':level==='WARN'?'#ff8800':'#00ff00'}">${level}</span> ${msg}`;
-    $('#errorLog').appendChild(line);
-    if (details) {
-        const d = document.createElement('div');
-        d.innerHTML = `<span style="color:#ff5555">${time} DETAILS ${details}</span>`;
-        $('#errorLog').appendChild(d);
+    line.style.color = color;
+    line.innerHTML = `${time} <span style="color:#0ff">DOGSYNC</span> ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Start front camera + centered PiP
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: 720, height: 720 }
+        });
+        video.srcObject = stream;
+        video.play();
+        canvas.width = 380;
+        canvas.height = 380;
+        log('Camera active - front facing');
+    } catch (e) {
+        log('Camera failed', '#ff0000');
     }
-    $('#errorLog').scrollTop = $('#errorLog').scrollHeight;
 }
 
-function startCamera() {
-    if (stream) return;
-    navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}})
-        .then(s => {
-            stream = s;
-            video.srcObject = stream;
-            video.play();
-            $('.pip-grid').style.opacity = 0.6;
-        })
-        .catch(() => {
-            navigator.mediaDevices.getUserMedia({video: true})
-                .then(s => {
-                    stream = s;
-                    video.srcObject = stream;
-                    video.play();
-                    log('WARN', 'No rear camera detected', 'Falling back to front camera');
-                })
-                .catch(err => log('ERROR', 'Camera access denied', err.message));
-        });
-}
+// Load dog face model + create cyber wireframe mask
+async function loadDogMask() {
+    model = await blazeface.load();
 
-function init() {
+    // Three.js scene for 3D overlay
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 20);
-    renderer = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias: false, alpha: true});
+    camera = new THREE.PerspectiveCamera(60, 1, 0.1, 10);
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true });
+    renderer.setSize(380, 380);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.xr.enabled = true;
 
-    // Neuro Hero
-    heroGroup = new THREE.Group();
-    const geo = new THREE.IcosahedronGeometry(0.4, 1);
-    const mat = new THREE.MeshBasicMaterial({color: 0x00ffff, wireframe: true});
-    const head = new THREE.Mesh(geo, mat);
-    heroGroup.add(head);
-    heroGroup.scale.set(2.5, 2.5, 2.5);
-    heroGroup.visible = false;
-    scene.add(heroGroup);
-
-    // Floor grid
-    const grid = new THREE.GridHelper(10, 50, 0x00ff00, 0x003300);
-    grid.material.opacity = 0.3;
-    grid.material.transparent = true;
-    scene.add(grid);
-
-    // Reticle
-    reticle = new THREE.Mesh(
-        new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({color: 0x00ffff})
-    );
-    reticle.matrixAutoUpdate = false;
-    reticle.visible = false;
-    scene.add(reticle);
-
-    scene.add(new THREE.HemisphereLight(0x00ffaa, 0x00ff00, 1.2));
-
-    // === CRITICAL: Create real AR button with proper dom-overlay root ===
-    realARButton = ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['dom-overlay', 'light-estimation'],
-        domOverlay: { root: document.getElementById('xr-overlay') }
+    // Glitchy cyber dog mask
+    const geometry = new THREE.IcosahedronGeometry(0.18, 2);
+    glitchMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.9
     });
+    dogMask = new THREE.Mesh(geometry, glitchMaterial);
+    dogMask.scale.set(2.2, 1.8, 2.0);
+    scene.add(dogMask);
 
-    // Hide the official button — we'll trigger it programmatically
-    realARButton.style.display = 'none';
-    document.body.appendChild(realARButton);
+    // Floating particles
+    const particles = new THREE.BufferGeometry();
+    const pCount = 300;
+    const positions = new Float32Array(pCount * 3);
+    for(let i = 0; i < pCount * 3; i++) positions[i] = (Math.random() - 0.5) * 2;
+    particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const pMat = new THREE.PointsMaterial({color: 0x00ffff, size: 0.02});
+    const points = new THREE.Points(particles, pMat);
+    scene.add(points);
 
-    // === Custom SYNC AR button now actually works ===
-    $('#syncArBtn').onclick = () => {
-        log('INFO', 'SYNC AR initiated...', 'Requesting immersive-ar session');
-        startCamera(); // Now allowed after user gesture
-        realARButton.click(); // This is the only thing that can start WebXR
-    };
-
-    $('#resetBtn').onclick = () => {
-        heroGroup.visible = false;
-        reticle.visible = false;
-        hitTestSource = null;
-        hitTestSourceRequested = false;
-        log('INFO', 'Scene reset by user');
-        statusText.textContent = 'AWAITING SYNC';
-    };
-
-    $('#exportBtn').onclick = () => {
-        const data = {
-            version: "2.1",
-            channel: "edTV: CHANNEL 4",
-            timestamp: new Date().toISOString(),
-            arSessionActive: isARActive,
-            neuroHeroPlaced: heroGroup.visible,
-            position: heroGroup.visible ? heroGroup.position.toArray() : null
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'neuro_sync_channel4.json';
-        a.click();
-        log('INFO', 'Neuro sync data exported');
-    };
-
-    window.addEventListener('resize', () => {
-        camera.aspect = innerWidth / innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(innerWidth, innerHeight);
-    });
-
-    // === Fixed animation loop with proper hit-test handling ===
-    renderer.setAnimationLoop((timestamp, frame) => {
-        if (!frame) return;
-
-        const session = renderer.xr.getSession();
-        isARActive = !!session;
-
-        if (session) {
-            statusText.textContent = 'SYNC ACTIVE';
-        } else if (!session && isARActive) {
-            // Session just ended — reset hit test
-            hitTestSource = null;
-            hitTestSourceRequested = false;
-            isARActive = false;
-            statusText.textContent = 'AWAITING SYNC';
-        }
-
-        // Request hit test source only once per session
-        if (session && !hitTestSourceRequested) {
-            session.requestReferenceSpace('viewer').then(referenceSpace => {
-                session.requestHitTestSource({ space: referenceSpace }).then(source => {
-                    hitTestSource = source;
-                });
-            });
-            hitTestSourceRequested = true;
-        }
-
-        // Perform hit test
-        if (hitTestSource && frame) {
-            const hitTestResults = frame.getHitTestResults(hitTestSource);
-            if (hitTestResults.length > 0) {
-                const hit = hitTestResults[0];
-                const referenceSpace = renderer.xr.getReferenceSpace();
-                const pose = hit.getPose(referenceSpace);
-
-                reticle.visible = true;
-                reticle.matrix.fromArray(pose.transform.matrix);
-
-                // Tap to place hero (using select event)
-                controller.userData.hitPose = pose;
-            } else {
-                reticle.visible = false;
-            }
-        }
-
-        // Animate hero
-        if (heroGroup.visible) {
-            heroGroup.rotation.y += 0.01;
-            heroGroup.scale.setScalar(2.5 + Math.sin(timestamp * 0.002) * 0.3);
-        }
-
-        renderer.render(scene, camera);
-    });
-
-    // Place hero on select (tap in AR)
-    renderer.xr.addEventListener('sessionstart', () => {
-        log('INFO', 'WebXR session started', 'immersive-ar active');
-        controller = renderer.xr.getController(0);
-        controller.addEventListener('select', () => {
-            if (reticle.visible && controller.userData.hitPose) {
-                heroGroup.visible = true;
-                heroGroup.position.setFromMatrixPosition(reticle.matrix);
-                heroGroup.position.y += 0.4; // offset above floor
-                log('INFO', 'Neuro hero deployed at hit point');
-            }
-        });
-        scene.add(controller);
-    });
-
-    log('INFO', 'edTV: CHANNEL 4 initialized', 'Tap SYNC AR to begin');
+    log('Cyber dog mask loaded', '#00ffff');
 }
 
-init();
+// Detection loop
+async function detectDogs() {
+    if (!model || video.readyState < 2) return;
+
+    const predictions = await model.estimateFaces(video, false);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (predictions.length > 0) {
+        document.body.classList.add('dog-detected');
+        const dog = predictions[0];
+        const start = dog.topLeft;
+        const end = dog.bottomRight;
+        const size = [end[0] - start[0], end[1] - start[1]];
+        const centerX = (start[0] + end[0]) / 2 / video.videoWidth;
+        const centerY = (start[1] + end[1]) / 2 / video.videoHeight;
+
+        // Position 3D mask
+        dogMask.position.x = (centerX - 0.5) * 1.8;
+        dogMask.position.y = (0.5 - centerY) * 1.8;
+        dogMask.scale.set(2 + size[0]/150, 1.8 + size[1]/180, 2);
+
+        // Glitch effect
+        dogMask.rotation.y += 0.05;
+        dogMask.rotation.x = Math.sin(Date.now() * 0.01) * 0.2;
+        glitchMaterial.color.setHSL((Date.now() * 0.001) % 1, 1, 0.5);
+        glitchMaterial.opacity = 0.8 + Math.random() * 0.2;
+
+        log(`DOG DETECTED // CONF: ${(dog.probability[0]*100).toFixed(1)}%`, '#ff00ff');
+    } else {
+        document.body.classList.remove('dog-detected');
+        dogMask.rotation.y += 0.005;
+    }
+
+    // Render 3D mask
+    renderer.render(scene, camera);
+    requestAnimationFrame(detectDogs);
+}
+
+// Start everything
+document.getElementById('startDogSync').onclick = async () => {
+    log('INITIATING DOGSYNC...');
+    await startCamera();
+    await loadDogMask();
+    detectDogs();
+    log('DOGSYNC ACTIVE - POINT CAMERA AT DOG', '#00ffff');
+};
+
+document.getElementById('resetBtn').onclick = () => {
+    location.reload();
+};
+
+// Auto-start on load (or wait for button)
+log('edTV: CHANNEL 4 // DOGSYNC READY');
 </script>
 </body>
 </html>
