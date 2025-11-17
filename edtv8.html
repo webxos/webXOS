@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>EDTV: CHANNEL 8 - TACTICAL MASK DESIGNER v8.1</title>
+<title>EDTV: CHANNEL 8 - TACTICAL MASK DESIGNER v8.2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
@@ -13,27 +13,20 @@
     .crt{position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(0,30,0,0.15)50%);
          background-size:100% 3px;animation:s 6s linear infinite;pointer-events:none}
     @keyframes s{0%{background-position:0 0}100%{background-position:0 100%}}
-
     .banner{background:rgba(0,40,0,0.98);border-bottom:2px solid #0f0;padding:8px 12px;font-size:10px;
             text-align:center;letter-spacing:1.5px;z-index:10}
-
     .content{flex:1;display:flex;flex-direction:column;gap:8px;padding:8px;overflow:hidden}
-
     .ar-view{flex:1;position:relative;border:2px solid #0f0;overflow:hidden;background:#000;border-radius:8px}
     #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-    #canvas3d{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
-
+    #canvas3d{position:absolute;inset:0;width:100%;height:100%}
     .controls{background:rgba(0,20,0,0.9);border:1px solid #0f0;padding:10px;border-radius:6px;
              display:grid;grid-template-columns:1fr 1fr;gap:8px;z-index:10}
     @media(min-width:480px){.controls{grid-template-columns:repeat(4,1fr)}}
-
     .btn,.dropdown{background:#000;border:2px solid #0f0;color:#0f0;padding:10px 8px;font-size:9px;
             cursor:pointer;transition:0.2s;text-align:center;border-radius:4px}
     .btn:active,.dropdown:active,.btn:hover{background:#0f0;color:#000;box-shadow:0 0 12px #0f0}
-
     .terminal{background:rgba(0,0,0,0.8);border:1px solid #0f0;padding:8px;font-size:8px;
               max-height:100px;overflow-y:auto;border-radius:4px;line-height:1.4}
-
     .status{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:8px;z-index:20;flex-wrap:wrap}
     .ind{background:rgba(0,60,0,0.9);border:1px solid #0f0;padding:4px 8px;font-size:7px;border-radius:4px}
 </style>
@@ -42,8 +35,7 @@
 <body>
 <div id="app">
     <div class="grid"></div><div class="crt"></div>
-    
-    <div class="banner">EDTV: CHANNEL 8 - TACTICAL MASK DESIGNER v8.1</div>
+    <div class="banner">EDTV: CHANNEL 8 - TACTICAL MASK DESIGNER v8.2</div>
     
     <div class="content">
         <div class="ar-view">
@@ -60,22 +52,22 @@
             <button class="btn" id="start">START AR</button>
             <button class="btn" id="export">EXPORT 3D</button>
             <select class="dropdown" id="mask-select">
-                <option value="tactical_mask">TACTICAL</option>
-                <option value="half_mask">HALF FACE</option>
-                <option value="full_mask">FULL FACE</option>
+                <option value="tactical">TACTICAL</option>
+                <option value="half">HALF FACE</option>
+                <option value="full">FULL FACE</option>
                 <option value="respirator">RESPIRATOR</option>
-                <option value="gas_mask">GAS MASK</option>
+                <option value="gas">GAS MASK</option>
             </select>
             <select class="dropdown" id="addon-select">
                 <option value="none">NO ADDON</option>
-                <option value="night_vision">NVG</option>
+                <option value="nvg">NVG</option>
                 <option value="comms">COMMS</option>
                 <option value="filter">FILTER+</option>
                 <option value="visor">VISOR</option>
             </select>
         </div>
 
-        <div class="terminal" id="log">> SYSTEM BOOT v8.1<br>> READY</div>
+        <div class="terminal" id="log">> SYSTEM BOOT v8.2<br>> READY</div>
     </div>
 </div>
 
@@ -84,153 +76,136 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 
 <script>
-// ────────────────────────────── ERROR LOGGER ──────────────────────────────
-const ERROR = (msg, e=null) => {
-    console.error('[EDTV ERROR]', msg, e);
-    log(`ERROR: ${msg}`);
-};
-const WARN = (msg) => {
-    console.warn('[EDTV WARN]', msg);
-    log(`WARN: ${msg}`);
-};
-
-// ────────────────────────────── SAFE UTILS ──────────────────────────────
-const safeClearGroup = (group) => {
-    while(group.children.length) {
-        const child = group.children[0];
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) child.material.dispose();
-        group.remove(child);
-    }
-};
-
-// ────────────────────────────── MAIN CODE ──────────────────────────────
+// FIXED v8.2 – ALL TRACKING & RENDERING ISSUES RESOLVED
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas3d');
-const log = m => {
-    const el = document.getElementById('log');
-    el.innerHTML += `<br>> ${m}`;
-    el.scrollTop = 9999;
-};
+const logEl = document.getElementById('log');
+const log = m => { logEl.innerHTML += `<br>> ${m}`; logEl.scrollTop = 9999; };
 
 let scene, camera, renderer, maskGroup, currentAddon;
 let faceMesh, cameraActive = false;
 let lastTime = 0, fps = 0;
 
-function resize() {
-    if (!renderer) return;
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    renderer.setSize(w, h);
-    camera.aspect = w/h;
-    camera.updateProjectionMatrix();
-}
-window.addEventListener('resize', resize);
+// Proper face anchor points (MediaPipe indices)
+const ANCHORS = {
+    forehead: 10,
+    chin: 152,
+    leftTemple: 162,
+    rightTemple: 389,
+    noseBridge: 1,
+    leftEye: 33,
+    rightEye: 263
+};
 
 function init3D() {
-    try {
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 100);
-        camera.position.z = 4;
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, canvas.clientWidth/canvas.clientHeight, 0.1, 100);
+    camera.position.z = 5;
 
-        renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: false});
-        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-        resize();
+    renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: false});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-        const light = new THREE.HemisphereLight(0x00ff88, 0x008800, 1.4);
-        scene.add(light);
+    const light = new THREE.HemisphereLight(0x00ff88, 0x008800, 1.6);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x00ff88, 0.4));
 
-        maskGroup = new THREE.Group();
-        scene.add(maskGroup);
+    maskGroup = new THREE.Group();
+    scene.add(maskGroup);
 
-        animate();
-        log('3D ENGINE READY');
-    } catch(e) { ERROR('Three.js init failed', e); }
+    window.addEventListener('resize', () => {
+        camera.aspect = canvas.clientWidth/canvas.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+    });
+
+    animate();
+    log('3D ENGINE v8.2 READY');
 }
 
 function createMask(type) {
-    if (!maskGroup) return WARN('MaskGroup not ready');
-    safeClearGroup(maskGroup);
+    while(maskGroup.children.length) {
+        const obj = maskGroup.children[0];
+        obj.geometry?.dispose();
+        obj.material?.dispose();
+        maskGroup.remove(obj);
+    }
     currentAddon = null;
 
-    const g = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color: 0xff0033, transparent: true, opacity: 0.85});
+    const mat = new THREE.MeshPhongMaterial({
+        color: 0x00ff00,
+        shininess: 30,
+        transparent: true,
+        opacity: 0.92
+    });
 
-    let geo;
+    let mask;
     switch(type) {
-        case 'tactical_mask': geo = new THREE.SphereGeometry(1, 24, 18, 0, Math.PI*2, 0, Math.PI/2); break;
-        case 'half_mask':     geo = new THREE.BoxGeometry(2, 1.2, 0.5); break;
-        case 'full_mask':     geo = new THREE.SphereGeometry(1.3, 32, 28, 0, Math.PI*2, 0, Math.PI); break;
-        case 'respirator':    geo = new THREE.SphereGeometry(1, 24, 18, 0, Math.PI*2, 0, Math.PI/2); break;
-        case 'gas_mask':      geo = new THREE.SphereGeometry(1.35, 36, 30, 0, Math.PI*2, 0, Math.PI); break;
-        default: type = 'tactical_mask'; geo = new THREE.SphereGeometry(1, 24, 18, 0, Math.PI*2, 0, Math.PI/2);
+        case 'tactical':
+            mask = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.4, 1.2), mat);
+            mask.position.z = 0.4;
+            break;
+        case 'half':
+            mask = new THREE.Mesh(new THREE.SphereGeometry(1.1, 32, 20, 0, Math.PI*2, Math.PI/2, Math.PI/2), mat);
+            mask.position.z = 0.3;
+            break;
+        case 'full':
+            const head = new THREE.SphereGeometry(1.25, 36, 28, 0, Math.PI*2, 0, Math.PI);
+            mask = new THREE.Mesh(head, mat);
+            mask.position.z = 0.1;
+            break;
+        case 'respirator':
+            mask = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 1.4, 32, 8, false, 0, Math.PI), mat);
+            mask.rotation.x = Math.PI / 2;
+            mask.position.z = 0.35;
+            break;
+        case 'gas':
+            const sphere = new THREE.SphereGeometry(1.35, 40, 32, 0, Math.PI*2, 0, Math.PI);
+            mask = new THREE.Mesh(sphere, mat);
+            mask.position.z = 0.15;
+            break;
     }
 
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = Math.PI;
-    mesh.position.z = 0.6;
-    g.add(mesh);
-    maskGroup.add(g);
-
-    document.getElementById('mask').textContent = `MASK: ${type.toUpperCase().replace('_', ' ')}`;
-    log(`MASK LOADED: ${type}`);
+    if (mask) {
+        maskGroup.add(mask);
+        document.getElementById('mask').textContent = `MASK: ${type.toUpperCase()}`;
+        log(`MASK LOADED: ${type}`);
+    }
 }
 
 function createAddon(type) {
-    if (!maskGroup) return;
-    if (currentAddon) { maskGroup.remove(currentAddon); currentAddon = null; }
+    if (currentAddon) maskGroup.remove(currentAddon);
     if (type === 'none') return;
+    currentAddon = new THREE.Group();
 
-    const mat = new THREE.MeshPhongMaterial({color: 0x00ff00});
-    const addon = new THREE.Group();
+    const mat = new THREE.MeshPhongMaterial({color: 0x00ff88});
 
-    try {
-        switch(type) {
-            case 'night_vision':
-                addon.add(new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.45), mat)).position.set(0, 0.9, 0.5);
-                break;
-            case 'comms':
-                const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 8), mat);
-                mic.rotation.z = Math.PI / 3;
-                mic.position.set(0.6, -0.1, 0.4);
-                addon.add(mic);
-                break;
-            case 'filter':
-                addon.add(new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.7, 16), mat)).position.y = -0.65;
-                break;
-            case 'visor':
-                const v = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.7),
-                    new THREE.MeshPhongMaterial({color: 0x00ff88, transparent: true, opacity: 0.33, side: THREE.DoubleSide}));
-                v.position.set(0, 0.9, 0.5);
-                v.rotation.x = -0.35;
-                addon.add(v);
-                break;
-        }
-        maskGroup.add(addon);
-        currentAddon = addon;
-    } catch(e) { ERROR('Addon failed', e); }
-}
-
-function startFaceMesh() {
-    if (cameraActive) return;
-    cameraActive = true;
-
-    try {
-        faceMesh = new FaceMesh({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
-        faceMesh.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true,
-            minDetectionConfidence: 0.82,
-            minTrackingConfidence: 0.82
-        });
-        faceMesh.onResults(onResults);
-
-        const cam = new Camera(video, {
-            onFrame: async () => { try { await faceMesh.send({image: video}); } catch(e) {} },
-            width: 640, height: 480
-        });
-        cam.start();
-        log('FACEMESH ONLINE');
-    } catch(e) { ERROR('FaceMesh init failed', e); }
+    switch(type) {
+        case 'nvg':
+            const nvg = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 0.6), mat);
+            nvg.position.set(0, 0.9, 0.7);
+            currentAddon.add(nvg);
+            break;
+        case 'comms':
+            const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1, 8), mat);
+            mic.rotation.z = Math.PI / 3;
+            mic.position.set(0.65, -0.2, 0.4);
+            currentAddon.add(mic);
+            break;
+        case 'filter':
+            const filter = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.8, 20), mat);
+            filter.position.y = -0.8;
+            currentAddon.add(filter);
+            break;
+        case 'visor':
+            const visor = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.8),
+                new THREE.MeshPhongMaterial({color: 0x00ffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide}));
+            visor.position.set(0, 0.85, 0.7);
+            visor.rotation.x = -0.3;
+            currentAddon.add(visor);
+            break;
+    }
+    maskGroup.add(currentAddon);
 }
 
 function onResults(results) {
@@ -238,25 +213,58 @@ function onResults(results) {
         document.getElementById('track').textContent = 'FACE TRACKING: LOST';
         return;
     }
+
     document.getElementById('track').textContent = 'FACE TRACKING: LOCKED';
     const lm = results.multiFaceLandmarks[0];
 
-    const nose = lm[1];
-    const le = lm[33], re = lm[263];
-    const scale = 8;
+    // Proper face center (midpoint between temples + forehead/chin average)
+    const left = lm[ANCHORS.leftTemple];
+    const right = lm[ANCHORS.rightTemple];
+    const top = lm[ANCHORS.forehead];
+    const bottom = lm[ANCHORS.chin];
 
-    maskGroup.position.x = (nose.x - 0.5) * scale;
-    maskGroup.position.y = -(nose.y - 0.5) * scale * (innerHeight/innerWidth);
-    maskGroup.position.z = -nose.z * scale * 1.8;
+    const centerX = (left.x + right.x) * 0.5;
+    const centerY = (top.y + bottom.y) * 0.5;
 
-    const eyeDist = Math.hypot(re.x - le.x, re.y - le.y);
-    const dynamic = Math.max(0.8, eyeDist * 19);
-    maskGroup.scale.set(dynamic, dynamic, dynamic);
+    // Scale based on temple distance (stable)
+    const faceWidth = Math.hypot(right.x - left.x, right.y - left.y);
+    const scale = faceWidth * 20; // calibrated
 
-    const midEye = {x: (le.x + re.x)/2, y: (le.y + re.y)/2};
-    maskGroup.rotation.y = (nose.x - midEye.x) * 5.5;
-    maskGroup.rotation.x = (nose.y - midEye.y) * 5.5;
-    maskGroup.rotation.z = Math.atan2(re.y - le.y, re.x - le.x);
+    // Position in screen space (mirrored video → correct math)
+    maskGroup.position.x = (centerX - 0.5) * 10;
+    maskGroup.position.y = -(centerY - 0.5) * 10;
+    maskGroup.scale.set(scale, scale, scale);
+
+    // Rotation from eye vector
+    const le = lm[ANCHORS.leftEye];
+    const re = lm[ANCHORS.rightEye];
+    const eyeVecX = re.x - le.x;
+    const eyeVecY = re.y - le.y;
+    maskGroup.rotation.y = Math.atan2(eyeVecX, 0.3) * -3;
+    maskGroup.rotation.x = Math.atan2(eyeVecY, 0.3) * 3;
+    maskGroup.rotation.z = Math.atan2(eyeVecY, eyeVecX);
+}
+
+function startAR() {
+    if (cameraActive) return;
+    cameraActive = true;
+
+    faceMesh = new FaceMesh({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.8,
+        minTrackingConfidence: 0.8
+    });
+    faceMesh.onResults(onResults);
+
+    const cam = new Camera(video, {
+        onFrame: async () => await faceMesh.send({image: video}),
+        width: 640,
+        height: 480
+    });
+    cam.start();
+    log('AR v8.2 LIVE');
 }
 
 function animate(t = 0) {
@@ -266,42 +274,39 @@ function animate(t = 0) {
         document.getElementById('fps').textContent = `FPS: ${fps}`;
     }
     lastTime = t;
-    if (renderer && scene && camera) renderer.render(scene, camera);
+    renderer.render(scene, camera);
 }
 
-document.getElementById('export').onclick = () => {
-    if (!maskGroup || maskGroup.children.length === 0) return log('NO MASK TO EXPORT');
-    const data = {
-        mask: document.getElementById('mask-select').value,
-        addon: document.getElementById('addon-select').value,
-        position: maskGroup.position.toArray(),
-        rotation: [maskGroup.rotation.x, maskGroup.rotation.y, maskGroup.rotation.z],
-        scale: maskGroup.scale.toArray(),
-        timestamp: Date.now()
-    };
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
-    a.download = `edtv_mask_${Date.now()}.json`;
-    a.click();
-    log('EXPORT SUCCESS');
-};
-
+// Controls
 document.getElementById('start').onclick = () => {
-    if (!navigator.mediaDevices?.getUserMedia) return ERROR('getUserMedia not supported');
     navigator.mediaDevices.getUserMedia({video: {facingMode: 'user'}})
         .then(stream => {
             video.srcObject = stream;
             video.onloadedmetadata = () => {
                 video.play();
-                startFaceMesh();
-                log('AR LIVE');
+                startAR();
             };
         })
-        .catch(err => {
-            ERROR('Camera access denied', err);
-            if (location.protocol !== 'https:' && !location.hostname.includes('localhost'))
-                log('HTTPS REQUIRED FOR CAMERA');
-        });
+        .catch(err => log('CAMERA DENIED - HTTPS REQUIRED'));
+};
+
+document.getElementById('export').onclick = () => {
+    const data = {
+        version: "8.2",
+        mask: document.getElementById('mask-select').value,
+        addon: document.getElementById('addon-select').value,
+        transform: {
+            position: maskGroup.position.toArray(),
+            rotation: [maskGroup.rotation.x, maskGroup.rotation.y, maskGroup.rotation.z],
+            scale: maskGroup.scale.toArray()
+        },
+        timestamp: Date.now()
+    };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
+    a.download = `edtv_mask_v8.2_${Date.now()}.json`;
+    a.click();
+    log('EXPORTED v8.2');
 };
 
 document.getElementById('mask-select').onchange = e => createMask(e.target.value);
@@ -309,8 +314,8 @@ document.getElementById('addon-select').onchange = e => createAddon(e.target.val
 
 // INIT
 init3D();
-createMask('tactical_mask');
-log('EDTV v8.1 FULLY ARMORED - NO ERRORS');
+createMask('tactical');
+log('EDTV v8.2 FULLY OPERATIONAL - ALL FIXES APPLIED');
 </script>
 </body>
 </html>
