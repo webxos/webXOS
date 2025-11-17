@@ -11,7 +11,7 @@ demo: webxos.netlify.app/grokseek
 ![[GROKSEEK Banner](https://github.com/webxos/webXOS/blob/main/assets/grokseek2.jpeg)](https://github.com/webxos/webXOS/blob/main/assets/grokseek2.jpeg)  
 
 > **One HTML file. Full OS. Runs on ESP32, Arduino, Raspberry Pi, or any browser.**  
-> **No Wi-Fi. Bluetooth Mesh Only. 8-bit Pixel UI. Windows 95 Vibes.**  
+> **Bluetooth Mesh. 8-bit Pixel UI. Windows 95 Vibes.**  
 
 ## 🚀 **What is GROKSEEK?**
 
