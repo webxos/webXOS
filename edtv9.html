@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P', cursive;image-rendering:pixelated}
+    body{background:#000;color:#0ff;overflow:hidden;height:100vh;user-select:none}
+    #app{position:relative;width:100%;height:100vh;display:flex;flex-direction:column}
+    .grid{position:absolute;inset:0;background:linear-gradient(rgba(0,200,255,0.08)1px, transparent 1px),
+         linear-gradient(90deg,rgba(0,200,255,0.08)1px, transparent 1px);background-size:16px 16px;z-index:-1}
+    .crt{position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(0,40,80,0.1)50%);
+         background-size:100% 4px;pointer-events:none;animation:s 8s linear infinite;z-index:-1}
+    @keyframes s{0%{background-position:0 0}100%{background-position:0 100%}}
+    
+    /* Top Banner */
+    .banner{background:rgba(0,20,50,0.95);border-bottom:2px solid #0ff;padding:10px;text-align:center;
+            font-size:12px;letter-spacing:1px;text-shadow:0 0 12px #0ff}
+    
+    /* Main Content Area */
+    .content{flex:1;display:flex;flex-direction:column;padding:10px;gap:10px}
+    
+    /* Controls Panel */
+    .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;padding:10px;
+              background:rgba(0,30,60,0.8);border:1px solid #0ff;box-shadow:0 0 10px rgba(0,200,255,0.4)}
+    
+    .btn{background:transparent;border:1px solid #0ff;color:#0ff;padding:8px 12px;font-size:10px;cursor:pointer;
+         box-shadow:0 0 8px #0ff;transition:0.2s;text-shadow:0 0 5px #0ff}
+    .btn:hover,.btn:active{background:#0ff;color:#000;box-shadow:0 0 20px #0ff}
+    
+    .btn-medical{background:transparent;border:1px solid #f00;color:#f00;padding:8px 12px;font-size:10px;
+                 cursor:pointer;box-shadow:0 0 8px #f00;transition:0.2s;text-shadow:0 0 5px #f00}
+    .btn-medical:hover,.btn-medical:active{background:#f00;color:#000;box-shadow:0 0 20px #f00}
+    
+    .dropdown{background:#000;border:1px solid #0ff;color:#0ff;padding:8px 12px;font-size:10px;cursor:pointer;
+              width:200px;box-shadow:0 0 8px rgba(0,200,255,0.5)}
+    
+    /* Terminal */
+    .terminal{flex:1;background:rgba(0,20,40,0.8);border:1px solid #0ff;padding:10px;font-size:10px;
+              overflow-y:auto;max-height:120px;min-height:120px;box-shadow:0 0 10px rgba(0,200,255,0.3)}
+    
+    /* Main AR View */
+    .ar-view{flex:1;position:relative;border:1px solid #0ff;background:#000;overflow:hidden;
+             box-shadow:0 0 15px rgba(0,200,255,0.4)}
+    
+    #video{width:100%;height:100%;object-fit:cover}
+    
+    #view3d{position:absolute;top:0;left:0;width:100%;height:100%;display:block}
+    
+    .medical-indicators{position:absolute;top:10px;left:10px;display:flex;gap:10px;z-index:20}
+    .indicator{background:rgba(255,0,0,0.7);border:1px solid #f00;color:#fff;padding:5px;font-size:8px;
+               box-shadow:0 0 8px #f00}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+    <div class="grid"></div>
+    <div class="crt"></div>
+    
+    <div class="banner">
+        EDTV: CHANNEL 9 - MEDICAL MASK DESIGNER
+    </div>
+    
+    <div class="content">
+        <div class="controls">
+            <button class="btn-medical" id="sync">SYNC FACE TO MASK</button>
+            <button class="btn-medical" id="export">EXPORT 3D DATA</button>
+            
+            <select class="dropdown" id="mask-select">
+                <option value="surgical">SURGICAL MASK</option>
+                <option value="n95">N95 RESPIRATOR</option>
+                <option value="full_face">FULL FACE SHIELD</option>
+                <option value="goggle_mask">GOGGLE MASK COMBO</option>
+                <option value="tactical">TACTICAL MEDICAL MASK</option>
+            </select>
+            
+            <select class="dropdown" id="addon-select">
+                <option value="none">NO ADDONS</option>
+                <option value="comms">COMMUNICATION SET</option>
+                <option value="filter">ADVANCED FILTER</option>
+                <option value="visor">PROTECTIVE VISOR</option>
+                <option value="sensor">VITAL SENSORS</option>
+            </select>
+        </div>
+        
+        <div class="terminal" id="log">
+            > MEDICAL SYSTEM INITIALIZED<br>
+            > READY FOR FACE SYNC
+        </div>
+        
+        <div class="ar-view">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="view3d"></canvas>
+            <div class="medical-indicators">
+                <div class="indicator">FACE TRACKING: OFF</div>
+                <div class="indicator">MASK: NONE</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.168.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+<script>
+const log = msg => { 
+    document.getElementById('log').innerHTML += '<br>> ' + msg;
+    document.getElementById('log').scrollTop = 9999;
+};
+
+const video = document.getElementById('video');
+const canvas3d = document.getElementById('view3d');
+let scene, camera, renderer, controls;
+let faceMesh, faceLandmarks = [];
+let currentMask = null, currentAddon = null;
+let isTracking = false;
+
+// Initialize Three.js scene
+function init3D() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, canvas3d.clientWidth / canvas3d.clientHeight, 0.1, 100);
+    camera.position.set(0, 0, 5);
+    
+    renderer = new THREE.WebGLRenderer({
+        canvas: canvas3d,
+        alpha: true,
+        antialias: false
+    });
+    renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x0044aa, 0.6);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xff0000, 0.8);
+    directionalLight.position.set(5, 10, 7);
+    scene.add(directionalLight);
+    
+    // Add green light for addons
+    const addonLight = new THREE.DirectionalLight(0x00ff00, 0.6);
+    addonLight.position.set(-5, 5, 5);
+    scene.add(addonLight);
+    
+    // Handle window resize
+    window.addEventListener('resize', onWindowResize);
+    
+    animate();
+}
+
+function onWindowResize() {
+    camera.aspect = canvas3d.clientWidth / canvas3d.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
+}
+
+// Create face mesh visualization
+function createFaceMesh() {
+    const geometry = new THREE.BufferGeometry();
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.7
+    });
+    
+    const positions = new Float32Array(468 * 3);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // Set indices for face mesh triangles
+    const indices = [];
+    const FACEMESH_TESSELATION = [
+        [127, 34, 139], [11, 0, 37], [232, 231, 120], // Sample triangles - would need full mesh
+        // In a real implementation, we'd use the full MediaPipe face mesh indices
+    ];
+    
+    // For demo, create a simple face mesh structure
+    for (let i = 0; i < 466; i++) {
+        indices.push(i, i + 1, i + 2);
+    }
+    geometry.setIndex(indices);
+    
+    return new THREE.Mesh(geometry, material);
+}
+
+// Create different mask types
+function createMask(type) {
+    // Remove existing mask
+    if (currentMask) {
+        scene.remove(currentMask);
+    }
+    
+    let mask;
+    
+    switch(type) {
+        case 'surgical':
+            mask = createSurgicalMask();
+            break;
+        case 'n95':
+            mask = createN95Mask();
+            break;
+        case 'full_face':
+            mask = createFullFaceShield();
+            break;
+        case 'goggle_mask':
+            mask = createGoggleMaskCombo();
+            break;
+        case 'tactical':
+            mask = createTacticalMedicalMask();
+            break;
+        default:
+            mask = createSurgicalMask();
+    }
+    
+    scene.add(mask);
+    currentMask = mask;
+    updateIndicators('MASK: ' + type.toUpperCase());
+    return mask;
+}
+
+function createSurgicalMask() {
+    const group = new THREE.Group();
+    
+    // Main mask body
+    const maskGeometry = new THREE.PlaneGeometry(2, 1.2);
+    const maskMaterial = new THREE.MeshPhongMaterial({
+        color: 0xff0000,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide
+    });
+    const mask = new THREE.Mesh(maskGeometry, maskMaterial);
+    mask.rotation.x = Math.PI / 2;
+    mask.position.z = 0.3;
+    group.add(mask);
+    
+    // Nose bridge
+    const bridgeGeometry = new THREE.BoxGeometry(0.8, 0.1, 0.2);
+    const bridge = new THREE.Mesh(bridgeGeometry, maskMaterial);
+    bridge.position.set(0, 0.3, 0.4);
+    group.add(bridge);
+    
+    // Ear loops
+    const loopGeometry = new THREE.TorusGeometry(0.1, 0.03, 8, 20);
+    const leftLoop = new THREE.Mesh(loopGeometry, maskMaterial);
+    leftLoop.position.set(-1.2, 0, 0.3);
+    group.add(leftLoop);
+    
+    const rightLoop = new THREE.Mesh(loopGeometry, maskMaterial);
+    rightLoop.position.set(1.2, 0, 0.3);
+    group.add(rightLoop);
+    
+    return group;
+}
+
+function createN95Mask() {
+    const group = new THREE.Group();
+    
+    // Main cup shape
+    const maskGeometry = new THREE.SphereGeometry(1, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+    const maskMaterial = new THREE.MeshPhongMaterial({
+        color: 0xff0000,
+        transparent: true,
+        opacity: 0.8
+    });
+    const mask = new THREE.Mesh(maskGeometry, maskMaterial);
+    mask.rotation.x = Math.PI;
+    mask.position.z = 0.5;
+    group.add(mask);
+    
+    // Filter valve
+    const valveGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16);
+    const valveMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const valve = new THREE.Mesh(valveGeometry, valveMaterial);
+    valve.position.set(0, -0.3, 0.8);
+    group.add(valve);
+    
+    // Head strap anchors
+    const anchorGeometry = new THREE.BoxGeometry(0.3, 0.1, 0.1);
+    const leftAnchor = new THREE.Mesh(anchorGeometry, maskMaterial);
+    leftAnchor.position.set(-0.8, 0.5, 0.5);
+    group.add(leftAnchor);
+    
+    const rightAnchor = new THREE.Mesh(anchorGeometry, maskMaterial);
+    rightAnchor.position.set(0.8, 0.5, 0.5);
+    group.add(rightAnchor);
+    
+    return group;
+}
+
+function createFullFaceShield() {
+    const group = new THREE.Group();
+    
+    // Face shield (curved transparent)
+    const shieldGeometry = new THREE.CylinderGeometry(1.5, 1.8, 1.2, 32, 1, true);
+    const shieldMaterial = new THREE.MeshPhongMaterial({
+        color: 0xff0000,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide
+    });
+    const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
+    shield.rotation.x = Math.PI / 2;
+    shield.position.z = 0.8;
+    group.add(shield);
+    
+    // Headband
+    const bandGeometry = new THREE.TorusGeometry(1, 0.1, 16, 100);
+    const bandMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+    const band = new THREE.Mesh(bandGeometry, bandMaterial);
+    band.position.set(0, 0.8, 0);
+    group.add(band);
+    
+    return group;
+}
+
+function createGoggleMaskCombo() {
+    const group = new THREE.Group();
+    
+    // Start with N95 base
+    const n95 = createN95Mask();
+    group.add(n95);
+    
+    // Add goggles on top
+    const goggleGeometry = new THREE.TorusGeometry(0.7, 0.1, 16, 100);
+    const goggleMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00ff00,
+        transparent: true,
+        opacity: 0.7
+    });
+    const goggles = new THREE.Mesh(goggleGeometry, goggleMaterial);
+    goggles.position.set(0, 0.5, 0.7);
+    goggles.rotation.x = Math.PI / 2;
+    group.add(goggles);
+    
+    // Goggle lens
+    const lensGeometry = new THREE.CircleGeometry(0.6, 32);
+    const lensMaterial = new THREE.MeshPhongMaterial({
+        color: 0x0066ff,
+        transparent: true,
+        opacity: 0.3
+    });
+    const lens = new THREE.Mesh(lensGeometry, lensMaterial);
+    lens.position.set(0, 0.5, 0.75);
+    lens.rotation.x = Math.PI / 2;
+    group.add(lens);
+    
+    return group;
+}
+
+function createTacticalMedicalMask() {
+    const group = new THREE.Group();
+    
+    // Advanced mask base
+    const maskGeometry = new THREE.SphereGeometry(1.2, 24, 24, 0, Math.PI * 2, 0, Math.PI / 2);
+    const maskMaterial = new THREE.MeshPhongMaterial({
+        color: 0xff0000,
+        transparent: true,
+        opacity: 0.8
+    });
+    const mask = new THREE.Mesh(maskGeometry, maskMaterial);
+    mask.rotation.x = Math.PI;
+    mask.position.z = 0.5;
+    group.add(mask);
+    
+    // Multiple filter ports
+    for (let i = -1; i <= 1; i += 2) {
+        const filterGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.2, 16);
+        const filterMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const filter = new THREE.Mesh(filterGeometry, filterMaterial);
+        filter.position.set(i * 0.4, -0.2, 0.8);
+        group.add(filter);
+    }
+    
+    // Communication port
+    const commGeometry = new THREE.BoxGeometry(0.3, 0.1, 0.1);
+    const commMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
+    const comm = new THREE.Mesh(commGeometry, commMaterial);
+    comm.position.set(0, 0.2, 0.8);
+    group.add(comm);
+    
+    return group;
+}
+
+// Create addons in green
+function createAddon(type) {
+    // Remove existing addon
+    if (currentAddon) {
+        scene.remove(currentAddon);
+    }
+    
+    if (type === 'none') return;
+    
+    let addon;
+    
+    switch(type) {
+        case 'comms':
+            addon = createCommsAddon();
+            break;
+        case 'filter':
+            addon = createFilterAddon();
+            break;
+        case 'visor':
+            addon = createVisorAddon();
+            break;
+        case 'sensor':
+            addon = createSensorAddon();
+            break;
+    }
+    
+    if (addon) {
+        scene.add(addon);
+        currentAddon = addon;
+    }
+}
+
+function createCommsAddon() {
+    const group = new THREE.Group();
+    
+    // Microphone boom
+    const boomGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.8, 8);
+    const boomMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const boom = new THREE.Mesh(boomGeometry, boomMaterial);
+    boom.rotation.z = Math.PI / 4;
+    boom.position.set(0.5, 0.2, 0.5);
+    group.add(boom);
+    
+    // Earpiece
+    const earGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const earMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const earpiece = new THREE.Mesh(earGeometry, earMaterial);
+    earpiece.position.set(-0.6, 0, 0.3);
+    group.add(earpiece);
+    
+    return group;
+}
+
+function createFilterAddon() {
+    const group = new THREE.Group();
+    
+    // Advanced filter canister
+    const canisterGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.6, 16);
+    const canisterMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const canister = new THREE.Mesh(canisterGeometry, canisterMaterial);
+    canister.position.set(0, -0.5, 0.8);
+    group.add(canister);
+    
+    // Filter status indicator
+    const indicatorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const indicatorMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
+    indicator.position.set(0, -0.2, 0.9);
+    group.add(indicator);
+    
+    return group;
+}
+
+function createVisorAddon() {
+    const group = new THREE.Group();
+    
+    // Protective visor
+    const visorGeometry = new THREE.PlaneGeometry(2.5, 1.5);
+    const visorMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00ff00,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide
+    });
+    const visor = new THREE.Mesh(visorGeometry, visorMaterial);
+    visor.position.set(0, 0.8, 0.5);
+    visor.rotation.x = -0.3;
+    group.add(visor);
+    
+    // Visor frame
+    const frameGeometry = new THREE.BoxGeometry(2.6, 0.05, 0.05);
+    const frameMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const topFrame = new THREE.Mesh(frameGeometry, frameMaterial);
+    topFrame.position.set(0, 1.55, 0.5);
+    group.add(topFrame);
+    
+    return group;
+}
+
+function createSensorAddon() {
+    const group = new THREE.Group();
+    
+    // Vital sensor array
+    for (let i = -1; i <= 1; i++) {
+        const sensorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const sensorMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        const sensor = new THREE.Mesh(sensorGeometry, sensorMaterial);
+        sensor.position.set(i * 0.3, 0.6, 0.7);
+        group.add(sensor);
+        
+        // Sensor wire
+        const wireGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8);
+        const wire = new THREE.Mesh(wireGeometry, sensorMaterial);
+        wire.position.set(i * 0.3, 0.4, 0.7);
+        wire.rotation.x = Math.PI / 2;
+        group.add(wire);
+    }
+    
+    return group;
+}
+
+function updateIndicators(text) {
+    const indicators = document.querySelectorAll('.indicator');
+    if (indicators.length > 1 && text.startsWith('MASK:')) {
+        indicators[1].textContent = text;
+    }
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    
+    // Update mask position based on face landmarks if tracking
+    if (isTracking && faceLandmarks.length > 0 && currentMask) {
+        // Use nose tip as reference point
+        const noseTip = faceLandmarks[1];
+        if (noseTip) {
+            currentMask.position.x = (noseTip.x - 0.5) * 8;
+            currentMask.position.y = -(noseTip.y - 0.5) * 8;
+            
+            // Update addon position if exists
+            if (currentAddon) {
+                currentAddon.position.x = currentMask.position.x;
+                currentAddon.position.y = currentMask.position.y;
+            }
+        }
+    }
+    
+    renderer.render(scene, camera);
+}
+
+// Initialize Face Mesh
+function initFaceMesh() {
+    faceMesh = new FaceMesh({
+        locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }
+    });
+
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+    });
+
+    faceMesh.onResults((results) => {
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            faceLandmarks = results.multiFaceLandmarks[0];
+            if (!isTracking) {
+                isTracking = true;
+                document.querySelector('.indicator').textContent = 'FACE TRACKING: ACTIVE';
+                log('Face tracking active - mask synced to face');
+            }
+        } else {
+            if (isTracking) {
+                isTracking = false;
+                document.querySelector('.indicator').textContent = 'FACE TRACKING: LOST';
+            }
+        }
+    });
+}
+
+// Start camera and face tracking
+async function startFaceTracking() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+        
+        video.onloadedmetadata = () => {
+            video.play();
+            const camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({image: video});
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+            log('Face tracking initialized');
+        };
+    } catch(e) { 
+        log('Camera error: ' + e.message); 
+    }
+}
+
+// Export 3D data as JSON
+function export3DData() {
+    if (!currentMask) {
+        log('No mask selected - cannot export');
+        return;
+    }
+    
+    const maskType = document.getElementById('mask-select').value;
+    const addonType = document.getElementById('addon-select').value;
+    
+    // Collect 3D model data
+    const maskData = {
+        maskType: maskType,
+        addonType: addonType,
+        faceLandmarks: faceLandmarks.map(p => ({x: p.x, y: p.y, z: p.z})),
+        maskGeometry: extractGeometryData(currentMask),
+        addonGeometry: currentAddon ? extractGeometryData(currentAddon) : null,
+        metadata: {
+            exportDate: new Date().toISOString(),
+            software: "EDTV Medical Mask Designer v9.0",
+            units: "millimeters",
+            intendedUse: "3D printing"
+        }
+    };
+    
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(maskData, null, 2)], {type: 'application/json'}));
+    a.download = `medical_mask_${maskType}_${Date.now()}.json`;
+    a.click();
+    log(`Exported 3D data for ${maskType} mask`);
+}
+
+// Extract geometry data from Three.js objects
+function extractGeometryData(object) {
+    const data = {
+        type: object.type,
+        position: {
+            x: object.position.x,
+            y: object.position.y,
+            z: object.position.z
+        },
+        rotation: {
+            x: object.rotation.x,
+            y: object.rotation.y,
+            z: object.rotation.z
+        },
+        scale: {
+            x: object.scale.x,
+            y: object.scale.y,
+            z: object.scale.z
+        },
+        children: []
+    };
+    
+    // For groups, recursively extract child data
+    if (object.children && object.children.length > 0) {
+        object.children.forEach(child => {
+            data.children.push(extractGeometryData(child));
+        });
+    }
+    
+    // For meshes, extract geometry information
+    if (object.isMesh) {
+        data.geometry = {
+            type: object.geometry.type,
+            parameters: object.geometry.parameters || {}
+        };
+        data.material = {
+            color: object.material.color.getHex(),
+            opacity: object.material.opacity,
+            transparent: object.material.transparent
+        };
+    }
+    
+    return data;
+}
+
+// Event Listeners
+document.getElementById('sync').onclick = () => { 
+    startFaceTracking();
+    createMask(document.getElementById('mask-select').value);
+    createAddon(document.getElementById('addon-select').value);
+    log('Face sync initiated - mask applied');
+};
+
+document.getElementById('export').onclick = () => {
+    export3DData();
+};
+
+document.getElementById('mask-select').addEventListener('change', (e) => {
+    if (isTracking) {
+        createMask(e.target.value);
+        log('Mask changed to: ' + e.target.value);
+    }
+});
+
+document.getElementById('addon-select').addEventListener('change', (e) => {
+    if (isTracking) {
+        createAddon(e.target.value);
+        log('Addon changed to: ' + e.target.value);
+    }
+});
+
+// Initialize the application
+init3D();
+initFaceMesh();
+log('Medical mask designer ready - press SYNC to begin');
+</script>
+</body>
+</html>
