@@ -118,6 +118,8 @@ let scene, camera, renderer, controls;
 let faceMesh, faceLandmarks = [];
 let currentMask = null, currentAddon = null;
 let isTracking = false;
+const positionFactor = 20;
+const averageMouthWidth = 0.05;
 
 // Initialize Three.js scene
 function init3D() {
@@ -158,39 +160,10 @@ function onWindowResize() {
     renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
 }
 
-// Create face mesh visualization
-function createFaceMesh() {
-    const geometry = new THREE.BufferGeometry();
-    const material = new THREE.MeshBasicMaterial({
-        color: 0xff0000,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.7
-    });
-    
-    const positions = new Float32Array(468 * 3);
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    
-    // Set indices for face mesh triangles
-    const indices = [];
-    const FACEMESH_TESSELATION = [
-        [127, 34, 139], [11, 0, 37], [232, 231, 120], // Sample triangles - would need full mesh
-        // In a real implementation, we'd use the full MediaPipe face mesh indices
-    ];
-    
-    // For demo, create a simple face mesh structure
-    for (let i = 0; i < 466; i++) {
-        indices.push(i, i + 1, i + 2);
-    }
-    geometry.setIndex(indices);
-    
-    return new THREE.Mesh(geometry, material);
-}
-
 // Create different mask types
 function createMask(type) {
-    // Remove existing mask
     if (currentMask) {
+        if (currentAddon) currentMask.remove(currentAddon);
         scene.remove(currentMask);
     }
     
@@ -218,6 +191,7 @@ function createMask(type) {
     
     scene.add(mask);
     currentMask = mask;
+    if (currentAddon) currentMask.add(currentAddon);
     updateIndicators('MASK: ' + type.toUpperCase());
     return mask;
 }
@@ -388,10 +362,10 @@ function createTacticalMedicalMask() {
 
 // Create addons in green
 function createAddon(type) {
-    // Remove existing addon
-    if (currentAddon) {
-        scene.remove(currentAddon);
+    if (currentAddon && currentMask) {
+        currentMask.remove(currentAddon);
     }
+    currentAddon = null;
     
     if (type === 'none') return;
     
@@ -412,8 +386,8 @@ function createAddon(type) {
             break;
     }
     
-    if (addon) {
-        scene.add(addon);
+    if (addon && currentMask) {
+        currentMask.add(addon);
         currentAddon = addon;
     }
 }
@@ -519,18 +493,37 @@ function animate() {
     
     // Update mask position based on face landmarks if tracking
     if (isTracking && faceLandmarks.length > 0 && currentMask) {
-        // Use nose tip as reference point
         const noseTip = faceLandmarks[1];
-        if (noseTip) {
-            currentMask.position.x = (noseTip.x - 0.5) * 8;
-            currentMask.position.y = -(noseTip.y - 0.5) * 8;
-            
-            // Update addon position if exists
-            if (currentAddon) {
-                currentAddon.position.x = currentMask.position.x;
-                currentAddon.position.y = currentMask.position.y;
-            }
-        }
+        const aspectAdjustment = canvas3d.clientHeight / canvas3d.clientWidth;
+        
+        currentMask.position.x = (noseTip.x - 0.5) * positionFactor;
+        currentMask.position.y = -(noseTip.y - 0.5) * positionFactor * aspectAdjustment;
+        currentMask.position.z = noseTip.z * positionFactor;
+        
+        // Scale based on face measurements
+        const mouthLeft = faceLandmarks[61];
+        const mouthRight = faceLandmarks[291];
+        const dx = mouthRight.x - mouthLeft.x;
+        const dy = mouthRight.y - mouthLeft.y;
+        const dz = mouthRight.z - mouthLeft.z;
+        const mouthDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const scaleFactor = mouthDist / averageMouthWidth;
+        currentMask.scale.set(scaleFactor, scaleFactor, scaleFactor);
+        
+        // Simple rotation estimation
+        const leftEye = faceLandmarks[33];
+        const rightEye = faceLandmarks[263];
+        const eyeDx = rightEye.x - leftEye.x;
+        const eyeDy = rightEye.y - leftEye.y;
+        const roll = Math.atan2(eyeDy, eyeDx);
+        currentMask.rotation.z = roll;
+        
+        const eyesCenterX = (leftEye.x + rightEye.x) / 2;
+        const eyesCenterY = (leftEye.y + rightEye.y) / 2;
+        const yawApprox = (noseTip.x - eyesCenterX) * Math.PI;
+        const pitchApprox = (noseTip.y - eyesCenterY) * Math.PI;
+        currentMask.rotation.y = yawApprox;
+        currentMask.rotation.x = pitchApprox;
     }
     
     renderer.render(scene, camera);
@@ -683,23 +676,21 @@ document.getElementById('export').onclick = () => {
 };
 
 document.getElementById('mask-select').addEventListener('change', (e) => {
-    if (isTracking) {
-        createMask(e.target.value);
-        log('Mask changed to: ' + e.target.value);
-    }
+    createMask(e.target.value);
+    log('Mask changed to: ' + e.target.value);
 });
 
 document.getElementById('addon-select').addEventListener('change', (e) => {
-    if (isTracking) {
-        createAddon(e.target.value);
-        log('Addon changed to: ' + e.target.value);
-    }
+    createAddon(e.target.value);
+    log('Addon changed to: ' + e.target.value);
 });
 
 // Initialize the application
 init3D();
 initFaceMesh();
-log('Medical mask designer ready - press SYNC to begin');
+createMask('surgical');
+startFaceTracking();
+log('Medical mask designer ready - default mask loaded');
 </script>
 </body>
 </html>
