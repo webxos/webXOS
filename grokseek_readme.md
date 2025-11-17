@@ -6,7 +6,7 @@ demo: webxos.netlify.app/grokseek
 
 <div align="center">
 
-# **GROKSEEK OS**  
+# **GROKSEEK**  
 
 ### *A Unified Hybrid AI Agent OS – GROK + DEEPSEEK = GROKSEEK*  
 
