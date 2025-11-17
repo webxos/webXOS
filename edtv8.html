@@ -37,8 +37,7 @@
 <body>
 <div id="app">
     <div class="grid"></div><div class="crt"></div>
-    <div class="banner">EDTV: CHANNEL 8 – v9.0 FIXED 2025</div>
-
+    <div class="banner">EDTV: CHANNEL 8</div>
     <div class="content">
         <div class="ar-view">
             <video id="video" autoplay playsinline muted></video>
@@ -67,68 +66,88 @@
                 <option value="visor">VISOR</option>
             </select>
         </div>
-        <div class="terminal" id="log">> EDTV v9.0 BOOT SEQUENCE<br>> FIXED FOR 2025 MEDIAPIPE<br>> READY</div>
+        <div class="terminal" id="log">>EDTV <br>><br>> READY</div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
-
 <script type="module">
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
+// === Safe DOM References ===
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas3d');
 const logEl = document.getElementById('log');
-const log = m => { logEl.innerHTML += `<br>> ${m}`; logEl.scrollTop = 999999; };
+const trackEl = document.getElementById('track');
+const maskEl = document.getElementById('mask');
+const fpsEl = document.getElementById('fps');
 
+const log = (m) => {
+    if (logEl) {
+        logEl.innerHTML += `<br>> ${m}`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+    console.log('[EDTV]', m);
+};
+
+// === Global State ===
 let faceLandmarker = null;
 let cameraActive = false;
 let lastTime = 0;
 let fps = 0;
 
-// Three.js Setup
+// Three.js objects (initialized safely later)
 let scene, camera, renderer, maskGroup, currentAddon;
 
+// === Safe 3D Initialization ===
 function init3D() {
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-    camera.position.z = 5;
+    try {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+        camera.position.z = 5;
 
-    // Fix Safari rendering issues
-    renderer = new THREE.WebGLRenderer({ 
-        canvas, 
-        alpha: true, 
-        antialias: false,
-        preserveDrawingBuffer: true
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    renderer.setClearColor(0x000000, 0);
+        renderer = new THREE.WebGLRenderer({
+            canvas,
+            alpha: true,
+            antialias: false,
+            preserveDrawingBuffer: true
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        renderer.setClearColor(0x000000, 0);
 
-    const light = new THREE.HemisphereLight(0x00ff88, 0x008800, 1.6);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0x00ff88, 0.4));
+        const light = new THREE.HemisphereLight(0x00ff88, 0x008800, 1.6);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x00ff88, 0.4));
 
-    maskGroup = new THREE.Group();
-    scene.add(maskGroup);
+        maskGroup = new THREE.Group();
+        scene.add(maskGroup);
 
-    window.addEventListener('resize', onWindowResize);
-    animate();
-    log('3D ENGINE v9.0 READY');
+        window.addEventListener('resize', onWindowResize);
+        animate();
+        log('3D ENGINE v9.1 READY');
+    } catch (err) {
+        log('3D INIT FAILED: ' + err.message);
+        console.error(err);
+    }
 }
 
 function onWindowResize() {
+    if (!camera || !renderer || !canvas) return;
     camera.aspect = canvas.clientWidth / canvas.clientHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 }
 
-function createMask(type) {
+// === Mask & Addon Creation (Safe Cleanup) ===
+function createMask(type = 'tactical') {
+    if (!maskGroup) return;
+    // Clear previous mask
     while (maskGroup.children.length) {
-        const obj = maskGroup.children[0];
-        obj.geometry?.dispose();
-        obj.material?.dispose();
-        maskGroup.remove(obj);
+        const child = maskGroup.children[0];
+        child.geometry?.dispose();
+        child.material?.dispose();
+        maskGroup.remove(child);
     }
     currentAddon = null;
 
@@ -147,19 +166,24 @@ function createMask(type) {
         case 'respirator': mask = new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,1.4,32,8,false,0,Math.PI), mat); mask.rotation.x = Math.PI/2; mask.position.z = 0.35; break;
         case 'gas': mask = new THREE.Mesh(new THREE.SphereGeometry(1.35,40,32,0,Math.PI*2,0,Math.PI), mat); mask.position.z = 0.15; break;
     }
+
     if (mask) {
         maskGroup.add(mask);
-        document.getElementById('mask').textContent = `MASK: ${type.toUpperCase()}`;
-        log(`MASK LOADED: ${type}`);
+        if (maskEl) maskEl.textContent = `MASK: ${type.toUpperCase()}`;
+        log(`MASK LOADED: ${type.toUpperCase()}`);
     }
 }
 
-function createAddon(type) {
-    if (currentAddon) maskGroup.remove(currentAddon);
+function createAddon(type = 'none') {
+    if (!maskGroup || !currentAddon && type === 'none') return;
+    if (currentAddon) {
+        maskGroup.remove(currentAddon);
+        currentAddon = null;
+    }
     if (type === 'none') return;
 
     currentAddon = new THREE.Group();
-    const mat = new THREE.MeshPhongMaterial({color: 0x00ff88});
+    const mat = new THREE.MeshPhongMaterial({ color: 0x00ff88 });
 
     switch(type) {
         case 'nvg': {
@@ -193,48 +217,49 @@ function createAddon(type) {
     maskGroup.add(currentAddon);
 }
 
-// CORRECT 2025 MediaPipe + Landmarks Mirroring Fix
+// === Robust Face Tracking (2025 MediaPipe) ===
 function onResultsModern(results) {
-    if (!results?.faceLandmarks?.[0]) {
-        document.getElementById('track').textContent = 'TRACKING: LOST';
+    if (!maskGroup || !trackEl) return;
+
+    if (!results || !results.faceLandmarks || results.faceLandmarks.length === 0) {
+        trackEl.textContent = 'TRACKING: LOST';
         return;
     }
 
-    document.getElementById('track').textContent = 'TRACKING: LOCKED';
+    trackEl.textContent = 'TRACKING: LOCKED';
     const lm = results.faceLandmarks[0];
-
-    // Flip X coordinates because video is mirrored
     const flipX = x => 1 - x;
 
     const leftEyeOuter = lm[234];
     const rightEyeOuter = lm[454];
     const forehead = lm[10];
     const chin = lm[152];
+    const nose = lm[1];
+    const leftEye = lm[33];
+    const rightEye = lm[263];
+
+    if (!leftEyeOuter || !rightEyeOuter || !forehead || !chin) return;
 
     const centerX = (flipX(leftEyeOuter.x) + flipX(rightEyeOuter.x)) / 2;
     const centerY = (forehead.y + chin.y) / 2;
     const faceWidth = Math.abs(flipX(rightEyeOuter.x) - flipX(leftEyeOuter.x));
-
-    const scale = faceWidth * 22;
+    const scale = Math.max(faceWidth * 22, 0.5);
 
     maskGroup.position.x = (centerX - 0.5) * 10;
     maskGroup.position.y = -(centerY - 0.5) * 10;
     maskGroup.scale.set(scale, scale, scale);
 
-    // Simple head rotation (yaw + pitch)
-    const leftEye = lm[33], rightEye = lm[263], nose = lm[1];
     const eyeMidX = (leftEye.x + rightEye.x) / 2;
     const eyeMidY = (leftEye.y + rightEye.y) / 2;
-
     maskGroup.rotation.y = (flipX(eyeMidX) - 0.5) * 2.8;
     maskGroup.rotation.x = (eyeMidY - nose.y) * 28;
 }
 
-// MAIN 2025-COMPATIBLE AR START FUNCTION
+// === Safe AR Start ===
 async function startAR() {
     if (cameraActive) return;
     cameraActive = true;
-    log('LOADING MEDIAPIPE 2025...');
+    log('INITIALIZING MEDIAPIPE 2025...');
 
     try {
         const vision = await FilesetResolver.forVisionTasks(
@@ -244,73 +269,74 @@ async function startAR() {
         faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
             baseOptions: {
                 modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-                delegate: "GPU"  // Will auto-fallback to WASM if not supported
+                delegate: "GPU"
             },
             runningMode: "VIDEO",
             outputFaceBlendshapes: false,
             numFaces: 1
         });
 
-        // Loose constraints = works on all modern phones
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user" }
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
         });
 
         video.srcObject = stream;
         await video.play();
 
-        log('CAMERA ACTIVE – STARTING TRACKING LOOP');
+        log('CAMERA ACTIVE – TRACKING LOOP STARTED');
 
         const predictLoop = () => {
-            if (!cameraActive) return;
-
-            if (video.readyState >= 3 && faceLandmarker) {
-                try {
-                    const timestamp = performance.now();
-                    const results = faceLandmarker.detectForVideo(video, timestamp);
-                    onResultsModern(results);
-                } catch (err) {
-                    // First few frames often throw – safe to ignore
-                    if (!err.message.includes("No face")) {
-                        log('DETECT WARN: ' + err.message);
-                    }
-                }
+            if (!cameraActive || !faceLandmarker || video.readyState < 2) {
+                requestAnimationFrame(predictLoop);
+                return;
             }
 
+            try {
+                const results = faceLandmarker.detectForVideo(video, performance.now());
+                onResultsModern(results);
+            } catch (err) {
+                // Ignore transient errors (common on first frames)
+                if (!err.message.includes("No face") && !err.message.includes("aborted")) {
+                    log('TRACK WARN: ' + err.message);
+                }
+            }
             requestAnimationFrame(predictLoop);
         };
-
         predictLoop();
-        log('EDTV v9.0 2025 FULLY OPERATIONAL');
 
+        log('EDTV v9.1 2025 FULLY OPERATIONAL');
     } catch (err) {
-        log('ERROR: ' + err.message);
-        log('CAMERA ACCESS DENIED OR UNSUPPORTED');
-        console.error(err);
+        log('FATAL: ' + (err.message || err));
+        log('CAMERA BLOCKED OR UNSUPPORTED DEVICE');
+        console.error('AR Start Error:', err);
         cameraActive = false;
+        if (trackEl) trackEl.textContent = 'TRACKING: ERROR';
     }
 }
 
-// Render loop
+// === Render Loop ===
 function animate(t = 0) {
     requestAnimationFrame(animate);
-
-    if (lastTime) {
+    if (lastTime && fpsEl) {
         fps = Math.round(1000 / (t - lastTime));
-        document.getElementById('fps').textContent = `FPS: ${fps}`;
+        fpsEl.textContent = `FPS: ${fps}`;
     }
     lastTime = t;
-
-    renderer.render(scene, camera);
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    }
 }
 
-// Controls
-document.getElementById('start').onclick = startAR;
-document.getElementById('export').onclick = () => {
+// === Export Config ===
+document.getElementById('export')?.addEventListener('click', () => {
+    if (!maskGroup) {
+        log('EXPORT FAILED: No 3D scene');
+        return;
+    }
     const data = {
-        version: "9.0-2025",
-        mask: document.getElementById('mask-select').value,
-        addon: document.getElementById('addon-select').value,
+        version: "9.1-2025",
+        mask: document.getElementById('mask-select')?.value || "tactical",
+        addon: document.getElementById('addon-select')?.value || "none",
         transform: {
             position: maskGroup.position.toArray(),
             rotation: [maskGroup.rotation.x, maskGroup.rotation.y, maskGroup.rotation.z],
@@ -318,22 +344,27 @@ document.getElementById('export').onclick = () => {
         },
         timestamp: Date.now()
     };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
-    a.download = `edtv_v9_2025_${Date.now()}.json`;
+    a.href = url;
+    a.download = `edtv_v9.1_2025_${Date.now()}.json`;
     a.click();
+    URL.revokeObjectURL(url);
     log('CONFIG EXPORTED');
-};
+});
 
-document.getElementById('mask-select').onchange = e => createMask(e.target.value);
-document.getElementById('addon-select').onchange = e => createAddon(e.target.value);
+// === Event Listeners (Safe) ===
+document.getElementById('start')?.addEventListener('click', startAR);
+document.getElementById('mask-select')?.addEventListener('change', e => createMask(e.target.value));
+document.getElementById('addon-select')?.addEventListener('change', e => createAddon(e.target.value));
 
-// INIT
+// === INIT ===
 init3D();
 createMask('tactical');
 createAddon('none');
+log('EDTV v9.1 FULLY FIXED – NOV 2025');
 
-log('EDTV v9.0 FULLY FIXED – NOV 2025');
 </script>
 </body>
 </html>
