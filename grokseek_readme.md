@@ -1,24 +1,17 @@
 # *webXOS has no link to Xai or DEEPSEEK, this is a prototype concept only and open sourced for free research. Not for promotional gain*
 
-webxos.netlify.app/grokseek
+demo: webxos.netlify.app/grokseek
 
 <div align="center">
 
 # **GROKSEEK OS**  
+
 ### *A Unified Hybrid AI Agent OS – GROK + DEEPSEEK = GROKSEEK*  
 
 ![[GROKSEEK Banner](https://github.com/webxos/webXOS/blob/main/assets/grokseek2.jpeg)](https://github.com/webxos/webXOS/blob/main/assets/grokseek2.jpeg)  
+
 > **One HTML file. Full OS. Runs on ESP32, Arduino, Raspberry Pi, or any browser.**  
 > **No Wi-Fi. Bluetooth Mesh Only. 8-bit Pixel UI. Windows 95 Vibes.**  
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-00D4FF.svg?style=flat-square&logo=opensourceinitiative&logoColor=white)](LICENSE)  
-[![GitHub Stars](https://img.shields.io/github/stars/yourusername/grokseek?style=flat-square&color=00D4FF)](https://github.com/yourusername/grokseek/stargazers)  
-[![GitHub Forks](https://img.shields.io/github/forks/yourusername/grokseek?style=flat-square&color=00D4FF)](https://github.com/yourusername/grokseek/network/members)  
-[![Netlify Status](https://img.shields.io/netlify/12345678-1234-1234-1234-1234567890ab?label=Deploy&style=flat-square&color=00D4FF)](https://grokseek.netlify.app)
-
-</div>
-
----
 
 ## 🚀 **What is GROKSEEK?**
 
