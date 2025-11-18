@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.0</title>
+<title>EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.1</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <style>
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Courier New',monospace;image-rendering:pixelated}
@@ -26,12 +26,24 @@
   .medical-indicators{position:absolute;top:8px;left:8px;display:flex;flex-wrap:wrap;gap:6px;z-index:20}
   .indicator{padding:4px 8px;font-size:8px;border:1px solid #f00;background:rgba(255,0,0,0.7);box-shadow:0 0 8px #f00}
   .indicator.locked{background:rgba(0,255,0,0.8);border-color:#0f0;box-shadow:0 0 12px #0f0}
+  
+  /* Color Editor Styles */
+  .color-editor{display:flex;flex-direction:column;gap:6px;padding:8px;background:rgba(0,30,60,0.9);border:1px solid #0ff;margin-top:8px}
+  .color-control{display:flex;align-items:center;gap:8px}
+  .color-label{font-size:8px;min-width:60px}
+  .color-slider{flex:1;height:12px;-webkit-appearance:none;background:linear-gradient(to right,#000,#f00,#0f0,#00f,#fff);border:1px solid #0ff}
+  .color-slider::-webkit-slider-thumb{width:12px;height:12px;background:#0ff;cursor:pointer}
+  .color-preview{width:40px;height:20px;border:1px solid #0ff;background:#0ff}
+  
+  /* Mask Resize Controls */
+  .size-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .size-btn{flex:1;min-width:80px;font-size:8px;padding:6px;border:1px solid #0ff;background:#000;color:#0ff;cursor:pointer}
 </style>
 </head>
 <body>
 <div id="app">
   <div class="grid"></div><div class="crt"></div>
-  <div class="banner">EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.0</div>
+  <div class="banner">EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.1</div>
   <div class="content">
     <div class="controls">
       <button class="btn btn-medical" id="start">SYNC / CALIBRATE / START</button>
@@ -44,14 +56,31 @@
         <option value="goggle_mask">GOGGLES+MASK</option>
         <option value="tactical">TACTICAL</option>
       </select>
-      <select class="dropdown" id="addon-select">
-        <option value="none">NO ADDON</option>
-        <option value="comms">COMMS</option>
-        <option value="filter">FILTER</option>
-        <option value="visor">VISOR</option>
-        <option value="sensor">SENSORS</option>
-      </select>
+      <div class="size-controls">
+        <button class="size-btn" id="size-down">SIZE -</button>
+        <button class="size-btn" id="size-up">SIZE +</button>
+        <button class="size-btn" id="reset-size">RESET SIZE</button>
+      </div>
     </div>
+    
+    <div class="color-editor">
+      <div class="color-control">
+        <div class="color-label">HUE</div>
+        <input type="range" min="0" max="360" value="180" class="color-slider" id="hue-slider">
+        <div class="color-preview" id="hue-preview"></div>
+      </div>
+      <div class="color-control">
+        <div class="color-label">SATURATION</div>
+        <input type="range" min="0" max="100" value="100" class="color-slider" id="saturation-slider">
+        <div class="color-preview" id="saturation-preview"></div>
+      </div>
+      <div class="color-control">
+        <div class="color-label">BRIGHTNESS</div>
+        <input type="range" min="0" max="100" value="100" class="color-slider" id="brightness-slider">
+        <div class="color-preview" id="brightness-preview"></div>
+      </div>
+    </div>
+    
     <div class="terminal" id="log">> SYSTEM READY</div>
     <div class="ar-view">
       <video id="video" autoplay playsinline muted></video>
@@ -59,152 +88,251 @@
       <div class="medical-indicators">
         <div class="indicator" id="track">TRACKING: OFF</div>
         <div class="indicator" id="mask">MASK: NONE</div>
-        <div class="indicator" id="addon">ADDON: NONE</div>
+        <div class="indicator" id="color">COLOR: DEFAULT</div>
+        <div class="indicator" id="size">SIZE: 100%</div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// Simple Three.js implementation for wireframe masks
-class SimpleThreeJS {
-  constructor() {
-    this.scene = null;
-    this.camera = null;
-    this.renderer = null;
-    this.maskGroup = null;
-    this.currentMask = null;
-    this.currentAddon = null;
-  }
-
-  init(canvas) {
-    // Create scene
-    this.scene = { children: [] };
-    
-    // Create camera
-    this.camera = {
-      position: { z: 0.6 },
-      aspect: canvas.clientWidth / canvas.clientHeight,
-      updateProjectionMatrix: function() {}
-    };
-    
-    // Create renderer
-    this.renderer = {
-      canvas: canvas,
-      setSize: function(width, height) {
-        canvas.width = width;
-        canvas.height = height;
-      },
-      render: function(scene, camera) {
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw wireframe masks
-        if (this.currentMask) {
-          this.drawWireframeMask(ctx, this.currentMask);
-        }
-        
-        if (this.currentAddon) {
-          this.drawWireframeMask(ctx, this.currentAddon);
-        }
-      }.bind(this)
-    };
-    
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    
-    // Create mask group
-    this.maskGroup = { children: [] };
-    this.scene.children.push(this.maskGroup);
-    
-    return this;
-  }
-
-  drawWireframeMask(ctx, mask) {
-    ctx.strokeStyle = mask.color || '#0ff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    
-    if (mask.type === 'surgical') {
-      // Surgical mask - rectangle with ear loops
-      ctx.rect(canvas.width/2 - 60, canvas.height/2 - 30, 120, 60);
-      ctx.moveTo(canvas.width/2 - 60, canvas.height/2 - 10);
-      ctx.lineTo(canvas.width/2 - 100, canvas.height/2 - 40);
-      ctx.moveTo(canvas.width/2 + 60, canvas.height/2 - 10);
-      ctx.lineTo(canvas.width/2 + 100, canvas.height/2 - 40);
-    } else if (mask.type === 'n95') {
-      // N95 mask - curved shape with straps
-      ctx.ellipse(canvas.width/2, canvas.height/2, 70, 50, 0, 0, Math.PI * 2);
-      ctx.moveTo(canvas.width/2 - 70, canvas.height/2);
-      ctx.lineTo(canvas.width/2 - 100, canvas.height/2 - 30);
-      ctx.moveTo(canvas.width/2 + 70, canvas.height/2);
-      ctx.lineTo(canvas.width/2 + 100, canvas.height/2 - 30);
-    } else if (mask.type === 'full_face') {
-      // Full face shield - curved rectangle
-      ctx.rect(canvas.width/2 - 80, canvas.height/2 - 60, 160, 120);
-      ctx.moveTo(canvas.width/2 - 80, canvas.height/2 - 60);
-      ctx.lineTo(canvas.width/2 - 60, canvas.height/2 - 90);
-      ctx.moveTo(canvas.width/2 + 80, canvas.height/2 - 60);
-      ctx.lineTo(canvas.width/2 + 60, canvas.height/2 - 90);
-    } else if (mask.type === 'goggle_mask') {
-      // Goggles + mask
-      ctx.rect(canvas.width/2 - 60, canvas.height/2 - 10, 120, 40);
-      ctx.moveTo(canvas.width/2 - 60, canvas.height/2 - 10);
-      ctx.lineTo(canvas.width/2 - 100, canvas.height/2 - 40);
-      ctx.moveTo(canvas.width/2 + 60, canvas.height/2 - 10);
-      ctx.lineTo(canvas.width/2 + 100, canvas.height/2 - 40);
-      
-      // Goggles
-      ctx.ellipse(canvas.width/2 - 30, canvas.height/2 - 30, 25, 20, 0, 0, Math.PI * 2);
-      ctx.ellipse(canvas.width/2 + 30, canvas.height/2 - 30, 25, 20, 0, 0, Math.PI * 2);
-    } else if (mask.type === 'tactical') {
-      // Tactical mask - more complex shape
-      ctx.rect(canvas.width/2 - 70, canvas.height/2 - 40, 140, 80);
-      ctx.moveTo(canvas.width/2 - 70, canvas.height/2 - 40);
-      ctx.lineTo(canvas.width/2 - 90, canvas.height/2 - 60);
-      ctx.moveTo(canvas.width/2 + 70, canvas.height/2 - 40);
-      ctx.lineTo(canvas.width/2 + 90, canvas.height/2 - 60);
-      
-      // Filters
-      ctx.rect(canvas.width/2 - 50, canvas.height/2 - 20, 30, 20);
-      ctx.rect(canvas.width/2 + 20, canvas.height/2 - 20, 30, 20);
-    }
-    
-    ctx.stroke();
-  }
-
-  createMask(type) {
-    return { type: type, color: '#0ff' };
-  }
-
-  createAddon(type) {
-    return { type: type, color: '#f0f' };
-  }
-
-  addToScene(obj) {
-    this.scene.children.push(obj);
-  }
-
-  removeFromScene(obj) {
-    const index = this.scene.children.indexOf(obj);
-    if (index > -1) {
-      this.scene.children.splice(index, 1);
-    }
-  }
-}
-
 // Application state
 const video = document.getElementById('video');
 const canvas = document.getElementById('view3d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
-const addonEl = document.getElementById('addon');
+const colorEl = document.getElementById('color');
+const sizeEl = document.getElementById('size');
 
-let threeJS = null;
-let currentMask = null;
-let currentAddon = null;
 let isTracking = false;
-let calibrationOffset = { x: 0, y: 0.06 };
+let currentMaskType = 'surgical';
+let maskSize = 1.0; // 100% size
+let maskColor = { h: 180, s: 100, b: 100 }; // Default cyan color
+
+// Mask definitions with base dimensions
+const masks = {
+  surgical: {
+    name: 'SURGICAL',
+    width: 120,
+    height: 60,
+    earLoopOffset: 40,
+    draw: function(ctx, x, y, color, size) {
+      const w = this.width * size;
+      const h = this.height * size;
+      const earOffset = this.earLoopOffset * size;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Main mask body
+      ctx.rect(x - w/2, y - h/2, w, h);
+      
+      // Ear loops
+      ctx.moveTo(x - w/2, y - h/4);
+      ctx.lineTo(x - w/2 - earOffset, y - h/2 - earOffset/2);
+      ctx.moveTo(x + w/2, y - h/4);
+      ctx.lineTo(x + w/2 + earOffset, y - h/2 - earOffset/2);
+      
+      // Nose bridge wire
+      ctx.moveTo(x - w/4, y - h/2);
+      ctx.lineTo(x + w/4, y - h/2);
+      
+      ctx.stroke();
+    }
+  },
+  n95: {
+    name: 'N95',
+    width: 100,
+    height: 80,
+    curve: 20,
+    draw: function(ctx, x, y, color, size) {
+      const w = this.width * size;
+      const h = this.height * size;
+      const curve = this.curve * size;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Curved mask body
+      ctx.moveTo(x - w/2, y - h/4);
+      ctx.quadraticCurveTo(x - w/4, y - h/2 - curve, x, y - h/2);
+      ctx.quadraticCurveTo(x + w/4, y - h/2 - curve, x + w/2, y - h/4);
+      ctx.lineTo(x + w/2, y + h/4);
+      ctx.quadraticCurveTo(x + w/4, y + h/2 + curve, x, y + h/2);
+      ctx.quadraticCurveTo(x - w/4, y + h/2 + curve, x - w/2, y + h/4);
+      ctx.closePath();
+      
+      // Straps
+      ctx.moveTo(x - w/2, y - h/4);
+      ctx.lineTo(x - w/2 - 30*size, y - h/2);
+      ctx.moveTo(x + w/2, y - h/4);
+      ctx.lineTo(x + w/2 + 30*size, y - h/2);
+      
+      // Valve
+      ctx.arc(x, y - h/8, 10*size, 0, Math.PI * 2);
+      
+      ctx.stroke();
+    }
+  },
+  full_face: {
+    name: 'FULL FACE SHIELD',
+    width: 160,
+    height: 120,
+    draw: function(ctx, x, y, color, size) {
+      const w = this.width * size;
+      const h = this.height * size;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Main shield
+      ctx.rect(x - w/2, y - h/2, w, h);
+      
+      // Headband
+      ctx.moveTo(x - w/2, y - h/2);
+      ctx.lineTo(x - w/4, y - h/2 - 30*size);
+      ctx.lineTo(x + w/4, y - h/2 - 30*size);
+      ctx.lineTo(x + w/2, y - h/2);
+      
+      // Chin guard
+      ctx.moveTo(x - w/4, y + h/2);
+      ctx.lineTo(x, y + h/2 + 15*size);
+      ctx.lineTo(x + w/4, y + h/2);
+      
+      ctx.stroke();
+    }
+  },
+  goggle_mask: {
+    name: 'GOGGLES + MASK',
+    width: 140,
+    height: 100,
+    goggleRadius: 25,
+    draw: function(ctx, x, y, color, size) {
+      const w = this.width * size;
+      const h = this.height * size;
+      const goggleRadius = this.goggleRadius * size;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Lower mask
+      ctx.rect(x - w/2, y, w, h/2);
+      
+      // Goggles
+      ctx.arc(x - w/4, y - goggleRadius/2, goggleRadius, 0, Math.PI * 2);
+      ctx.moveTo(x + w/4 + goggleRadius, y - goggleRadius/2);
+      ctx.arc(x + w/4, y - goggleRadius/2, goggleRadius, 0, Math.PI * 2);
+      
+      // Bridge between goggles
+      ctx.moveTo(x - w/4 + goggleRadius, y - goggleRadius/2);
+      ctx.lineTo(x + w/4 - goggleRadius, y - goggleRadius/2);
+      
+      // Straps
+      ctx.moveTo(x - w/2, y + h/4);
+      ctx.lineTo(x - w/2 - 30*size, y + h/8);
+      ctx.moveTo(x + w/2, y + h/4);
+      ctx.lineTo(x + w/2 + 30*size, y + h/8);
+      
+      ctx.stroke();
+    }
+  },
+  tactical: {
+    name: 'TACTICAL MASK',
+    width: 140,
+    height: 80,
+    filterSize: 30,
+    draw: function(ctx, x, y, color, size) {
+      const w = this.width * size;
+      const h = this.height * size;
+      const filterSize = this.filterSize * size;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Main mask body
+      ctx.rect(x - w/2, y - h/2, w, h);
+      
+      // Filters
+      ctx.rect(x - w/3, y - h/4, filterSize, filterSize/2);
+      ctx.rect(x + w/3 - filterSize, y - h/4, filterSize, filterSize/2);
+      
+      // Ventilation holes
+      for (let i = 0; i < 5; i++) {
+        ctx.moveTo(x - w/4 + i*10*size, y + h/4);
+        ctx.lineTo(x - w/4 + i*10*size, y + h/3);
+      }
+      
+      // Head strap attachments
+      ctx.moveTo(x - w/2, y - h/4);
+      ctx.lineTo(x - w/2 - 20*size, y - h/2 - 10*size);
+      ctx.moveTo(x + w/2, y - h/4);
+      ctx.lineTo(x + w/2 + 20*size, y - h/2 - 10*size);
+      
+      ctx.stroke();
+    }
+  }
+};
+
+// Convert HSL to RGB
+function hslToRgb(h, s, l) {
+  h /= 360;
+  s /= 100;
+  l /= 100;
+  
+  let r, g, b;
+  
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+// Convert RGB to hex
+function rgbToHex(r, g, b) {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+// Get current color as hex
+function getCurrentColor() {
+  const rgb = hslToRgb(maskColor.h, maskColor.s, maskColor.b);
+  return rgbToHex(rgb[0], rgb[1], rgb[2]);
+}
+
+// Update color previews
+function updateColorPreviews() {
+  const hueColor = rgbToHex(...hslToRgb(maskColor.h, 100, 50));
+  const saturationColor = rgbToHex(...hslToRgb(maskColor.h, maskColor.s, 50));
+  const brightnessColor = rgbToHex(...hslToRgb(maskColor.h, maskColor.s, maskColor.b));
+  
+  document.getElementById('hue-preview').style.backgroundColor = hueColor;
+  document.getElementById('saturation-preview').style.backgroundColor = saturationColor;
+  document.getElementById('brightness-preview').style.backgroundColor = brightnessColor;
+  
+  colorEl.textContent = `COLOR: ${getCurrentColor().toUpperCase()}`;
+}
 
 // Log function
 function log(message) {
@@ -214,70 +342,23 @@ function log(message) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// Initialize 3D system
-function init3D() {
-  threeJS = new SimpleThreeJS().init(canvas);
-  log('3D ENGINE INITIALIZED: WIREFRAME MODE');
-}
-
-// Load mask based on type
-function loadMask(type) {
-  if (currentMask) {
-    threeJS.removeFromScene(currentMask);
-  }
+// Draw current mask
+function drawMask() {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  currentMask = threeJS.createMask(type);
-  threeJS.addToScene(currentMask);
-  
-  maskEl.textContent = `MASK: ${type.toUpperCase()}`;
-  log(`MASK LOADED: ${type.toUpperCase()}`);
-}
-
-// Load addon based on type
-function loadAddon(type) {
-  if (type === 'none') {
-    if (currentAddon) {
-      threeJS.removeFromScene(currentAddon);
-      currentAddon = null;
-    }
-    addonEl.textContent = 'ADDON: NONE';
-    log('ADDON REMOVED');
-    return;
-  }
-  
-  if (currentAddon) {
-    threeJS.removeFromScene(currentAddon);
-  }
-  
-  currentAddon = threeJS.createAddon(type);
-  threeJS.addToScene(currentAddon);
-  
-  addonEl.textContent = `ADDON: ${type.toUpperCase()}`;
-  log(`ADDON LOADED: ${type.toUpperCase()}`);
-}
-
-// Update mask position based on face tracking simulation
-function updateMaskPosition() {
-  // Simulate face tracking with random movement
-  if (isTracking) {
-    const offsetX = (Math.random() - 0.5) * 10;
-    const offsetY = (Math.random() - 0.5) * 10;
+  if (isTracking && masks[currentMaskType]) {
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const color = getCurrentColor();
     
-    // In a real implementation, this would update the 3D position
-    // For this simulation, we're just updating the tracking indicator
-    
-    trackEl.textContent = 'TRACKING: LOCKED';
-    trackEl.classList.add('locked');
+    masks[currentMaskType].draw(ctx, centerX, centerY, color, maskSize);
   }
 }
 
 // Animation loop
 function animate() {
-  if (isTracking) {
-    updateMaskPosition();
-  }
-  
-  threeJS.renderer.render(threeJS.scene, threeJS.camera);
+  drawMask();
   requestAnimationFrame(animate);
 }
 
@@ -297,6 +378,9 @@ async function startAR() {
     video.play();
     
     isTracking = true;
+    trackEl.textContent = 'TRACKING: LOCKED';
+    trackEl.classList.add('locked');
+    
     log('FACE TRACKING ACTIVE: SIMULATION MODE');
     log('CALIBRATING FACE CENTER... KEEP FACE STRAIGHT');
     
@@ -309,6 +393,7 @@ async function startAR() {
     log('CAMERA ERROR: ' + error.message);
     log('USING SIMULATION MODE WITHOUT CAMERA');
     isTracking = true;
+    trackEl.textContent = 'TRACKING: SIMULATION';
   }
 }
 
@@ -316,11 +401,11 @@ async function startAR() {
 function exportJSON() {
   const exportData = {
     application: "EDTV: CHANNEL 9 - MEDICAL AR FITTING",
-    version: "v3.0",
+    version: "v3.1",
     timestamp: new Date().toISOString(),
-    mask: document.getElementById('mask-select').value,
-    addon: document.getElementById('addon-select').value,
-    calibration: calibrationOffset,
+    mask: currentMaskType,
+    color: getCurrentColor(),
+    size: Math.round(maskSize * 100) + "%",
     status: isTracking ? "TRACKING_ACTIVE" : "TRACKING_INACTIVE"
   };
   
@@ -340,6 +425,10 @@ function exportJSON() {
 
 // Initialize application
 function initApp() {
+  // Set up canvas
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  
   // Set up event listeners
   document.getElementById('start').addEventListener('click', startAR);
   document.getElementById('export').addEventListener('click', exportJSON);
@@ -347,29 +436,71 @@ function initApp() {
     log('VR/AR MODE ACTIVATED: FULL IMMERSION');
   });
   
+  // Mask selection
   document.getElementById('mask-select').addEventListener('change', (e) => {
-    loadMask(e.target.value);
+    currentMaskType = e.target.value;
+    maskEl.textContent = `MASK: ${masks[currentMaskType].name}`;
+    log(`MASK SELECTED: ${masks[currentMaskType].name}`);
   });
   
-  document.getElementById('addon-select').addEventListener('change', (e) => {
-    loadAddon(e.target.value);
+  // Size controls
+  document.getElementById('size-down').addEventListener('click', () => {
+    maskSize = Math.max(0.5, maskSize - 0.1);
+    sizeEl.textContent = `SIZE: ${Math.round(maskSize * 100)}%`;
+    log(`MASK SIZE: ${Math.round(maskSize * 100)}%`);
   });
   
-  // Initialize 3D system
-  init3D();
+  document.getElementById('size-up').addEventListener('click', () => {
+    maskSize = Math.min(2.0, maskSize + 0.1);
+    sizeEl.textContent = `SIZE: ${Math.round(maskSize * 100)}%`;
+    log(`MASK SIZE: ${Math.round(maskSize * 100)}%`);
+  });
   
-  // Load default mask
-  loadMask('surgical');
+  document.getElementById('reset-size').addEventListener('click', () => {
+    maskSize = 1.0;
+    sizeEl.textContent = `SIZE: ${Math.round(maskSize * 100)}%`;
+    log(`MASK SIZE RESET: ${Math.round(maskSize * 100)}%`);
+  });
+  
+  // Color controls
+  document.getElementById('hue-slider').addEventListener('input', (e) => {
+    maskColor.h = parseInt(e.target.value);
+    updateColorPreviews();
+    log(`HUE ADJUSTED: ${maskColor.h}°`);
+  });
+  
+  document.getElementById('saturation-slider').addEventListener('input', (e) => {
+    maskColor.s = parseInt(e.target.value);
+    updateColorPreviews();
+    log(`SATURATION ADJUSTED: ${maskColor.s}%`);
+  });
+  
+  document.getElementById('brightness-slider').addEventListener('input', (e) => {
+    maskColor.b = parseInt(e.target.value);
+    updateColorPreviews();
+    log(`BRIGHTNESS ADJUSTED: ${maskColor.b}%`);
+  });
+  
+  // Initialize UI
+  maskEl.textContent = `MASK: ${masks[currentMaskType].name}`;
+  updateColorPreviews();
+  sizeEl.textContent = `SIZE: ${Math.round(maskSize * 100)}%`;
   
   // Start animation loop
   animate();
   
   log('SYSTEM READY: ALL MODULES INITIALIZED');
-  log('WIREFRAME MODE ACTIVE: LIGHTWEIGHT RENDERING');
+  log('COLOR EDITOR ACTIVE: CUSTOMIZE MASK APPEARANCE');
 }
 
 // Start the application when the page loads
 window.addEventListener('DOMContentLoaded', initApp);
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+});
 </script>
 </body>
 </html>
