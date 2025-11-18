@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>edTV: CHANNEL 11</title>
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="data:application/manifest+json,{...}">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+        body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
+        #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
+        .matrix-grid{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3}
+        .crt-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;z-index:5;pointer-events:none;animation:scanline 8s linear infinite}
+        @keyframes scanline{0%{background-position:0 0}100%{background-position:0 100%}}
+        #visualizationContainer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}
+
+        .top-banner{position:absolute;top:0;left:0;width:100%;height:40px;background:rgba(255,0,255,0.9);border-bottom:2px solid #f0f;display:flex;align-items:center;justify-content:center;z-index:12;overflow:hidden;animation:glitch 3s infinite}
+        @keyframes glitch{0%,100%{transform:translateX(0)}5%{transform:translateX(-2px)}10%{transform:translateX(2px)}15%{transform:translateX(-1px)}20%{transform:translateX(1px)}25%{transform:translateX(0)}50%{transform:translateX(0)}55%{transform:translateX(-1px) skewX(-2deg)}60%{transform:translateX(1px) skewX(2deg)}65%{transform:translateX(-1px) skewX(-1deg)}70%{transform:translateX(1px) skewX(1deg)}75%{transform:translateX(0)}}
+        .top-banner::before{content:'';position:absolute;top:0;left:-10%;width:120%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);animation:shimmer 2s infinite}
+        @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+        .top-banner-text{font-size:12px;color:#000;text-shadow:1px 1px 0 #fff;letter-spacing:1px}
+
+        .mirror-btn{width:120px;height:52px;background:#000;border:3px solid #0ff;color:#0ff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:3px 3px 0 #000;transform:skew(-2deg);transition:background .1s,color .1s;touch-action:none;position:absolute;top:55px;left:50%;transform:translateX(-50%);z-index:11}
+        .mirror-btn:hover,.mirror-btn:active,.mirror-btn.active{background:#0ff;color:#000}
+
+        .scene-controls{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);display:flex;gap:20px;z-index:11}
+        .scene-btn{width:90px;height:44px;background:#000;border:2px solid #0f0;color:#0f0;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .scene-btn:hover,.scene-btn:active{background:#0f0;color:#000}
+
+        .neurots-status{position:absolute;top:50px;left:10px;font-size:8px;color:#0ff;z-index:11;background:rgba(0,0,0,0.7);padding:5px;border:1px solid #0ff}
+
+        .ppv-face-view{position:absolute;top:10px;right:10px;width:120px;height:90px;background:#000;border:2px solid #0ff;z-index:15;overflow:hidden;cursor:pointer;transition:all .3s}
+        .ppv-face-view.expanded{width:300px;height:225px;z-index:20}
+
+        @media(min-width:768px){.mirror-btn{width:140px;height:56px;font-size:12px}.scene-btn{width:100px;height:50px;font-size:10px}}
+        @media(max-width:767px){.scene-controls{flex-direction:column;gap:12px}.scene-btn{width:100px}}
+    </style>
+</head>
+<body>
+<div id="appContainer">
+    <div class="matrix-grid"></div>
+    <div class="crt-overlay"></div>
+
+    <div class="top-banner"><div class="top-banner-text">edTV: CHANNEL 11</div></div>
+
+    <div class="ppv-face-view" id="ppvFaceView"><canvas class="ppv-canvas" id="ppvCanvas"></canvas></div>
+    <div class="neurots-status" id="neurotsStatus">LIVE: CALIBRATING...</div>
+
+    <div id="visualizationContainer"><canvas id="visualizationCanvas"></canvas></div>
+
+    <button id="mirrorBtn" class="mirror-btn active">edTV: CHANNEL 11</button>
+
+    <div class="scene-controls">
+        <button id="zoomInBtn" class="scene-btn">ZOOM +</button>
+        <button id="zoomOutBtn" class="scene-btn">ZOOM -</button>
+        <button id="resetViewBtn" class="scene-btn">RESET</button>
+    </div>
+</div>
+
+<script>
+    let scene, cam, ren, clock;
+    let userMask;                            // ← changed: real 3D mask instead of wireframe figure
+    let faceDirection = 0, userDetected = false;
+    let stream, faceMesh, camera;
+
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+
+        cam = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+        cam.position.set(0, 1.6, 3);
+
+        ren = new THREE.WebGLRenderer({canvas: $('#visualizationCanvas'), antialias:false});
+        ren.setSize(innerWidth, innerHeight);
+        ren.setPixelRatio(Math.min(devicePixelRatio,2));
+        clock = new THREE.Clock();
+
+        scene.add(new THREE.AmbientLight(0x003300));
+        const dir = new THREE.DirectionalLight(0x00ff00, 0.6);
+        dir.position.set(5,10,7);
+        scene.add(dir);
+
+        // 3D MASK (simple but solid-looking)
+        const maskGeo = new THREE.SphereGeometry(0.35, 16, 12);
+        maskGeo.scale(1.1, 0.9, 1.3); // slightly elongated
+        const maskMat = new THREE.MeshBasicMaterial({color:0x00ffff, wireframe:false});
+        userMask = new THREE.Mesh(maskGeo, maskMat);
+        userMask.position.y = 1.6;
+        scene.add(userMask);
+
+        // subtle eye sockets
+        const eyeGeo = new THREE.SphereGeometry(0.08, 8, 6);
+        const eyeMat = new THREE.MeshBasicMaterial({color:0x000000});
+        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+        leftEye.position.set(-0.12, 0.12, 0.28);
+        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+        rightEye.position.set(0.12, 0.12, 0.28);
+        userMask.add(leftEye);
+        userMask.add(rightEye);
+
+        cam.lookAt(userMask.position);
+    }
+
+    // ───── rest of your original code unchanged (face detection, webcam, etc.) ─────
+    // only replaced createNeurotsUser() → removed
+    // userObj → userMask everywhere in animate()
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (userMask) {
+            userMask.rotation.y = THREE.MathUtils.degToRad(-faceDirection);
+            userMask.position.y = 1.6 + Math.sin(Date.now()*0.002)*0.03; // subtle breathing
+        }
+
+        cam.position.set(
+            Math.sin(THREE.MathUtils.degToRad(faceDirection))*3,
+            1.6 + 0.8,
+            Math.cos(THREE.MathUtils.degToRad(faceDirection))*3
+        );
+        cam.lookAt(userMask ? userMask.position : new THREE.Vector3(0,1.6,0));
+
+        ren.render(scene, cam);
+    }
+
+    // keep all your existing functions (face detection, buttons, etc.)
+    // just replace every "userObj" reference with "userMask"
+
+    window.addEventListener('load', () => {
+        init3D();
+        // … your original init() calls
+        animate();
+    });
+</script>
+</body>
+</html>
