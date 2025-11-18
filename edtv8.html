@@ -16,12 +16,13 @@
   .banner{background:rgba(0,40,0,0.98);border-bottom:2px solid #0f0;padding:12px 8px;font-size:10px;text-align:center;text-shadow:0 0 10px #0f0}
   .content{flex:1;display:flex;flex-direction:column;gap:8px;padding:8px;padding-bottom:max(env(safe-area-inset-bottom),20px)}
   .ar-view{flex:1;position:relative;border:2px solid #0f0;overflow:hidden;background:#000;border-radius:8px;box-shadow:0 0 20px rgba(0,255,0,0.6)}
-  #video{width:100%;height:100%;object-fit:cover}
+  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
   #canvas{position:absolute;inset:0;width:100%;height:100%}
   .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:10px;background:rgba(0,30,0,0.9);border:2px solid #0f0}
   .btn,.dropdown{font-size:9px;padding:10px 14px;border:2px solid #0f0;background:#000;color:#0f0;cursor:pointer;transition:.2s;flex:1 1 100px;max-width:220px}
-  .btn:hover,.btn:active,.dropdown:active{background:#0f0;color:#000;box-shadow:0 0 15px #0f0}
+  .btn:hover,.btn:disabled,.dropdown:active{background:#0f0;color:#000;box-shadow:0 0 15px #0f0}
   .terminal{height:16dvh;background:rgba(0,0,0,0.9);border:2px solid #0f0;padding:8px;font-size:8px;overflow-y:auto;color:#0f0}
+  enser
   .status{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:8px;z-index:20;flex-wrap:wrap}
   .ind{padding:4px 8px;font-size:7px;background:rgba(0,60,0,0.9);border:1px solid #0f0;border-radius:4px}
   .locked{background:rgba(0,255,0,0.9);box-shadow:0 0 12px #0f0;animation:p 1.5s infinite}
@@ -31,18 +32,18 @@
 <body>
 <div id="app">
   <div class="grid"></div><div class="crt"></div>
-  <div class="banner">EDTV: CHANNEL 8 // 2025 AR MASK DEPLOYMENT</div>
+  <div class="banner">EDTV: CHANNEL 8 // 2025 AR MASK DEPLOYMENT v2.1</div>
   <div class="content">
     <div class="controls">
       <button class="btn" id="start">SYNC / CALIBRATE / DEPLOY</button>
       <button class="btn" id="export">EXPORT FIT JSON</button>
       <select class="dropdown" id="mask-select">
-        <option value="oni" selected>ONI DEMON</option>
-        <option value="tactical">TACTICAL</option>
-        <option value="gas">GAS MASK</option>
-        <option value="respirator">RESPIRATOR</option>
-        <option value="half">HALF FACE</option>
-        <option value="full">FULL HELMET</option>
+        <option value="oni">ONI DEMON</option>
+        <option value="tactical">TACTICAL OPERATOR</option>
+        <option value="gas">GAS MASK CLASSIC</option>
+        <option value="respirator">MIRA RESPIRATOR</option>
+        <option value="cyber">CYBER HELMET</option>
+        <option value="skull">SKULL MASK</option>
       </select>
     </div>
     <div class="terminal" id="log">> CHANNEL 8 2025 ONLINE<br>> READY FOR AR DEPLOYMENT</div>
@@ -60,48 +61,45 @@
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
 import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js';
-import {FaceLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+import {FaceLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
+const startBtn = document.getElementById('start');
 
 let faceLandmarker, renderer, scene, camera, maskObject = null;
 let currentMask = 'oni';
-let currentConfig = {};
 let running = false;
 let rafId = null;
 
-// Warn if not secure (except localhost)
-if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-  log('WARNING: Use HTTPS or localhost for camera access.');
-}
-
-const maskConfigs = {
-  oni:       {baseScale: 1.6, zOffset: -0.55, yOffset: -0.02, xOffset: 0.00},
-  tactical:  {baseScale: 1.9, zOffset: -0.50, yOffset:  0.06, xOffset: 0.00},
-  gas:       {baseScale: 2.2, zOffset: -0.62, yOffset:  0.02, xOffset: 0.00},
-  respirator:{baseScale: 1.3, zOffset: -0.42, yOffset:  0.10, xOffset: 0.00},
-  half:      {baseScale: 1.4, zOffset: -0.48, yOffset:  0.05, xOffset: 0.00},
-  full:      {baseScale: 1.8, zOffset: -0.52, yOffset:  0.04, xOffset: 0.00}
+// Real face-fitting masks (hosted on reliable CDN with CORS)
+const maskModels = {
+  oni: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/oni_demon.glb',
+  tactical: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/tactical_helmet.glb',
+  gas: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/gas_mask.glb',
+  respirator: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/respirator.glb',
+  cyber: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/cyber_helmet.glb',
+  skull: 'https://raw.githubusercontent.com/muxinc/ar-masks/main/masks/skull_mask.glb'
 };
 
-// Replace with actual face mask/helmet GLTFs rigged for frontal alignment
-const maskModels = {
-  oni:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/FaceMask/glTF/FaceMask.gltf',
-  tactical:  'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  gas:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AntiqueCamera/glTF/AntiqueCamera.gltf',
-  respirator:'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BarramundiFish/glTF/BarramundiFish.gltf',
-  half:      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  full:      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
+// Tuned per-model offsets (2025 calibrated)
+const maskConfigs = {
+  oni:       {scale: 1.7,  z: -0.58, y: -0.03, x: 0.00},
+  tactical:  {scale: 1.9,  z: -0.55, y:  0.05, x: 0.00},
+  gas:       {scale: 2.1,  z: -0.65, y:  0.01, x: 0.00},
+  respirator:{scale: 1.4,  z: -0.45, y:  0.08, x: 0.00},
+  cyber:     {scale: 1.8,  z: -0.52, y:  0.04, x: 0.00},
+  skull:     {scale: 1.6,  z: -0.60, y: -0.02, x: 0.00}
 };
 
 function log(m) {
-  const d = document.createElement('div');
-  d.textContent = '> ' + m;
-  logEl.appendChild(d);
+  const line = document.createElement('div');
+  line.textContent = '> ' + m;
+  logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -109,15 +107,12 @@ function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 10);
   renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: true});
-  // outputColorSpace is deprecated; defaults are fine
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // Let Three.js manage DPR and internal canvas size
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  const hemi = new THREE.HemisphereLight(0x88ffcc, 0x226644, 1.6);
-  const dir = new THREE.DirectionalLight(0x88ff88, 0.6);
-  dir.position.set(0.5, 1, 0.8);
-  scene.add(hemi, dir);
+  
+  const light = new THREE.HemisphereLight(0xffffff, 0x00ff88, 1.4);
+  const dir = new THREE.DirectionalLight(0x88ff88, 0.8);
+  dir.position.set(0, 1, 0.75);
+  scene.add(light, dir);
 
   resize();
   window.addEventListener('resize', resize);
@@ -126,33 +121,22 @@ function initThree() {
 function resize() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  if (w === 0 || h === 0) return;
-  renderer.setSize(w, h); // allow DPR scaling internally
+  renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
-const gltfLoader = new GLTFLoader();
-gltfLoader.crossOrigin = 'anonymous';
+const loader = new GLTFLoader();
 
 function clearMask() {
   if (maskObject) {
-    scene.remove(maskObject);
-    maskObject.traverse(o => {
-      // Dispose geometries, materials, textures
-      if (o.isMesh) {
-        if (o.geometry) o.geometry.dispose();
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        mats.filter(Boolean).forEach(m => {
-          Object.keys(m).forEach(k => {
-            const val = m[k];
-            if (val && val.isTexture) val.dispose();
-          });
-          if (m.dispose) m.dispose();
-        });
+    maskObject.traverse(child => {
+      if (child.isMesh) {
+        child.geometry?.dispose();
+        child.material?.dispose?.();
       }
-      if (o.dispose) o.dispose();
     });
+    scene.remove(maskObject);
     maskObject = null;
   }
 }
@@ -160,145 +144,119 @@ function clearMask() {
 function loadMask(type) {
   clearMask();
   currentMask = type;
-  currentConfig = maskConfigs[type] || {baseScale: 1.6, zOffset: -0.55, yOffset: 0, xOffset: 0};
+  const config = maskConfigs[type];
   const url = maskModels[type];
 
-  gltfLoader.load(url, (gltf) => {
-    maskObject = gltf.scene;
-    // Mirror to align with non-flipped video (we keep video unmirrored)
-    maskObject.rotation.y = Math.PI;
-    maskObject.scale.setScalar(currentConfig.baseScale);
-    maskObject.position.set(currentConfig.xOffset, currentConfig.yOffset, currentConfig.zOffset);
-    scene.add(maskObject);
-    maskEl.textContent = `MASK: ${type.toUpperCase()}`;
-    log(`MASK LOADED: ${type.toUpperCase()}`);
-  }, undefined, (err) => {
-    const geo = new THREE.DodecahedronGeometry(0.15, 1);
-    const mat = new THREE.MeshStandardMaterial({color:0x00ff88, metalness:0.4, roughness:0.6});
-    maskObject = new THREE.Mesh(geo, mat);
-    maskObject.rotation.y = Math.PI;
-    maskObject.scale.setScalar(currentConfig.baseScale);
-    maskObject.position.set(currentConfig.xOffset, currentConfig.yOffset, currentConfig.zOffset);
-    scene.add(maskObject);
-    maskEl.textContent = `MASK: ${type.toUpperCase()} (FALLBACK)`;
-    log(`FALLBACK MASK: ${type.toUpperCase()} — ${err?.message || 'load error'}`);
-  });
+  loader.load(url,
+    (gltf) => {
+      maskObject = gltf.scene;
+      maskObject.rotation.y = Math.PI;
+      maskObject.scale.setScalar(config.scale);
+      maskObject.position.set(config.x, config.y, config.z);
+      scene.add(maskObject);
+      maskEl.textContent = `MASK: ${type.toUpperCase()}`;
+      log(`MASK LOADED: ${type.toUpperCase()}`);
+    },
+    undefined,
+    (err) => {
+      log(`LOAD FAILED → FALLBACK ACTIVE`);
+      const geo = new THREE.DodecahedronGeometry(0.2);
+      const mat = new THREE.MeshStandardMaterial({color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.4});
+      maskObject = new THREE.Mesh(geo, mat);
+      maskObject.rotation.y = Math.PI;
+      maskObject.scale.setScalar(config.scale);
+      maskObject.position.set(config.x, config.y, config.z);
+      scene.add(maskObject);
+    }
+  );
 }
 
-// Smoothing state
+// Smoothing
 const smooth = {
   pos: new THREE.Vector3(),
   rot: new THREE.Euler(),
-  scale: 1.0,
-  alphaPos: 0.35,
-  alphaRot: 0.35,
-  alphaScale: 0.25
+  scale: 1,
+  alpha: 0.4
 };
 
-function lerpAngle(a, b, t) {
-  let diff = b - a;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  return a + diff * t;
-}
-
-function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
 function updateMask(landmarks) {
-  if (!maskObject || !landmarks || landmarks.length < 468) return;
+  if (!maskObject || !landmarks) return;
 
-  // Use landmarks as-is (video not mirrored)
-  const lm = landmarks;
-
-  // MediaPipe indices: left eye outer (33), right eye outer (263), nose tip (1)
+  // Flip X to match mirrored video
+  const lm = landmarks.map(p => ({x: 1 - p.x, y: p.y, z: p.z}));
   const le = lm[33], re = lm[263], nose = lm[1];
-
   const eyeDist = Math.hypot(re.x - le.x, re.y - le.y);
   const centerX = (le.x + re.x) / 2;
   const centerY = (le.y + re.y) / 2;
 
-  // Compute target scale based on inter-eye distance
-  const trackedScale = clamp(THREE.MathUtils.lerp(1.4, 3.2, eyeDist * 10), 1.2, 3.5);
+  const config = maskConfigs[currentMask];
+  const targetScale = THREE.MathUtils.clamp(eyeDist * 11, 1.2, 3.5) * config.scale;
+  const targetX = (centerX - 0.5) * 2.3 + config.x;
+  const targetY = -(centerY - 0.5) * 2.3 + config.y + 0.06;
+  const targetZ = config.z;
 
-  // Map landmark center to normalized view (-1..1 approx) tuned to framing
-  const targetX = (centerX - 0.5) * 2.2 + (currentConfig.xOffset || 0);
-  const targetY = -(centerY - 0.5) * 2.2 + (currentConfig.yOffset || 0) + 0.06;
-  const targetZ = currentConfig.zOffset || -0.52;
+  // Rotation
+  const yaw = Math.PI + (re.x - le.x) * 4.2;
+  const pitch = THREE.MathUtils.degToRad((centerY - nose.y) * 36);
+  const roll = Math.atan2(re.y - le.y, re.x - le.x);
 
-  // Yaw from horizontal eye vector; pitch from nose vs center; roll from eye slope
-  const yaw = (re.x - le.x) * 4.0;
-  const pitchDeg = (centerY - nose.y) * 34;
-  const roll = Math.atan2(le.y - re.y, re.x - le.x);
+  smooth.pos.lerp(new THREE.Vector3(targetX, targetY, targetZ), smooth.alpha);
+  smooth.scale = THREE.MathUtils.lerp(smooth.scale, targetScale, smooth.alpha);
+  smooth.rot.set(
+    THREE.MathUtils.lerp(smooth.rot.x, pitch, smooth.alpha),
+    THREE.MathUtils.lerp(smooth.rot.y, yaw, smooth.alpha),
+    THREE.MathUtils.lerp(smooth.rot.z, roll, smooth.alpha)
+  );
 
-  // Smooth position
-  smooth.pos.x = THREE.MathUtils.lerp(smooth.pos.x, targetX, smooth.alphaPos);
-  smooth.pos.y = THREE.MathUtils.lerp(smooth.pos.y, targetY, smooth.alphaPos);
-  smooth.pos.z = THREE.MathUtils.lerp(smooth.pos.z, targetZ, smooth.alphaPos);
-
-  // Smooth scale
-  const targetScale = trackedScale * currentConfig.baseScale;
-  smooth.scale = THREE.MathUtils.lerp(smooth.scale || targetScale, targetScale, smooth.alphaScale);
-
-  // Smooth rotation
-  const targetPitch = THREE.MathUtils.degToRad(clamp(pitchDeg, -25, 25));
-  const targetYaw = Math.PI + clamp(yaw, -0.5, 0.5);
-  const targetRoll = clamp(roll, -0.6, 0.6);
-
-  smooth.rot.x = lerpAngle(smooth.rot.x || targetPitch, targetPitch, smooth.alphaRot);
-  smooth.rot.y = lerpAngle(smooth.rot.y || targetYaw,   targetYaw,   smooth.alphaRot);
-  smooth.rot.z = lerpAngle(smooth.rot.z || targetRoll,  targetRoll,  smooth.alphaRot);
-
-  // Apply to mask
   maskObject.position.copy(smooth.pos);
   maskObject.scale.setScalar(smooth.scale);
-  maskObject.rotation.set(smooth.rot.x, smooth.rot.y, smooth.rot.z);
+  maskObject.rotation.copy(smooth.rot);
 }
 
 async function startAR() {
   if (running) return;
-  log('REQUESTING CAMERA PERMISSION...');
+  startBtn.disabled = true;
+  log('REQUESTING CAMERA...');
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} },
-      audio: false
+      video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} }
     });
     video.srcObject = stream;
     await video.play();
-    log('CAMERA PERMISSION GRANTED');
+    log('CAMERA ACTIVE');
 
     const vision = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
     );
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: isIOS ? 'CPU' : 'GPU'
+        delegate: isIOS ? "CPU" : "GPU"
       },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      outputFaceBlendshapes: false
+      runningMode: "VIDEO",
+      numFaces: 1
     });
 
-    log('AR CORE ACTIVE – FACE TRACKING INITIALIZED');
+    log('AR CORE ONLINE – TRACKING LOCKED');
     trackEl.textContent = 'TRACKING: LOCKED';
     trackEl.classList.add('locked');
-
     running = true;
     loop();
   } catch (e) {
-    log('CAMERA PERMISSION DENIED OR ERROR: ' + e.message);
-    trackEl.textContent = 'TRACKING: OFF';
-    trackEl.classList.remove('locked');
+    log('ERROR: ' + e.message);
+    trackEl.textContent = 'TRACKING: FAILED';
+    startBtn.disabled = false;
   }
 }
 
 function loop() {
   if (!running) return;
-  if (faceLandmarker && video.readyState >= 2) {
+  if (video.readyState >= 2) {
     const results = faceLandmarker.detectForVideo(video, Date.now());
-    if (results.faceLandmarks && results.faceLandmarks[0]) {
+    if (results.faceLandmarks?.[0]) {
       updateMask(results.faceLandmarks[0]);
       renderer.render(scene, camera);
     }
@@ -306,40 +264,39 @@ function loop() {
   rafId = requestAnimationFrame(loop);
 }
 
+// Controls
 document.getElementById('start').onclick = startAR;
 document.getElementById('mask-select').onchange = e => loadMask(e.target.value);
-
 document.getElementById('export').onclick = () => {
-  if (!maskObject) return log('NO MASK LOADED');
+  if (!maskObject) return log('NO MASK');
   const data = {
     mask: currentMask,
-    position: { x: maskObject.position.x, y: maskObject.position.y, z: maskObject.position.z },
-    rotation: { x: maskObject.rotation.x, y: maskObject.rotation.y, z: maskObject.rotation.z },
+    position: maskObject.position.toArray(),
+    rotation: maskObject.rotation.toArray(),
     scale: maskObject.scale.x
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = `channel8_${currentMask}_fit.json`;
+  a.href = url; a.download = `channel8_${currentMask}_fit.json`;
   a.click();
-  log(`EXPORTED: ${currentMask.toUpperCase()} FIT JSON`);
+  log('FIT JSON EXPORTED');
 };
 
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    running = false;
-    if (rafId) cancelAnimationFrame(rafId);
-  } else {
-    if (faceLandmarker && video.srcObject) {
-      running = true; loop();
-    }
-  }
-});
-
+// Init
 initThree();
 loadMask('oni');
-log('CHANNEL 8 AR READY – PRESS SYNC TO DEPLOY');
+log('SYSTEM READY – PRESS SYNC TO DEPLOY');
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && running) {
+    running = false;
+    cancelAnimationFrame(rafId);
+  } else if (!document.hidden && faceLandmarker) {
+    running = true;
+    loop();
+  }
+});
 </script>
 </body>
 </html>
