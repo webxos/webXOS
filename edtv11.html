@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>EDTV: CHANNEL 9 - MEDICAL AR FITTING v2.7</title>
+<title>EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.0</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
@@ -32,7 +32,7 @@
 <body>
 <div id="app">
   <div class="grid"></div><div class="crt"></div>
-  <div class="banner">EDTV: CHANNEL 9 - MEDICAL AR FITTING v2.7</div>
+  <div class="banner">EDTV: CHANNEL 9 - MEDICAL AR FITTING v3.0</div>
   <div class="content">
     <div class="controls">
       <button class="btn btn-medical" id="start">SYNC / CALIBRATE / START</button>
@@ -75,17 +75,25 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('view3d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
+const maskEl = document.getElementById('mask');
+const addonEl = document.getElementById('addon');
 let faceLandmarker, scene, camera, renderer, maskGroup = new THREE.Group();
-let currentMask = null;
-let calibrationOffset = new THREE.Vector2(0, 0.06); // will auto-calibrate
+let currentMask = null, currentAddon = null;
+let calibrationOffset = new THREE.Vector2(0, 0.06);
 
 const loader = new GLTFLoader();
 const maskModels = {
-  surgical: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/surgical_mask.glb',
-  n95: 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/n95.glb',
-  full_face: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf', // placeholder real models later
-  goggle_mask: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf',
-  tactical: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf'
+  surgical: 'models/surgical_mask.glb',
+  n95: 'models/n95_mask.glb',
+  full_face: 'models/full_face_shield.glb',
+  goggle_mask: 'models/goggles_mask.glb',
+  tactical: 'models/tactical_mask.glb'
+};
+const addonModels = {
+  comms: 'addons/comms.glb',
+  filter: 'addons/filter.glb',
+  visor: 'addons/visor.glb',
+  sensor: 'addons/sensor.glb'
 };
 
 function log(m) { const d = document.createElement('div'); d.textContent = '> ' + m; logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; }
@@ -107,100 +115,10 @@ function init3D() {
   });
 }
 
-function loadRealMask(type) {
+function loadMask(type) {
   if (currentMask) maskGroup.remove(currentMask);
   loader.load(maskModels[type] || maskModels.surgical, gltf => {
     currentMask = gltf.scene;
     currentMask.scale.setScalar(0.8);
     maskGroup.add(currentMask);
-    log(`MASK LOADED: ${type.toUpperCase()}`);
-  }, undefined, () => createProceduralMask(type));
-}
-
-function createProceduralMask(type) {
-  // fallback realistic shapes
-  const geo = type === 'n95' ? new THREE.SphereGeometry(0.1, 32, 16, 0, Math.PI*2, 0, Math.PI/2) :
-             type === 'full_face' ? new THREE.CylinderGeometry(0.14, 0.14, 0.28, 32, 1, true) :
-             new THREE.BoxGeometry(0.22, 0.13, 0.09);
-  const mat = new THREE.MeshStandardMaterial({color: type==='surgical'?0xffffff:0x88aaff, roughness:0.6, metalness:0.1, transparent:true, opacity:0.9});
-  const mesh = new THREE.Mesh(geo, mat);
-  if (type==='full_face') mesh.rotation.x = Math.PI/2;
-  maskGroup.add(mesh);
-  currentMask = mesh;
-}
-
-function updateHeadPose(landmarks) {
-  const lm = landmarks.map(p=>({x:1-p.x, y:p.y, z:p.z}));
-  const nose = lm[1];
-  const chin = lm[175];
-  const leftEye = lm[33], rightEye = lm[263];
-
-  // Better face center: midpoint between eyes + small downward offset
-  const faceCenterX = (leftEye.x + rightEye.x) / 2;
-  const faceCenterY = (leftEye.y + rightEye.y) / 2 + calibrationOffset.y;
-
-  const faceWidth = Math.abs(rightEye.x - leftEye.x);
-  const scale = THREE.MathUtils.lerp(1.2, 2.2, faceWidth * 8);
-
-  maskGroup.position.x = (faceCenterX - 0.5) * 2.1;
-  maskGroup.position.y = -(faceCenterY - 0.5) * 2.1 + calibrationOffset.x;
-  maskGroup.scale.set(scale, scale, scale);
-
-  // Simple rotation
-  const yaw = (rightEye.x - leftEye.x) * 2.8;
-  maskGroup.rotation.y = -yaw;
-  maskGroup.rotation.x = (faceCenterY - nose.y) * 30;
-}
-
-let lastTime = 0;
-function animate(t) {
-  if (!lastTime) lastTime = t;
-  if (t - lastTime > 33 && running && faceLandmarker) {
-    lastTime = t;
-    const results = faceLandmarker.detectForVideo(video, t);
-    if (results.faceLandmarks?.[0]) {
-      updateHeadPose(results.faceLandmarks[0]);
-      trackEl.textContent = 'TRACKING: LOCKED';
-      trackEl.classList.add('locked');
-      // Auto-calibrate center on first 30 good frames
-      if (calibrationFrames < 30) { calibrationOffset.y += 0.002; calibrationFrames++; }
-    } else {
-      trackEl.textContent = 'TRACKING: SEARCHING';
-      trackEl.classList.remove('locked');
-    }
-  }
-  renderer.render(scene, camera);
-  if (!renderer.xr.isPresenting) requestAnimationFrame(animate);
-}
-
-let running = false, calibrationFrames = 0;
-
-async function startAR() {
-  if (running) return;
-  log('SYNC + CALIBRATE + START');
-  calibrationFrames = 0;
-  calibrationOffset.set(0, 0.06);
-  // same mediapipe init as before...
-  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU' },
-    runningMode: 'VIDEO', numFaces: 1
-  });
-  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:{ideal:1280}, height:{ideal:720}}});
-  video.srcObject = stream;
-  video.play();
-  running = true;
-  requestAnimationFrame(animate);
-  log('CALIBRATING FACE CENTER... KEEP FACE STRAIGHT');
-}
-
-document.getElementById('start').onclick = startAR;
-document.getElementById('mask-select').onchange = e => loadRealMask(e.target.value);
-document.getElementById('addon-select').onchange = () => log('Addons NYI in v2.7');
-
-init3D();
-loadRealMask('surgical');
-requestAnimationFrame(animate);
-</script>
-</body>
-</html>
+    mask
