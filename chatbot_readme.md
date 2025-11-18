@@ -1,55 +1,36 @@
-# WEBXOS AI Training Guide
+# WEBXOS — Chatbot (version 2)
 
-## Overview
-Zero-config AI training system. Upload data → auto-train → chat. No setup needed.
+**A single-file, zero-dependency, Markdown-only personal knowledge base chatbot**  
+Train an AI assistant directly in your browser using your own `.md` files. No backend, no API keys, fully offline.
 
-## Navigation
-- **CHAT**: Talk to AI assistant.
-- **TRAIN & MONITOR**: Upload files, view progress.
-- **GUIDE**: This guide.
+## Features
 
-## Getting Started
-1. Click **Add Training Data** in CHAT.
-2. Go to TRAIN tab.
-3. Drag/drop or browse files (TXT, MD, PDF, JSON).
-4. Click **Auto-Train**.
+- **Zero dependencies** – pure HTML + CSS + vanilla JS (~25 KB total)
+- Upload any number of Markdown (`.md`) files
+- Automatic heading-based section extraction
+- Builds a consolidated **Knowledge Pack** (single Markdown file)
+- Simple hybrid retrieval: exact QA match → title similarity → fallback guidance
+- Real-time training progress + topic badges
+- Download trained knowledge pack as `webxos-knowledge-pack.md`
+- Chat interface with Markdown-aware responses
+- Fully works offline after first load (save as HTML and use forever)
 
-## Supported Files
-- `.txt`: Plain text.
-- `.md`: Markdown docs.
-- `.pdf`: Reports/manuals.
-- `.json`: Q&A pairs.
+## How It Works
 
-## Quick Examples
-In TRAIN tab:
-- Click **+ Add greeting example** etc.
+1. **Train tab** → Drag & drop or select `.md` files  
+2. Click **"Parse & Build Pack"** → headings become topics, content becomes answers
+3. Switch to **Chat** → Ask natural questions about your documents
+4. The bot matches your question against:
+   - Generated Q&A ("tell me about X")
+   - Heading similarity scoring
+   - Fallback with relevant topic suggestions
 
-## Training Progress
-- **0-20%**: Basic.
-- **20-50%**: Learning.
-- **50-80%**: Good.
-- **80-100%**: Expert.
+No vector DB, no embeddings — just fast string/token matching.
 
-**Force Training Cycle** button accelerates.
+## Use Cases
 
-## Monitoring
-- **Progress bar**: % trained.
-- **Stats**: Data count, topics, quality.
-- **Attention grid**: Live learning viz.
-- **Learned Topics**: Badges.
-
-## Chatting
-- Type in input → Send.
-- Use suggestion chips.
-- AI improves with more data.
-
-## Troubleshooting
-- **Needs training**: Upload data.
-- **Low %**: Add diverse files.
-- **Generic answers**: Add specific Q&A.
-- **Slow**: Force training.
-
-## Tips
-- More data = smarter AI.
-- Training runs in background.
-- Progress saves locally.
+- Personal knowledge base from Obsidian/PKM notes
+- Documentation chatbot for open-source projects
+- Offline company wiki assistant
+- Student notes → instant Q&A tool
+- Private RAG prototype (100% in-browser)
