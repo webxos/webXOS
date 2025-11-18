@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>EDTV: CHANNEL 8</title>
+<title>EDTV: CHANNEL 8 // 2025 VR MASK DEPLOYMENT</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
@@ -21,7 +20,7 @@
     .content{flex:1;display:flex;flex-direction:column;gap:8px;padding:8px;overflow:hidden}
     .ar-view{flex:1;position:relative;border:2px solid #0f0;overflow:hidden;background:#000;border-radius:8px}
     #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-    #canvas3d{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+    #canvas3d{position:absolute;inset:0;width:100%;height:100%}
     .controls{background:rgba(0,20,0,0.9);border:1px solid #0f0;padding:10px;border-radius:6px;
              display:grid;grid-template-columns:1fr 1fr;gap:8px;z-index:10}
     @media(min-width:480px){.controls{grid-template-columns:repeat(4,1fr)}}
@@ -29,16 +28,17 @@
             cursor:pointer;transition:0.2s;text-align:center;border-radius:4px}
     .btn:active,.dropdown:active,.btn:hover{background:#0f0;color:#000;box-shadow:0 0 12px #0f0}
     .terminal{background:rgba(0,0,0,0.8);border:1px solid #0f0;padding:8px;font-size:8px;
-              max-height:100px;overflow-y:auto;border-radius:4px;line-height:1.4;color:#0f0}
+              max-height:120px;overflow-y:auto;border-radius:4px;line-height:1.4;color:#0f0}
     .status{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:8px;z-index:20;flex-wrap:wrap}
     .ind{background:rgba(0,60,0,0.9);border:1px solid #0f0;padding:4px 8px;font-size:7px;border-radius:4px}
-    .locked{color:#0ff;text-shadow:0 0 8px #0ff}
+    .locked{color:#0ff;text-shadow:0 0 12px #0ff;animation:p 1.5s infinite}
+    @keyframes p{0%,100%{opacity:1}50%{opacity:0.6}}
 </style>
 </head>
 <body>
 <div id="app">
     <div class="grid"></div><div class="crt"></div>
-    <div class="banner">EDTV: CHANNEL 8</div>
+    <div class="banner">EDTV: CHANNEL 8 // 2025 VR MASK DEPLOYMENT</div>
     <div class="content">
         <div class="ar-view">
             <video id="video" autoplay playsinline muted></video>
@@ -46,29 +46,33 @@
             <div class="status">
                 <div class="ind" id="track">TRACKING: OFF</div>
                 <div class="ind" id="mask">MASK: TACTICAL</div>
+                <div class="ind" id="addon">ADDON: NONE</div>
                 <div class="ind" id="fps">FPS: 0</div>
             </div>
         </div>
         <div class="controls">
             <button class="btn" id="start">START AR</button>
-            <button class="btn" id="export">EXPORT 3D</button>
+            <button class="btn" id="export">EXPORT JSON</button>
             <select class="dropdown" id="mask-select">
                 <option value="tactical">TACTICAL</option>
                 <option value="half">HALF FACE</option>
-                <option value="full">FULL FACE</option>
+                <option value="full">FULL HELMET</option>
                 <option value="respirator">RESPIRATOR</option>
                 <option value="gas">GAS MASK</option>
+                <option value="cyber">CYBER DOG</option>
+                <option value="oni">ONI DEMON</option>
             </select>
             <select class="dropdown" id="addon-select">
                 <option value="none">NO ADDON</option>
-                <option value="nvg">NVG</option>
-                <option value="comms">COMMS</option>
+                <option value="nvg">NVG MOUNT</option>
+                <option value="comms">COMMS PACK</option>
                 <option value="filter">FILTER+</option>
-                <option value="visor">VISOR</option>
+                <option value="visor">VISOR SHIELD</option>
+                <option value="horns">DEMON HORNS</option>
             </select>
         </div>
         <div class="terminal" id="log">
-            >EDTV CHANNEL 8<br>>2025<br>><br>> READY FOR DEPLOYMENT
+            >EDTV CHANNEL 8 2025<br>>HIGH-PRECISION 3D PRINT MASK SYSTEM<br>>READY FOR DEPLOYMENT
         </div>
     </div>
 </div>
@@ -82,6 +86,7 @@ const canvas = document.getElementById('canvas3d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
+const addonEl = document.getElementById('addon');
 const fpsEl = document.getElementById('fps');
 
 let faceLandmarker = null;
@@ -89,112 +94,103 @@ let running = false;
 let lastTime = 0;
 
 // Three.js
-let scene, camera, renderer, maskGroup, currentMask, currentAddon;
+let scene, camera, renderer, maskGroup, currentMask = null, currentAddon = null;
 
 function log(m) {
     logEl.innerHTML += `<br>> ${m}`;
     logEl.scrollTop = logEl.scrollHeight;
-    console.log('[EDTV8]', m);
 }
 
 function init3D() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
     camera.position.z = 0.8;
-
     renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-    const light = new THREE.HemisphereLight(0x00ff88, 0x0088ff, 1.8);
-    scene.add(light);
+    scene.add(new THREE.HemisphereLight(0x00ff88, 0x0088ff, 1.8));
     scene.add(new THREE.AmbientLight(0x00ff88, 0.6));
-
     maskGroup = new THREE.Group();
     scene.add(maskGroup);
-
     window.addEventListener('resize', () => {
         camera.aspect = canvas.clientWidth / canvas.clientHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     });
-
     animate();
-    log('3D CORE v2025 ONLINE');
+    log('3D CORE 2025 ONLINE');
 }
 
-function createMask(type = 'tactical') {
-    maskGroup.clear();
-    currentAddon = null;
-
-    const wireMat = new THREE.MeshBasicMaterial({
+function createMask(type) {
+    if (currentMask) maskGroup.remove(currentMask);
+    currentMask = new THREE.Group();
+    
+    const mat = new THREE.MeshBasicMaterial({
         color: 0x00ff88,
         wireframe: true,
         transparent: true,
-        opacity: 0.92
+        opacity: 0.94
     });
 
-    let geometry;
+    let geo;
     switch(type) {
-        case 'tactical':
-            geometry = new THREE.BoxGeometry(0.44, 0.36, 0.32);
-            break;
-        case 'half':
-            geometry = new THREE.SphereGeometry(0.26, 32, 20, 0, Math.PI*2, 0, Math.PI/2);
-            break;
-        case 'full':
-            geometry = new THREE.SphereGeometry(0.28, 40, 32);
-            break;
-        case 'respirator':
-            geometry = new THREE.CylinderGeometry(0.24, 0.26, 0.38, 32, 1);
-            break;
-        case 'gas':
-            geometry = new THREE.SphereGeometry(0.32, 44, 36);
-            break;
+        case 'tactical':   geo = new THREE.BoxGeometry(0.46, 0.38, 0.34); break;
+        case 'half':       geo = new THREE.SphereGeometry(0.28, 40, 20, 0, Math.PI*2, 0, Math.PI/2); break;
+        case 'full':       geo = new THREE.IcosahedronGeometry(0.32, 1); break;
+        case 'respirator': geo = new THREE.CylinderGeometry(0.25, 0.28, 0.40, 32); break;
+        case 'gas':        geo = new THREE.SphereGeometry(0.34, 48, 36); break;
+        case 'cyber':      geo = new THREE.TorusKnotGeometry(0.22, 0.06, 128, 16); break;
+        case 'oni':        geo = new THREE.OctahedronGeometry(0.32, 2); break;
     }
-
-    currentMask = new THREE.Mesh(geometry, wireMat);
+    const mesh = new THREE.Mesh(geo, mat);
+    currentMask.add(mesh);
     maskGroup.add(currentMask);
     maskEl.textContent = `MASK: ${type.toUpperCase()}`;
-    log(`MASK DEPLOYED: ${type.toUpperCase()}`);
+    log(`MASK LOADED: ${type.toUpperCase()}`);
+    createAddon(document.getElementById('addon-select').value);
 }
 
 function createAddon(type) {
     if (currentAddon) maskGroup.remove(currentAddon);
-    if (type === 'none') return;
-
+    currentAddon = null;
+    if (type === 'none') { addonEl.textContent = 'ADDON: NONE'; return; }
+    
     currentAddon = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-
+    
     switch(type) {
         case 'nvg':
-            const nvg = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.16), mat);
-            nvg.position.set(0, 0.16, 0.18);
+            const nvg = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.18), mat);
+            nvg.position.set(0, 0.18, 0.20);
             currentAddon.add(nvg);
             break;
         case 'comms':
-            const comm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 8), mat);
-            comm.rotation.z = Math.PI / 3;
-            comm.position.set(0.14, -0.08, 0.12);
+            const comm = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.24, 8), mat);
+            comm.rotation.z = Math.PI / 3; comm.position.set(0.16, -0.06, 0.14);
             currentAddon.add(comm);
             break;
         case 'filter':
-            const filter = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.18, 20), mat);
-            filter.position.y = -0.22;
+            const filter = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.20, 20), mat);
+            filter.position.y = -0.24;
             currentAddon.add(filter);
             break;
         case 'visor':
-            const visor = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3),
-                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
-            visor.position.set(0, 0.1, 0.2);
-            visor.rotation.x = -0.4;
+            const visor = new THREE.Mesh(new THREE.PlaneGeometry(0.54, 0.34),
+                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+            visor.position.set(0, 0.10, 0.22); visor.rotation.x = -0.4;
             currentAddon.add(visor);
+            break;
+        case 'horns':
+            const hornGeo = new THREE.ConeGeometry(0.06, 0.24, 8);
+            const hornL = new THREE.Mesh(hornGeo, mat); hornL.position.set(-0.14, 0.22, 0.06); hornL.rotation.x = -0.4;
+            const hornR = new THREE.Mesh(hornGeo, mat); hornR.position.set(0.14, 0.22, 0.06); hornR.rotation.x = -0.4;
+            currentAddon.add(hornL, hornR);
             break;
     }
     maskGroup.add(currentAddon);
+    addonEl.textContent = `ADDON: ${type.toUpperCase()}`;
 }
 
-// REAL HEAD POSE ESTIMATION (2025 ACCURACY)
 function updateHeadPose(landmarks) {
     const nose = landmarks[1];
     const chin = landmarks[152];
@@ -203,30 +199,22 @@ function updateHeadPose(landmarks) {
     const leftTemple = landmarks[234];
     const rightTemple = landmarks[454];
 
-    // Face center
     const centerX = (leftTemple.x + rightTemple.x) / 2;
     const centerY = (nose.y + chin.y) / 2;
-
-    // Scale from face width
     const faceWidth = Math.abs(rightTemple.x - leftTemple.x);
-    const faceHeight = Math.abs(chin.y - nose.y);
-    const scale = THREE.MathUtils.lerp(0.8, 1.8, faceWidth * 8);
+    const scale = THREE.MathUtils.lerp(0.9, 2.0, faceWidth * 9);
 
-    // Position
-    maskGroup.position.x = (centerX - 0.5) * 2.2;
-    maskGroup.position.y = -(centerY - 0.5) * 2.2;
+    maskGroup.position.x = (centerX - 0.5) * 2.3;
+    maskGroup.position.y = -(centerY - 0.5) * 2.3;
     maskGroup.scale.set(scale, scale, scale);
 
-    // Yaw (left-right)
-    const yaw = (rightEye.x - leftEye.x) * 2.8;
+    const yaw = (rightEye.x - leftEye.x) * 3.0;
     maskGroup.rotation.y = -yaw;
 
-    // Pitch (up-down)
     const eyeMidY = (leftEye.y + rightEye.y) / 2;
-    const pitch = (eyeMidY - nose.y) * 38;
+    const pitch = (eyeMidY - nose.y) * 40;
     maskGroup.rotation.x = pitch;
 
-    // Roll (tilt)
     const dx = rightEye.x - leftEye.x;
     const dy = rightEye.y - leftEye.y;
     const roll = Math.atan2(dy, dx);
@@ -239,13 +227,11 @@ function updateHeadPose(landmarks) {
 async function startAR() {
     if (running) return;
     running = true;
-    log('INITIALIZING 2025 VR MASK SYSTEM...');
-
+    log('DEPLOYING 2025 VR MASK SYSTEM...');
     try {
         const vision = await FilesetResolver.forVisionTasks(
             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
-
         faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
             baseOptions: {
                 modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
@@ -257,33 +243,27 @@ async function startAR() {
         });
 
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }}
         });
         video.srcObject = stream;
         await video.play();
 
-        log('CAMERA ACQUIRED – ENTERING VR MODE');
-
         const detect = () => {
-            if (!running || video.readyState < 2) {
-                requestAnimationFrame(detect);
-                return;
-            }
-            const results = faceLandmarker.detectForVideo(video, performance.now());
+            if (!running) return;
+            const now = performance.now();
+            const results = faceLandmarker.detectForVideo(video, now);
             if (results.faceLandmarks?.[0]) {
                 updateHeadPose(results.faceLandmarks[0]);
             } else {
-                trackEl.textContent = 'TRACKING: LOST';
+                trackEl.textContent = 'TRACKING: SEARCHING';
                 trackEl.classList.remove('locked');
             }
             requestAnimationFrame(detect);
         };
         detect();
-
-        log('EDTV CHANNEL 8 2025 VR MASK // FULLY ACTIVE');
+        log('CHANNEL 8 // FULLY DEPLOYED');
     } catch (e) {
-        log('DEPLOYMENT FAILED: ' + e.message);
-        trackEl.textContent = 'TRACKING: ERROR';
+        log('DEPLOY FAILED: ' + e.message);
         running = false;
     }
 }
@@ -292,42 +272,42 @@ function animate(t = 0) {
     requestAnimationFrame(animate);
     if (lastTime) fpsEl.textContent = `FPS: ${Math.round(1000/(t-lastTime))}`;
     lastTime = t;
-
     if (currentMask) {
-        currentMask.rotation.z += 0.002;
-        currentMask.material.opacity = 0.85 + Math.sin(t * 0.003) * 0.1;
+        currentMask.rotation.z += 0.003;
+        currentMask.rotation.y += 0.001;
     }
     renderer.render(scene, camera);
 }
 
-// Events
 document.getElementById('start').onclick = startAR;
 document.getElementById('mask-select').onchange = e => createMask(e.target.value);
 document.getElementById('addon-select').onchange = e => createAddon(e.target.value);
 
 document.getElementById('export').onclick = () => {
     const data = {
-        version: "EDTV8-2025",
+        channel: "EDTV8",
+        timestamp: new Date().toISOString(),
         mask: document.getElementById('mask-select').value,
         addon: document.getElementById('addon-select').value,
         pose: {
             position: maskGroup.position.toArray(),
-            rotation: [maskGroup.rotation.x, maskGroup.rotation.y, maskGroup.rotation.z],
+            rotation: maskGroup.rotation.toArray().slice(0,3),
             scale: maskGroup.scale.x
         }
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `edtv8_vr_mask_${Date.now()}.json`; a.click();
+    a.href = url;
+    a.download = `EDTV8_${data.mask}_${data.addon}_${Date.now()}.json`;
+    a.click();
     URL.revokeObjectURL(url);
-    log('VR CONFIG EXPORTED');
+    log('CONFIG EXPORTED – READY FOR 3D PRINT');
 };
 
-// INIT
 init3D();
-createMask('tactical');
-log('SYSTEM ARMED – TAP "START AR" TO DEPLOY');
+createMask('cyber');
+log('SYSTEM ARMED – TAP "START AR"');
 </script>
 </body>
 </html>
