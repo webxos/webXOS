@@ -7,14 +7,11 @@
 <meta name="theme-color" content="#000000">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 <style>
     *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
     body{background:#000;color:#0f0;overflow:hidden;height:100vh;user-select:none;-webkit-tap-highlight-color:transparent}
-    #appContainer{position:relative;width:100%;height:100vh;overflow:hidden}
     canvas{display:block;width:100%;height:100%}
     .matrix-grid{position:absolute;inset:0;background:linear-gradient(rgba(0,255,0,0.1)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,0,0.1)1px,transparent 1px);background-size:16px 16px;opacity:0.3;pointer-events:none}
     .crt{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(0,20,0,0.1)50%);background-size:100% 4px;pointer-events:none;animation:stripes 8s linear infinite}
@@ -54,7 +51,7 @@
         <button id="resetBtn" class="ctrl-btn" style="border-color:#ff0;color:#ff0">RESET</button>
     </div>
     <div id="errorLog">
-        <div>17:41:08 INFO edTV: CHANNEL 4 // VR MASK READY</div>
+        <div>INFO edTV: CHANNEL 4 // VR MASK READY</div>
     </div>
 </div>
 
@@ -137,9 +134,8 @@
             dogMask.scale.set(scale * 1.1, scale * 0.95, scale * 1.05);
 
             dogMask.material.color.setHSL((Date.now() * 0.001) % 1, 1, 0.5);
-            dogMask.material.opacity = 0.7 + Math.random() * 0.3;
+            dogMask.material.opacity = 0.7 + Math.random() * 0.3);
             dogMask.rotation.y += 0.04;
-
             particles.rotation.y += 0.02;
             particles.rotation.x = Math.sin(Date.now() * 0.002) * 0.3;
         } else {
@@ -149,27 +145,30 @@
         renderer.render(scene, camera3d);
     }
 
+    // Fixed 2D-only head pose (no .z)
     function getHeadPose(landmarks) {
         const nose = landmarks[1];
-        const left = landmarks[234];
-        const right = landmarks[454];
-        const chin = landmarks[152];
-        const yaw = Math.atan2(right.x - left.x, right.z - left.z) * 2;
-        const pitch = Math.atan2(chin.y - nose.y, chin.z - nose.z) * 3;
-        const dx = right.x - left.x;
-        const dy = right.y - left.y;
-        const roll = Math.atan2(dy, dx);
-        return { yaw: -yaw, pitch: -pitch, roll: -roll };
+        const leftEye = landmarks[33];
+        const rightEye = landmarks[263];
+        const leftEar = landmarks[234];
+        const rightEar = landmarks[454];
+
+        const yaw = (rightEye.x - leftEye.x);
+        const pitch = (nose.y - ((leftEye.y + rightEye.y)/2));
+        const roll = Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x);
+
+        return { yaw: yaw * 8, pitch: pitch * -10, roll: roll };
     }
 
+    // Fully fixed startDogSync – no initialize(), proper modern MediaPipe
     async function startDogSync() {
         log('INITIATING VR DOGSYNC...');
         await startCamera();
         initThree();
 
-        faceMesh = new FaceMesh({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-        });
+        faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
 
         faceMesh.setOptions({
             maxNumFaces: 1,
@@ -177,9 +176,7 @@
             minDetectionConfidence: 0.7,
             minTrackingConfidence: 0.7
         });
-
         faceMesh.onResults(onResults);
-        await faceMesh.initialize();
 
         mpCamera = new Camera(video, {
             onFrame: async () => {
@@ -188,9 +185,9 @@
             width: 640,
             height: 480
         });
-
         await mpCamera.start();
-        log('VR DOGSYNC ACTIVE // LOOK AROUND', '#00ffff');
+
+        log('VR DOGSYNC ACTIVE // WEAR THE MASK', '#00ffff');
     }
 
     document.getElementById('startSync').onclick = startDogSync;
@@ -199,8 +196,10 @@
         if (!currentStream) return log('Start SYNC first', '#ff8800');
         const mode = isFrontCamera ? "environment" : "user";
         await startCamera(mode);
-        if (mpCamera) mpCamera.stop();
-        setTimeout(() => mpCamera.start(), 600);
+        if (mpCamera) {
+            mpCamera.stop();
+            setTimeout(() => mpCamera.start(), 600);
+        }
     };
 
     document.getElementById('resetBtn').onclick = () => location.reload();
