@@ -16,7 +16,7 @@
   .banner{background:rgba(0,40,0,0.98);border-bottom:2px solid #0f0;padding:12px 8px;font-size:10px;text-align:center;text-shadow:0 0 10px #0f0}
   .content{flex:1;display:flex;flex-direction:column;gap:8px;padding:8px;padding-bottom:max(env(safe-area-inset-bottom),20px)}
   .ar-view{flex:1;position:relative;border:2px solid #0f0;overflow:hidden;background:#000;border-radius:8px;box-shadow:0 0 20px rgba(0,255,0,0.6)}
-  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #video{width:100%;height:100%;object-fit:cover}
   #canvas{position:absolute;inset:0;width:100%;height:100%}
   .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:10px;background:rgba(0,30,0,0.9);border:2px solid #0f0}
   .btn,.dropdown{font-size:9px;padding:10px 14px;border:2px solid #0f0;background:#000;color:#0f0;cursor:pointer;transition:.2s;flex:1 1 100px;max-width:220px}
@@ -74,6 +74,11 @@ let currentConfig = {};
 let running = false;
 let rafId = null;
 
+// Warn if not secure (except localhost)
+if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+  log('WARNING: Use HTTPS or localhost for camera access.');
+}
+
 const maskConfigs = {
   oni:       {baseScale: 1.6, zOffset: -0.55, yOffset: -0.02, xOffset: 0.00},
   tactical:  {baseScale: 1.9, zOffset: -0.50, yOffset:  0.06, xOffset: 0.00},
@@ -83,13 +88,14 @@ const maskConfigs = {
   full:      {baseScale: 1.8, zOffset: -0.52, yOffset:  0.04, xOffset: 0.00}
 };
 
+// Replace with actual face mask/helmet GLTFs rigged for frontal alignment
 const maskModels = {
-  oni:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Fox/glTF/Fox.gltf',
-  tactical:  'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  gas:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Lantern/glTF/Lantern.gltf',
-  respirator:'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf',
-  half:      'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  full:      'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
+  oni:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/FaceMask/glTF/FaceMask.gltf',
+  tactical:  'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
+  gas:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AntiqueCamera/glTF/AntiqueCamera.gltf',
+  respirator:'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BarramundiFish/glTF/BarramundiFish.gltf',
+  half:      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
+  full:      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
 };
 
 function log(m) {
@@ -103,8 +109,9 @@ function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 10);
   renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: true});
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // outputColorSpace is deprecated; defaults are fine
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Let Three.js manage DPR and internal canvas size
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const hemi = new THREE.HemisphereLight(0x88ffcc, 0x226644, 1.6);
@@ -120,10 +127,7 @@ function resize() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   if (w === 0 || h === 0) return;
-  const dpr = Math.min(window.devicePixelRatio, 2);
-  canvas.width = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
-  renderer.setSize(w, h, false);
+  renderer.setSize(w, h); // allow DPR scaling internally
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -135,10 +139,19 @@ function clearMask() {
   if (maskObject) {
     scene.remove(maskObject);
     maskObject.traverse(o => {
+      // Dispose geometries, materials, textures
       if (o.isMesh) {
         if (o.geometry) o.geometry.dispose();
-        if (o.material && o.material.dispose) o.material.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.filter(Boolean).forEach(m => {
+          Object.keys(m).forEach(k => {
+            const val = m[k];
+            if (val && val.isTexture) val.dispose();
+          });
+          if (m.dispose) m.dispose();
+        });
       }
+      if (o.dispose) o.dispose();
     });
     maskObject = null;
   }
@@ -152,14 +165,10 @@ function loadMask(type) {
 
   gltfLoader.load(url, (gltf) => {
     maskObject = gltf.scene;
-    // Normalize orientation for face-forward
-    maskObject.rotation.y = Math.PI; // flip to match mirrored video
+    // Mirror to align with non-flipped video (we keep video unmirrored)
+    maskObject.rotation.y = Math.PI;
     maskObject.scale.setScalar(currentConfig.baseScale);
     maskObject.position.set(currentConfig.xOffset, currentConfig.yOffset, currentConfig.zOffset);
-    // Optional: center model
-    const box = new THREE.Box3().setFromObject(maskObject);
-    const center = box.getCenter(new THREE.Vector3());
-    maskObject.position.sub(center.multiplyScalar(0.0)); // leave as is, models vary
     scene.add(maskObject);
     maskEl.textContent = `MASK: ${type.toUpperCase()}`;
     log(`MASK LOADED: ${type.toUpperCase()}`);
@@ -198,8 +207,8 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function updateMask(landmarks) {
   if (!maskObject || !landmarks || landmarks.length < 468) return;
 
-  // Mirror X to match CSS flipped video
-  const lm = landmarks.map(p => ({x: 1 - p.x, y: p.y, z: p.z}));
+  // Use landmarks as-is (video not mirrored)
+  const lm = landmarks;
 
   // MediaPipe indices: left eye outer (33), right eye outer (263), nose tip (1)
   const le = lm[33], re = lm[263], nose = lm[1];
@@ -211,14 +220,14 @@ function updateMask(landmarks) {
   // Compute target scale based on inter-eye distance
   const trackedScale = clamp(THREE.MathUtils.lerp(1.4, 3.2, eyeDist * 10), 1.2, 3.5);
 
-  // Map landmark center to normalized view (-1..1 approx) tuned to your framing
+  // Map landmark center to normalized view (-1..1 approx) tuned to framing
   const targetX = (centerX - 0.5) * 2.2 + (currentConfig.xOffset || 0);
   const targetY = -(centerY - 0.5) * 2.2 + (currentConfig.yOffset || 0) + 0.06;
   const targetZ = currentConfig.zOffset || -0.52;
 
   // Yaw from horizontal eye vector; pitch from nose vs center; roll from eye slope
-  const yaw = (re.x - le.x) * 4.0;           // radians after conversion below
-  const pitchDeg = (centerY - nose.y) * 34;  // degrees
+  const yaw = (re.x - le.x) * 4.0;
+  const pitchDeg = (centerY - nose.y) * 34;
   const roll = Math.atan2(le.y - re.y, re.x - le.x);
 
   // Smooth position
@@ -230,7 +239,7 @@ function updateMask(landmarks) {
   const targetScale = trackedScale * currentConfig.baseScale;
   smooth.scale = THREE.MathUtils.lerp(smooth.scale || targetScale, targetScale, smooth.alphaScale);
 
-  // Smooth rotation (convert yaw/pitch)
+  // Smooth rotation
   const targetPitch = THREE.MathUtils.degToRad(clamp(pitchDeg, -25, 25));
   const targetYaw = Math.PI + clamp(yaw, -0.5, 0.5);
   const targetRoll = clamp(roll, -0.6, 0.6);
@@ -261,10 +270,11 @@ async function startAR() {
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
 
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: 'GPU'
+        delegate: isIOS ? 'CPU' : 'GPU'
       },
       runningMode: 'VIDEO',
       numFaces: 1,
@@ -287,7 +297,7 @@ async function startAR() {
 function loop() {
   if (!running) return;
   if (faceLandmarker && video.readyState >= 2) {
-    const results = faceLandmarker.detectForVideo(video, performance.now());
+    const results = faceLandmarker.detectForVideo(video, Date.now());
     if (results.faceLandmarks && results.faceLandmarks[0]) {
       updateMask(results.faceLandmarks[0]);
       renderer.render(scene, camera);
