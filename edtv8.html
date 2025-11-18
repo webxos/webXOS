@@ -45,7 +45,7 @@
         <option value="skull">SKULL MASK</option>
       </select>
     </div>
-    <div class="terminal" id="loge">> CHANNEL 8 2025 ONLINE<br>> READY FOR AR DEPLOYMENT</div>
+    <div class="terminal" id="log">> CHANNEL 8 2025 ONLINE<br>> READY FOR AR DEPLOYMENT</div>
     <div class="ar-view">
       <video id="video" autoplay playsinline muted></video>
       <canvas id="canvas"></canvas>
@@ -57,23 +57,14 @@
   </div>
 </div>
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-  }
-}
-</script>
 <script type="module">
-import * as THREE from 'three';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js';
 import {FaceLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const logEl = document.getElementById('loge');
+const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
 const startBtn = document.getElementById('start');
@@ -93,12 +84,12 @@ const maskModels = {
 };
 
 const maskConfigs = {
-  oni:       {scale: 1.7,  z: -0.58, y: -0.03, x: 0.00},
-  tactical:  {scale: 1.9,  z: -0.55, y:  0.05, x: 0.00},
-  gas:       {scale: 2.1,  z: -0.65, y:  0.01, x: 0.00},
-  respirator:{scale: 1.4,  z: -0.45, y:  0.08, x: 0.00},
-  cyber:     {scale: 1.8,  z: -0.52, y:  0.04, x: 0.00},
-  skull:     {scale: 1.6,  z: -0.60, y: -0.02, x: 0.00}
+  oni:       {scale: 1.7, z: -0.58, y: -0.03, x: 0.00},
+  tactical:  {scale: 1.9, z: -0.55, y:  0.05, x: 0.00},
+  gas:       {scale: 2.1, z: -0.65, y:  0.01, x: 0.00},
+  respirator:{scale: 1.4, z: -0.45, y:  0.08, x: 0.00},
+  cyber:     {scale: 1.8, z: -0.52, y:  0.04, x: 0.00},
+  skull:     {scale: 1.6, z: -0.60, y: -0.02, x: 0.00}
 };
 
 function log(m) {
@@ -110,101 +101,66 @@ function log(m) {
 
 function initThree() {
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
+  camera = new THREE.PerspectiveCamera(60, canvas.clientWidth/canvas.clientHeight, 0.01, 10);
   renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: true});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
 
   const light = new THREE.HemisphereLight(0xffffff, 0x00ff88, 1.4);
-  const dir = new THREE.DirectionalLight(0x88ff88, 0.8);
-  dir.position.set(0, 1, 0.75);
-  scene.add(light, dir);
+  scene.add(light, new THREE.DirectionalLight(0x88ff88, 0.8).position.set(0,1,0.75));
 
-  resize();
-  window.addEventListener('resize', resize);
-}
-
-function resize() {
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  window.addEventListener('resize', () => {
+    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  });
 }
 
 const loader = new GLTFLoader();
 
 function clearMask() {
-  if (maskObject) {
-    maskObject.traverse(child => {
-      if (child.isMesh) {
-        child.geometry?.dispose();
-        child.material?.dispose?.();
-      }
-    });
-    scene.remove(maskObject);
-    maskObject = null;
-  }
+  if (maskObject) scene.remove(maskObject);
+  maskObject = null;
 }
 
 function loadMask(type) {
   clearMask();
   currentMask = type;
-  const config = maskConfigs[type];
-  const url = maskModels[type];
-
-  loader.load(url,
-    (gltf) => {
-      maskObject = gltf.scene;
-      maskObject.rotation.y = Math.PI;
-      maskObject.scale.setScalar(config.scale);
-      maskObject.position.set(config.x, config.y, config.z);
-      scene.add(maskObject);
-      maskEl.textContent = `MASK: ${type.toUpperCase()}`;
-      log(`MASK LOADED: ${type.toUpperCase()}`);
-    },
-    undefined,
-    () => {
-      log(`LOAD FAILED → FALLBACK`);
-      const geo = new THREE.DodecahedronGeometry(0.2);
-      const mat = new THREE.MeshStandardMaterial({color: 0x00ff88, emissive: 0x00ff88});
-      maskObject = new THREE.Mesh(geo, mat);
-      maskObject.rotation.y = Math.PI;
-      maskObject.scale.setScalar(config.scale);
-      maskObject.position.set(config.x, config.y, config.z);
-      scene.add(maskObject);
-    }
-  );
+  loader.load(maskModels[type], gltf => {
+    maskObject = gltf.scene;
+    maskObject.rotation.y = Math.PI;
+    const c = maskConfigs[type];
+    maskObject.scale.setScalar(c.scale);
+    maskObject.position.set(c.x, c.y, c.z);
+    scene.add(maskObject);
+    maskEl.textContent = `MASK: ${type.toUpperCase()}`;
+    log(`MASK LOADED: ${type.toUpperCase()}`);
+  });
 }
 
-const smooth = { pos: new THREE.Vector3(), rot: new THREE.Euler(), scale: 1, alpha: 0.4 };
+const smooth = {pos:new THREE.Vector3(), rot:new THREE.Euler(), scale:1, alpha:0.4};
 
 function updateMask(landmarks) {
   if (!maskObject || !landmarks) return;
-
-  const lm = landmarks.map(p => ({x: 1 - p.x, y: p.y, z: p.z}));
+  const lm = landmarks.map(p => ({x:1-p.x, y:p.y, z:p.z}));
   const le = lm[33], re = lm[263], nose = lm[1];
-  const eyeDist = Math.hypot(re.x - le.x, re.y - le.y);
-  const centerX = (le.x + re.x) / 2;
-  const centerY = (le.y + re.y) / 2;
-
+  const eyeDist = Math.hypot(re.x-le.x, re.y-le.y);
+  const centerX = (le.x + re.x)/2;
+  const centerY = (le.y + re.y)/2;
   const cfg = maskConfigs[currentMask];
-  const targetScale = Math.max(eyeDist * 11, 1.2) * cfg.scale;
-  const targetX = (centerX - 0.5) * 2.3 + cfg.x;
-  const targetY = -(centerY - 0.5) * 2.3 + cfg.y + 0.06;
-  const targetZ = cfg.z;
 
-  const yaw = Math.PI + (re.x - le.x) * 4.2;
-  const pitch = (centerY - nose.y) * 36 * Math.PI / 180;
-  const roll = Math.atan2(re.y - le.y, re.x - le.x);
-
-  smooth.pos.lerp(new THREE.Vector3(targetX, targetY, targetZ), smooth.alpha);
-  smooth.scale = THREE.MathUtils.lerp(smooth.scale, targetScale, smooth.alpha);
-  smooth.rot.set(
-    THREE.MathUtils.lerp(smooth.rot.x, pitch, smooth.alpha),
-    THREE.MathUtils.lerp(smooth.rot.y, yaw, smooth.alpha),
-    THREE.MathUtils.lerp(smooth.rot.z, roll, smooth.alpha)
+  const targetScale = Math.max(eyeDist*11,1.2)*cfg.scale;
+  const target = new THREE.Vector3(
+    (centerX-0.5)*2.3 + cfg.x,
+    -(centerY-0.5)*2.3 + cfg.y + 0.06,
+    cfg.z
   );
+
+  smooth.pos.lerp(target, smooth.alpha);
+  smooth.scale = THREE.MathUtils.lerp(smooth.scale, targetScale, smooth.alpha);
+  smooth.rot.y = THREE.MathUtils.lerp(smooth.rot.y, Math.PI + (re.x-le.x)*4.2, smooth.alpha);
+  smooth.rot.x = THREE.MathUtils.lerp(smooth.rot.x, (centerY-nose.y)*0.6, smooth.alpha);
 
   maskObject.position.copy(smooth.pos);
   maskObject.scale.setScalar(smooth.scale);
@@ -215,65 +171,48 @@ async function startAR() {
   if (running) return;
   startBtn.disabled = true;
   log('REQUESTING CAMERA...');
+  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+  video.srcObject = stream;
+  await video.play();
+  log('CAMERA ACTIVE');
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} }
-    });
-    video.srcObject = stream;
-    await video.play();
-    log('CAMERA ACTIVE');
+  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'},
+    runningMode: 'VIDEO',
+    numFaces: 1
+  });
 
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
-    );
-
-    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: /iPhone|iPad|iPod/.test(navigator.userAgent) ? "CPU" : "GPU"
-      },
-      runningMode: "VIDEO",
-      numFaces: 1
-    });
-
-    log('AR CORE ONLINE – TRACKING LOCKED');
-    trackEl.textContent = 'TRACKING: LOCKED';
-    trackEl.classList.add('locked');
-    running = true;
-    renderer.setAnimationLoop(loop);
-  } catch (e) {
-    log('ERROR: ' + e.message);
-    trackEl.textContent = 'TRACKING: FAILED';
-    startBtn.disabled = false;
-  }
+  log('AR CORE ONLINE – TRACKING LOCKED');
+  trackEl.textContent = 'TRACKING: LOCKED';
+  trackEl.classList.add('locked');
+  running = true;
+  animate();
 }
 
-function loop() {
+function animate() {
   if (!running) return;
   if (video.readyState >= 2) {
     const results = faceLandmarker.detectForVideo(video, performance.now());
-    if (results.faceLandmarks?.[0]) {
-      updateMask(results.faceLandmarks[0]);
-      renderer.render(scene, camera);
-    }
+    if (results.faceLandmarks?.[0]) updateMask(results.faceLandmarks[0]);
+    renderer.render(scene, camera);
   }
+  rafId = requestAnimationFrame(animate);
 }
 
 document.getElementById('start').onclick = startAR;
 document.getElementById('mask-select').onchange = e => loadMask(e.target.value);
 document.getElementById('export').onclick = () => {
   if (!maskObject) return log('NO MASK');
-  const data = {
+  const data = JSON.stringify({
     mask: currentMask,
     position: maskObject.position.toArray(),
     rotation: maskObject.rotation.toArray(),
     scale: maskObject.scale.x
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
+  }, null, 2);
   const a = document.createElement('a');
-  a.href = url; a.download = `channel8_${currentMask}_fit.json`;
+  a.href = URL.createObjectURL(new Blob([data], {type:'application/json'}));
+  a.download = `channel8_${currentMask}_fit.json`;
   a.click();
   log('FIT JSON EXPORTED');
 };
