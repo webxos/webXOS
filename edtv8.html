@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <title>EDTV: CHANNEL 8 // 2025 AR MASK DEPLOYMENT</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
 <style>
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
   body{background:#000;color:#0f0;overflow:hidden;height:100dvh;touch-action:manipulation;user-select:none}
@@ -64,7 +64,6 @@ import {FaceLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@med
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
@@ -72,135 +71,240 @@ const maskEl = document.getElementById('mask');
 let faceLandmarker, renderer, scene, camera, maskObject = null;
 let currentMask = 'oni';
 let currentConfig = {};
+let running = false;
+let rafId = null;
 
 const maskConfigs = {
-  oni: {baseScale: 1.8, zOffset: -0.58, yOffset: -0.04},
-  tactical: {baseScale: 2.2, zOffset: -0.52, yOffset: 0.08},
-  gas: {baseScale: 2.6, zOffset: -0.68, yOffset: 0.02},
-  respirator: {baseScale: 1.4, zOffset: -0.45, yOffset: 0.12},
-  half: {baseScale: 1.6, zOffset: -0.50, yOffset: 0.06},
-  full: {baseScale: 2.0, zOffset: -0.55, yOffset: 0.04}
+  oni:       {baseScale: 1.6, zOffset: -0.55, yOffset: -0.02, xOffset: 0.00},
+  tactical:  {baseScale: 1.9, zOffset: -0.50, yOffset:  0.06, xOffset: 0.00},
+  gas:       {baseScale: 2.2, zOffset: -0.62, yOffset:  0.02, xOffset: 0.00},
+  respirator:{baseScale: 1.3, zOffset: -0.42, yOffset:  0.10, xOffset: 0.00},
+  half:      {baseScale: 1.4, zOffset: -0.48, yOffset:  0.05, xOffset: 0.00},
+  full:      {baseScale: 1.8, zOffset: -0.52, yOffset:  0.04, xOffset: 0.00}
 };
 
 const maskModels = {
-  oni: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Fox/glTF/Fox.gltf',
-  tactical: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  gas: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Lantern/glTF/Lantern.gltf',
-  respirator: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf',
-  half: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
-  full: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
+  oni:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Fox/glTF/Fox.gltf',
+  tactical:  'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
+  gas:       'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Lantern/glTF/Lantern.gltf',
+  respirator:'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf',
+  half:      'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
+  full:      'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
 };
 
-function log(m){ const d=document.createElement('div'); d.textContent='> '+m; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+function log(m) {
+  const d = document.createElement('div');
+  d.textContent = '> ' + m;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
 
 function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 10);
   renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: true});
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  const light = new THREE.HemisphereLight(0x00ff88, 0x008844, 1.8);
-  scene.add(light);
+
+  const hemi = new THREE.HemisphereLight(0x88ffcc, 0x226644, 1.6);
+  const dir = new THREE.DirectionalLight(0x88ff88, 0.6);
+  dir.position.set(0.5, 1, 0.8);
+  scene.add(hemi, dir);
+
   resize();
   window.addEventListener('resize', resize);
 }
 
 function resize() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  canvas.width = w; canvas.height = h;
-  renderer.setSize(w, h);
-  camera.aspect = w/h; camera.updateProjectionMatrix();
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (w === 0 || h === 0) return;
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+const gltfLoader = new GLTFLoader();
+gltfLoader.crossOrigin = 'anonymous';
+
+function clearMask() {
+  if (maskObject) {
+    scene.remove(maskObject);
+    maskObject.traverse(o => {
+      if (o.isMesh) {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && o.material.dispose) o.material.dispose();
+      }
+    });
+    maskObject = null;
+  }
 }
 
 function loadMask(type) {
-  if (maskObject) scene.remove(maskObject);
+  clearMask();
   currentMask = type;
-  currentConfig = maskConfigs[type] || {baseScale: 1.8, zOffset: -0.55, yOffset: 0};
-  new GLTFLoader().load(maskModels[type], gltf => {
+  currentConfig = maskConfigs[type] || {baseScale: 1.6, zOffset: -0.55, yOffset: 0, xOffset: 0};
+  const url = maskModels[type];
+
+  gltfLoader.load(url, (gltf) => {
     maskObject = gltf.scene;
+    // Normalize orientation for face-forward
+    maskObject.rotation.y = Math.PI; // flip to match mirrored video
     maskObject.scale.setScalar(currentConfig.baseScale);
-    maskObject.position.z = currentConfig.zOffset;
-    maskObject.position.y = currentConfig.yOffset;
-    maskObject.rotation.y = Math.PI;
+    maskObject.position.set(currentConfig.xOffset, currentConfig.yOffset, currentConfig.zOffset);
+    // Optional: center model
+    const box = new THREE.Box3().setFromObject(maskObject);
+    const center = box.getCenter(new THREE.Vector3());
+    maskObject.position.sub(center.multiplyScalar(0.0)); // leave as is, models vary
     scene.add(maskObject);
     maskEl.textContent = `MASK: ${type.toUpperCase()}`;
     log(`MASK LOADED: ${type.toUpperCase()}`);
-  }, undefined, () => {
+  }, undefined, (err) => {
     const geo = new THREE.DodecahedronGeometry(0.15, 1);
-    const mat = new THREE.MeshStandardMaterial({color:0x00ff88, metalness:0.9, roughness:0.1});
+    const mat = new THREE.MeshStandardMaterial({color:0x00ff88, metalness:0.4, roughness:0.6});
     maskObject = new THREE.Mesh(geo, mat);
-    maskObject.scale.setScalar(currentConfig.baseScale);
-    maskObject.position.z = currentConfig.zOffset;
-    maskObject.position.y = currentConfig.yOffset;
     maskObject.rotation.y = Math.PI;
+    maskObject.scale.setScalar(currentConfig.baseScale);
+    maskObject.position.set(currentConfig.xOffset, currentConfig.yOffset, currentConfig.zOffset);
     scene.add(maskObject);
-    log(`FALLBACK MASK: ${type.toUpperCase()}`);
+    maskEl.textContent = `MASK: ${type.toUpperCase()} (FALLBACK)`;
+    log(`FALLBACK MASK: ${type.toUpperCase()} — ${err?.message || 'load error'}`);
   });
 }
 
+// Smoothing state
+const smooth = {
+  pos: new THREE.Vector3(),
+  rot: new THREE.Euler(),
+  scale: 1.0,
+  alphaPos: 0.35,
+  alphaRot: 0.35,
+  alphaScale: 0.25
+};
+
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
 function updateMask(landmarks) {
-  if (!maskObject) return;
+  if (!maskObject || !landmarks || landmarks.length < 468) return;
+
+  // Mirror X to match CSS flipped video
   const lm = landmarks.map(p => ({x: 1 - p.x, y: p.y, z: p.z}));
+
+  // MediaPipe indices: left eye outer (33), right eye outer (263), nose tip (1)
   const le = lm[33], re = lm[263], nose = lm[1];
 
   const eyeDist = Math.hypot(re.x - le.x, re.y - le.y);
-  const centerX = (le.x + re.x)/2;
-  const centerY = (le.y + re.y)/2;
+  const centerX = (le.x + re.x) / 2;
+  const centerY = (le.y + re.y) / 2;
 
-  const trackedScale = THREE.MathUtils.lerp(1.5, 3.0, eyeDist * 10);
+  // Compute target scale based on inter-eye distance
+  const trackedScale = clamp(THREE.MathUtils.lerp(1.4, 3.2, eyeDist * 10), 1.2, 3.5);
 
-  maskObject.scale.setScalar(trackedScale * currentConfig.baseScale);
+  // Map landmark center to normalized view (-1..1 approx) tuned to your framing
+  const targetX = (centerX - 0.5) * 2.2 + (currentConfig.xOffset || 0);
+  const targetY = -(centerY - 0.5) * 2.2 + (currentConfig.yOffset || 0) + 0.06;
+  const targetZ = currentConfig.zOffset || -0.52;
 
-  maskObject.position.x = (centerX - 0.5) * 2.4;
-  maskObject.position.y = -(centerY - 0.5) * 2.4 + currentConfig.yOffset + 0.08;
-  maskObject.position.z = currentConfig.zOffset;
-
-  const yaw = (re.x - le.x) * 4.8;
-  const pitch = (centerY - nose.y) * 36;
+  // Yaw from horizontal eye vector; pitch from nose vs center; roll from eye slope
+  const yaw = (re.x - le.x) * 4.0;           // radians after conversion below
+  const pitchDeg = (centerY - nose.y) * 34;  // degrees
   const roll = Math.atan2(le.y - re.y, re.x - le.x);
 
-  maskObject.rotation.set(pitch * Math.PI/180, Math.PI + yaw, roll);
+  // Smooth position
+  smooth.pos.x = THREE.MathUtils.lerp(smooth.pos.x, targetX, smooth.alphaPos);
+  smooth.pos.y = THREE.MathUtils.lerp(smooth.pos.y, targetY, smooth.alphaPos);
+  smooth.pos.z = THREE.MathUtils.lerp(smooth.pos.z, targetZ, smooth.alphaPos);
+
+  // Smooth scale
+  const targetScale = trackedScale * currentConfig.baseScale;
+  smooth.scale = THREE.MathUtils.lerp(smooth.scale || targetScale, targetScale, smooth.alphaScale);
+
+  // Smooth rotation (convert yaw/pitch)
+  const targetPitch = THREE.MathUtils.degToRad(clamp(pitchDeg, -25, 25));
+  const targetYaw = Math.PI + clamp(yaw, -0.5, 0.5);
+  const targetRoll = clamp(roll, -0.6, 0.6);
+
+  smooth.rot.x = lerpAngle(smooth.rot.x || targetPitch, targetPitch, smooth.alphaRot);
+  smooth.rot.y = lerpAngle(smooth.rot.y || targetYaw,   targetYaw,   smooth.alphaRot);
+  smooth.rot.z = lerpAngle(smooth.rot.z || targetRoll,  targetRoll,  smooth.alphaRot);
+
+  // Apply to mask
+  maskObject.position.copy(smooth.pos);
+  maskObject.scale.setScalar(smooth.scale);
+  maskObject.rotation.set(smooth.rot.x, smooth.rot.y, smooth.rot.z);
 }
 
-async function start() {
-  log('INITIALIZING AR CORE...');
-  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU'},
-    runningMode: 'VIDEO',
-    numFaces: 1
-  });
+async function startAR() {
+  if (running) return;
+  log('REQUESTING CAMERA PERMISSION...');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    log('CAMERA PERMISSION GRANTED');
 
-  const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720}});
-  video.srcObject = stream;
-  video.onloadedmetadata = () => video.play();
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
 
-  log('AR CORE ACTIVE – FACE TRACKING LOCKED');
-  trackEl.textContent = 'TRACKING: LOCKED';
-  trackEl.classList.add('locked');
+    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      outputFaceBlendshapes: false
+    });
 
-  function detect() {
-    if (faceLandmarker && video.readyState >= 2) {
-      const results = faceLandmarker.detectForVideo(video, performance.now());
-      if (results.faceLandmarks?.[0]) {
-        updateMask(results.faceLandmarks[0]);
-        renderer.render(scene, camera);
-      }
-      // keep last pose if face lost
-    }
-    requestAnimationFrame(detect);
+    log('AR CORE ACTIVE – FACE TRACKING INITIALIZED');
+    trackEl.textContent = 'TRACKING: LOCKED';
+    trackEl.classList.add('locked');
+
+    running = true;
+    loop();
+  } catch (e) {
+    log('CAMERA PERMISSION DENIED OR ERROR: ' + e.message);
+    trackEl.textContent = 'TRACKING: OFF';
+    trackEl.classList.remove('locked');
   }
-  detect();
 }
 
-document.getElementById('start').onclick = start;
+function loop() {
+  if (!running) return;
+  if (faceLandmarker && video.readyState >= 2) {
+    const results = faceLandmarker.detectForVideo(video, performance.now());
+    if (results.faceLandmarks && results.faceLandmarks[0]) {
+      updateMask(results.faceLandmarks[0]);
+      renderer.render(scene, camera);
+    }
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+document.getElementById('start').onclick = startAR;
 document.getElementById('mask-select').onchange = e => loadMask(e.target.value);
 
 document.getElementById('export').onclick = () => {
   if (!maskObject) return log('NO MASK LOADED');
   const data = {
     mask: currentMask,
-    position: maskObject.position.toArray(),
-    rotation: maskObject.rotation.toArray(),
+    position: { x: maskObject.position.x, y: maskObject.position.y, z: maskObject.position.z },
+    rotation: { x: maskObject.rotation.x, y: maskObject.rotation.y, z: maskObject.rotation.z },
     scale: maskObject.scale.x
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
@@ -211,6 +315,17 @@ document.getElementById('export').onclick = () => {
   a.click();
   log(`EXPORTED: ${currentMask.toUpperCase()} FIT JSON`);
 };
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    running = false;
+    if (rafId) cancelAnimationFrame(rafId);
+  } else {
+    if (faceLandmarker && video.srcObject) {
+      running = true; loop();
+    }
+  }
+});
 
 initThree();
 loadMask('oni');
