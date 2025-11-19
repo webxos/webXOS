@@ -1,0 +1,2407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FARM DRONE QNN TRAINER - WEBXOS 2025</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+    <style>
+        :root {
+            --cyber-black: #000000;
+            --cyber-green: #00ff9d;
+            --cyber-blue: #00eeff;
+            --cyber-purple: #b300ff;
+            --cyber-red: #ff0040;
+            --cyber-orange: #ff7700;
+            --cyber-yellow: #ffcc00;
+            --cyber-brown: #8B4513;
+            --dark-bg: #001a00;
+            --panel-bg: rgba(0, 30, 0, 0.85);
+            --terminal-text: #00ff9d;
+            --glitch-color-1: #ff0040;
+            --glitch-color-2: #00eeff;
+            --radius: 4px;
+            --spacing-sm: 4px;
+            --spacing-md: 8px;
+            --spacing-lg: 12px;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+            font-size: 10pt;
+        }
+        
+        body {
+            background: radial-gradient(circle at center, var(--dark-bg), var(--cyber-black));
+            color: var(--terminal-text);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(0, 255, 157, 0.05) 0%, transparent 20%),
+                radial-gradient(circle at 80% 70%, rgba(0, 238, 255, 0.05) 0%, transparent 20%),
+                radial-gradient(circle at 40% 80%, rgba(179, 0, 255, 0.05) 0%, transparent 20%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .cyber-header {
+            padding: var(--spacing-md);
+            border-bottom: 1px solid var(--cyber-green);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 50px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
+            position: fixed;
+            z-index: 1000;
+        }
+        
+        h1 {
+            font-size: 12pt;
+            letter-spacing: 0.5px;
+            color: var(--cyber-green);
+            font-weight: bold;
+            text-shadow: 0 0 8px var(--cyber-green), 0 0 16px var(--cyber-green);
+        }
+        
+        .mode-tabs {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+        
+        .mode-tab {
+            padding: 4px 8px;
+            background: var(--panel-bg);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 9pt;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 5px currentColor;
+        }
+        
+        .mode-tab:hover {
+            box-shadow: 0 0 10px currentColor, 0 0 15px currentColor;
+        }
+        
+        .mode-tab.active {
+            background: var(--cyber-green);
+            color: #000;
+            box-shadow: 0 0 10px var(--cyber-green), 0 0 20px var(--cyber-green);
+        }
+        
+        main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            width: 100%;
+            padding: var(--spacing-md);
+            gap: var(--spacing-md);
+            min-height: 0;
+            margin-top: 60px;
+            height: calc(100vh - 140px);
+        }
+        
+        .cyber-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: var(--spacing-md);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+        }
+        
+        .left-panel, .right-panel {
+            width: 280px;
+        }
+        
+        .center-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+            min-height: 0;
+        }
+        
+        .farm-field-container {
+            flex: 1;
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+            background: var(--cyber-black);
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
+        }
+
+        #three-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        .scene-controls {
+            position: absolute;
+            bottom: 6px;
+            left: 6px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 4px;
+            z-index: 10;
+            font-size: 8pt;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .qnn-overlay {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 100px;
+            height: 100px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 3px;
+            z-index: 10;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .antifragility-overlay {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            width: 100px;
+            height: 100px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 3px;
+            z-index: 10;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .qnn-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 1px;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .qnn-cell {
+            background: #000;
+            border: 1px solid #008800;
+            transition: all 0.3s ease;
+        }
+        
+        .qnn-cell.active {
+            background: var(--cyber-green);
+            box-shadow: 0 0 3px var(--cyber-green);
+        }
+        
+        .qnn-cell.training {
+            background: #ffcc00;
+            animation: pulse 1s infinite;
+        }
+        
+        .qnn-cell.learned {
+            background: #00cc00;
+            box-shadow: 0 0 3px #00cc00;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        .antifragility-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1px;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .antifragility-cell {
+            background: #000;
+            border: 1px solid #008800;
+            transition: all 0.3s ease;
+        }
+
+        .antifragility-cell.stressed {
+            background: var(--cyber-red);
+            box-shadow: 0 0 3px var(--cyber-red);
+        }
+
+        .antifragility-cell.stable {
+            background: var(--cyber-green);
+            box-shadow: 0 0 3px var(--cyber-green);
+        }
+
+        .green-dot {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: var(--cyber-green);
+            border-radius: 50%;
+            border: 1px solid var(--cyber-blue);
+            box-shadow: 0 0 5px var(--cyber-green), 0 0 10px var(--cyber-green);
+            transition: all 0.2s ease;
+        }
+        
+        .console-container {
+            height: 180px;
+            background: var(--panel-bg);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: var(--spacing-md);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+        }
+        
+        .console-output {
+            flex: 1;
+            background: #000;
+            border-radius: var(--radius);
+            padding: var(--spacing-md);
+            overflow-y: auto;
+            font-size: 9pt;
+            margin-bottom: var(--spacing-sm);
+            border: 1px solid var(--cyber-green);
+            position: relative;
+        }
+        
+        .console-output p { margin: 2px 0; }
+        .ok { color: #7dff7d; }
+        .warn { color: #ffea7d; }
+        .err { color: #ff7d7d; }
+        .sys { color: #7dd9ff; }
+        .muted { color: #aaaaaa; }
+        .train-log { color: #ffcc00; }
+        .perf { color: #ff00ff; }
+        .farm { color: var(--cyber-yellow); }
+        
+        .console-input {
+            display: flex;
+            gap: var(--spacing-sm);
+            flex-shrink: 0;
+            height: 32px;
+        }
+        
+        .input-line {
+            flex: 1;
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            color: var(--terminal-text);
+            padding: 6px 8px;
+            border-radius: var(--radius);
+            font-size: 9pt;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .input-send {
+            padding: 6px 10px;
+            border-radius: var(--radius);
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            color: var(--terminal-text);
+            cursor: pointer;
+            flex-shrink: 0;
+            font-size: 9pt;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .input-send:hover {
+            background: var(--cyber-green);
+            color: #000;
+            box-shadow: 0 0 10px var(--cyber-green), 0 0 15px var(--cyber-green);
+        }
+        
+        .copy-log {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            color: var(--cyber-green);
+            cursor: pointer;
+            font-size: 8pt;
+            z-index: 5;
+        }
+        
+        .copy-log:hover { background: var(--cyber-green); color: #000; }
+        
+        footer {
+            padding: var(--spacing-md);
+            border-top: 1px solid var(--cyber-green);
+            text-align: center;
+            font-size: 8pt;
+            color: #008800;
+            height: 32px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            flex-shrink: 0;
+        }
+        
+        .btn {
+            padding: 6px 8px;
+            border-radius: var(--radius);
+            border: 1px solid var(--cyber-green);
+            background: #000;
+            color: var(--terminal-text);
+            cursor: pointer;
+            margin: 2px 0;
+            transition: all 0.3s ease;
+            font-size: 9pt;
+            box-shadow: 0 0 5px currentColor;
+        }
+        
+        .btn:hover {
+            background: var(--cyber-green);
+            color: #000;
+            box-shadow: 0 0 10px var(--cyber-green), 0 0 15px var(--cyber-green);
+        }
+        
+        .btn-primary {
+            background: var(--cyber-green);
+            color: #000;
+            box-shadow: 0 0 10px var(--cyber-green), 0 0 15px var(--cyber-green);
+        }
+
+        .metric {
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 6px;
+            text-align: center;
+            margin: 3px 0;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .metric-val {
+            font-size: 10pt;
+            font-weight: bold;
+            color: var(--cyber-green);
+        }
+        
+        .slider-container { margin: 6px 0; }
+        .slider-container label { display: block; margin-bottom: 3px; font-size: 9pt; }
+        
+        .mode-panel { display: none; }
+        .mode-panel.active { display: block; }
+        
+        .progress-bar {
+            height: 8px;
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 3px 0;
+        }
+        
+        .progress { height: 100%; background: var(--cyber-green); width: 0%; transition: width 0.3s ease; }
+
+        .memory-control {
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 6px;
+            margin: 3px 0;
+            font-size: 8pt;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+
+        .training-stats {
+            background: #000;
+            border: 1px solid var(--cyber-green);
+            border-radius: var(--radius);
+            padding: 6px;
+            margin: 3px 0;
+            font-size: 8pt;
+            box-shadow: 0 0 5px var(--cyber-green);
+        }
+
+        .panel-section { margin-bottom: var(--spacing-md); }
+        .panel-section h2 {
+            font-size: 10pt;
+            margin-bottom: var(--spacing-sm);
+            border-bottom: 1px solid #008800;
+            padding-bottom: 2px;
+            text-shadow: 0 0 5px var(--cyber-green);
+        }
+        
+        .compact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); }
+        .compact-row { display: flex; justify-content: space-between; margin: 2px 0; }
+        .compact-row label { font-size: 8pt; }
+        .compact-row span { font-size: 9pt; font-weight: bold; color: var(--cyber-green); }
+        
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); }
+        .btn-group-vertical { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+        
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: var(--cyber-green); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--cyber-blue); }
+
+        @keyframes glitch {
+            0% { transform: translate(0); }
+            20% { transform: translate(-2px, 2px); }
+            40% { transform: translate(-2px, -2px); }
+            60% { transform: translate(2px, 2px); }
+            80% { transform: translate(2px, -2px); }
+            100% { transform: translate(0); }
+        }
+
+        .glitch-effect { position: relative; }
+        .glitch-effect::before, .glitch-effect::after {
+            content: attr(data-text);
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        }
+        .glitch-effect::before { animation: glitch-1 0.5s infinite; color: var(--glitch-color-1); z-index: -1; }
+        .glitch-effect::after  { animation: glitch-2 0.5s infinite; color: var(--glitch-color-2); z-index: -2; }
+
+        @keyframes glitch-1 {
+            0% { transform: translate(0); }
+            20% { transform: translate(-1px, 1px); }
+            40% { transform: translate(-1px, -1px); }
+            60% { transform: translate(1px, 1px); }
+            80% { transform: translate(1px, -1px); }
+            100% { transform: translate(0); }
+        }
+
+        @keyframes glitch-2 {
+            0% { transform: translate(0); }
+            20% { transform: translate(1px, -1px); }
+            40% { transform: translate(1px, 1px); }
+            60% { transform: translate(-1px, -1px); }
+            80% { transform: translate(-1px, 1px); }
+            100% { transform: translate(0); }
+        }
+
+        @keyframes static {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+
+        .console-output::after {
+            content: "";
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(transparent 50%, rgba(0, 255, 157, 0.03) 50%);
+            background-size: 100% 4px; animation: static 0.2s infinite;
+            pointer-events: none; z-index: 1;
+        }
+
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8); z-index: 2000; align-items: center; justify-content: center;
+        }
+        .modal.active { display: flex; }
+
+        .modal-content {
+            background: var(--panel-bg); border: 1px solid var(--cyber-green); border-radius: var(--radius);
+            padding: var(--spacing-md); width: 400px; max-width: 90%; box-shadow: 0 0 20px var(--cyber-green);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: var(--spacing-md); border-bottom: 1px solid var(--cyber-green); padding-bottom: var(--spacing-sm);
+        }
+        .modal-title { font-size: 12pt; color: var(--cyber-green); text-shadow: 0 0 5px var(--cyber-green); }
+        .modal-close { background: none; border: none; color: var(--cyber-green); font-size: 14pt; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+        .modal-body { margin-bottom: var(--spacing-md); }
+        .modal-footer { display: flex; justify-content: flex-end; gap: var(--spacing-sm); }
+
+        .file-input { display: none; }
+        .file-label {
+            display: block; padding: var(--spacing-md); border: 1px dashed var(--cyber-green); border-radius: var(--radius);
+            text-align: center; cursor: pointer; margin-bottom: var(--spacing-md); transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .file-label:hover { background: rgba(0, 255, 157, 0.1); box-shadow: 0 0 10px var(--cyber-green); }
+        .file-label input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+        .status-exporting { background: #ffcc00; animation: pulse 1s infinite; }
+        .status-importing { background: #00ccff; animation: pulse 1s infinite; }
+        .status-success { background: #00cc00; }
+        .status-error { background: #ff0040; }
+        
+        .training-indicator {
+            display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+            background: var(--cyber-green); margin-right: 5px; animation: pulse 1s infinite;
+        }
+        
+        .drone-id {
+            position: absolute; color: white; font-size: 6pt; font-weight: bold; text-shadow: 1px 1px 2px black; z-index: 10;
+            pointer-events: none;
+        }
+
+        .tooltip { position: relative; }
+        .tooltip:hover::after {
+            content: attr(data-tooltip); position: absolute; background: #000; color: var(--cyber-green);
+            padding: 4px; border: 1px solid var(--cyber-green); border-radius: var(--radius); bottom: 125%; left: 50%;
+            transform: translateX(-50%); white-space: nowrap; z-index: 100; font-size: 8pt;
+        }
+    </style>
+</head>
+<body>
+    <header class="cyber-header">
+        <h1 class="glitch-effect" data-text="FARM DRONE QNN TRAINER - WEBXOS 2025">FARM DRONE QNN TRAINER - WEBXOS 2025</h1>
+        <div class="mode-tabs">
+            <div class="mode-tab active" data-mode="train">TRAIN</div>
+            <div class="mode-tab" data-mode="test">TEST</div>
+        </div>
+    </header>
+    
+    <main>
+        <div class="left-panel cyber-panel">
+            <div class="mode-panel active" id="train-panel">
+                <div class="panel-section">
+                    <h2>Training Controls</h2>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Learning Rate:</label><span id="learning-rate-value">0.10</span></div>
+                        <input type="range" id="learning-rate" min="0.01" max="1.0" step="0.01" value="0.1" style="width:100%" class="tooltip" data-tooltip="Adjusts learning rate for QNN training">
+                    </div>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Creativity:</label><span id="creativity-value">0.70</span></div>
+                        <input type="range" id="creativity" min="0.0" max="1.0" step="0.01" value="0.7" style="width:100%" class="tooltip" data-tooltip="Controls model creativity and exploration">
+                    </div>
+                    <div class="memory-control">
+                        <div class="compact-row"><label>Training Memory:</label><span id="memory-usage">128MB</span></div>
+                        <input type="range" id="memory-limit" min="1" max="4096" step="1" value="128" style="width:100%" class="tooltip" data-tooltip="Sets memory limit for training data">
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h2>Farm Management</h2>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Planting Density:</label><span id="density-value">0.50</span></div>
+                        <input type="range" id="planting-density" min="0.1" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Controls crop density in the farm">
+                    </div>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Irrigation Level:</label><span id="irrigation-value">0.50</span></div>
+                        <input type="range" id="irrigation-level" min="0.0" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Sets irrigation level for crops">
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h2>Antifragility Controls</h2>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>X-Antifragility (Stability):</label><span id="x-antifragility-value">0.50</span></div>
+                        <input type="range" id="x-antifragility" min="0.0" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Controls system stability under stress">
+                    </div>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Y-Antifragility (Adaptability):</label><span id="y-antifragility-value">0.50</span></div>
+                        <input type="range" id="y-antifragility" min="0.0" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Controls system adaptability to changes">
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h2>Training Actions</h2>
+                    <div class="btn-group-vertical">
+                        <button class="btn btn-primary" id="start-train" data-tooltip="Start continuous QNN training">Start Endless Training</button>
+                        <div class="btn-group">
+                            <button class="btn" id="stop-train" data-tooltip="Pause current training">Pause</button>
+                            <button class="btn" id="reset-train" data-tooltip="Reset training progress">Reset</button>
+                        </div>
+                        <button class="btn" id="export-model" data-tooltip="Export training data and model">Export Training Data</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mode-panel" id="test-panel">
+                <div class="panel-section">
+                    <h2>Farm Operations</h2>
+                    <div class="btn-group-vertical">
+                        <button class="btn btn-primary" id="auto-harvest-test" data-tooltip="Start automated harvest test">AUTO HARVEST TEST</button>
+                        <button class="btn" id="test-stop" data-tooltip="Stop current test">TEST STOP</button>
+                        <button class="btn" id="import-model" data-tooltip="Import training data">Import Training Data</button>
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h2>Drone Configuration</h2>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Drone Speed:</label><span id="drone-speed-value">1.0x</span></div>
+                        <input type="range" id="drone-speed" min="0" max="3" step="0.1" value="1.0" style="width:100%" class="tooltip" data-tooltip="Adjust drone movement speed">
+                    </div>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Battery Efficiency:</label><span id="battery-value">0.50</span></div>
+                        <input type="range" id="battery-efficiency" min="0.0" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Set drone battery efficiency">
+                    </div>
+                    <div class="slider-container">
+                        <div class="compact-row"><label>Task Priority:</label><span id="priority-value">0.50</span></div>
+                        <input type="range" id="task-priority" min="0.0" max="1.0" step="0.01" value="0.5" style="width:100%" class="tooltip" data-tooltip="Set task priority for drones">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="center-panel">
+            <div class="farm-field-container" id="scene-container">
+                <canvas id="three-canvas"></canvas>
+                <div class="scene-controls">
+                    <div>Mouse: Drag to rotate</div>
+                    <div>Wheel: Zoom in/out</div>
+                    <div>WASD: Move drone</div>
+                </div>
+                <div class="qnn-overlay"><div class="qnn-grid" id="qnn-grid"></div></div>
+                <div class="antifragility-overlay"><div class="antifragility-grid" id="antifragility-grid"></div></div>
+            </div>
+            <div class="console-container">
+                <div class="console-output" id="console-output">
+                    <p class="sys">[SYSTEM] FARM DRONE QNN TRAINER initialized</p>
+                    <p class="sys">[SYSTEM] TensorFlow.js model ready</p>
+                    <p class="sys">[SYSTEM] Type /help for available commands</p>
+                </div>
+                <button class="copy-log" id="copy-log">COPY LOG</button>
+                <div class="console-input">
+                    <input type="text" class="input-line" id="console-input" placeholder="Type /help for commands...">
+                    <button class="input-send" id="console-send">SEND</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="right-panel cyber-panel">
+            <div class="mode-panel active" id="train-right-panel">
+                <div class="panel-section">
+                    <h2>Training Status <span id="training-indicator" class="training-indicator" style="display:none"></span></h2>
+                    <div class="training-stats">
+                        <div class="compact-row"><label>Training Rounds:</label><span id="training-rounds">173823</span></div>
+                        <div class="compact-row"><label>Total Time:</label><span id="total-training-time">289h 42m</span></div>
+                        <div class="compact-row"><label>Best Yield Score:</label><span id="best-score">0.0%</span></div>
+                    </div>
+                    <div class="progress-bar"><div class="progress" id="train-progress-bar" style="width: 0%"></div></div>
+                    <div class="compact-row"><label>Training Progress:</label><span id="train-progress">0%</span></div>
+                    <div class="metrics-grid">
+                        <div class="metric"><div class="metric-val" id="yield-efficiency">0%</div><div>Yield Efficiency</div></div>
+                        <div class="metric"><div class="metric-val" id="active-drones">0</div><div>Active Drones</div></div>
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h2>Farm Metrics</h2>
+                    <div class="metric"><div>Model: <input type="text" id="model-name" placeholder="Model Name" style="background: #000; color: var(--cyber-green); border: 1px solid #008800; padding: 4px; width: 100%; font-size: 9pt;"></div></div>
+                    <div class="metrics-grid">
+                        <div class="metric"><div class="metric-val" id="epoch">0</div><div>Epoch</div></div>
+                        <div class="metric"><div class="metric-val" id="loss">0.00</div><div>Loss</div></div>
+                        <div class="metric"><div class="metric-val" id="soil-health">Low</div><div>Soil Health</div></div>
+                        <div class="metric"><div class="metric-val" id="response-time">0ms</div><div>Response Time</div></div>
+                        <div class="metric"><div class="metric-val" id="robustness-score">0%</</div><div>Robustness</div></div>
+                        <div class="metric"><div class="metric-val" id="stress-response">0.00</div><div>Stress Response</div></div>
+                    </div>
+                    <div class="training-stats">
+                        <div class="compact-row"><label>Training Cycles:</label><span id="training-cycles">0</span></div>
+                        <div class="compact-row"><label>Data Points:</label><span id="data-points">0</span></div>
+                        <div class="compact-row"><label>Memory Used:</label><span id="memory-used">0MB</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mode-panel" id="test-right-panel">
+                <div class="panel-section">
+                    <h2>Farm Operations Status</h2>
+                    <div class="training-stats">
+                        <div class="compact-row"><label>Test Status:</label><span id="test-status">Idle</span></div>
+                        <div class="compact-row"><label>Test Score:</label><span id="test-score">0%</span></div>
+                        <div class="compact-row"><label>Environment:</label><span id="current-environment">Farm Field</span></div>
+                        <div class="compact-row"><label id="crops-label">Crops Harvested:</label><span id="crops-harvested">0/50</span></div>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric"><div class="metric-val" id="operation-time">0s</div><div>Operation Time</div></div>
+                        <div class="metric"><div class="metric-val" id="distance">0m</div><div>Distance</div></div>
+                        <div class="metric"><div class="metric-val" id="collisions">0</div><div>Collisions</div></div>
+                        <div class="metric"><div class="metric-val" id="test-speed">0 km/h</div><div>Speed</div></div>
+                    </div>
+                    <div class="progress-bar"><div class="progress" id="test-progress-bar" style="width: 0%"></div></div>
+                    <div class="compact-row"><label>Mission Progress:</label><span id="test-progress">0%</span></div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        WEBXOS 2025 | FARM DRONE QNN TRAINER v1.5.0 | Quantum Agriculture | Lattice Integration
+    </footer>
+
+    <!-- Import Modal -->
+    <div class="modal" id="import-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Import Training Data</div>
+                <button class="modal-close" id="import-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="file-label" id="import-drop-area">
+                    <span>Drop JSON file here or click to browse</span>
+                    <input type="file" id="import-file" class="file-input" accept=".json">
+                </label>
+                <div id="import-status">
+                    <span class="status-indicator" id="import-status-indicator"></span>
+                    <span id="import-status-text">Ready to import</span>
+                </div>
+                <div id="import-preview" style="display: none; margin-top: 10px;">
+                    <h3>Import Preview:</h3>
+                    <div id="import-preview-content" style="max-height: 200px; overflow-y: auto; background: #000; padding: 10px; border-radius: 4px; font-size: 9pt;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="import-cancel">Cancel</button>
+                <button class="btn btn-primary" id="import-confirm" disabled>Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal" id="export-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Export Training Data</div>
+                <button class="modal-close" id="export-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="compact-row">
+                    <label>Model Name:</label>
+                    <input type="text" id="export-model-name" placeholder="Enter model name" style="background: #000; color: var(--cyber-green); border: 1px solid #008800; padding: 4px; width: 60%; font-size: 9pt;">
+                </div>
+                <div class="compact-row">
+                    <label>Include Training Log:</label>
+                    <input type="checkbox" id="export-include-log" checked style="margin-left: 10px;">
+                </div>
+                <div class="compact-row">
+                    <label>Include QNN State:</label>
+                    <input type="checkbox" id="export-include-qnn" checked style="margin-left: 10px;">
+                </div>
+                <div class="compact-row">
+                    <label>Data Size:</label>
+                    <span id="export-data-size">0 KB</span>
+                </div>
+                <div id="export-status">
+                    <span class="status-indicator" id="export-status-indicator"></span>
+                    <span id="export-status-text">Ready to export</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="export-cancel">Cancel</button>
+                <button class="btn btn-primary" id="export-confirm">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        const state = {
+            currentMode: 'train',
+            cropType: 'wheat',
+            environmentType: 'farm',
+            training: {
+                running: false,
+                endless: false,
+                progress: 0,
+                epoch: 0,
+                loss: 2.5,
+                yieldEfficiency: 0,
+                activeDrones: 0,
+                responseTime: 0,
+                soilHealth: 'Low',
+                rounds: 173823,
+                totalTime: 289 * 60 + 42, // minutes
+                bestScore: 0,
+                cycles: 0,
+                dataPoints: 0
+            },
+            test: {
+                mode: 'auto_harvest',
+                operationTime: 0,
+                distance: 0,
+                collisions: 0,
+                speed: 0,
+                battery: 100,
+                testEfficiency: 0,
+                progress: 0,
+                score: 0,
+                environment: 'Farm Field',
+                cropsHarvested: 0,
+                totalCrops: 50,
+                successRate: 0,
+                bestRun: 0,
+                status: 'Idle',
+                droneSpeed: 1.0,
+                startTime: 0,
+                missionComplete: false,
+                operationTimeTotal: 0,
+                bestOperationTime: 0,
+                attempts: 0,
+                cropRows: [],
+                barnPosition: { x: -25, y: 2, z: -25 },
+                dronesDelivered: 0
+            },
+            qnn: {
+                grid: Array(10).fill().map(() => Array(10).fill(0)),
+                learningRate: 0.1,
+                creativity: 0.7,
+                memoryLimit: 128, // MB
+                memoryUsed: 0,    // MB
+                antifragilityX: 0.5,
+                antifragilityY: 0.5,
+                robustnessScore: 0,
+                stressResponse: 0
+            },
+            farm: {
+                plantingDensity: 0.5,
+                irrigationLevel: 0.5,
+                batteryEfficiency: 0.5,
+                taskPriority: 0.5,
+                cropHealth: 0.8,
+                pestLevel: 0.1,
+                season: 'spring'
+            },
+            scene: null,
+            camera: null,
+            renderer: null,
+            drones: [],
+            crops: [],
+            farmStructures: [],
+            trees: [],
+            droneLabels: [],
+            trainingInterval: null,
+            testInterval: null,
+            trainingLog: [],
+            cameraDistance: 20,
+            cameraAngleX: 0,
+            cameraAngleY: 0.5,
+            testActive: false,
+            testStartTime: 0,
+            testDuration: 180000,
+            // TF.js
+            tfModel: null,
+            tfOptimizer: null,
+            replayBuffer: [],
+            maxReplaySize: 2000,
+            epsilon: 0.9,
+            epsilonMin: 0.05,
+            epsilonDecay: 0.999,
+            gamma: 0.95,
+            // Command history
+            commandHistory: [],
+            historyIndex: -1
+        };
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', init);
+
+        async function init() {
+            if (!checkWebGLSupport()) {
+                logMessage('[ERROR] WebGL not supported in this browser', 'err');
+                return;
+            }
+            await initTensorFlowModel();
+            setupEventListeners();
+            generateQNNGrid();
+            generateAntifragilityGrid();
+            init3DFarmScene();
+            updateTrainingUI();
+            updateTrainingStats();
+            setupPerformanceMonitoring();
+            logMessage('[SYSTEM] FARM DRONE QNN TRAINER initialized', 'sys');
+            logMessage('[SYSTEM] TensorFlow.js model ready', 'sys');
+            logMessage('[SYSTEM] Type /help for available commands', 'sys');
+        }
+
+        function checkWebGLSupport() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                return !!gl;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // TF.js model
+        async function initTensorFlowModel() {
+            try {
+                state.tfModel = tf.sequential({
+                    layers: [
+                        tf.layers.dense({inputShape: [10], units: 32, activation: 'relu'}),
+                        tf.layers.dense({units: 16, activation: 'relu'}),
+                        tf.layers.dense({units: 4, activation: 'linear'})
+                    ]
+                });
+                state.tfOptimizer = tf.train.adam(state.qnn.learningRate);
+                state.tfModel.compile({ optimizer: state.tfOptimizer, loss: 'meanSquaredError' });
+                logMessage('[TENSORFLOW] Model initialized successfully', 'ok');
+            } catch (error) {
+                logMessage(`[ERROR] TensorFlow model initialization failed: ${error.message}`, 'err');
+            }
+        }
+
+        // 3D Scene
+        function init3DFarmScene() {
+            try {
+                const container = document.getElementById('scene-container');
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+
+                state.scene = new THREE.Scene();
+                state.scene.background = new THREE.Color(0x001a00);
+                state.scene.fog = new THREE.Fog(0x001a00, 20, 80);
+
+                state.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+                state.camera.position.set(15, 15, 15);
+                state.camera.lookAt(0, 0, 0);
+
+                state.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+                state.renderer.setSize(width, height);
+                state.renderer.shadowMap.enabled = true;
+                state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+                const oldCanvas = document.getElementById('three-canvas');
+                if (oldCanvas && oldCanvas.parentNode) oldCanvas.parentNode.removeChild(oldCanvas);
+                state.renderer.domElement.id = 'three-canvas';
+                container.appendChild(state.renderer.domElement);
+
+                setupFarmLighting();
+                createFarmEnvironment();
+                createFarmDrones();
+
+                setupWindowResizeHandler();
+                setupCameraControls();
+
+                animate();
+                logMessage('[3D] Farm scene initialized successfully', 'ok');
+            } catch (error) {
+                logMessage(`[ERROR] 3D Scene initialization failed: ${error.message}`, 'err');
+            }
+        }
+
+        function setupFarmLighting() {
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+            state.scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -25;
+            directionalLight.shadow.camera.right = 25;
+            directionalLight.shadow.camera.top = 25;
+            directionalLight.shadow.camera.bottom = -25;
+            state.scene.add(directionalLight);
+
+            const fillLight = new THREE.DirectionalLight(0x5577aa, 0.3);
+            fillLight.position.set(-10, 10, -5);
+            state.scene.add(fillLight);
+        }
+
+        function createFarmEnvironment() {
+            const groundGeometry = new THREE.PlaneGeometry(80, 80);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x3a5f0b, roughness: 0.8, metalness: 0.1 });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            state.scene.add(ground);
+
+            const gridHelper = new THREE.GridHelper(80, 20, 0x00ff00, 0x004400);
+            gridHelper.position.y = 0.01;
+            state.scene.add(gridHelper);
+
+            createFarmStructures();
+            generateCrops();
+            generateTrees();
+        }
+
+        function createFarmStructures() {
+            state.farmStructures.forEach(obj => state.scene.remove(obj));
+            state.farmStructures = [];
+
+            const barnGeometry = new THREE.BoxGeometry(8, 4, 6);
+            const barnMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 });
+            const barn = new THREE.Mesh(barnGeometry, barnMaterial);
+            barn.position.set(-25, 2, -25);
+            barn.castShadow = true;
+            state.scene.add(barn);
+            state.farmStructures.push(barn);
+
+            const siloGeometry = new THREE.CylinderGeometry(2, 2, 8, 16);
+            const siloMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.7 });
+            const silo = new THREE.Mesh(siloGeometry, siloMaterial);
+            silo.position.set(-30, 4, -20);
+            silo.castShadow = true;
+            state.scene.add(silo);
+            state.farmStructures.push(silo);
+
+            const houseGeometry = new THREE.BoxGeometry(6, 5, 8);
+            const houseMaterial = new THREE.MeshStandardMaterial({ color: 0xffdd99, roughness: 0.8 });
+            const farmhouse = new THREE.Mesh(houseGeometry, houseMaterial);
+            farmhouse.position.set(25, 2.5, 25);
+            farmhouse.castShadow = true;
+            state.scene.add(farmhouse);
+            state.farmStructures.push(farmhouse);
+        }
+
+        function generateCrops() {
+            state.crops.forEach(crop => state.scene.remove(crop));
+            state.crops = [];
+            state.test.cropRows = [];
+
+            const cropCount = 50;
+            for (let row = 0; row < 10; row++) {
+                const rowCrops = [];
+                for (let i = 0; i < 5; i++) {
+                    const cropGroup = new THREE.Group();
+                    const cropTypes = ['wheat', 'corn', 'vegetable'];
+                    const cropType = cropTypes[Math.floor(Math.random() * cropTypes.length)];
+
+                    if (cropType === 'wheat') {
+                        const stalk = new THREE.Mesh(
+                            new THREE.CylinderGeometry(0.1, 0.1, 1.5, 6),
+                            new THREE.MeshStandardMaterial({ color: 0xccaa00, roughness: 0.8 })
+                        );
+                        stalk.position.y = 0.75; cropGroup.add(stalk);
+                        const head = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.3, 6, 4),
+                            new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.7 })
+                        );
+                        head.position.y = 1.5; cropGroup.add(head);
+                    } else if (cropType === 'corn') {
+                        const stalk = new THREE.Mesh(
+                            new THREE.CylinderGeometry(0.15, 0.15, 2, 6),
+                            new THREE.MeshStandardMaterial({ color: 0x88aa00, roughness: 0.8 })
+                        );
+                        stalk.position.y = 1; cropGroup.add(stalk);
+                        const cob = new THREE.Mesh(
+                            new THREE.CylinderGeometry(0.2, 0.2, 0.5, 6),
+                            new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.6 })
+                        );
+                        cob.position.y = 1.8; cropGroup.add(cob);
+                    } else {
+                        const stem = new THREE.Mesh(
+                            new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6),
+                            new THREE.MeshStandardMaterial({ color: 0x00aa00, roughness: 0.8 })
+                        );
+                        stem.position.y = 0.4; cropGroup.add(stem);
+                        const leaf = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.4, 6, 4),
+                            new THREE.MeshStandardMaterial({ color: 0x00cc00, roughness: 0.7 })
+                        );
+                        leaf.position.y = 0.8; cropGroup.add(leaf);
+                    }
+
+                    const x = -30 + (row * 6);
+                    const z = -20 + (i * 8);
+                    cropGroup.position.set(x, 0, z);
+                    cropGroup.castShadow = true;
+                    cropGroup.userData = {
+                        type: 'crop',
+                        cropType,
+                        health: 0.8 + Math.random() * 0.2,
+                        growth: Math.random(),
+                        watered: Math.random() > 0.5,
+                        harvested: false,
+                        row,
+                        index: i
+                    };
+
+                    state.scene.add(cropGroup);
+                    state.crops.push(cropGroup);
+                    rowCrops.push(cropGroup);
+                }
+                state.test.cropRows.push(rowCrops);
+            }
+
+            state.sceneStats = state.sceneStats || {};
+            state.sceneStats.cropCount = cropCount;
+            logMessage(`[FARM] Generated ${cropCount} crops in 10 rows`, 'farm');
+        }
+
+        function generateTrees() {
+            state.trees.forEach(tree => state.scene.remove(tree));
+            state.trees = [];
+
+            const treeCount = 20;
+            for (let i = 0; i < treeCount; i++) {
+                const treeGroup = new THREE.Group();
+                const trunk = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.3, 0.4, 3, 8),
+                    new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 })
+                );
+                treeGroup.add(trunk);
+
+                const canopy = new THREE.Mesh(
+                    new THREE.SphereGeometry(2, 8, 6),
+                    new THREE.MeshStandardMaterial({ color: 0x228822, roughness: 0.8 })
+                );
+                canopy.position.y = 2.5;
+                treeGroup.add(canopy);
+
+                const angle = (i / treeCount) * Math.PI * 2;
+                const radius = 38;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+
+                treeGroup.position.set(x, 1.5, z);
+                treeGroup.castShadow = true;
+                state.scene.add(treeGroup);
+                state.trees.push(treeGroup);
+            }
+        }
+
+        function createFarmDrones() {
+            // Clean previous drones and labels
+            state.drones.forEach(d => state.scene.remove(d));
+            state.drones = [];
+            const container = document.getElementById('scene-container');
+            state.droneLabels.forEach(el => el.remove());
+            state.droneLabels = [];
+
+            const droneColors = [
+                0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff,
+                0x00ffff, 0xff8800, 0x8800ff, 0x00ff88, 0xff0088
+            ];
+
+            for (let i = 0; i < 10; i++) {
+                const droneGroup = new THREE.Group();
+
+                const body = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.8, 0.15, 0.8),
+                    new THREE.MeshStandardMaterial({ color: droneColors[i], metalness: 0.8, roughness: 0.2 })
+                );
+                droneGroup.add(body);
+
+                const armGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.4, 8);
+                const armMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.6 });
+                for (let j = 0; j < 4; j++) {
+                    const angle = (j * Math.PI / 2);
+                    const arm = new THREE.Mesh(armGeometry, armMaterial);
+                    arm.rotation.x = Math.PI / 2;
+                    arm.position.x = Math.cos(angle) * 0.5;
+                    arm.position.y = 0.08;
+                    arm.position.z = Math.sin(angle) * 0.5;
+                    droneGroup.add(arm);
+
+                    const rotor = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16),
+                        new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9 })
+                    );
+                    rotor.position.x = Math.cos(angle) * 0.5;
+                    rotor.position.y = 0.15;
+                    rotor.position.z = Math.sin(angle) * 0.5;
+                    droneGroup.add(rotor);
+                }
+
+                const x = -30 + (i * 6);
+                droneGroup.position.set(x, 2, -25);
+
+                const statusLight = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.08, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+                );
+                statusLight.position.set(0, 0.1, -0.3);
+                droneGroup.add(statusLight);
+
+                const idText = document.createElement('div');
+                idText.className = 'drone-id';
+                idText.textContent = `DR${i+1}`;
+                idText.style.color = `#${droneColors[i].toString(16).padStart(6, '0')}`;
+                container.appendChild(idText);
+                state.droneLabels.push(idText);
+
+                droneGroup.castShadow = true;
+                state.scene.add(droneGroup);
+
+                droneGroup.userData = {
+                    type: 'drone',
+                    id: i + 1,
+                    battery: 100,
+                    task: 'idle',
+                    targetCrop: null,
+                    statusLight,
+                    color: droneColors[i],
+                    idText,
+                    row: i,
+                    currentCropIndex: 0,
+                    carryingCrops: 0,
+                    deliveredCrops: 0,
+                    state: 'idle',
+                    startTime: 0,
+                    harvestTime: 0,
+                    deliveryTime: 0,
+                    totalTime: 0
+                };
+
+                state.drones.push(droneGroup);
+            }
+
+            state.sceneStats = state.sceneStats || {};
+            state.sceneStats.droneCount = state.drones.length;
+            logMessage(`[FARM] Created ${state.drones.length} farm drones`, 'farm');
+        }
+
+        // Labels projection
+        function updateDroneLabels() {
+            const container = document.getElementById('scene-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            state.drones.forEach(drone => {
+                const pos = drone.position.clone().project(state.camera);
+                const left = ((pos.x + 1) / 2) * w;
+                const top = ((-pos.y + 1) / 2) * h;
+                const label = drone.userData.idText;
+                if (label) {
+                    label.style.position = 'absolute';
+                    label.style.left = `${left}px`;
+                    label.style.top = `${top - 10}px`;
+                    label.style.display = 'block';
+                }
+            });
+        }
+
+        // QNN grid
+        function generateQNNGrid() {
+            const grid = document.getElementById('qnn-grid');
+            grid.innerHTML = '';
+            for (let i = 0; i < 100; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'qnn-cell';
+                grid.appendChild(cell);
+            }
+            updateQNNGrid();
+        }
+
+        function updateQNNGrid() {
+            const cells = document.querySelectorAll('.qnn-cell');
+            const lr = state.qnn.learningRate;
+            const creativity = state.qnn.creativity;
+            cells.forEach((cell, i) => {
+                let cls = '';
+                const row = Math.floor(i / 10);
+                const col = i % 10;
+                // Simple dynamic activation model: seed from antifragility and cycle
+                const base = (row + col + state.training.cycles % 10) / 20;
+                const activation = base * (0.5 + creativity * 0.5);
+                if (state.training.running) {
+                    if (activation < lr) cls = 'training';
+                    else if (activation < creativity) cls = 'active';
+                    else if (activation < 0.85) cls = 'learned';
+                }
+                cell.className = `qnn-cell ${cls}`;
+            });
+        }
+
+        // Antifragility overlay
+        function generateAntifragilityGrid() {
+            const grid = document.getElementById('antifragility-grid');
+            grid.innerHTML = '';
+            for (let i = 0; i < 25; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'antifragility-cell';
+                grid.appendChild(cell);
+            }
+            const dot = document.createElement('div');
+            dot.className = 'green-dot';
+            grid.appendChild(dot);
+            updateAntifragilityGrid();
+        }
+
+        function updateAntifragilityGrid() {
+            const cells = document.querySelectorAll('.antifragility-cell');
+            const dot = document.querySelector('.green-dot');
+            if (!cells.length || !dot) return;
+
+            const stressBase = Math.max(0, 1 - (state.qnn.antifragilityX + state.qnn.antifragilityY) / 2);
+            state.qnn.stressResponse = stressBase;
+            state.qnn.robustnessScore = Math.min(100, (state.qnn.antifragilityX * 50 + state.qnn.antifragilityY * 50));
+
+            cells.forEach((cell, i) => {
+                const mod = ((i % 5) / 5);
+                const stressLevel = stressBase * (0.5 + mod * 0.5);
+                cell.className = `antifragility-cell ${stressLevel > 0.5 ? 'stressed' : 'stable'}`;
+            });
+
+            const gridSize = 92;
+            const xPos = state.qnn.antifragilityX * gridSize;
+            const yPos = (1 - state.qnn.antifragilityY) * gridSize;
+            dot.style.left = `${xPos}px`;
+            dot.style.top = `${yPos}px`;
+        }
+
+        // Event listeners
+        function setupEventListeners() {
+            document.querySelectorAll('.mode-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const mode = tab.getAttribute('data-mode');
+                    switchMode(mode);
+                });
+            });
+
+            document.getElementById('start-train').addEventListener('click', startTraining);
+            document.getElementById('stop-train').addEventListener('click', stopTraining);
+            document.getElementById('reset-train').addEventListener('click', resetTraining);
+            document.getElementById('export-model').addEventListener('click', showExportModal);
+
+            document.getElementById('auto-harvest-test').addEventListener('click', startAutoHarvestTest);
+            document.getElementById('test-stop').addEventListener('click', stopTest);
+            document.getElementById('import-model').addEventListener('click', showImportModal);
+
+            document.getElementById('learning-rate').addEventListener('input', updateLearningRate);
+            document.getElementById('creativity').addEventListener('input', updateCreativity);
+            document.getElementById('memory-limit').addEventListener('input', updateMemoryLimit);
+            document.getElementById('planting-density').addEventListener('input', updatePlantingDensity);
+            document.getElementById('irrigation-level').addEventListener('input', updateIrrigationLevel);
+            document.getElementById('drone-speed').addEventListener('input', updateDroneSpeed);
+            document.getElementById('battery-efficiency').addEventListener('input', updateBatteryEfficiency);
+            document.getElementById('task-priority').addEventListener('input', updateTaskPriority);
+
+            document.getElementById('x-antifragility').addEventListener('input', updateAntifragilityX);
+            document.getElementById('y-antifragility').addEventListener('input', updateAntifragilityY);
+
+            document.getElementById('console-send').addEventListener('click', processConsoleInput);
+            document.getElementById('console-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') processConsoleInput(); });
+            document.getElementById('console-input').addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp' && state.historyIndex < state.commandHistory.length - 1) {
+                    state.historyIndex++;
+                    e.target.value = state.commandHistory[state.historyIndex];
+                } else if (e.key === 'ArrowDown' && state.historyIndex > -1) {
+                    state.historyIndex--;
+                    e.target.value = state.historyIndex === -1 ? '' : state.commandHistory[state.historyIndex];
+                }
+            });
+
+            document.getElementById('copy-log').addEventListener('click', copyLogToClipboard);
+
+            // Import/Export modals
+            document.getElementById('import-close').addEventListener('click', hideImportModal);
+            document.getElementById('import-cancel').addEventListener('click', hideImportModal);
+            document.getElementById('import-confirm').addEventListener('click', confirmImport);
+            document.getElementById('import-file').addEventListener('change', handleFileSelect);
+            document.getElementById('export-close').addEventListener('click', hideExportModal);
+            document.getElementById('export-cancel').addEventListener('click', hideExportModal);
+            document.getElementById('export-confirm').addEventListener('click', confirmExport);
+            document.getElementById('export-model-name').addEventListener('input', updateExportPreview);
+            document.getElementById('export-include-log').addEventListener('change', updateExportPreview);
+            document.getElementById('export-include-qnn').addEventListener('change', updateExportPreview);
+
+            document.getElementById('import-modal').addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') hideImportModal();
+                if (e.key === 'Enter' && !document.getElementById('import-confirm').disabled) confirmImport();
+            });
+            document.getElementById('export-modal').addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') hideExportModal();
+                if (e.key === 'Enter') confirmExport();
+            });
+            document.getElementById('import-modal').setAttribute('tabindex', '0');
+            document.getElementById('export-modal').setAttribute('tabindex', '0');
+
+            // Drag & drop for import
+            const dropArea = document.getElementById('import-drop-area');
+            dropArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropArea.style.background = 'rgba(0, 255, 157, 0.1)';
+                dropArea.style.boxShadow = '0 0 10px var(--cyber-green)';
+            });
+            dropArea.addEventListener('dragleave', () => {
+                dropArea.style.background = '';
+                dropArea.style.boxShadow = '';
+            });
+            dropArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropArea.style.background = '';
+                dropArea.style.boxShadow = '';
+                if (e.dataTransfer.files.length) {
+                    document.getElementById('import-file').files = e.dataTransfer.files;
+                    handleFileSelect({ target: document.getElementById('import-file') });
+                }
+            });
+        }
+
+        // Camera controls and update
+        function setupCameraControls() {
+            const container = document.getElementById('scene-container');
+            let isDragging = false;
+            let prev = { x: 0, y: 0 };
+
+            container.addEventListener('mousedown', (e) => {
+                isDragging = true; prev = { x: e.clientX, y: e.clientY };
+                container.style.cursor = 'grabbing';
+            });
+            container.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - prev.x;
+                const dy = e.clientY - prev.y;
+                state.cameraAngleX += dx * 0.01;
+                state.cameraAngleY = Math.max(0.1, Math.min(Math.PI - 0.1, state.cameraAngleY + dy * 0.01));
+                prev = { x: e.clientX, y: e.clientY };
+                updateCamera();
+            });
+            container.addEventListener('mouseup', () => { isDragging = false; container.style.cursor = 'grab'; });
+            container.addEventListener('mouseleave', () => { isDragging = false; container.style.cursor = 'default'; });
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomSpeed = 0.005;
+                state.cameraDistance = Math.max(5, Math.min(50, state.cameraDistance + e.deltaY * zoomSpeed));
+                updateCamera();
+            });
+            container.addEventListener('mouseenter', () => { if (!isDragging) container.style.cursor = 'grab'; });
+        }
+
+        function updateCamera() {
+            if (!state.camera) return;
+            const offset = new THREE.Vector3(
+                Math.sin(state.cameraAngleX) * Math.cos(state.cameraAngleY),
+                Math.sin(state.cameraAngleY),
+                Math.cos(state.cameraAngleX) * Math.cos(state.cameraAngleY)
+            ).multiplyScalar(state.cameraDistance);
+            const focus = new THREE.Vector3(0, 2, 0);
+            state.camera.position.copy(focus).add(offset);
+            state.camera.lookAt(focus);
+        }
+
+        function setupWindowResizeHandler() {
+            window.addEventListener('resize', () => {
+                const container = document.getElementById('scene-container');
+                if (!container || !state.camera || !state.renderer) return;
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+                state.camera.aspect = width / height;
+                state.camera.updateProjectionMatrix();
+                state.renderer.setSize(width, height);
+            });
+        }
+
+        // Performance monitor
+        function setupPerformanceMonitoring() {
+            let frameCount = 0;
+            let lastTime = performance.now();
+            function monitor() {
+                frameCount++;
+                const now = performance.now();
+                if (now >= lastTime + 1000) {
+                    const fps = Math.round((frameCount * 1000) / (now - lastTime));
+                    frameCount = 0; lastTime = now;
+                    state.sceneStats = state.sceneStats || {};
+                    state.sceneStats.fps = fps;
+                    const responseTimeElement = document.getElementById('response-time');
+                    if (responseTimeElement) responseTimeElement.textContent = `${fps} FPS`;
+                    if (fps < 30) logMessage(`[PERF] Low FPS: ${fps}. Consider reducing farm complexity.`, 'warn');
+                }
+                requestAnimationFrame(monitor);
+            }
+            monitor();
+        }
+
+        // Mode switch
+        function switchMode(mode) {
+            state.currentMode = mode;
+            document.querySelectorAll('.mode-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.getAttribute('data-mode') === mode);
+            });
+            document.querySelectorAll('.mode-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === `${mode}-panel` || panel.id === `${mode}-right-panel`);
+            });
+            logMessage(`[SYSTEM] Mode switched to: ${mode.toUpperCase()}`, 'sys');
+        }
+
+        // Training lifecycle
+        function startTraining() {
+            if (state.training.running) return;
+            state.training.running = true;
+            state.training.endless = true;
+            document.getElementById('training-indicator').style.display = 'inline-block';
+            document.getElementById('start-train').textContent = 'Training...';
+            document.getElementById('start-train').classList.add('active');
+
+            if (state.trainingInterval) clearInterval(state.trainingInterval);
+            state.trainingInterval = setInterval(() => {
+                if (!state.training.running) return;
+                updateTraining();
+                runCustomTrainingLoop();
+                updateLearningRateSchedule();
+            }, 200);
+
+            logMessage('[TRAINING] Endless training started', 'train-log');
+        }
+
+        function stopTraining() {
+            state.training.running = false;
+            clearInterval(state.trainingInterval);
+            document.getElementById('training-indicator').style.display = 'none';
+            document.getElementById('start-train').textContent = 'Start Endless Training';
+            document.getElementById('start-train').classList.remove('active');
+            logMessage('[TRAINING] Training paused', 'warn');
+        }
+
+        function resetTraining() {
+            stopTraining();
+            state.training.progress = 0;
+            state.training.epoch = 0;
+            state.training.loss = 2.5;
+            state.training.yieldEfficiency = 0;
+            state.training.activeDrones = 0;
+            state.training.responseTime = 0;
+            state.training.soilHealth = 'Low';
+            state.training.cycles = 0;
+            state.training.dataPoints = 0;
+            state.replayBuffer = [];
+            state.epsilon = 0.9;
+            updateTrainingUI();
+            updateTrainingStats();
+            updateQNNGrid();
+            logMessage('[TRAINING] Training reset', 'warn');
+        }
+
+        function updateTraining() {
+            state.training.cycles++;
+            state.training.progress = Math.min(100, state.training.progress + 0.2);
+            state.training.activeDrones = Math.min(10, 5 + Math.floor(Math.random() * 5));
+            state.training.responseTime = Math.floor(5 + Math.random() * 15);
+
+            // Soil health heuristic
+            state.training.soilHealth = state.training.yieldEfficiency > 50 ? 'Good' : (state.training.yieldEfficiency > 25 ? 'Fair' : 'Low');
+
+            // Antifragility impacts
+            const antiX = state.qnn.antifragilityX;
+            const antiY = state.qnn.antifragilityY;
+            if (antiX > 0.7) {
+                state.training.yieldEfficiency = Math.min(95, state.training.yieldEfficiency + 0.25);
+                state.training.loss = Math.max(0.01, state.training.loss * 0.985);
+            }
+            if (antiY > 0.7) {
+                state.training.responseTime = Math.max(5, Math.round(state.training.responseTime * 0.95));
+            }
+
+            updateQNNGrid();
+            updateAntifragilityGrid();
+            updateTrainingUI();
+            updateTrainingStats();
+
+            if (state.training.cycles % 50 === 0) {
+                logMessage(`[TRAINING] Epoch: ${state.training.epoch} | Yield: ${state.training.yieldEfficiency.toFixed(2)}% | Loss: ${state.training.loss.toFixed(4)}`, 'train-log');
+            }
+        }
+
+        // Minimal custom training loop: epsilon-greedy + replay buffer
+        function runCustomTrainingLoop() {
+            if (!state.tfModel) return;
+            // Create a synthetic state vector (10 features)
+            const s = tf.tidy(() => tf.tensor1d([
+                state.farm.plantingDensity,
+                state.farm.irrigationLevel,
+                state.qnn.antifragilityX,
+                state.qnn.antifragilityY,
+                state.test.droneSpeed,
+                state.farm.batteryEfficiency,
+                state.farm.taskPriority,
+                state.training.yieldEfficiency / 100,
+                state.training.loss / 10,
+                Math.random()
+            ]));
+
+            // Predict Q-values
+            const q = state.tfModel.predict(s.reshape([1, 10]));
+            const qVals = q.dataSync();
+            q.dispose();
+
+            // Epsilon-greedy action
+            let action;
+            if (Math.random() < state.epsilon) {
+                action = Math.floor(Math.random() * 4);
+            } else {
+                action = qVals.indexOf(Math.max(...qVals));
+            }
+
+            // Apply action effect heuristically
+            let reward = 0;
+            switch (action) {
+                case 0: // tune planting
+                    state.farm.plantingDensity = Math.min(1.0, state.farm.plantingDensity + 0.01);
+                    reward = 0.02;
+                    break;
+                case 1: // tune irrigation
+                    state.farm.irrigationLevel = Math.max(0.0, state.farm.irrigationLevel - 0.01);
+                    reward = 0.015;
+                    break;
+                case 2: // tune drone speed
+                    state.test.droneSpeed = Math.min(3.0, state.test.droneSpeed + 0.02);
+                    reward = 0.01;
+                    break;
+                case 3: // tune task priority
+                    state.farm.taskPriority = Math.min(1.0, state.farm.taskPriority + 0.01);
+                    reward = 0.012;
+                    break;
+            }
+
+            // Reward shaped by yield and loss improvement
+            reward += (state.training.yieldEfficiency / 100) - (state.training.loss / 10);
+
+            // Next state (approx)
+            const s2 = tf.tidy(() => tf.tensor1d([
+                state.farm.plantingDensity,
+                state.farm.irrigationLevel,
+                state.qnn.antifragilityX,
+                state.qnn.antifragilityY,
+                state.test.droneSpeed,
+                state.farm.batteryEfficiency,
+                state.farm.taskPriority,
+                Math.min(1, state.training.yieldEfficiency / 100 + 0.001),
+                Math.max(0, state.training.loss / 10 - 0.001),
+                Math.random()
+            ]));
+
+            // Store experience
+            state.replayBuffer.push({ s, action, reward, s2, done: false });
+            if (state.replayBuffer.length > state.maxReplaySize) {
+                const exp = state.replayBuffer.shift();
+                exp.s.dispose(); exp.s2.dispose();
+            }
+
+            // Train from mini-batch
+            if (state.replayBuffer.length >= 64) {
+                const batch = sampleBatch(state.replayBuffer, 32);
+                tf.tidy(() => {
+                    const sBatch = tf.stack(batch.map(b => b.s));
+                    const s2Batch = tf.stack(batch.map(b => b.s2));
+                    const targetQ = state.tfModel.predict(sBatch);
+                    const nextQ = state.tfModel.predict(s2Batch).arraySync();
+
+                    const targetArray = targetQ.arraySync();
+                    batch.forEach((b, i) => {
+                        const maxNext = Math.max(...nextQ[i]);
+                        const target = b.reward + state.gamma * maxNext;
+                        targetArray[i][b.action] = target;
+                    });
+                    const y = tf.tensor2d(targetArray);
+                    const history = state.tfModel.fit(sBatch, y, { epochs: 1, batchSize: 16, shuffle: true });
+                    // Update metrics (approx)
+                    state.training.epoch += 1;
+                    state.training.loss = Math.max(0.005, state.training.loss * 0.99);
+                    state.training.yieldEfficiency = Math.min(95, state.training.yieldEfficiency + 0.05);
+                    state.training.dataPoints += 32;
+                });
+
+                // Epsilon decay
+                state.epsilon = Math.max(state.epsilonMin, state.epsilon * state.epsilonDecay);
+            }
+
+            updateTrainingUI();
+        }
+
+        function sampleBatch(buffer, size) {
+            const out = [];
+            for (let i = 0; i < size; i++) out.push(buffer[Math.floor(Math.random() * buffer.length)]);
+            return out;
+        }
+
+        // Learning rate schedule
+        function updateLearningRateSchedule() {
+            if (!state.tfOptimizer) return;
+            // Simple schedule: reduce LR gradually every 250 cycles
+            if (state.training.cycles % 250 === 0) {
+                state.qnn.learningRate = Math.max(0.01, state.qnn.learningRate * 0.95);
+                document.getElementById('learning-rate').value = state.qnn.learningRate.toFixed(2);
+                document.getElementById('learning-rate-value').textContent = Number(state.qnn.learningRate).toFixed(2);
+                // Recreate optimizer to reflect LR change
+                state.tfOptimizer = tf.train.adam(state.qnn.learningRate);
+                state.tfModel.compile({ optimizer: state.tfOptimizer, loss: 'meanSquaredError' });
+                logMessage(`[TRAINING] LR adjusted to ${state.qnn.learningRate.toFixed(2)}`, 'train-log');
+            }
+        }
+
+        // Test lifecycle
+        function startAutoHarvestTest() {
+            if (state.testActive) { logMessage('[TEST] Test already running', 'warn'); return; }
+            state.testActive = true;
+            state.test.status = 'Harvesting';
+            state.testStartTime = Date.now();
+            state.test.startTime = Date.now();
+            state.test.collisions = 0;
+            state.test.score = 0;
+            state.test.operationTime = 0;
+            state.test.distance = 0;
+            state.test.progress = 0;
+            state.test.cropsHarvested = 0;
+            state.test.missionComplete = false;
+            state.test.attempts++;
+            state.test.dronesDelivered = 0;
+
+            state.drones.forEach(drone => {
+                drone.userData.state = 'harvesting';
+                drone.userData.currentCropIndex = 0;
+                drone.userData.carryingCrops = 0;
+                drone.userData.deliveredCrops = 0;
+                drone.userData.startTime = Date.now();
+                drone.userData.statusLight.material.color.set(0xffff00);
+            });
+
+            if (state.testInterval) clearInterval(state.testInterval);
+            state.testInterval = setInterval(() => {
+                if (!state.testActive) return;
+                updateTest();
+                checkCollisions();
+            }, 120);
+
+            document.getElementById('auto-harvest-test').textContent = 'HARVEST RUNNING';
+            document.getElementById('auto-harvest-test').classList.add('active');
+            logMessage('[TEST] Auto Harvest test started', 'ok');
+            logMessage('[TEST] Mission: Harvest all 50 crops and deliver to barn', 'ok');
+        }
+
+        function stopTest() {
+            if (!state.testActive) return;
+            state.testActive = false;
+            clearInterval(state.testInterval);
+            state.test.status = 'Idle';
+            document.getElementById('auto-harvest-test').textContent = 'AUTO HARVEST TEST';
+            document.getElementById('auto-harvest-test').classList.remove('active');
+            reportTestResults();
+            logMessage('[TEST] Mission stopped', 'warn');
+        }
+
+        function updateTest() {
+            const elapsed = Date.now() - state.testStartTime;
+            state.test.operationTime = elapsed / 1000;
+            state.test.operationTimeTotal = elapsed;
+
+            simulateDroneActivity();
+
+            state.test.distance += state.test.droneSpeed * 0.1;
+            state.test.speed = 10 + Math.random() * 20 * state.test.droneSpeed;
+
+            const harvestProgress = state.test.cropsHarvested / state.test.totalCrops;
+            const deliveryProgress = state.test.dronesDelivered / state.drones.length;
+            state.test.progress = Math.min(100, (harvestProgress * 50) + (deliveryProgress * 50));
+
+            const timePenalty = Math.max(0, (elapsed / 1000) / 120);
+            state.test.score = Math.min(100, (harvestProgress * 40) + (deliveryProgress * 40) - timePenalty);
+
+            updateTestUI();
+
+            if (state.test.dronesDelivered >= state.drones.length) {
+                state.test.missionComplete = true;
+                state.test.status = 'Mission Complete';
+                stopTest();
+            }
+        }
+
+        function simulateDroneActivity() {
+            state.drones.forEach(drone => {
+                const d = drone.userData;
+                const row = d.row;
+                const cropsInRow = state.test.cropRows[row] || [];
+
+                if (d.state === 'harvesting') {
+                    if (d.currentCropIndex < cropsInRow.length) {
+                        const targetCrop = cropsInRow[d.currentCropIndex];
+                        const targetPosition = new THREE.Vector3(targetCrop.position.x, drone.position.y, targetCrop.position.z);
+                        const direction = new THREE.Vector3().subVectors(targetPosition, drone.position).normalize();
+                        drone.position.add(direction.multiplyScalar(0.1 * state.test.droneSpeed));
+
+                        if (drone.position.distanceTo(targetPosition) < 1) {
+                            if (!targetCrop.userData.harvested) {
+                                targetCrop.userData.harvested = true;
+                                targetCrop.visible = false;
+                                state.test.cropsHarvested++;
+                                d.carryingCrops++;
+                                d.statusLight.material.color.set(0xff8800);
+                                logMessage(`[TEST] Drone ${d.id} harvested crop ${d.currentCropIndex + 1} in row ${row + 1}`, 'farm');
+                            }
+                            d.currentCropIndex++;
+                            if (d.currentCropIndex >= cropsInRow.length) {
+                                d.state = 'delivering';
+                                d.harvestTime = Date.now();
+                                d.statusLight.material.color.set(0xff0000);
+                                logMessage(`[TEST] Drone ${d.id} finished harvesting row ${row + 1}, delivering to barn`, 'farm');
+                            }
+                        }
+                    }
+                } else if (d.state === 'delivering') {
+                    const targetPosition = new THREE.Vector3(state.test.barnPosition.x, drone.position.y, state.test.barnPosition.z);
+                    const direction = new THREE.Vector3().subVectors(targetPosition, drone.position).normalize();
+                    drone.position.add(direction.multiplyScalar(0.1 * state.test.droneSpeed));
+                    if (drone.position.distanceTo(targetPosition) < 2) {
+                        d.deliveredCrops += d.carryingCrops;
+                        d.carryingCrops = 0;
+                        d.deliveryTime = Date.now();
+                        d.totalTime = d.deliveryTime - d.startTime;
+                        d.state = 'delivered';
+                        state.test.dronesDelivered++;
+                        d.statusLight.material.color.set(0x00ff00);
+                        logMessage(`[TEST] Drone ${d.id} delivered crops to barn. Time: ${(d.totalTime / 1000).toFixed(2)}s`, 'ok');
+                    }
+                }
+                d.battery = Math.max(0, d.battery - 0.01 * (1 + (1 - state.farm.batteryEfficiency)));
+            });
+        }
+
+        function checkCollisions() {
+            for (let i = 0; i < state.drones.length; i++) {
+                for (let j = i + 1; j < state.drones.length; j++) {
+                    const a = state.drones[i], b = state.drones[j];
+                    if (a.position.distanceTo(b.position) < 1) {
+                        state.test.collisions++;
+                        a.userData.statusLight.material.color.set(0xff00ff);
+                        b.userData.statusLight.material.color.set(0xff00ff);
+                        setTimeout(() => {
+                            const restoreColor = (dr) => {
+                                const st = dr.userData.state;
+                                if (st === 'harvesting') dr.userData.statusLight.material.color.set(0xffff00);
+                                else if (st === 'delivering') dr.userData.statusLight.material.color.set(0xff0000);
+                                else if (st === 'delivered') dr.userData.statusLight.material.color.set(0x00ff00);
+                            };
+                            restoreColor(a); restoreColor(b);
+                        }, 400);
+                    }
+                }
+            }
+        }
+
+        function reportTestResults() {
+            const elapsed = Date.now() - state.test.startTime;
+            const operationTime = (elapsed / 1000).toFixed(1);
+            const score = state.test.score;
+            const collisions = state.test.collisions;
+            const cropsHarvested = state.test.cropsHarvested;
+
+            logMessage('[TEST] === MISSION RESULTS ===', 'perf');
+            logMessage(`[TEST] Operation Time: ${operationTime}s`, 'perf');
+            logMessage(`[TEST] Collisions: ${collisions}`, 'perf');
+            logMessage(`[TEST] Crops Harvested: ${cropsHarvested}/${state.test.totalCrops}`, 'perf');
+            logMessage(`[TEST] Drones Completed: ${state.test.dronesDelivered}/${state.drones.length}`, 'perf');
+            logMessage(`[TEST] Final Score: ${score.toFixed(1)}%`, 'perf');
+
+            if (state.test.missionComplete) {
+                const missionTime = state.test.operationTimeTotal / 1000;
+                logMessage(`[TEST] MISSION SUCCESS! Time: ${missionTime.toFixed(2)}s`, 'ok');
+                if (state.test.bestOperationTime === 0 || missionTime < state.test.bestOperationTime) {
+                    state.test.bestOperationTime = missionTime;
+                    logMessage(`[TEST] NEW BEST TIME: ${missionTime.toFixed(2)}s`, 'ok');
+                }
+            } else {
+                logMessage('[TEST] Mission incomplete', 'warn');
+            }
+
+            logMessage('[TEST] === DRONE PERFORMANCE ANALYSIS ===', 'perf');
+            state.drones.forEach(drone => {
+                const d = drone.userData;
+                if (d.state === 'delivered') {
+                    const totalTime = (d.totalTime / 1000).toFixed(2);
+                    const harvestTime = (d.harvestTime - d.startTime) / 1000;
+                    const deliveryTime = (d.deliveryTime - d.harvestTime) / 1000;
+                    logMessage(`[TEST] Drone ${d.id}: Total ${totalTime}s (Harvest: ${harvestTime.toFixed(2)}s, Delivery: ${deliveryTime.toFixed(2)}s)`, 'sys');
+                } else {
+                    logMessage(`[TEST] Drone ${d.id}: Incomplete - ${d.state}`, 'warn');
+                }
+            });
+
+            if (score >= 90) logMessage('[TEST] EXCELLENT PERFORMANCE! Farm is perfectly optimized.', 'ok');
+            else if (score >= 75) logMessage('[TEST] Good performance. Consider minor drone parameter adjustments.', 'ok');
+            else if (score >= 60) logMessage('[TEST] Average performance. Focus on drone efficiency and collision avoidance.', 'warn');
+            else logMessage('[TEST] Farm needs significant optimization. Review drone paths and parameters.', 'err');
+
+            saveTestData();
+        }
+
+        function saveTestData() {
+            const testData = {
+                timestamp: new Date().toISOString(),
+                environment: state.environmentType,
+                results: {
+                    score: state.test.score,
+                    operationTime: state.test.operationTime,
+                    collisions: state.test.collisions,
+                    cropsHarvested: state.test.cropsHarvested,
+                    missionComplete: state.test.missionComplete,
+                    attempts: state.test.attempts,
+                    dronesDelivered: state.test.dronesDelivered
+                },
+                dronePerformance: state.drones.map(drone => ({
+                    id: drone.userData.id,
+                    state: drone.userData.state,
+                    totalTime: drone.userData.totalTime || 0,
+                    cropsHarvested: drone.userData.deliveredCrops || 0
+                }))
+            };
+            if (!state.testData) state.testData = [];
+            state.testData.push(testData);
+            logMessage('[SYSTEM] Test data saved for export', 'sys');
+        }
+
+        // UI updates
+        function updateTrainingUI() {
+            document.getElementById('train-progress-bar').style.width = `${state.training.progress}%`;
+            document.getElementById('train-progress').textContent = `${state.training.progress.toFixed(1)}%`;
+            document.getElementById('epoch').textContent = state.training.epoch;
+            document.getElementById('loss').textContent = state.training.loss.toFixed(4);
+            document.getElementById('yield-efficiency').textContent = `${state.training.yieldEfficiency.toFixed(2)}%`;
+            document.getElementById('active-drones').textContent = state.training.activeDrones;
+            document.getElementById('soil-health').textContent = state.training.soilHealth;
+            document.getElementById('response-time').textContent = `${state.training.responseTime}ms`;
+            document.getElementById('training-cycles').textContent = state.training.cycles;
+            document.getElementById('data-points').textContent = state.training.dataPoints;
+            document.getElementById('memory-used').textContent = `${state.qnn.memoryUsed}MB`;
+            document.getElementById('robustness-score').textContent = `${state.qnn.robustnessScore.toFixed(2)}%`;
+            document.getElementById('stress-response').textContent = state.qnn.stressResponse.toFixed(2);
+        }
+
+        function updateTrainingStats() {
+            document.getElementById('training-rounds').textContent = state.training.rounds + state.training.cycles;
+            const totalMinutes = state.training.totalTime + Math.floor(state.training.cycles / 10);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            document.getElementById('total-training-time').textContent = `${hours}h ${minutes}m`;
+            document.getElementById('best-score').textContent = `${Math.max(state.training.bestScore, state.training.yieldEfficiency).toFixed(2)}%`;
+        }
+
+        function updateTestUI() {
+            document.getElementById('test-progress-bar').style.width = `${state.test.progress}%`;
+            document.getElementById('test-progress').textContent = `${state.test.progress.toFixed(1)}%`;
+            document.getElementById('operation-time').textContent = `${state.test.operationTime.toFixed(1)}s`;
+            document.getElementById('distance').textContent = `${Math.round(state.test.distance)}m`;
+            document.getElementById('collisions').textContent = state.test.collisions;
+            document.getElementById('test-speed').textContent = `${state.test.speed.toFixed(1)} km/h`;
+            document.getElementById('test-status').textContent = state.test.status;
+            document.getElementById('test-score').textContent = `${state.test.score.toFixed(1)}%`;
+            document.getElementById('current-environment').textContent = state.environmentType.charAt(0).toUpperCase() + state.environmentType.slice(1);
+            document.getElementById('crops-harvested').textContent = `${state.test.cropsHarvested}/${state.test.totalCrops}`;
+            if (state.test.bestOperationTime > 0) {
+                document.getElementById('test-status').textContent = `${state.test.status} - Best: ${state.test.bestOperationTime.toFixed(2)}s`;
+            }
+        }
+
+        // Slider handlers
+        function updateLearningRate(e) {
+            state.qnn.learningRate = parseFloat(e.target.value);
+            document.getElementById('learning-rate-value').textContent = state.qnn.learningRate.toFixed(2);
+            // Recompile optimizer with new LR
+            state.tfOptimizer = tf.train.adam(state.qnn.learningRate);
+            state.tfModel.compile({ optimizer: state.tfOptimizer, loss: 'meanSquaredError' });
+            updateQNNGrid();
+        }
+        function updateCreativity(e) {
+            state.qnn.creativity = parseFloat(e.target.value);
+            document.getElementById('creativity-value').textContent = state.qnn.creativity.toFixed(2);
+            updateQNNGrid();
+        }
+        function updateMemoryLimit(e) {
+            state.qnn.memoryLimit = parseInt(e.target.value);
+            document.getElementById('memory-usage').textContent = `${state.qnn.memoryLimit}MB`;
+        }
+        function updatePlantingDensity(e) {
+            state.farm.plantingDensity = parseFloat(e.target.value);
+            document.getElementById('density-value').textContent = state.farm.plantingDensity.toFixed(2);
+            generateCrops();
+        }
+        function updateIrrigationLevel(e) {
+            state.farm.irrigationLevel = parseFloat(e.target.value);
+            document.getElementById('irrigation-value').textContent = state.farm.irrigationLevel.toFixed(2);
+        }
+        function updateDroneSpeed(e) {
+            state.test.droneSpeed = parseFloat(e.target.value);
+            document.getElementById('drone-speed-value').textContent = `${state.test.droneSpeed.toFixed(1)}x`;
+        }
+        function updateBatteryEfficiency(e) {
+            state.farm.batteryEfficiency = parseFloat(e.target.value);
+            document.getElementById('battery-value').textContent = state.farm.batteryEfficiency.toFixed(2);
+        }
+        function updateTaskPriority(e) {
+            state.farm.taskPriority = parseFloat(e.target.value);
+            document.getElementById('priority-value').textContent = state.farm.taskPriority.toFixed(2);
+        }
+        function updateAntifragilityX(e) {
+            state.qnn.antifragilityX = parseFloat(e.target.value);
+            document.getElementById('x-antifragility-value').textContent = state.qnn.antifragilityX.toFixed(2);
+            updateAntifragilityGrid();
+            updateTrainingUI();
+        }
+        function updateAntifragilityY(e) {
+            state.qnn.antifragilityY = parseFloat(e.target.value);
+            document.getElementById('y-antifragility-value').textContent = state.qnn.antifragilityY.toFixed(2);
+            updateAntifragilityGrid();
+            updateTrainingUI();
+        }
+
+        // Console
+        function processConsoleInput() {
+            const input = document.getElementById('console-input');
+            const command = input.value.trim();
+            if (!command) return;
+            logMessage(`> ${command}`, 'muted');
+            state.commandHistory.unshift(command);
+            state.historyIndex = -1;
+            handleCommand(command);
+            input.value = '';
+        }
+
+        function handleCommand(command) {
+            const parts = command.split(' ');
+            const cmd = parts[0].toLowerCase();
+            switch(cmd) {
+                case '/help':
+                    [
+                        '/help - Show this help',
+                        '/status - Show system status',
+                        '/train [start|stop|reset]',
+                        '/test [harvest|stop]',
+                        '/mode [train|test]',
+                        '/farm [new|reset]',
+                        '/antifragility [x] [y]',
+                        '/export',
+                        '/import',
+                        '/tensorflow',
+                        '/performance'
+                    ].forEach(line => logMessage(line, 'sys'));
+                    break;
+                case '/status':
+                    logMessage(`[STATUS] Mode: ${state.currentMode.toUpperCase()}`, 'sys');
+                    logMessage(`[STATUS] Drones: ${state.drones.length}`, 'sys');
+                    logMessage(`[STATUS] Crops: ${state.crops.length}`, 'sys');
+                    logMessage(`[STATUS] Training: ${state.training.running ? 'RUNNING' : 'STOPPED'}`, 'sys');
+                    logMessage(`[STATUS] Test: ${state.testActive ? 'RUNNING' : 'STOPPED'}`, 'sys');
+                    logMessage(`[STATUS] FPS: ${state.sceneStats?.fps ?? 'n/a'}`, 'sys');
+                    break;
+                case '/train':
+                    if (parts[1] === 'start') startTraining();
+                    else if (parts[1] === 'stop') stopTraining();
+                    else if (parts[1] === 'reset') resetTraining();
+                    else logMessage('[ERROR] Invalid train command. Use: start, stop, reset', 'err');
+                    break;
+                case '/test':
+                    if (parts[1] === 'harvest') startAutoHarvestTest();
+                    else if (parts[1] === 'stop') stopTest();
+                    else logMessage('[ERROR] Invalid test command. Use: harvest, stop', 'err');
+                    break;
+                case '/mode':
+                    if (parts[1] === 'train' || parts[1] === 'test') switchMode(parts[1]);
+                    else logMessage('[ERROR] Invalid mode. Use: train, test', 'err');
+                    break;
+                case '/farm':
+                    if (parts[1] === 'new') generateNewFarm();
+                    else if (parts[1] === 'reset') { generateCrops(); createFarmDrones(); logMessage('[FARM] Farm reset', 'farm'); }
+                    else logMessage('[ERROR] Invalid farm command. Use: new, reset', 'err');
+                    break;
+                case '/antifragility':
+                    if (parts[1] && parts[2]) {
+                        const x = parseFloat(parts[1]), y = parseFloat(parts[2]);
+                        if (!isNaN(x) && !isNaN(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+                            state.qnn.antifragilityX = x; state.qnn.antifragilityY = y;
+                            document.getElementById('x-antifragility').value = x;
+                            document.getElementById('y-antifragility').value = y;
+                            document.getElementById('x-antifragility-value').textContent = x.toFixed(2);
+                            document.getElementById('y-antifragility-value').textContent = y.toFixed(2);
+                            updateAntifragilityGrid(); updateTrainingUI();
+                            logMessage(`[ANTIFRAGILITY] Set X=${x.toFixed(2)}, Y=${y.toFixed(2)}`, 'sys');
+                        } else logMessage('[ERROR] Invalid antifragility values. Use: /antifragility [0-1] [0-1]', 'err');
+                    } else logMessage('[ERROR] Invalid antifragility command. Use: /antifragility [x] [y]', 'err');
+                    break;
+                case '/export': showExportModal(); break;
+                case '/import': showImportModal(); break;
+                case '/tensorflow':
+                    logMessage('[TENSORFLOW] Model Status:', 'sys');
+                    logMessage(`  Layers: ${state.tfModel?.layers?.length ?? 'n/a'}`, 'sys');
+                    logMessage(`  Epochs: ${state.training.epoch}`, 'sys');
+                    logMessage(`  Loss: ${state.training.loss.toFixed(4)}`, 'sys');
+                    logMessage(`  Data Points: ${state.training.dataPoints}`, 'sys');
+                    break;
+                case '/performance':
+                    logMessage('[PERFORMANCE] System Metrics:', 'perf');
+                    logMessage(`  FPS: ${state.sceneStats?.fps ?? 'n/a'}`, 'perf');
+                    logMessage(`  Memory Used: ${state.qnn.memoryUsed}MB / ${state.qnn.memoryLimit}MB`, 'perf');
+                    logMessage(`  Training Data Points: ${state.training.dataPoints}`, 'perf');
+                    logMessage(`  Drones: ${state.drones.length}`, 'perf');
+                    logMessage(`  Crops: ${state.crops.length}`, 'perf');
+                    break;
+                default:
+                    logMessage(`[ERROR] Unknown command: ${cmd}`, 'err');
+            }
+        }
+
+        function logMessage(message, type = 'sys') {
+            const consoleOutput = document.getElementById('console-output');
+            const p = document.createElement('p');
+            p.className = type;
+            p.textContent = message;
+            consoleOutput.appendChild(p);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            const messages = consoleOutput.querySelectorAll('p');
+            if (messages.length > 300) messages[0].remove();
+            state.trainingLog.push({ timestamp: new Date().toISOString(), message, type });
+        }
+
+        function copyLogToClipboard() {
+            const text = JSON.stringify(state.trainingLog, null, 2);
+            navigator.clipboard.writeText(text).then(() => {
+                logMessage('[SYSTEM] Training log copied to clipboard as JSON', 'sys');
+            }).catch(err => {
+                logMessage('[ERROR] Failed to copy log: ' + err, 'err');
+            });
+        }
+
+        // Animation
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                updateCamera();
+                updateDroneLabels();
+                if (state.renderer && state.scene && state.camera) state.renderer.render(state.scene, state.camera);
+            } catch (e) {
+                logMessage(`[ERROR] Render failed: ${e.message}`, 'err');
+                if (state.renderer) state.renderer.setClearColor(0x000000);
+            }
+        }
+
+        // Farm regeneration
+        function generateNewFarm() {
+            logMessage('[FARM] Generating new farm...', 'farm');
+            createFarmStructures();
+            generateCrops();
+            createFarmDrones();
+            logMessage('[FARM] New farm generated', 'ok');
+        }
+
+        // Import/Export
+        function showImportModal() {
+            document.getElementById('import-modal').classList.add('active');
+            resetImportModal();
+        }
+        function hideImportModal() {
+            document.getElementById('import-modal').classList.remove('active');
+        }
+        function resetImportModal() {
+            document.getElementById('import-file').value = '';
+            document.getElementById('import-preview').style.display = 'none';
+            document.getElementById('import-confirm').disabled = true;
+            setImportStatus('Ready to import', '');
+            state.importData = null;
+        }
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            setImportStatus('Reading file...', 'importing');
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    state.importData = data;
+                    if (validateImportData(data)) {
+                        setImportStatus('Valid format detected', 'success');
+                        document.getElementById('import-confirm').disabled = false;
+                        showImportPreview(data);
+                    } else {
+                        setImportStatus('Invalid file format', 'error');
+                        document.getElementById('import-confirm').disabled = true;
+                    }
+                } catch (error) {
+                    setImportStatus('Error parsing JSON: ' + error.message, 'error');
+                    document.getElementById('import-confirm').disabled = true;
+                }
+            };
+            reader.onerror = () => {
+                setImportStatus('Error reading file', 'error');
+                document.getElementById('import-confirm').disabled = true;
+            };
+            reader.readAsText(file);
+        }
+        function validateImportData(data) {
+            return data && data.timestamp && data.state && data.version === '1.5.0';
+        }
+        function showImportPreview(data) {
+            const preview = document.getElementById('import-preview-content');
+            preview.innerHTML = '';
+            const items = [
+                { label: 'Model Name', value: data.modelName || 'Unnamed' },
+                { label: 'Timestamp', value: new Date(data.timestamp).toLocaleString() },
+                { label: 'Training Rounds', value: data.state.training?.rounds || 0 },
+                { label: 'Yield Efficiency', value: `${(data.state.training?.yieldEfficiency || 0).toFixed(2)}%` },
+                { label: 'Loss', value: (data.state.training?.loss || 0).toFixed(4) },
+                { label: 'Data Points', value: data.state.training?.dataPoints || 0 }
+            ];
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'compact-row';
+                div.innerHTML = `<label>${item.label}:</label><span>${item.value}</span>`;
+                preview.appendChild(div);
+            });
+            document.getElementById('import-preview').style.display = 'block';
+        }
+        function setImportStatus(message, status) {
+            const indicator = document.getElementById('import-status-indicator');
+            const text = document.getElementById('import-status-text');
+            text.textContent = message;
+            indicator.className = 'status-indicator';
+            if (status === 'importing') indicator.classList.add('status-importing');
+            else if (status === 'success') indicator.classList.add('status-success');
+            else if (status === 'error') indicator.classList.add('status-error');
+        }
+        function confirmImport() {
+            if (!state.importData) return;
+            setImportStatus('Importing data...', 'importing');
+            setTimeout(() => {
+                try {
+                    applyImportedData(state.importData);
+                    setImportStatus('Import completed successfully', 'success');
+                    setTimeout(() => {
+                        hideImportModal();
+                        logMessage('[SYSTEM] Training data imported successfully', 'ok');
+                    }, 800);
+                } catch (error) {
+                    setImportStatus('Error during import: ' + error.message, 'error');
+                }
+            }, 1000);
+        }
+        function applyImportedData(data) {
+            if (data.state.training) Object.assign(state.training, data.state.training);
+            if (data.state.qnn) Object.assign(state.qnn, data.state.qnn);
+            if (data.state.test) Object.assign(state.test, data.state.test);
+            if (data.state.farm) Object.assign(state.farm, data.state.farm);
+            if (data.log) state.trainingLog = data.log;
+            if (data.modelName) document.getElementById('model-name').value = data.modelName;
+
+            document.getElementById('learning-rate').value = state.qnn.learningRate;
+            document.getElementById('learning-rate-value').textContent = state.qnn.learningRate.toFixed(2);
+            document.getElementById('creativity').value = state.qnn.creativity;
+            document.getElementById('creativity-value').textContent = state.qnn.creativity.toFixed(2);
+            document.getElementById('memory-limit').value = state.qnn.memoryLimit;
+            document.getElementById('memory-usage').textContent = `${state.qnn.memoryLimit}MB`;
+            document.getElementById('x-antifragility').value = state.qnn.antifragilityX;
+            document.getElementById('x-antifragility-value').textContent = state.qnn.antifragilityX.toFixed(2);
+            document.getElementById('y-antifragility').value = state.qnn.antifragilityY;
+            document.getElementById('y-antifragility-value').textContent = state.qnn.antifragilityY.toFixed(2);
+
+            updateTrainingUI();
+            updateTrainingStats();
+            updateQNNGrid();
+            updateAntifragilityGrid();
+            saveTrainingData();
+            generateCrops();
+        }
+
+        function showExportModal() {
+            document.getElementById('export-modal').classList.add('active');
+            resetExportModal();
+            updateExportPreview();
+        }
+        function hideExportModal() {
+            document.getElementById('export-modal').classList.remove('active');
+        }
+        function resetExportModal() {
+            document.getElementById('export-model-name').value = document.getElementById('model-name').value || `farm_model_${Date.now()}`;
+            document.getElementById('export-include-log').checked = true;
+            document.getElementById('export-include-qnn').checked = true;
+            setExportStatus('Ready to export', '');
+        }
+        function updateExportPreview() {
+            const modelName = document.getElementById('export-model-name').value || 'Unnamed';
+            const includeLog = document.getElementById('export-include-log').checked;
+            const includeQnn = document.getElementById('export-include-qnn').checked;
+
+            const exportData = {
+                modelName,
+                timestamp: new Date().toISOString(),
+                version: '1.5.0',
+                state: {
+                    training: state.training,
+                    qnn: includeQnn ? state.qnn : {},
+                    test: state.test,
+                    farm: state.farm
+                },
+                log: includeLog ? state.trainingLog : []
+            };
+            const dataSize = JSON.stringify(exportData).length;
+            document.getElementById('export-data-size').textContent = `${(dataSize / 1024).toFixed(2)} KB`;
+            state.exportData = exportData;
+        }
+        function setExportStatus(message, status) {
+            const indicator = document.getElementById('export-status-indicator');
+            const text = document.getElementById('export-status-text');
+            text.textContent = message;
+            indicator.className = 'status-indicator';
+            if (status === 'exporting') indicator.classList.add('status-exporting');
+            else if (status === 'success') indicator.classList.add('status-success');
+            else if (status === 'error') indicator.classList.add('status-error');
+        }
+        function confirmExport() {
+            if (!state.exportData) return;
+            setExportStatus('Exporting data...', 'exporting');
+            setTimeout(() => {
+                try {
+                    const dataStr = JSON.stringify(state.exportData, null, 2);
+                    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(dataBlob);
+                    link.download = `${state.exportData.modelName}_${Date.now()}.json`;
+                    link.click();
+                    setExportStatus('Export completed successfully', 'success');
+                    logMessage('[SYSTEM] Training data exported successfully', 'ok');
+                    setTimeout(() => hideExportModal(), 800);
+                } catch (error) {
+                    setExportStatus('Error during export: ' + error.message, 'error');
+                }
+            }, 800);
+        }
+
+        // Save (compressed) to localStorage with MB calc correct
+        function saveTrainingData() {
+            try {
+                const trainingData = {
+                    timestamp: new Date().toISOString(),
+                    state: {
+                        training: state.training,
+                        qnn: state.qnn,
+                        test: state.test,
+                        farm: state.farm
+                    },
+                    log: state.trainingLog.slice(-1000)
+                };
+                const dataStr = JSON.stringify(trainingData);
+                const compressedData = LZString.compress(dataStr);
+                const bytesApprox = compressedData.length * 2; // UTF-16 ~2 bytes per char
+                const mb = bytesApprox / (1024 * 1024);
+                if (mb < 5) {
+                    localStorage.setItem('farm_training_data', compressedData);
+                    state.qnn.memoryUsed = Math.max(1, Math.round(mb)); // display MB rounded
+                    updateTrainingStats();
+                    logMessage(`[SYSTEM] Training data saved (${state.qnn.memoryUsed}MB used)`, 'sys');
+                } else {
+                    logMessage('[ERROR] Data exceeds storage quota', 'err');
+                }
+            } catch (e) {
+                logMessage(`[ERROR] Save failed: ${e.message}`, 'err');
+            }
+        }
+    </script>
+</body>
+</html>
+
