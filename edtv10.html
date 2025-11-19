@@ -2,128 +2,153 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>edTV: CHANNEL 10 // ASCII VR MASK</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#000;color:#0f0;font-family:'Courier New',monospace;overflow:hidden;height:100vh;user-select:none}
-  video,#ascii{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-    width:min(92vw,720px);aspect-ratio:4/3;border:6px solid #0f0;box-shadow:0 0 90px #0f0;border-radius:4px}
-  #ascii{z-index:10;pointer-events:none;background:transparent}
-  .banner{position:absolute;top:0;width:100%;height:50px;background:#0f0;color:#000;
-    font: bold 18px 'Courier New';letter-spacing:6px;display:flex;align-items:center;justify-content:center;
-    box-shadow:0 0 40px #0f0;z-index:100;animation:blink 2s infinite}
-  @keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
-  .active .banner{background:#000;color:#0f0;animation:glitch .07s infinite}
-  @keyframes glitch{0%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}20%{clip-path:polygon(0 20%,100% 10%,100% 90%,0 80%)}}
-  button{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);
-    background:#000;color:#0f0;border:4px solid #0f0;padding:16px 40px;font:bold 18px 'Courier New';
-    letter-spacing:4px;cursor:pointer;box-shadow:0 0 30px #0f0}
-  button:active{background:#0f0;color:#000}
-  #switch{position:absolute;top:60px;left:50%;transform:translateX(-50%);color:#0f0;font-size:14px;z-index:100}
+  body{margin:0;background:#000;overflow:hidden;height:100vh;position:relative;color:#0f0;font-family:'Courier New',monospace}
+  video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;filter:brightness(1.1) contrast(1.2)}
+  #frame{position:absolute;top:20px;left:20px;right:20px;bottom:140px;border:4px solid #0f0;box-shadow:0 0 40px #0f0, inset 0 0 80px rgba(0,255,0,0.15)}
+  canvas{position:absolute;top:24px;left:24px;right:24px;bottom:144px;pointer-events:none}
+  #ui{position:absolute;top:30px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);padding:10px 24px;border:3px solid #0f0;font-size:18px;letter-spacing:3px;cursor:pointer;z-index:10}
+  #log{position:absolute;bottom:0;left:0;width:100%;height:120px;background:rgba(0,10,0,0.97);border-top:4px solid #0f0;overflow:hidden}
+  #logtext{padding:8px;font-size:11px;line-height:1.4;overflow-y:auto;height:100%;color:#0f0}
+  .scan{position:absolute;top:0;left:0;width:100%;height:3px;background:#0f0;opacity:0.7;animation:s 5s linear infinite}
+  @keyframes s{0%{transform:translateY(-100vh)}100%{transform:translateY(100vh)}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
 </head>
 <body>
 
-<div class="banner">edTV: CHANNEL 10 // ASCII VR MASK</div>
-<div id="switch">STYLE: 1 (click to cycle)</div>
-<video id="video" autoplay playsinline muted></video>
-<canvas id="ascii"></canvas>
-<button id="start">ACTIVATE</button>
+<div id="frame"></div>
+<video id="webcam" autoplay playsinline muted></video>
+<canvas id="overlay"></canvas>
+<div class="scan"></div>
 
-<script type="module">
-import * as faceDetection from "https://cdn.jsdelivr.net/npm/@tensorflow-models/face-detection";
-import { MediaPipeFaceDetectorMediaPipeModelConfig } from "https://cdn.jsdelivr.net/npm/@tensorflow-models/face-detection";
+<div id="ui">ACTIVATE — STYLE: 1 / 4</div>
 
-const video = document.getElementById('video');
-const canvas = document.getElementById('ascii');
-const ctx = canvas.getContext('2d');
-const startBtn = document.getElementById('start');
-const switchEl = document.getElementById('switch');
+<div id="log"><div id="logtext">
+> edTV CHANNEL 10 BOOT SEQUENCE<br>
+> LOADING BLAZEFACE MODEL...<br>
+> WAITING FOR CAMERA ACCESS...
+</div></div>
 
+<script>
 const MASKS = [
-`   ▄▄▄▄▄▄▄▄▄▄▄
- ▄█████████████▄
- ███▓▓▓▓▓▓▓▓▓▓▓███
- ███▓▓▓▓▓▓▓▓▓▓▓███
- ███▓▓▓▓▓▓▓▓▓▓▓███
-  ▀███▓▓▓▓▓▓▓███▀
-    ▀████████▀`,
+`       ⣴⣦⠄⠄⠄⠄
+    ⣴⣿⣿⣿⣷⡀⠄⠄
+   ⣿⣿⣿⣿⣿⣿⣄⠄⠄
+  ⣴⣿⣿⣿⣿⣿⣿⣷⠄⠄
+  ⣿⣿⣿⣿⣿⣿⣿⣿⠄⠄
+  ⢻⣿⣿⣿⣿⣿⣿⡿⠄⠄
+   ⠙⢿⣿⣿⣿⡿⠛⠄⠄
+      ⠈⠉⠉⠁`,
 
-`   ▓▓▓▓▓▓▓▓▓▓▓
- ▓▓███████████▓▓
- ▓██▓▓▓▓▓▓▓▓▓▓██▓
- ██▓▓▓▓▓▓▓▓▓▓▓▓██
-  ██▓▓▓▓▓▓▓▓▓▓██
-   ▀▀████████▀▀`,
+`    ⢀⣴⣶⣦⡀
+   ⣴⣿⣿⣿⣿⣧
+  ⣴⣿⣿⣿⣿⣿⣿⡄
+  ⣿⣿⣿⣿⣿⣿⣿⣿
+  ⢿⣿⣿⣿⣿⣿⣿⡿
+   ⠻⣿⣿⣿⣿⣿⠟
+     ⠙⠛⠛⠛⠋`,
 
-`   ╔═╗╔═╗╔═╗
-   ║█║║█║║█║
-   ╚═╝╚═╝╚═╝`,
+`   ╭━━━━━━━╮
+   ┃ ▄▄▄▄▄ ┃
+   ┃ █████ ┃
+   ┃ ██ ██ ┃
+   ┃  ▀ ▀  ┃
+   ╰━▃▃▃▃▃━╯`,
 
-`   ▄▄▀▀▀▀▀▄▄
- ▄▀  ▄▄▄▄  ▀▄
- █  █▄█ █▄█ █
- █   ▀▀▀ ▀▀▀ █
-  █   ▄▄▄   █
-   ▀▄     ▄▀
-     ▀▄▄▄▄▀`
+`   ▄▄▄▄▄▄▄▄▄
+  ▐█████████▌
+  ███████████
+  ██  ▄▄ ▄▄  ██
+  ██ ██████ ██
+  ▀██████████▀
+   ▀▀▀▀▀▀▀▀▀` 
 ];
 
-let detector, currentMask = 0;
+let model, video, canvas, ctx, currentMask = 0;
+const log = document.getElementById('logtext');
 
-async function start() {
-  startBtn.remove();
-  document.body.classList.add('active');
-
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }});
-  video.srcObject = stream;
-  await video.play();
-
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  detector = await faceDetection.createDetector(
-    faceDetection.SupportedModels.MediaPipeFaceDetector,
-    { runtime: 'mediapipe', solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_detection' }
-  );
-
-  async function draw() {
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    const faces = await detector.estimateFaces(video);
-    if (faces.length > 0) {
-      const f = faces[0].box;
-      const x = f.xMin;
-      const y = f.yMin;
-      const size = f.width * 1.5;
-
-      const lines = MASKS[currentMask].split('\n');
-      const fontSize = size / lines.length;
-      ctx.font = `bold ${fontSize}px 'Courier New'`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#0f0';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = fontSize * 0.15;
-
-      lines.forEach((line,i) => {
-        const py = y + i * fontSize;
-        ctx.strokeText(line, x + size/2, py);
-        ctx.fillText(line, x + size/2, py);
-      });
-    }
-    requestAnimationFrame(draw);
-  }
-  draw();
+function addLog(msg, color='#0f0') {
+  const line = document.createElement('div');
+  line.textContent = '> ' + msg;
+  line.style.color = color;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
 }
 
-switchEl.onclick = () => {
-  currentMask = (currentMask + 1) % MASKS.length;
-  switchEl.textContent = `STYLE: ${currentMask + 1} (click to cycle)`;
+async function start() {
+  addLog('CAMERA REQUESTED...');
+  try {
+    video = document.getElementById('webcam');
+    canvas = document.getElementById('overlay');
+    ctx = canvas.getContext('2d');
+    canvas.width = innerWidth - 48;
+    canvas.height = innerHeight - 188;
+
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+    video.srcObject = stream;
+    addLog('CAMERA ACTIVE', '#0f0');
+
+    addLog('LOADING FACE MODEL...');
+    model = await blazeface.load();
+    addLog('MODEL READY - FACE LOCK ENGAGED', '#0f0');
+
+    document.getElementById('ui').textContent = 'ACTIVE — STYLE: '+(currentMask+1)+' / 4 — CLICK TO CYCLE';
+    loop();
+  } catch(e) {
+    addLog('ERROR: CAMERA DENIED OR UNAVAILABLE', '#f00');
+  }
+}
+
+function drawMask(face) {
+  const [x1,y1] = face.topLeft;
+  const [x2,y2] = face.bottomRight;
+  const w = x2-x1, h=y2-y1;
+  const size = Math.max(w,h) * 1.6;
+  const cx = x1 + w/2;
+  const cy = y1 + h/2 - size*0.05;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.font = `${size/9}px 'Courier New', monospace`;
+  ctx.fillStyle = '#0f0';
+  ctx.strokeStyle = '#0f0';
+  ctx.lineWidth = 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#0f0';
+  ctx.shadowBlur = 20;
+
+  const lines = MASKS[currentMask].split('\n');
+  lines.forEach((line,i) => {
+    const y = cy + (i - lines.length/2) * size/10;
+    ctx.fillText(line.trim(), cx, y);
+    ctx.strokeText(line.trim(), cx, y);
+  });
+}
+
+async function loop() {
+  if (video.readyState === 4) {
+    const faces = await model.estimateFaces(video, false);
+    if (faces.length > 0) drawMask(faces[0]);
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('ui').onclick = () => {
+  if (!model) start();
+  else {
+    currentMask = (currentMask+1) % MASKS.length;
+    document.getElementById('ui').textContent = 'ACTIVE — STYLE: '+(currentMask+1)+' / 4 — CLICK TO CYCLE';
+    addLog(`MASK STYLE ${currentMask+1} LOADED`);
+  }
 };
 
-startBtn.onclick = start;
+onresize = () => {
+  if (canvas) { canvas.width = innerWidth-48; canvas.height = innerHeight-188; }
+};
 </script>
 </body>
 </html>
