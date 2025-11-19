@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>webXOS ANYTHING – DA3 Live 3D</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #0d0d1f; color: #fff; font-family: Arial, sans-serif; }
+    body { overflow: auto; }
+    .app {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+      background: #111;
+    }
+    @media (min-width: 900px) {
+      .app { grid-template-columns: 360px 1fr; grid-template-rows: 1fr; }
+    }
+    .panel {
+      background: #1a1a2e;
+      padding: 20px;
+      color: #0f0;
+      position: relative;
+    }
+    .header {
+      font-size: 1.6rem;
+      font-weight: bold;
+      margin-bottom: 20px;
+    }
+    .title-accent { color: #8e2de2; }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: #8e2de2;
+      border: none;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      border-radius: 8px;
+    }
+    .btn:hover { background: #9d4edd; }
+    .status {
+      margin-top: 15px;
+      padding: 12px;
+      background: #16213e;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #8e2de2;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+    .spinner.active { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .control-row { margin-top: 20px; }
+    .control-row label { display: flex; align-items: center; gap: 10px; color: #a8ffbf; }
+    .slider { width: 220px; }
+    .scene-wrap {
+      position: relative;
+      min-height: 60vh;
+    }
+    #threeCanvas { width: 100%; height: 100%; display: block; }
+    .controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.6);
+      padding: 12px;
+      border-radius: 8px;
+      z-index: 10;
+    }
+    .sr-only {
+      position: absolute !important;
+      height: 1px; width: 1px;
+      overflow: hidden;
+      clip: rect(1px, 1px, 1px, 1px);
+      white-space: nowrap;
+      border: 0; padding: 0; margin: -1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="panel" role="region" aria-label="Controls panel">
+      <div class="header">webXOS <span class="title-accent">ANYTHING</span></div>
+
+      <input type="file" id="file" accept="image/*" aria-label="Select image file" class="sr-only">
+      <button class="btn" id="pick" aria-controls="file" aria-label="Open file picker">SELECT IMAGE</button>
+
+      <div class="status" id="log" aria-live="polite">
+        <span class="spinner" id="spin" aria-hidden="true"></span>
+        <span id="logText">Ready – click to load image</span>
+      </div>
+
+      <div class="control-row">
+        <label for="size">
+          <span>Point Size:</span>
+          <input type="range" class="slider" id="size" min="0.01" max="0.2" step="0.01" value="0.04" aria-valuemin="0.01" aria-valuemax="0.2" aria-valuenow="0.04" aria-label="Point size">
+        </label>
+      </div>
+    </div>
+
+    <div class="scene-wrap" role="region" aria-label="3D scene">
+      <canvas id="threeCanvas"></canvas>
+      <div class="controls" aria-hidden="false" aria-label="Mouse controls instructions">
+        <small>Drag to rotate • Scroll to zoom</small>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/three@0.169.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.169.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.0/dist/ort.min.js"></script>
+  <script>
+    // Configure ONNX Runtime WASM paths
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.0/dist/';
+
+    // Globals
+    let session = null, scene, camera, renderer, controls, points;
+    const canvas = document.getElementById('threeCanvas');
+    const pickBtn = document.getElementById('pick');
+    const fileInput = document.getElementById('file');
+    const sizeInput = document.getElementById('size');
+    const logEl = document.getElementById('logText');
+    const spinEl = document.getElementById('spin');
+
+    const MODEL_URL = 'https://huggingface.co/LiheYoung/Depth-Anything-V3/resolve/main/depth_anything_v3_vits.onnx';
+    const MODEL_SIZE = 518; // Expected model input edge size
+
+    function setLog(msg, spinning = false) {
+      if (logEl) logEl.textContent = msg;
+      if (spinEl) spinEl.classList.toggle('active', !!spinning);
+    }
+
+    function guardEl(el, name) {
+      if (!el) {
+        console.warn(`Missing element: ${name}`);
+        setLog(`Error: missing ${name} element`);
+        return false;
+      }
+      return true;
+    }
+
+    // Abortable fetch with timeout
+    async function fetchWithTimeout(url, timeoutMs = 30000) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.arrayBuffer();
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    async function loadModel() {
+      setLog('Loading Depth Anything V3 Small... (first time may take ~20s)', true);
+      try {
+        const arrayBuffer = await fetchWithTimeout(MODEL_URL, 45000);
+        session = await ort.InferenceSession.create(arrayBuffer, {
+          executionProviders: ['webgpu', 'webgl', 'wasm']
+        });
+        setLog('Model loaded – select an image');
+      } catch (err) {
+        console.error(err);
+        setLog('Model load failed. Check network and try again.');
+      } finally {
+        spinEl.classList.remove('active');
+      }
+    }
+
+    // Maintain aspect ratio: letterbox into square MODEL_SIZE x MODEL_SIZE
+    function preprocess(img) {
+      if (!img) return null;
+      const square = document.createElement('canvas');
+      square.width = MODEL_SIZE;
+      square.height = MODEL_SIZE;
+      const ctx = square.getContext('2d');
+      if (!ctx) return null;
+
+      // Fill background to avoid uninitialized pixels
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, MODEL_SIZE, MODEL_SIZE);
+
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      const scale = Math.min(MODEL_SIZE / iw, MODEL_SIZE / ih);
+      const w = Math.round(iw * scale);
+      const h = Math.round(ih * scale);
+      const x = Math.floor((MODEL_SIZE - w) / 2);
+      const y = Math.floor((MODEL_SIZE - h) / 2);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, iw, ih, x, y, w, h);
+
+      const { data } = ctx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE);
+      // NCHW Float32 1x3xH xW normalized to [0,1]
+      const H = MODEL_SIZE, W = MODEL_SIZE;
+      const tensorData = new Float32Array(3 * H * W);
+      for (let i = 0, p = 0; i < H * W; i++, p += 4) {
+        const r = data[p] / 255;
+        const g = data[p + 1] / 255;
+        const b = data[p + 2] / 255;
+        tensorData[i] = r;
+        tensorData[i + H * W] = g;
+        tensorData[i + 2 * H * W] = b;
+      }
+      const input = new ort.Tensor('float32', tensorData, [1, 3, H, W]);
+      return { input, letterbox: { x, y, w, h } };
+    }
+
+    // Postprocess depth: assume model outputs 1x1xH xW or 1xHxW
+    function toDepthArray(output) {
+      const data = output.data || output;
+      const arr = Array.from(data);
+      // Normalize to [0,1]
+      let min = Infinity, max = -Infinity;
+      for (let v of arr) { if (v < min) min = v; if (v > max) max = v; }
+      const range = (max - min) || 1;
+      for (let i = 0; i < arr.length; i++) arr[i] = (arr[i] - min) / range;
+      return arr;
+    }
+
+    // Build point cloud from depth and source color
+    function buildPointCloud(depth, colorCanvas, pointSize) {
+      const H = MODEL_SIZE, W = MODEL_SIZE;
+      const geom = new THREE.BufferGeometry();
+      const positions = new Float32Array(H * W * 3);
+      const colors = new Float32Array(H * W * 3);
+
+      const ctx = colorCanvas.getContext('2d');
+      const imgData = ctx.getImageData(0, 0, W, H).data;
+
+      const fovScale = 1.0; // simple scale factor
+      let idx = 0, cidx = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+          const z = (1.0 - depth[i]) * 2.0; // closer = larger z
+          positions[idx++] = (x - W / 2) / (W / 2) * fovScale;
+          positions[idx++] = (H / 2 - y) / (H / 2) * fovScale;
+          positions[idx++] = z;
+
+          const p = i * 4;
+          colors[cidx++] = imgData[p] / 255;
+          colors[cidx++] = imgData[p + 1] / 255;
+          colors[cidx++] = imgData[p + 2] / 255;
+        }
+      }
+
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const material = new THREE.PointsMaterial({
+        size: pointSize,
+        vertexColors: true,
+        sizeAttenuation: true
+      });
+      return new THREE.Points(geom, material);
+    }
+
+    function initThree() {
+      if (!guardEl(canvas, 'threeCanvas')) return;
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color('#0d0d1f');
+
+      camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.01, 100);
+      camera.position.set(0, 0, 3);
+      scene.add(camera);
+
+      controls = new THREE.OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+
+      const grid = new THREE.GridHelper(4, 8, 0x333333, 0x222222);
+      grid.position.y = -1.5;
+      scene.add(grid);
+
+      function onResize() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      window.addEventListener('resize', onResize);
+      onResize();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    async function runDepth(img) {
+      if (!session) {
+        setLog('Model not ready yet. Please wait...');
+        return;
+      }
+      setLog('Processing image…', true);
+      try {
+        const prep = preprocess(img);
+        if (!prep) throw new Error('Preprocess failed');
+        const feeds = { input: prep.input }; // model may expect 'input' or specific name
+        const results = await session.run(feeds);
+        // Use first output tensor
+        const firstKey = Object.keys(results)[0];
+        const output = results[firstKey];
+        const depth = toDepthArray(output);
+
+        // Create a color-matched canvas for point colors
+        const colorCanvas = document.createElement('canvas');
+        colorCanvas.width = MODEL_SIZE;
+        colorCanvas.height = MODEL_SIZE;
+        const cctx = colorCanvas.getContext('2d');
+        cctx.fillStyle = '#000';
+        cctx.fillRect(0, 0, MODEL_SIZE, MODEL_SIZE);
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        const scale = Math.min(MODEL_SIZE / iw, MODEL_SIZE / ih);
+        const w = Math.round(iw * scale);
+        const h = Math.round(ih * scale);
+        const x = Math.floor((MODEL_SIZE - w) / 2);
+        const y = Math.floor((MODEL_SIZE - h) / 2);
+        cctx.drawImage(img, 0, 0, iw, ih, x, y, w, h);
+
+        // Add/replace point cloud
+        if (points) {
+          scene.remove(points);
+          points.geometry.dispose();
+          points.material.dispose();
+        }
+        points = buildPointCloud(depth, colorCanvas, parseFloat(sizeInput.value));
+        scene.add(points);
+        setLog('Done');
+      } catch (err) {
+        console.error(err);
+        setLog('Processing failed. Try another image.');
+      } finally {
+        spinEl.classList.remove('active');
+      }
+    }
+
+    function hookUI() {
+      if (!guardEl(pickBtn, 'pick') || !guardEl(fileInput, 'file')) return;
+
+      pickBtn.addEventListener('click', () => fileInput.click());
+      pickBtn.setAttribute('aria-describedby', 'log');
+
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const img = new Image();
+        img.alt = 'Selected image';
+        img.onload = () => runDepth(img);
+        img.onerror = () => setLog('Image load error. Please choose a valid file.');
+        const url = URL.createObjectURL(file);
+        img.src = url;
+      });
+
+      sizeInput.addEventListener('input', () => {
+        sizeInput.setAttribute('aria-valuenow', sizeInput.value);
+        if (points && points.material) {
+          points.material.size = parseFloat(sizeInput.value);
+        }
+      });
+    }
+
+    // Bootstrap
+    (function main() {
+      initThree();
+      hookUI();
+      loadModel();
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>webXOS ANYTHING • DA3 lightweight blender (fixed)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--bg:#0b0f1a;--panel:#111827;--text:#e5e7eb;--muted:#94a3b8;--accent:#22d3ee;--border:rgba(148,163,184,0.2)}
+  *{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}
+  .app{display:grid;grid-template-columns:300px 1fr 320px;grid-template-rows:auto 1fr auto;gap:8px;height:100vh}
+  header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--panel),transparent 15%);backdrop-filter:blur(6px)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:linear-gradient(90deg,var(--accent),#06b6d4);color:#061924;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer}
+  .btn.secondary{background:transparent;color:var(--accent);border:1px solid var(--border)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto}
+  #threeCanvas{width:100%;height:100%;display:block}
+  .group{margin-bottom:16px}
+  .group h3{margin:0 0 10px;font-size:13px;color:var(--accent)}
+  .field{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}
+  .field label{color:var(--muted)}
+  .list{display:flex;flex-direction:column;gap:6px}
+  .list-item{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:8px}
+  .list-item.active{border-color:var(--accent);box-shadow:0 0 12px rgba(34,211,238,0.15)}
+  .thumb{width:100%;height:120px;border-radius:8px;border:1px solid var(--border);background:#0d1324 center/cover no-repeat}
+  .overlay-hint{position:absolute;top:8px;left:8px;display:flex;gap:8px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;color:var(--muted)}
+  footer{grid-column:1/-1;padding:10px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#22d3ee" stroke-width="2"/><path d="M12 6v6l4 4" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>webXOS ANYTHING • DA3 sandbox</span>
+    </div>
+    <div class="toolbar">
+      <label class="btn secondary" for="imageInput">Import image</label>
+      <input id="imageInput" type="file" accept="image/*" style="display:none">
+      <button id="addPC" class="btn secondary">Add point cloud</button>
+      <button id="addMesh" class="btn secondary">Add displaced mesh</button>
+      <button id="duplicate" class="btn secondary">Duplicate</button>
+      <button id="delete" class="btn secondary" style="color:#ff6666">Delete</button>
+      <button id="exportGLTF" class="btn">Export glTF</button>
+    </div>
+  </header>
+
+  <section class="panel" style="grid-row:2"><div class="group"><h3>Outliner</h3><div id="outliner" class="list"></div></div>
+    <div class="group"><h3>Transform</h3>
+      <div style="display:flex;gap:6px"><button class="btn secondary" id="modeT">Move (G)</button><button class="btn secondary" id="modeR">Rotate (R)</button><button class="btn secondary" id="modeS">Scale (S)</button></div>
+      <div class="field"><label>X</label><input id="posX" type="number" step="0.01" value="0"></div>
+      <div class="field"><label>Y</label><input id="posY" type="number" step="0.01" value="0"></div>
+      <div class="field"><label>Z</label><input id="posZ" type="number" step="0.01" value="0"></div>
+    </div>
+    <div class="group"><h3>Material</h3>
+      <div class="field"><label>Metal</label><input id="metal" type="range" min="0" max="1" step="0.01" value="0"></div>
+      <div class="field"><label>Rough</label><input id="rough" type="range" min="0" max="1" step="0.01" value="1"></div>
+      <div class="field"><label>Opacity</label><input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></div>
+      <div class="field"><label>Point size</label><input id="pointSize" type="range" min="0.005" max="0.05" step="0.001" value="0.012"></div>
+    </div>
+  </section>
+
+  <section class="panel" style="grid-row:2;position:relative">
+    <div class="overlay-hint">
+      <span class="kbd">LMB</span> Orbit <span class="kbd">Shift+LMB</span> Pan <span class="kbd">Wheel</span> Zoom
+    </div>
+    <canvas id="canvas"></canvas>
+  </section>
+
+  <section class="panel" style="grid-row:2">
+    <div class="group"><h3>Preview</h3><div id="thumb" class="thumb"></div></div>
+    <div class="group"><h3>Import</h3>
+      <div class="field"><label>Crop square</label><input id="crop" type="checkbox" checked></div>
+      <div class="field"><label>Side</label><input id="side" type="range" min="256" max="1024" step="64" value="512"></div>
+      <div id="res" style="color:var(--muted)">512×512</div>
+    </div>
+    <div class="group"><h3>Scene</h3>
+      <button id="recenter" class="btn secondary">Recenter</button>
+      <button id="clear" class="btn secondary">Clear</button>
+    </div>
+  </section>
+
+  <footer>Depth Anything 3 sandbox • Import image → generate point cloud or mesh → edit → export</footer>
+</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/controls/OrbitControls.js';
+import {TransformControls} from 'https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/controls/TransformControls.js';
+import {GLTFExporter} from 'https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/exporters/GLTFExporter.js';
+
+const canvas = document.getElementById('canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111827);
+
+const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth/canvas.clientHeight, 0.01, 1000);
+camera.position.set(1,1,3);
+
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+
+const orbit = new OrbitControls(camera, canvas);
+orbit.enableDamping = true;
+
+const transform = new TransformControls(camera, canvas);
+transform.addEventListener('dragging-changed', e=>orbit.enabled=!e.value);
+scene.add(transform);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambient);
+const dir = new THREE.DirectionalLight(0xffffff, 1); dir.position.set(5,10,7); scene.add(dir);
+const rim = new THREE.DirectionalLight(0x22d3ee, 0.5); rim.position.set(-5,5,-5); scene.add(rim);
+
+const grid = new THREE.GridHelper(10,20,0x00ff88,0x004422);
+scene.add(grid);
+const axes = new THREE.AxesHelper(2); scene.add(axes);
+
+window.addEventListener('resize',()=>{camera.aspect=canvas.clientWidth/canvas.clientHeight;camera.updateProjectionMatrix();renderer.setSize(canvas.clientWidth,canvas.clientHeight);});
+function animate(){requestAnimationFrame(animate);orbit.update();renderer.render(scene,camera);}animate();
+
+let selected=null, objects=[], bitmap=null;
+
+document.getElementById('imageInput').onchange = async e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  bitmap = await createImageBitmap(file);
+  document.getElementById('thumb').style.backgroundImage = `url(${URL.createObjectURL(file)})`;
+};
+
+document.getElementById('side').oninput = e=>document.getElementById('res').textContent = `${e.target.value}×${e.target.value}`;
+
+function processImage(asMesh){
+  if(!bitmap) return;
+  const side = Number(document.getElementById('side').value);
+  const crop = document.getElementById('crop').checked;
+
+  const off = document.createElement('canvas'); off.width=off.height=side;
+  const ctx = off.getContext('2d');
+  if(crop){
+    const s=Math.min(bitmap.width,bitmap.height);
+    const sx=(bitmap.width-s)/2, sy=(bitmap.height-s)/2;
+    ctx.drawImage(bitmap,sx,sy,s,s,0,0,side,side);
+  }else ctx.drawImage(bitmap,0,0,side,side);
+  const imgData = ctx.getImageData(0,0,side,side);
+
+  const depth = new Float32Array(side*side);
+  for(let i=0;i<depth.length;i++) depth[i] = 0.7 + 0.3*Math.random(); // simple fake depth
+
+  const obj = asMesh ? makeMesh(depth,side,imgData) : makePoints(depth,side,imgData);
+  obj.name = (asMesh?'Mesh':'PointCloud') + ' ' + (objects.length+1);
+  scene.add(obj); objects.push(obj); select(obj);
+}
+
+function makePoints(depth,side,img){
+  const geo = new THREE.BufferGeometry();
+  const pos=[], col=[];
+  const fx=fy=side, cx=cy=side/2;
+  for(let y=0;y<side;y+=3)for(let x=0;x<side;x+=3){
+    const i=y*side+x;
+    const z=depth[i];
+    pos.push((x-cx)*z/fx*z, -(y-cy)*z/fy*z, -z);
+    const o=i*4;
+    col.push(img.data[o]/255, img.data[o+1]/255, img.data[o+2]/255);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+  const mat = new THREE.PointsMaterial({size:0.015, vertexColors:true});
+  const pts = new THREE.Points(geo,mat);
+  pts.position.y -= 0.5;
+  return pts;
+}
+
+function makeMesh(depth,side,img){
+  const geo = new THREE.PlaneGeometry(2,2,side-1,side-1);
+  const pos = geo.attributes.position.array;
+  for(let i=0;i<depth.length;i++) pos[i*3+2] = -depth[i]*1.5;
+  geo.computeVertexNormals();
+  const tex = new THREE.CanvasTexture(off);
+  tex.flipY = false;
+  const mat = new THREE.MeshStandardMaterial({map:tex});
+  const mesh = new THREE.Mesh(geo,mat);
+  mesh.position.set(0,0,-0.7);
+  return mesh;
+}
+
+function select(obj){
+  selected=obj;
+  transform.attach(obj);
+  document.getElementById('posX').value = obj.position.x.toFixed(3);
+  document.getElementById('posY').value = obj.position.y.toFixed(3);
+  document.getElementById('posZ').value = obj.position.z.toFixed(3);
+}
+
+canvas.addEventListener('pointerdown', e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=(e.clientX-rect.left)/rect.width*2-1;
+  const y=-(e.clientY-rect.top)/rect.height*2+1;
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(x,y),camera);
+  const hit = ray.intersectObjects(objects);
+  if(hit.length) select(hit[0].object);
+});
+
+document.getElementById('addPC').onclick = ()=>processImage(false);
+document.getElementById('addMesh').onclick = ()=>processImage(true);
+document.getElementById('duplicate').onclick = ()=>{if(selected){const c=selected.clone();c.position.x+=0.3;scene.add(c);objects.push(c);select(c);}};
+document.getElementById('delete').onclick = ()=>{if(selected){scene.remove(selected);objects=objects.filter(o=>o!==selected);transform.detach();}};
+document.getElementById('recenter').onclick = ()=>{orbit.reset();camera.position.set(1,1,3);};
+document.getElementById('clear').onclick = ()=>{objects.forEach(o=>scene.remove(o));objects=[];transform.detach();};
+document.getElementById('exportGLTF').onclick = ()=>{
+  const exp = new GLTFExporter();
+  exp.parse(scene, gltf=>{const blob=new Blob([JSON.stringify(gltf)],{type:'application/octet-stream'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='scene.gltf';a.click();},{binary:false});
+};
+
+document.getElementById('modeT').onclick = ()=>transform.setMode('translate');
+document.getElementById('modeR').onclick = ()=>transform.setMode('rotate');
+document.getElementById('modeS').onclick = ()=>transform.setMode('scale');
+
+['posX','posY','posZ'].forEach(id=>document.getElementById(id).oninput=e=>{
+  if(selected) selected.position[id[3].toLowerCase()] = Number(e.target.value);
+});
+</script>
+</body>
+</html>
