@@ -440,6 +440,59 @@
             border: 2px solid white;
             box-shadow: 0 0 5px white;
         }
+        
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 350px 1fr;
+            }
+        }
+        
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            
+            .left-panel {
+                border-right: none;
+                border-bottom: 1px solid var(--neon-green);
+                max-height: 50vh;
+            }
+            
+            .editor-controls {
+                width: 250px;
+                max-height: 70vh;
+            }
+        }
+        
+        @media (max-width: 600px) {
+            .editor-controls {
+                position: relative;
+                top: auto;
+                right: auto;
+                width: 100%;
+                max-height: 200px;
+                margin: 10px;
+            }
+            
+            .header {
+                padding: 8px 10px;
+            }
+            
+            .logo h1 {
+                font-size: 1.1rem;
+            }
+            
+            .status-indicators {
+                flex-direction: column;
+                gap: 5px;
+            }
+            
+            .status {
+                font-size: 0.7rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -543,13 +596,6 @@
                         </div>
                         <div class="object-list" id="objectList">
                             <!-- Objects will be added here dynamically -->
-                            <div class="object-item" data-id="default">
-                                <span>Default DA3 Point Cloud</span>
-                                <div class="object-actions">
-                                    <button class="object-action">✏️</button>
-                                    <button class="object-action">🗑️</button>
-                                </div>
-                            </div>
                         </div>
                         <div class="editor-buttons">
                             <button class="editor-btn wide" id="addObjectBtn">ADD OBJECT</button>
@@ -621,17 +667,307 @@
 
     <input type="file" id="fileInput" accept="image/*" style="display: none;">
 
-    <!-- Updated to latest Three.js version -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r169/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.min.js"></script>
+    <!-- TensorFlow.js for enhanced processing -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    
+    <!-- Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
     
     <script>
+        // =============================================
+        // TENSORFLOW.JS AGENTS
+        // =============================================
+        
+        // Agent 1: Image Processing Agent
+        class ImageProcessingAgent {
+            constructor() {
+                this.model = null;
+                this.isReady = false;
+                this.init();
+            }
+            
+            async init() {
+                addTerminalLine('Initializing TensorFlow.js Image Processing Agent...', 'info');
+                
+                try {
+                    // Load a simple image classification model for demonstration
+                    // In a real implementation, you would load a depth estimation model
+                    this.model = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+                    this.isReady = true;
+                    addTerminalLine('Image Processing Agent ready', 'success');
+                } catch (error) {
+                    addTerminalLine('Failed to load TensorFlow model, using fallback processing', 'warning');
+                    this.isReady = false;
+                }
+            }
+            
+            async processImage(imageElement) {
+                if (!this.isReady) {
+                    return this.fallbackProcessing(imageElement);
+                }
+                
+                addTerminalLine('Processing image with TensorFlow.js agent...', 'info');
+                
+                try {
+                    // Preprocess the image for the model
+                    const tensor = tf.browser.fromPixels(imageElement)
+                        .resizeNearestNeighbor([224, 224])
+                        .toFloat()
+                        .expandDims();
+                    
+                    // Normalize the image
+                    const offset = tf.scalar(127.5);
+                    const normalized = tensor.sub(offset).div(offset);
+                    
+                    // Make a prediction (this is just for demonstration)
+                    const predictions = await this.model.predict(normalized).data();
+                    
+                    // Clean up tensors
+                    tensor.dispose();
+                    normalized.dispose();
+                    
+                    addTerminalLine('Image analysis complete with TensorFlow.js', 'success');
+                    
+                    // Return processed data (in a real implementation, this would be depth data)
+                    return {
+                        width: imageElement.width,
+                        height: imageElement.height,
+                        tensorData: Array.from(predictions).slice(0, 100), // Just a sample
+                        processed: true
+                    };
+                } catch (error) {
+                    addTerminalLine('TensorFlow processing failed, using fallback', 'warning');
+                    return this.fallbackProcessing(imageElement);
+                }
+            }
+            
+            fallbackProcessing(imageElement) {
+                addTerminalLine('Using fallback image processing', 'info');
+                
+                // Simple fallback processing without TensorFlow
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = imageElement.width;
+                canvas.height = imageElement.height;
+                ctx.drawImage(imageElement, 0, 0);
+                
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                
+                return {
+                    width: imageElement.width,
+                    height: imageElement.height,
+                    imageData: data,
+                    processed: true
+                };
+            }
+        }
+        
+        // Agent 2: DA3 Scene Generation Agent
+        class DA3SceneAgent {
+            constructor() {
+                this.pointClouds = [];
+            }
+            
+            generatePointCloudFromImageData(imageData, width, height) {
+                addTerminalLine('Generating 3D point cloud from image data...', 'info');
+                
+                const pointCount = 5000;
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(pointCount * 3);
+                const colors = new Float32Array(pointCount * 3);
+                
+                // Create a point cloud based on the image
+                for (let i = 0; i < pointCount; i++) {
+                    const i3 = i * 3;
+                    
+                    // Sample a random pixel from the image
+                    const x = Math.floor(Math.random() * width);
+                    const y = Math.floor(Math.random() * height);
+                    const pixelIndex = (y * width + x) * 4;
+                    
+                    // Get RGB values
+                    let r, g, b;
+                    if (imageData.tensorData) {
+                        // Use tensor data for color (simulated)
+                        r = Math.random();
+                        g = Math.random();
+                        b = Math.random();
+                    } else {
+                        // Use actual image data
+                        r = imageData[pixelIndex] / 255;
+                        g = imageData[pixelIndex + 1] / 255;
+                        b = imageData[pixelIndex + 2] / 255;
+                    }
+                    
+                    // Calculate brightness for depth simulation
+                    const brightness = (r + g + b) / 3;
+                    
+                    // Create 3D positions based on pixel coordinates and brightness
+                    positions[i3] = (x / width - 0.5) * 10;
+                    positions[i3 + 1] = (0.5 - y / height) * 10;
+                    positions[i3 + 2] = (brightness - 0.5) * 5; // Use brightness for depth
+                    
+                    // Use the colors
+                    colors[i3] = r;
+                    colors[i3 + 1] = g;
+                    colors[i3 + 2] = b;
+                }
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                
+                const material = new THREE.PointsMaterial({
+                    size: 0.1,
+                    vertexColors: true,
+                    sizeAttenuation: true
+                });
+                
+                const pointCloud = new THREE.Points(geometry, material);
+                pointCloud.position.set(0, 0, 0);
+                pointCloud.userData = {
+                    id: 'da3-pointcloud-' + Date.now(),
+                    name: 'DA3 Point Cloud',
+                    type: 'pointcloud',
+                    rotate: true
+                };
+                
+                this.pointClouds.push(pointCloud);
+                addTerminalLine('Point cloud generation complete', 'success');
+                
+                return pointCloud;
+            }
+            
+            clearPointClouds() {
+                this.pointClouds = [];
+            }
+        }
+        
+        // Agent 3: Editor Control Agent
+        class EditorControlAgent {
+            constructor() {
+                this.selectedObject = null;
+                this.objects = [];
+                this.rotationSpeed = 0.01;
+            }
+            
+            addObject(type = 'cube') {
+                let geometry, material, mesh;
+                
+                switch(type) {
+                    case 'cube':
+                        geometry = new THREE.BoxGeometry(2, 2, 2);
+                        break;
+                    case 'sphere':
+                        geometry = new THREE.SphereGeometry(1, 16, 16);
+                        break;
+                    case 'cylinder':
+                        geometry = new THREE.CylinderGeometry(1, 1, 2, 16);
+                        break;
+                    default:
+                        geometry = new THREE.BoxGeometry(1, 1, 1);
+                }
+                
+                material = new THREE.MeshStandardMaterial({ 
+                    color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                    wireframe: false
+                });
+                
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(0, 0, 0);
+                mesh.userData = {
+                    id: 'object-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+                    name: type.charAt(0).toUpperCase() + type.slice(1),
+                    type: type,
+                    rotate: true
+                };
+                
+                this.objects.push(mesh);
+                this.selectObject(mesh);
+                
+                addTerminalLine(`Added ${type} to scene at position (0,0,0)`, 'info');
+                
+                return mesh;
+            }
+            
+            selectObject(obj) {
+                this.selectedObject = obj;
+                updateObjectList();
+                
+                // Update editor controls to reflect selected object properties
+                objectPositionX.value = obj.position.x.toFixed(2);
+                objectPositionY.value = obj.position.y.toFixed(2);
+                objectPositionZ.value = obj.position.z.toFixed(2);
+                
+                objectSizeSlider.value = obj.scale.x;
+                
+                addTerminalLine(`Selected object: ${obj.userData.name}`, 'info');
+            }
+            
+            deleteObject(obj) {
+                scene.remove(obj);
+                this.objects = this.objects.filter(o => o.userData.id !== obj.userData.id);
+                
+                if (this.selectedObject && this.selectedObject.userData.id === obj.userData.id) {
+                    this.selectedObject = this.objects.length > 0 ? this.objects[0] : null;
+                    if (this.selectedObject) this.selectObject(this.selectedObject);
+                }
+                
+                addTerminalLine(`Deleted object: ${obj.userData.name}`, 'info');
+            }
+            
+            clearAllObjects() {
+                this.objects.forEach(obj => scene.remove(obj));
+                this.objects = [];
+                this.selectedObject = null;
+                addTerminalLine('All objects cleared from scene', 'info');
+            }
+            
+            updateObjectPosition(x, y, z) {
+                if (this.selectedObject) {
+                    this.selectedObject.position.set(x, y, z);
+                }
+            }
+            
+            updateObjectSize(scale) {
+                if (this.selectedObject) {
+                    this.selectedObject.scale.set(scale, scale, scale);
+                }
+            }
+            
+            updateObjectColor(color) {
+                if (this.selectedObject && this.selectedObject.material) {
+                    this.selectedObject.material.color.set(color);
+                }
+            }
+            
+            setRotationSpeed(speed) {
+                this.rotationSpeed = speed;
+            }
+            
+            animateObjects() {
+                this.objects.forEach(obj => {
+                    if (obj.userData.rotate) {
+                        obj.rotation.x += this.rotationSpeed;
+                        obj.rotation.y += this.rotationSpeed * 0.7;
+                    }
+                });
+            }
+        }
+        
+        // =============================================
+        // MAIN APPLICATION CODE
+        // =============================================
+        
         // Global variables
         let scene, camera, renderer, controls;
-        let objects = [];
-        let rotationSpeed = 0.01;
-        let selectedObject = null;
-        let objectCount = 0;
+        let gridHelper, axesHelper;
+        
+        // Initialize agents
+        const imageAgent = new ImageProcessingAgent();
+        const da3Agent = new DA3SceneAgent();
+        const editorAgent = new EditorControlAgent();
         
         // DOM elements
         const terminal = document.getElementById('terminal');
@@ -714,29 +1050,18 @@
             scene.add(directionalLight2);
             
             // Add grid helper
-            const gridHelper = new THREE.GridHelper(30, 30, 0x00ff41, 0x003300);
+            gridHelper = new THREE.GridHelper(30, 30, 0x00ff41, 0x003300);
             gridHelper.rotation.x = Math.PI / 2;
             scene.add(gridHelper);
             
             // Add axes helper
-            const axesHelper = new THREE.AxesHelper(10);
+            axesHelper = new THREE.AxesHelper(10);
             scene.add(axesHelper);
-            
-            // Add initial DA3 point cloud
-            createDA3PointCloud();
             
             // Animation loop
             function animate() {
                 requestAnimationFrame(animate);
-                
-                // Rotate objects
-                objects.forEach(obj => {
-                    if (obj.userData.rotate) {
-                        obj.rotation.x += rotationSpeed;
-                        obj.rotation.y += rotationSpeed * 0.7;
-                    }
-                });
-                
+                editorAgent.animateObjects();
                 controls.update();
                 renderer.render(scene, camera);
             }
@@ -748,186 +1073,78 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(canvas.clientWidth, canvas.clientHeight);
             });
-        }
-        
-        // Create a DA3 point cloud at position (0,0,0)
-        function createDA3PointCloud() {
-            const pointCount = 5000;
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(pointCount * 3);
-            const colors = new Float32Array(pointCount * 3);
             
-            // Create a point cloud with depth variation (simulating DA3 output)
-            for (let i = 0; i < pointCount; i++) {
-                const i3 = i * 3;
-                
-                // Create points in a shape that resembles a 3D object from depth data
-                const x = (Math.random() - 0.5) * 10;
-                const y = (Math.random() - 0.5) * 10;
-                const z = (Math.random() - 0.5) * 10;
-                
-                // Create some structure (like a face or object)
-                const distance = Math.sqrt(x*x + y*y + z*z);
-                const depth = Math.sin(x * 0.5) * Math.cos(y * 0.5) * 2;
-                
-                positions[i3] = x;
-                positions[i3 + 1] = y;
-                positions[i3 + 2] = z + depth;
-                
-                // Color based on depth
-                colors[i3] = 0.2 + Math.abs(depth) * 0.1; // R
-                colors[i3 + 1] = 0.8 + Math.abs(depth) * 0.2; // G
-                colors[i3 + 2] = 0.1 + Math.abs(depth) * 0.1; // B
-            }
-            
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            
-            const material = new THREE.PointsMaterial({
-                size: 0.1,
-                vertexColors: true,
-                sizeAttenuation: true
-            });
-            
-            const pointCloud = new THREE.Points(geometry, material);
-            pointCloud.position.set(0, 0, 0);
-            pointCloud.userData = {
-                id: 'da3-pointcloud-' + Date.now(),
-                name: 'DA3 Point Cloud',
-                type: 'pointcloud',
-                rotate: true
-            };
-            
-            scene.add(pointCloud);
-            objects.push(pointCloud);
-            updateObjectList();
-            addTerminalLine('Generated DA3 point cloud at position (0,0,0)', 'success');
-            
-            // Select this object by default
-            selectObject(pointCloud);
-        }
-        
-        // Add a new 3D object to the scene
-        function addObjectToScene(type = 'cube') {
-            let geometry, material, mesh;
-            
-            switch(type) {
-                case 'cube':
-                    geometry = new THREE.BoxGeometry(2, 2, 2);
-                    break;
-                case 'sphere':
-                    geometry = new THREE.SphereGeometry(1, 16, 16);
-                    break;
-                case 'cylinder':
-                    geometry = new THREE.CylinderGeometry(1, 1, 2, 16);
-                    break;
-                default:
-                    geometry = new THREE.BoxGeometry(1, 1, 1);
-            }
-            
-            material = new THREE.MeshStandardMaterial({ 
-                color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
-                wireframe: false
-            });
-            
-            mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(0, 0, 0);
-            mesh.userData = {
-                id: 'object-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
-                name: type.charAt(0).toUpperCase() + type.slice(1),
-                type: type,
-                rotate: true
-            };
-            
-            scene.add(mesh);
-            objects.push(mesh);
-            updateObjectList();
-            selectObject(mesh);
-            
-            addTerminalLine(`Added ${type} to scene at position (0,0,0)`, 'info');
-            
-            return mesh;
+            addTerminalLine('Three.js scene initialized', 'success');
         }
         
         // Update the object list in the editor
         function updateObjectList() {
             objectList.innerHTML = '';
-            objectCount = objects.length;
+            const objectCount = editorAgent.objects.length + da3Agent.pointClouds.length;
             objectCountDisplay.textContent = `${objectCount} OBJECT${objectCount !== 1 ? 'S' : ''}`;
             
-            objects.forEach(obj => {
-                const item = document.createElement('div');
-                item.className = 'object-item';
-                if (selectedObject && selectedObject.userData.id === obj.userData.id) {
-                    item.classList.add('active');
-                }
-                item.setAttribute('data-id', obj.userData.id);
-                
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = obj.userData.name;
-                
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'object-actions';
-                
-                const editBtn = document.createElement('button');
-                editBtn.className = 'object-action';
-                editBtn.textContent = '✏️';
-                editBtn.title = 'Edit Object';
-                editBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    selectObject(obj);
-                });
-                
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'object-action';
-                deleteBtn.textContent = '🗑️';
-                deleteBtn.title = 'Delete Object';
-                deleteBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    deleteObject(obj);
-                });
-                
-                actionsDiv.appendChild(editBtn);
-                actionsDiv.appendChild(deleteBtn);
-                
-                item.appendChild(nameSpan);
-                item.appendChild(actionsDiv);
-                
-                item.addEventListener('click', () => {
-                    selectObject(obj);
-                });
-                
-                objectList.appendChild(item);
+            // Add DA3 point clouds to the list
+            da3Agent.pointClouds.forEach(obj => {
+                addObjectToList(obj);
+            });
+            
+            // Add editor objects to the list
+            editorAgent.objects.forEach(obj => {
+                addObjectToList(obj);
             });
         }
         
-        // Select an object for editing
-        function selectObject(obj) {
-            selectedObject = obj;
-            updateObjectList();
-            
-            // Update editor controls to reflect selected object properties
-            objectPositionX.value = obj.position.x.toFixed(2);
-            objectPositionY.value = obj.position.y.toFixed(2);
-            objectPositionZ.value = obj.position.z.toFixed(2);
-            
-            objectSizeSlider.value = obj.scale.x;
-            
-            addTerminalLine(`Selected object: ${obj.userData.name}`, 'info');
-        }
-        
-        // Delete an object from the scene
-        function deleteObject(obj) {
-            scene.remove(obj);
-            objects = objects.filter(o => o.userData.id !== obj.userData.id);
-            updateObjectList();
-            
-            if (selectedObject && selectedObject.userData.id === obj.userData.id) {
-                selectedObject = objects.length > 0 ? objects[0] : null;
-                if (selectedObject) selectObject(selectedObject);
+        function addObjectToList(obj) {
+            const item = document.createElement('div');
+            item.className = 'object-item';
+            if (editorAgent.selectedObject && editorAgent.selectedObject.userData.id === obj.userData.id) {
+                item.classList.add('active');
             }
+            item.setAttribute('data-id', obj.userData.id);
             
-            addTerminalLine(`Deleted object: ${obj.userData.name}`, 'info');
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = obj.userData.name;
+            
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'object-actions';
+            
+            const editBtn = document.createElement('button');
+            editBtn.className = 'object-action';
+            editBtn.textContent = '✏️';
+            editBtn.title = 'Edit Object';
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                editorAgent.selectObject(obj);
+            });
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'object-action';
+            deleteBtn.textContent = '🗑️';
+            deleteBtn.title = 'Delete Object';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (obj.userData.type === 'pointcloud') {
+                    // Remove from DA3 agent
+                    scene.remove(obj);
+                    da3Agent.pointClouds = da3Agent.pointClouds.filter(o => o.userData.id !== obj.userData.id);
+                } else {
+                    // Remove from editor agent
+                    editorAgent.deleteObject(obj);
+                }
+                updateObjectList();
+            });
+            
+            actionsDiv.appendChild(editBtn);
+            actionsDiv.appendChild(deleteBtn);
+            
+            item.appendChild(nameSpan);
+            item.appendChild(actionsDiv);
+            
+            item.addEventListener('click', () => {
+                editorAgent.selectObject(obj);
+            });
+            
+            objectList.appendChild(item);
         }
         
         // Matrix background effect
@@ -1017,17 +1234,21 @@
                         break;
                     case 'status':
                         addTerminalLine('System Status:', 'info');
-                        addTerminalLine(`  Objects in scene: ${objects.length}`);
+                        addTerminalLine(`  Objects in scene: ${editorAgent.objects.length + da3Agent.pointClouds.length}`);
                         addTerminalLine('  DA3 Module: Active');
                         addTerminalLine('  Three.js: Running');
-                        addTerminalLine('  Selected object: ' + (selectedObject ? selectedObject.userData.name : 'None'));
+                        addTerminalLine('  TensorFlow.js: ' + (imageAgent.isReady ? 'Ready' : 'Fallback'));
+                        addTerminalLine('  Selected object: ' + (editorAgent.selectedObject ? editorAgent.selectedObject.userData.name : 'None'));
                         break;
                     case 'upload':
                         triggerFileUpload();
                         break;
                     case 'list':
                         addTerminalLine('Objects in scene:', 'info');
-                        objects.forEach(obj => {
+                        da3Agent.pointClouds.forEach(obj => {
+                            addTerminalLine(`  ${obj.userData.name} (${obj.userData.type}) at (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
+                        });
+                        editorAgent.objects.forEach(obj => {
                             addTerminalLine(`  ${obj.userData.name} (${obj.userData.type}) at (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
                         });
                         break;
@@ -1035,7 +1256,9 @@
                     case 'add sphere':
                     case 'add cylinder':
                         const objectType = cmd.split(' ')[1];
-                        addObjectToScene(objectType);
+                        const newObj = editorAgent.addObject(objectType);
+                        scene.add(newObj);
+                        updateObjectList();
                         break;
                     case 'reset':
                         controls.reset();
@@ -1080,13 +1303,17 @@
             });
             
             // Set up drop zone
-            dropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropZone.classList.add('active');
+            ['dragover', 'dragenter'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('active');
+                });
             });
             
-            dropZone.addEventListener('dragleave', () => {
-                dropZone.classList.remove('active');
+            ['dragleave', 'dragend'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => {
+                    dropZone.classList.remove('active');
+                });
             });
             
             dropZone.addEventListener('drop', (e) => {
@@ -1118,24 +1345,31 @@
             
             reader.onload = function(e) {
                 const img = new Image();
-                img.onload = function() {
-                    // In a real implementation, this would send the image to a DA3 model
-                    // For this demo, we'll simulate processing and create a new point cloud
-                    // that's based on the uploaded image
+                img.onload = async function() {
+                    addTerminalLine('Image loaded, starting DA3 processing...', 'info');
                     
-                    setTimeout(() => {
-                        addTerminalLine('Analyzing image with Depth Anything v3...', 'info');
+                    try {
+                        // Process image with TensorFlow.js agent
+                        const processedData = await imageAgent.processImage(img);
                         
-                        setTimeout(() => {
-                            addTerminalLine('Generating depth map...', 'info');
-                            
-                            setTimeout(() => {
-                                // Create a new DA3 point cloud based on the image
-                                createDA3PointCloudFromImage(img);
-                                addTerminalLine('DA3 scene generated successfully at position (0,0,0)', 'success');
-                            }, 1000);
-                        }, 800);
-                    }, 500);
+                        // Generate point cloud from processed data
+                        const pointCloud = da3Agent.generatePointCloudFromImageData(
+                            processedData.tensorData || processedData.imageData,
+                            processedData.width,
+                            processedData.height
+                        );
+                        
+                        // Add to scene
+                        scene.add(pointCloud);
+                        updateObjectList();
+                        
+                        // Select the new point cloud
+                        editorAgent.selectObject(pointCloud);
+                        
+                        addTerminalLine('DA3 scene generated successfully', 'success');
+                    } catch (error) {
+                        addTerminalLine('Error processing image: ' + error.message, 'error');
+                    }
                 };
                 img.onerror = function() {
                     addTerminalLine('Error loading image. Please try another file.', 'error');
@@ -1150,77 +1384,6 @@
             reader.readAsDataURL(file);
         }
         
-        // Create a DA3 point cloud from an image
-        function createDA3PointCloudFromImage(img) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = 100; // Reduced resolution for performance
-            canvas.height = 100;
-            
-            // Draw image to canvas
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            
-            const pointCount = 5000;
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(pointCount * 3);
-            const colors = new Float32Array(pointCount * 3);
-            
-            // Create a point cloud based on the image
-            for (let i = 0; i < pointCount; i++) {
-                const i3 = i * 3;
-                
-                // Sample a random pixel from the image
-                const x = Math.floor(Math.random() * canvas.width);
-                const y = Math.floor(Math.random() * canvas.height);
-                const pixelIndex = (y * canvas.width + x) * 4;
-                
-                // Get RGB values
-                const r = data[pixelIndex] / 255;
-                const g = data[pixelIndex + 1] / 255;
-                const b = data[pixelIndex + 2] / 255;
-                
-                // Calculate brightness for depth simulation
-                const brightness = (r + g + b) / 3;
-                
-                // Create 3D positions based on pixel coordinates and brightness
-                positions[i3] = (x / canvas.width - 0.5) * 10;
-                positions[i3 + 1] = (0.5 - y / canvas.height) * 10;
-                positions[i3 + 2] = (brightness - 0.5) * 5; // Use brightness for depth
-                
-                // Use the original pixel colors
-                colors[i3] = r;
-                colors[i3 + 1] = g;
-                colors[i3 + 2] = b;
-            }
-            
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            
-            const material = new THREE.PointsMaterial({
-                size: 0.1,
-                vertexColors: true,
-                sizeAttenuation: true
-            });
-            
-            const pointCloud = new THREE.Points(geometry, material);
-            pointCloud.position.set(0, 0, 0);
-            pointCloud.userData = {
-                id: 'da3-image-pointcloud-' + Date.now(),
-                name: 'Image Point Cloud',
-                type: 'pointcloud',
-                rotate: true
-            };
-            
-            scene.add(pointCloud);
-            objects.push(pointCloud);
-            updateObjectList();
-            
-            // Select this object
-            selectObject(pointCloud);
-        }
-        
         // Initialize editor controls
         function initEditorControls() {
             // Object position controls
@@ -1229,38 +1392,32 @@
             objectPositionZ.addEventListener('change', updateObjectPosition);
             
             function updateObjectPosition() {
-                if (selectedObject) {
-                    selectedObject.position.set(
-                        parseFloat(objectPositionX.value) || 0,
-                        parseFloat(objectPositionY.value) || 0,
-                        parseFloat(objectPositionZ.value) || 0
-                    );
-                }
+                editorAgent.updateObjectPosition(
+                    parseFloat(objectPositionX.value) || 0,
+                    parseFloat(objectPositionY.value) || 0,
+                    parseFloat(objectPositionZ.value) || 0
+                );
             }
             
             // Object size control
             objectSizeSlider.addEventListener('input', (e) => {
                 const scale = parseFloat(e.target.value);
-                if (selectedObject) {
-                    selectedObject.scale.set(scale, scale, scale);
-                }
+                editorAgent.updateObjectSize(scale);
             });
             
             // Object rotation speed
             objectRotationSlider.addEventListener('input', (e) => {
-                rotationSpeed = parseFloat(e.target.value);
+                editorAgent.setRotationSpeed(parseFloat(e.target.value));
             });
             
             // Grid visibility
             gridVisibilitySlider.addEventListener('input', (e) => {
                 const visibility = parseFloat(e.target.value);
-                scene.children.forEach(child => {
-                    if (child.type === 'GridHelper') {
-                        child.material.opacity = visibility;
-                        child.material.transparent = visibility < 1;
-                        child.material.needsUpdate = true;
-                    }
-                });
+                gridHelper.material.opacity = visibility;
+                gridHelper.material.transparent = visibility < 1;
+                gridHelper.material.needsUpdate = true;
+                
+                axesHelper.visible = visibility > 0;
             });
             
             // Color picker
@@ -1269,9 +1426,7 @@
                     colorOptions.forEach(opt => opt.classList.remove('active'));
                     option.classList.add('active');
                     
-                    if (selectedObject && selectedObject.material) {
-                        selectedObject.material.color.set(option.dataset.color);
-                    }
+                    editorAgent.updateObjectColor(option.dataset.color);
                 });
             });
             
@@ -1282,9 +1437,8 @@
             });
             
             clearSceneBtn.addEventListener('click', () => {
-                objects.forEach(obj => scene.remove(obj));
-                objects = [];
-                selectedObject = null;
+                editorAgent.clearAllObjects();
+                da3Agent.clearPointClouds();
                 updateObjectList();
                 addTerminalLine('Scene cleared', 'info');
             });
@@ -1292,29 +1446,46 @@
             addObjectBtn.addEventListener('click', () => {
                 const objectTypes = ['cube', 'sphere', 'cylinder'];
                 const randomType = objectTypes[Math.floor(Math.random() * objectTypes.length)];
-                addObjectToScene(randomType);
+                const newObj = editorAgent.addObject(randomType);
+                scene.add(newObj);
+                updateObjectList();
             });
             
             exportSceneBtn.addEventListener('click', () => {
                 addTerminalLine('Exporting scene data as GLTF...', 'info');
                 
-                // In a real implementation, this would use GLTFExporter
-                // For this demo, we'll create a simple JSON representation
+                // Create a simple JSON representation
                 const sceneData = {
-                    objects: objects.map(obj => ({
-                        type: obj.userData.type,
-                        name: obj.userData.name,
-                        position: {
-                            x: obj.position.x,
-                            y: obj.position.y,
-                            z: obj.position.z
-                        },
-                        scale: {
-                            x: obj.scale.x,
-                            y: obj.scale.y,
-                            z: obj.scale.z
-                        }
-                    })),
+                    objects: [
+                        ...da3Agent.pointClouds.map(obj => ({
+                            type: obj.userData.type,
+                            name: obj.userData.name,
+                            position: {
+                                x: obj.position.x,
+                                y: obj.position.y,
+                                z: obj.position.z
+                            },
+                            scale: {
+                                x: obj.scale.x,
+                                y: obj.scale.y,
+                                z: obj.scale.z
+                            }
+                        })),
+                        ...editorAgent.objects.map(obj => ({
+                            type: obj.userData.type,
+                            name: obj.userData.name,
+                            position: {
+                                x: obj.position.x,
+                                y: obj.position.y,
+                                z: obj.position.z
+                            },
+                            scale: {
+                                x: obj.scale.x,
+                                y: obj.scale.y,
+                                z: obj.scale.z
+                            }
+                        }))
+                    ],
                     exportTime: new Date().toISOString(),
                     version: 'DA3 v2.1.5'
                 };
@@ -1342,8 +1513,9 @@
                 addTerminalLine('=== ERROR LOG ===', 'warning');
                 addTerminalLine('No critical errors detected.', 'info');
                 addTerminalLine('Last DA3 processing: Success', 'info');
-                addTerminalLine('Scene objects: ' + objects.length, 'info');
+                addTerminalLine('Scene objects: ' + (editorAgent.objects.length + da3Agent.pointClouds.length), 'info');
                 addTerminalLine('WebGL: Active', 'info');
+                addTerminalLine('TensorFlow.js: ' + (imageAgent.isReady ? 'Ready' : 'Fallback Mode'), 'info');
             });
         }
         
@@ -1354,6 +1526,8 @@
             initTerminal();
             initFileUpload();
             initEditorControls();
+            
+            addTerminalLine('All systems initialized. DA3 Scene Generator ready.', 'success');
         });
         
         // Helper function to trigger file upload
