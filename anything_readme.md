@@ -1,47 +1,66 @@
-# webXOS ANYTHING | DA3 Scene Generator  
-**Full Concept Guide (v1.0 – November 2025)**
+# WebXOS Anything 2 – DA3 + Three.js Point Cloud Editor  
 
-*webxos.netlify.app/anything_test*
+### One-file zero-dependency 3D point cloud tool  
+Turn any **JPEG** image or **MP4** video (first frame) into an interactive 3D point cloud using brightness-as-depth (DA3 algorithm). Edit points live, export JSON.
 
-### Core Goal
-**Help Test:** A single-page, cyberpunk-styled web app that instantly turns any 2D photo into an editable 3D scene using Depth Anything v3 (DA3) + Three.js — zero install, runs entirely in the browser or with optional backend acceleration.
+## Features
+- Drag & drop JPEG / MP4 onto canvas  
+- Instant brightness-based depth → 3D point cloud (max ~8000 points)  
+- Click to select individual points  
+- Change color of single point or all points  
+- Delete selected point  
+- Adjustable point size, depth scale, grid, auto-rotate  
+- Manual camera position + zoom sliders  
+- Export full point cloud as JSON  
+- Real-time FPS & point counter  
+- Fully offline – single HTML file
 
-### IDEAL TESTING:
-“Upload a image → get a real-time 3D scene with accurate depth → edit, add objects, light, animate, export — all inside a Matrix-style terminal interface.”
+## Quick Start
+1. Download or copy `anything2.html`  
+2. Open in any modern browser (Chrome/Edge/Firefox)  
+3. Drag a JPEG photo or short MP4 onto the 3D view  
+   → point cloud appears instantly  
+4. Orbit with mouse, click points to edit
 
-### FOR:
-- 3D content creators (quick blocking/prototyping)
-- Game devs (fast asset mockups)
-- AR/VR hobbyists
-- Social media creators (turn selfies into 3D scenes)
-- Educators & students (visualize depth estimation)
-- Cyberpunk aesthetic fans
+## Controls
 
-### Core Features
+### Left Panel Tabs
+- **Point Cloud** – upload, recompute, reset, export  
+- **Point Editor** – select point → change color / delete  
+- **View Controls** – point size, depth scale, grid, auto-rotate
 
-| Tier | Feature | Status in current HTML | Full Vision |
-| :--- | :--- | :--- | :--- |
-| 1 | Upload image → generate point cloud from DA3 | Simulated only | Real on-device DA3 (WebAssembly) or backend inference |
-| 2 | Real-time Three.js viewport with orbit controls | Done | + VR mode, AR placement (WebXR) |
-| 3 | Terminal-style command interface | Done | Full CLI + natural language (agent-powered) |
-| 4 | Add primitive objects (cube, sphere, etc.) | Done | + GLB/GLTF import, procedural generators |
-| 5 | Edit position, scale, color, rotation | Done | + material editor, physics, animations |
-| 6 | Scene export (GLTF, USDZ, OBJ) | Fake | Real export + shareable link |
-| 7 | Matrix rain background + cyberpunk UI | Done | Customizable themes (retro, minimal, neon) |
-| 8 | Depth-based mesh reconstruction | Point cloud only | Triangulated mesh + auto UVs |
-| 9 | Multi-image photogrammetry mode | — | 3–50 photos → full 3D model |
-| 10 | Collaborative editing (multi-user) | — | WebSocket real-time co-editing |
+### Right Overlay (DA3 Point Cloud Controls)
+- Camera Zoom / X / Y / Z sliders for precise framing
 
-### Technical Architecture (Future-Proof)
+### Keyboard / Mouse
+- Left click + drag → orbit  
+- Right click + drag → pan  
+- Scroll → zoom  
+- Click any point → selects it (info shown in Point Editor tab)
 
-```text
-
-Frontend (this HTML evolved)
-├── Three.js r170+ (or Babylon.js alternative)
-├── DA3 model in ONNX/WebAssembly (client-side, ~300 MB) or
-└── Backend API (xAI Grok-4 + DA3 inference endpoint)
-├── Terminal → WebSocket → Agent (LLM) for natural language commands
-├── Export → GLTF + USDZ (iOS instant AR)
-└── Storage → IndexedDB + optional cloud save (webXOS account)
+## Export Format (point_cloud.json)
+```json
+{
+  "points": [
+    { "x": 1.23, "y": -0.45, "z": 3.67, "r": 0.9, "g": 0.1, "b": 0.2 },
+    ...
+  ],
+  "count": 5421,
+  "pointSize": "0.5",
+  "depthScale": "12"
+}
 ```
 
+## Tips for Best Results
+- Use high-contrast photos (portraits, objects, landscapes work great  
+- Bright areas = closer, dark areas = farther  
+- Keep source < 4K (automatically downscaled)  
+- Recompute Depth after changing Depth Scale slider
+
+## Tech
+- Three.js r128 (CDN)  
+- OrbitControls  
+- No backend, no build step, no npm
+
+License: MIT – fork, remix, use commercially.  
+Made with neon love in 2025. Enjoy!
