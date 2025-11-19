@@ -1,13 +1,15 @@
 # webXOS ANYTHING | DA3 Scene Generator  
 **Full Concept Guide (v1.0 – November 2025)**
 
-### Core Goal
-A single-page, cyberpunk-styled web app that instantly turns any 2D photo into an editable 3D scene using Depth Anything v3 (DA3) + Three.js — zero install, runs entirely in the browser or with optional backend acceleration.
+*webxos.netlify.app/anything_test*
 
-### One-Sentence Pitch
+### Core Goal
+**Help Test:** A single-page, cyberpunk-styled web app that instantly turns any 2D photo into an editable 3D scene using Depth Anything v3 (DA3) + Three.js — zero install, runs entirely in the browser or with optional backend acceleration.
+
+### IDEAL TESTING:
 “Upload a image → get a real-time 3D scene with accurate depth → edit, add objects, light, animate, export — all inside a Matrix-style terminal interface.”
 
-### Target Users
+### FOR:
 - 3D content creators (quick blocking/prototyping)
 - Game devs (fast asset mockups)
 - AR/VR hobbyists
@@ -15,7 +17,7 @@ A single-page, cyberpunk-styled web app that instantly turns any 2D photo into a
 - Educators & students (visualize depth estimation)
 - Cyberpunk aesthetic fans
 
-### Core Features (MVP → Full Vision)
+### Core Features
 
 | Tier | Feature | Status in current HTML | Full Vision |
 | :--- | :--- | :--- | :--- |
@@ -33,6 +35,7 @@ A single-page, cyberpunk-styled web app that instantly turns any 2D photo into a
 ### Technical Architecture (Future-Proof)
 
 ```text
+
 Frontend (this HTML evolved)
 ├── Three.js r170+ (or Babylon.js alternative)
 ├── DA3 model in ONNX/WebAssembly (client-side, ~300 MB) or
@@ -41,5 +44,4 @@ Frontend (this HTML evolved)
 ├── Export → GLTF + USDZ (iOS instant AR)
 └── Storage → IndexedDB + optional cloud save (webXOS account)
 ```
-
 
