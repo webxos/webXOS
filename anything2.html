@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>webXOS ANYTHING | DA3 Realtime</title>
+  <style>
+    :root {
+      --neon: #39ff14;
+      --bg: #0a0a0a;
+      --panel: #111111;
+      --accent: #8a2be2;
+      --text: #e6ffe6;
+      --muted: #9bb69b;
+    }
+    * { box-sizing: border-box }
+    html, body { height: 100% }
+    body {
+      margin: 0;
+      background: radial-gradient(1200px at 10% 10%, rgba(57,255,20,0.06), transparent),
+                  radial-gradient(1000px at 90% 90%, rgba(57,255,20,0.04), transparent),
+                  var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Courier New", monospace;
+    }
+    header.topbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(57,255,20,0.2);
+      background: color-mix(in srgb, var(--panel), transparent 20%);
+      backdrop-filter: blur(4px);
+    }
+    .brand { font-weight: 700; letter-spacing: .5px }
+    .brand span { color: var(--accent) }
+    .statusBar { display: inline-flex; gap: 8px; align-items: center; color: var(--muted) }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--neon); box-shadow: 0 0 8px var(--neon); animation: pulse 1.8s infinite }
+    @keyframes pulse { 0%{opacity:.3} 50%{opacity:1} 100%{opacity:.3} }
+    .actions { display: inline-flex; gap: 8px; align-items: center }
+    .btn {
+      border: 1px solid var(--neon); color: var(--bg);
+      background: var(--neon); padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    }
+    .btn.subtle {
+      color: var(--neon); background: transparent; border-color: rgba(57,255,20,0.4);
+    }
+    .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted) }
+    .toggle input { accent-color: var(--neon) }
+    main.layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 33%) 1fr;
+      gap: 1px;
+      height: calc(100vh - 56px);
+      border-top: 1px solid rgba(57,255,20,0.1);
+    }
+    .leftPane, .rightPane { display: flex; flex-direction: column; min-height: 0 }
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(57,255,20,0.15);
+      border-radius: 8px;
+      margin: 10px;
+      padding: 12px;
+      box-shadow: 0 0 18px rgba(57,255,20,0.06);
+    }
+    .panelTitle { margin: 0 0 8px 0; color: var(--neon); font-size: 15px }
+    .mediaRow, .controlsRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+    .datasetBadges { display: flex; gap: 6px; flex-wrap: wrap }
+    .badge {
+      border: 1px solid var(--neon); color: var(--neon);
+      background: transparent; border-radius: 6px; padding: 6px 10px; cursor: pointer;
+    }
+    .badge.active { background: var(--neon); color: var(--bg) }
+    .calGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+    .calItem { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center }
+    .calItem input[type="range"] { grid-column: 1 / -1 }
+    .calItem output { color: var(--neon) }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px }
+    .terminal {
+      height: 160px; overflow: auto; font-family: "Courier New", monospace;
+      background: #0c0c0c; border-radius: 6px; padding: 8px;
+    }
+    .terminal p { margin: 0 0 4px 0 }
+    .terminal .warn { color: #ffff66 }
+    .terminal .err { color: #ff6666 }
+    .terminal .ok { color: var(--neon) }
+    .canvasWrap {
+      position: relative; flex: 1; margin: 10px; border-radius: 8px;
+      border: 1px solid rgba(57,255,20,0.15); overflow: hidden;
+    }
+    #threeCanvas { width: 100%; height: 100%; display: block }
+    video#video { position: absolute; right: 8px; bottom: 8px; width: 180px; border: 1px solid rgba(57,255,20,0.2); border-radius: 6px; opacity: .75; transition: opacity .2s }
+    .streaming video#video { opacity: 1 }
+    .hidden { display: none }
+    dialog {
+      border: 1px solid rgba(57,255,20,0.3); border-radius: 8px; color: var(--text);
+      background: var(--panel); max-width: 640px; padding: 0;
+    }
+    dialog article { padding: 12px }
+    dialog header { display: flex; justify-content: space-between; align-items: center }
+    dialog h3 { margin: 0; color: var(--neon) }
+    @media (max-width: 960px) {
+      main.layout { grid-template-columns: 1fr; height: auto }
+      .rightPane { height: 60vh }
+      video#video { width: 120px }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">webXOS <span>ANYTHING</span></div>
+    <div class="statusBar">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+    <nav class="actions">
+      <button id="userGuideBtn" class="btn">User guide</button>
+      <label class="toggle">
+        <input id="clientToggle" type="checkbox"/>
+        <span>Client inference</span>
+      </label>
+      <label class="toggle">
+        <input id="pointCloudToggle" type="checkbox" checked/>
+        <span>Point cloud</span>
+      </label>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="leftPane">
+      <div class="panel">
+        <h2 class="panelTitle">Media dock</h2>
+        <div class="mediaRow">
+          <button id="startCamBtn" class="btn">Start webcam</button>
+          <button id="stopCamBtn" class="btn subtle">Stop</button>
+        </div>
+        <div class="mediaRow">
+          <input id="imageInput" type="file" accept="image/*"/>
+          <button id="sampleBtn" class="btn subtle">Load sample</button>
+        </div>
+        <div class="mediaRow">
+          <div class="datasetBadges" role="list">
+            <button class="badge active" data-dataset="ETH3D">ETH3D</button>
+            <button class="badge" data-dataset="DTU">DTU</button>
+            <button class="badge" data-dataset="7Scenes">7Scenes</button>
+            <button class="badge" data-dataset="ScanNet++">ScanNet++</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panelTitle">Calibration</h2>
+        <div class="calGrid">
+          <label class="calItem">
+            <span id="poseLabel">Pose accuracy</span>
+            <input id="poseAcc" type="range" min="0" max="100" value="95" aria-labelledby="poseLabel" aria-valuetext="95 percent"/>
+            <output id="poseAccVal">95%</output>
+          </label>
+          <label class="calItem">
+            <span id="depthLabel">Depth consistency</span>
+            <input id="depthCons" type="range" min="0" max="100" value="89" aria-labelledby="depthLabel" aria-valuetext="89 percent"/>
+            <output id="depthConsVal">89%</output>
+          </label>
+          <label class="calItem">
+            <span id="edgeLabel">Edge precision</span>
+            <input id="edgePrec" type="range" min="0" max="100" value="92" aria-labelledby="edgeLabel" aria-valuetext="92 percent"/>
+            <output id="edgePrecVal">92%</output>
+          </label>
+          <label class="calItem">
+            <span id="scaleLabel">Metric scale</span>
+            <input id="metricScale" type="range" min="0.5" max="1.5" step="0.01" value="1.00" aria-labelledby="scaleLabel" aria-valuetext="1.00 times"/>
+            <output id="metricScaleVal">1.00×</output>
+          </label>
+        </div>
+        <div class="metrics" aria-live="polite">
+          <div><strong>FPS:</strong> <span id="fps">0</span></div>
+          <div><strong>Latency:</strong> <span id="latency">—</span> ms</div>
+          <div><strong>Resolution:</strong> <span id="resolution">—</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panelTitle">Terminal</h2>
+        <div id="terminal" class="terminal" role="log" aria-live="polite" aria-relevant="additions"></div>
+      </div>
+    </section>
+
+    <section class="rightPane">
+      <div id="canvasWrap" class="canvasWrap">
+        <canvas id="threeCanvas"></canvas>
+        <video id="video" playsinline muted class="hidden"></video>
+      </div>
+      <div class="panel">
+        <h2 class="panelTitle">Controls</h2>
+        <div class="controlsRow">
+          <button id="recenterBtn" class="btn subtle">Recenter camera</button>
+          <button id="clearSceneBtn" class="btn subtle">Clear scene</button>
+          <label class="toggle">
+            <input id="meshToggle" type="checkbox"/>
+            <span>Displaced mesh</span>
+          </label>
+          <label class="toggle">
+            <input id="splatToggle" type="checkbox"/>
+            <span>Gaussian splats</span>
+          </label>
+          <label class="toggle">
+            <input id="sizeSlider" type="range" min="0.005" max="0.05" step="0.002" value="0.012"/>
+            <span>Point size</span>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="userGuide">
+    <article>
+      <header>
+        <h3>webXOS DA3 realtime user guide</h3>
+        <button id="closeGuide" class="btn subtle">Close</button>
+      </header>
+      <ul>
+        <li><strong>Webcam:</strong> Start to stream frames. Toggle client/server inference in the top bar.</li>
+        <li><strong>Upload:</strong> Send single images. Frame queue throttles to maintain interactivity.</li>
+        <li><strong>Calibration:</strong> Sliders affect scaling and display post-process; they don’t retrain weights.</li>
+        <li><strong>Visualization:</strong> Switch between point cloud and displaced mesh. Use recenter if navigation drifts.</li>
+      </ul>
+    </article>
+  </dialog>
+
+  <!-- Three.js + controls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.min.js"></script>
+  <!-- ONNX Runtime Web (for client-side inference) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
+  <script>
+    // Config
+    const USE_CLIENT_INFERENCE_DEFAULT = false;
+    const INFER_ENDPOINT = "/infer"; // replace with your server endpoint
+    const ONNX_MODEL_URL = "depth-anything-v3-large.onnx"; // host model and update paths
+    const TARGET_SIDE = 512;
+
+    // State
+    const S = {
+      streaming: false,
+      clientInference: USE_CLIENT_INFERENCE_DEFAULT,
+      lastLatencyMs: null,
+      frameSkip: 0,
+      renderMode: "pointcloud",
+      dataset: "ETH3D",
+      metricScale: 1.0,
+      edgePrecision: 0.92,
+      fps: 0,
+      pointSize: 0.012,
+    };
+
+    // DOM refs
+    const dom = {
+      statusDot: document.getElementById("statusDot"),
+      statusText: document.getElementById("statusText"),
+      fps: document.getElementById("fps"),
+      latency: document.getElementById("latency"),
+      resolution: document.getElementById("resolution"),
+      terminal: document.getElementById("terminal"),
+      clientToggle: document.getElementById("clientToggle"),
+      pointCloudToggle: document.getElementById("pointCloudToggle"),
+      meshToggle: document.getElementById("meshToggle"),
+      splatToggle: document.getElementById("splatToggle"),
+      sizeSlider: document.getElementById("sizeSlider"),
+      startCamBtn: document.getElementById("startCamBtn"),
+      stopCamBtn: document.getElementById("stopCamBtn"),
+      imageInput: document.getElementById("imageInput"),
+      sampleBtn: document.getElementById("sampleBtn"),
+      recenterBtn: document.getElementById("recenterBtn"),
+      clearSceneBtn: document.getElementById("clearSceneBtn"),
+      video: document.getElementById("video"),
+      threeCanvas: document.getElementById("threeCanvas"),
+      userGuideBtn: document.getElementById("userGuideBtn"),
+      userGuide: document.getElementById("userGuide"),
+      closeGuide: document.getElementById("closeGuide"),
+      poseAcc: document.getElementById("poseAcc"),
+      depthCons: document.getElementById("depthCons"),
+      edgePrec: document.getElementById("edgePrec"),
+      metricScale: document.getElementById("metricScale"),
+      poseAccVal: document.getElementById("poseAccVal"),
+      depthConsVal: document.getElementById("depthConsVal"),
+      edgePrecVal: document.getElementById("edgePrecVal"),
+      metricScaleVal: document.getElementById("metricScaleVal"),
+    };
+
+    // Three.js init
+    let scene, camera, renderer, controls, pointGroup, mesh;
+    let animating = true;
+    initThree();
+
+    function initThree() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0b0b);
+
+      const width = dom.threeCanvas.clientWidth || 800;
+      const height = dom.threeCanvas.clientHeight || 600;
+
+      camera = new THREE.PerspectiveCamera(60, width / height, 0.01, 1000);
+      camera.position.set(0, 0, 2.5);
+
+      renderer = new THREE.WebGLRenderer({ canvas: dom.threeCanvas, antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const ambient = new THREE.AmbientLight(0x39ff14, 0.2);
+      scene.add(ambient);
+      const dir = new THREE.DirectionalLight(0x39ff14, 0.6);
+      dir.position.set(1, 1, 2);
+      scene.add(dir);
+
+      scene.add(new THREE.AxesHelper(0.4));
+      const grid = new THREE.GridHelper(10, 10, 0x006600, 0x002200);
+      grid.rotation.x = Math.PI / 2;
+      scene.add(grid);
+
+      controls = new THREE.OrbitControls(camera, dom.threeCanvas);
+      controls.enableDamping = true;
+
+      pointGroup = new THREE.Group();
+      scene.add(pointGroup);
+
+      window.addEventListener("resize", onResize);
+      requestAnimationFrame(loop);
+    }
+
+    function onResize() {
+      const w = dom.threeCanvas.clientWidth || 800;
+      const h = dom.threeCanvas.clientHeight || 600;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    // Render loop + FPS (pausable)
+    let lastTime = performance.now(), frameCount = 0;
+    function loop(now) {
+      if (animating) {
+        requestAnimationFrame(loop);
+        controls.update();
+        renderer.render(scene, camera);
+        frameCount++;
+        if (now - lastTime >= 1000) {
+          S.fps = frameCount;
+          dom.fps.textContent = S.fps;
+          frameCount = 0;
+          lastTime = now;
+        }
+      }
+    }
+    function setAnimating(on) {
+      if (on && !animating) { animating = true; requestAnimationFrame(loop); }
+      else if (!on) { animating = false; }
+    }
+
+    // Terminal logging
+    function term(line, cls = "") {
+      const p = document.createElement("p");
+      if (cls) p.classList.add(cls);
+      p.textContent = `webXOS@DA3:~$ ${line}`;
+      dom.terminal.appendChild(p);
+      dom.terminal.scrollTop = dom.terminal.scrollHeight;
+    }
+
+    function setStatus(text, color = "var(--neon)") {
+      dom.statusText.textContent = text;
+      dom.statusDot.style.background = color;
+    }
+
+    // User guide
+    dom.userGuideBtn.addEventListener("click", () => dom.userGuide.showModal());
+    dom.closeGuide.addEventListener("click", () => dom.userGuide.close());
+
+    // Toggles
+    dom.clientToggle.checked = S.clientInference;
+    dom.clientToggle.addEventListener("change", () => {
+      S.clientInference = dom.clientToggle.checked;
+      term(`Client inference: ${S.clientInference ? "ON" : "OFF"}`);
+    });
+
+    function setRenderMode(mode) {
+      S.renderMode = mode;
+      dom.pointCloudToggle.checked = mode === "pointcloud";
+      dom.meshToggle.checked = mode === "mesh";
+      term(`Render mode: ${S.renderMode}`);
+    }
+    dom.pointCloudToggle.addEventListener("change", () => setRenderMode(dom.pointCloudToggle.checked ? "pointcloud" : "mesh"));
+    dom.meshToggle.addEventListener("change", () => setRenderMode(dom.meshToggle.checked ? "mesh" : "pointcloud"));
+
+    dom.sizeSlider.addEventListener("input", () => {
+      S.pointSize = Number(dom.sizeSlider.value);
+      term(`Point size: ${S.pointSize}`);
+      if (pointGroup.children.length) {
+        pointGroup.children.forEach(p => { if (p.material && p.material.size !== undefined) p.material.size = S.pointSize; });
+      }
+    });
+
+    // Calibration sliders (display-only transforms)
+    dom.poseAcc.addEventListener("input", () => {
+      dom.poseAccVal.textContent = `${dom.poseAcc.value}%`;
+      dom.poseAcc.setAttribute("aria-valuetext", `${dom.poseAcc.value} percent`);
+    });
+    dom.depthCons.addEventListener("input", () => {
+      dom.depthConsVal.textContent = `${dom.depthCons.value}%`;
+      dom.depthCons.setAttribute("aria-valuetext", `${dom.depthCons.value} percent`);
+    });
+    dom.edgePrec.addEventListener("input", () => {
+      S.edgePrecision = Number(dom.edgePrec.value) / 100;
+      dom.edgePrecVal.textContent = `${dom.edgePrec.value}%`;
+      dom.edgePrec.setAttribute("aria-valuetext", `${dom.edgePrec.value} percent`);
+    });
+    dom.metricScale.addEventListener("input", () => {
+      S.metricScale = Number(dom.metricScale.value);
+      dom.metricScaleVal.textContent = `${Number(dom.metricScale.value).toFixed(2)}×`;
+      dom.metricScale.setAttribute("aria-valuetext", `${Number(dom.metricScale.value).toFixed(2)} times`);
+    });
+
+    // Dataset badges
+    document.querySelectorAll(".badge").forEach(b => {
+      b.addEventListener("click", () => {
+        document.querySelectorAll(".badge").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        S.dataset = b.dataset.dataset;
+        term(`Dataset: ${S.dataset}`);
+      });
+    });
+
+    // Scene controls
+    dom.recenterBtn.addEventListener("click", () => {
+      controls.reset();
+      camera.position.set(0, 0, 2.5);
+      term("Camera recentered");
+      setAnimating(true);
+    });
+    dom.clearSceneBtn.addEventListener("click", () => {
+      clearPoints(); clearMesh(); term("Scene cleared");
+      setAnimating(false);
+    });
+    function clearPoints() {
+      for (let i = pointGroup.children.length - 1; i >= 0; i--) {
+        const obj = pointGroup.children[i];
+        obj.geometry && obj.geometry.dispose();
+        obj.material && obj.material.dispose();
+        pointGroup.remove(obj);
+      }
+    }
+    function clearMesh() {
+      if (mesh) {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        scene.remove(mesh);
+        mesh = null;
+      }
+    }
+
+    // Webcam
+    let stream, captureCanvas, captureCtx;
+    dom.startCamBtn.addEventListener("click", startWebcam);
+    dom.stopCamBtn.addEventListener("click", stopWebcam);
+
+    async function startWebcam() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        dom.video.srcObject = stream;
+        await dom.video.play();
+        dom.video.classList.remove("hidden");
+        document.body.classList.add("streaming");
+
+        captureCanvas = document.createElement("canvas");
+        captureCtx = captureCanvas.getContext("2d", { willReadFrequently: true });
+
+        setStatus("Streaming", "#00ffff");
+        term("Webcam started");
+        S.streaming = true;
+        setAnimating(true);
+        pumpFrames();
+      } catch (e) {
+        term(`Webcam error: ${e.message}`, "err");
+        setStatus("Error", "#ff6666");
+      }
+    }
+    function stopWebcam() {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      S.streaming = false;
+      dom.video.srcObject = null;
+      dom.video.classList.add("hidden");
+      document.body.classList.remove("streaming");
+
+      if (captureCanvas) { captureCanvas.width = 0; captureCanvas.height = 0; captureCanvas = null; }
+      captureCtx = null;
+
+      setStatus("Idle");
+      term("Webcam stopped", "warn");
+    }
+
+    // Upload + sample
+    dom.imageInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      await img.decode();
+      await processFrame(img, file.name);
+    });
+    dom.sampleBtn.addEventListener("click", async () => {
+      const url = "assets/sample.jpg";
+      try {
+        const resp = await fetch(url, { method: "HEAD" });
+        if (!resp.ok) throw new Error("sample missing");
+        const img = new Image(); img.crossOrigin = "anonymous"; img.src = url;
+        await img.decode(); await processFrame(img, "sample.jpg");
+      } catch {
+        term("Sample image not available", "warn");
+      }
+    });
+
+    // Frame loop with adaptive throttling
+    function computeFrameSkip(latencyMs) {
+      if (latencyMs < 60) return 0;
+      if (latencyMs < 120) return 1;
+      if (latencyMs < 200) return 2;
+      return 3;
+    }
+    function nextTick() { return new Promise(r => requestAnimationFrame(() => r())) }
+    function fitSquare(w, h, s) {
+      const minSide = Math.min(w, h); const scale = s / minSide;
+      return [Math.round(w * scale), Math.round(h * scale)];
+    }
+
+    async function pumpFrames() {
+      let lastInferTs = 0;
+      const minServerInterval = 100; // ~10 FPS cap
+      while (S.streaming) {
+        const t0 = performance.now();
+        if (S.frameSkip > 0) { S.frameSkip--; await nextTick(); continue; }
+
+        const vw = dom.video.videoWidth || TARGET_SIDE;
+        const vh = dom.video.videoHeight || TARGET_SIDE;
+        const [w, h] = fitSquare(vw, vh, TARGET_SIDE);
+        captureCanvas.width = TARGET_SIDE; captureCanvas.height = TARGET_SIDE;
+        captureCtx.drawImage(dom.video, (vw - w) / 2, (vh - h) / 2, w, h, 0, 0, TARGET_SIDE, TARGET_SIDE);
+
+        if (!S.clientInference) {
+          const now = performance.now();
+          if (now - lastInferTs < minServerInterval) { await nextTick(); continue; }
+          lastInferTs = now;
+        }
+
+        const imageData = captureCtx.getImageData(0, 0, TARGET_SIDE, TARGET_SIDE);
+        await inferAndRender(imageData);
+
+        const t1 = performance.now();
+        S.lastLatencyMs = Math.round(t1 - t0);
+        dom.latency.textContent = S.lastLatencyMs;
+        dom.resolution.textContent = `${TARGET_SIDE}×${TARGET_SIDE}`;
+        S.frameSkip = computeFrameSkip(S.lastLatencyMs);
+        await nextTick();
+      }
+    }
+
+    // Single image
+    async function processFrame(bitmapOrImage, name = "image") {
+      captureCanvas = document.createElement("canvas");
+      captureCtx = captureCanvas.getContext("2d", { willReadFrequently: true });
+      captureCanvas.width = TARGET_SIDE; captureCanvas.height = TARGET_SIDE;
+      captureCtx.drawImage(bitmapOrImage, 0, 0, TARGET_SIDE, TARGET_SIDE);
+      const imageData = captureCtx.getImageData(0, 0, TARGET_SIDE, TARGET_SIDE);
+      term(`Processing ${name}`);
+      setAnimating(true);
+      await inferAndRender(imageData);
+    }
+
+    // Model: client-side session + IO discovery
+    let da3Session = null;
+    let ioNames = { input: null, output: null };
+
+    async function discoverIoNames(session) {
+      const inputs = session.inputNames.map(n => ({ name: n, info: session.inputMetadata[n] }));
+      const outputs = session.outputNames.map(n => ({ name: n, info: session.outputMetadata[n] }));
+
+      const pickInput = inputs.find(i => {
+        const dims = i.info.dimensions || i.info.shape || [];
+        return dims.length === 4 && (dims.includes(3) || dims[1] === 3);
+      }) || inputs[0];
+
+      const pickOutput = outputs.find(o => {
+        const dims = o.info.dimensions || o.info.shape || [];
+        return dims.length >= 3;
+      }) || outputs[0];
+
+      ioNames.input = pickInput?.name || session.inputNames[0];
+      ioNames.output = pickOutput?.name || session.outputNames[0];
+      term(`IO mapped: input="${ioNames.input}" output="${ioNames.output}"`, "ok");
+    }
+
+    async function getClientSession() {
+      if (da3Session) return da3Session;
+      term("Loading ONNX model client-side…");
+      try {
+        da3Session = await ort.InferenceSession.create(ONNX_MODEL_URL, {
+          executionProviders: ["webgpu", "wasm"],
+        });
+        await discoverIoNames(da3Session);
+        term("Client model loaded", "ok");
+      } catch (e) {
+        term(`Model load error: ${e.message}`, "err");
+        da3Session = null;
+      }
+      return da3Session;
+    }
+
+    // Robust server fetch
+    async function fetchWithBackoff(url, opts, maxRetries = 3) {
+      let attempt = 0, delay = 300;
+      while (attempt <= maxRetries) {
+        try {
+          const res = await fetch(url, opts);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const ct = res.headers.get("content-type") || "";
+          if (!ct.includes("application/json")) {
+            const text = await res.text();
+            throw new Error(`Unexpected content-type: ${ct}. Body: ${text.slice(0,120)}…`);
+          }
+          return await res.json();
+        } catch (e) {
+          if (attempt === maxRetries) throw e;
+          await new Promise(r => setTimeout(r, delay));
+          delay = Math.min(2000, delay * 2);
+          attempt++;
+        }
+      }
+    }
+
+    // Inference
+    async function inferAndRender(imageData) {
+      let depth, width = TARGET_SIDE, height = TARGET_SIDE;
+
+      if (S.clientInference) {
+        setStatus("Inferring (client)", "#ffff00");
+        const sess = await getClientSession();
+        if (!sess || !ioNames.input || !ioNames.output) {
+          depth = simulatedDepth(TARGET_SIDE, TARGET_SIDE);
+          term("Simulated depth fallback (client)", "warn");
+        } else {
+          try {
+            const inputTensor = imageDataToTensor(imageData); // Float32 [1,3,H,W]
+            const feeds = { [ioNames.input]: inputTensor };
+            const results = await sess.run(feeds);
+            const out = results[ioNames.output];
+
+            const dims = out.dims || [1, 1, TARGET_SIDE, TARGET_SIDE];
+            if (dims.length === 4) {
+              const [n, cOrH, hOrW, wMaybe] = dims;
+              const isNCHW = cOrH === 1 || dims[1] === 1;
+              height = isNCHW ? hOrW : cOrH;
+              width  = isNCHW ? wMaybe : hOrW;
+            }
+            depth = out.data;
+          } catch (e) {
+            term(`Client inference error: ${e.message}`, "err");
+            depth = simulatedDepth(TARGET_SIDE, TARGET_SIDE);
+          }
+        }
+      } else {
+        setStatus("Inferring (server)", "#00ffff");
+        try {
+          const jpegBlob = await canvasToJPEG(captureCanvas, 0.7);
+          const json = await fetchWithBackoff(INFER_ENDPOINT, {
+            method: "POST",
+            headers: { "x-dataset": S.dataset },
+            body: jpegBlob
+          });
+
+          if (!json || json.width == null || json.height == null || json.depth == null) {
+            throw new Error("Invalid server response schema");
+          }
+          const arr = Array.isArray(json.depth) ? json.depth : json.depth.data;
+          depth = new Float32Array(arr);
+          width = json.width; height = json.height;
+        } catch (e) {
+          term(`Server inference error: ${e.message}`, "err");
+          depth = simulatedDepth(TARGET_SIDE, TARGET_SIDE);
+          width = TARGET_SIDE; height = TARGET_SIDE;
+        }
+      }
+
+      const scaled = scaleDepth(depth, S.metricScale);
+
+      if (S.renderMode === "pointcloud") renderPointCloud(scaled, width, height, imageData);
+      else renderDisplacedMesh(scaled, width, height, imageData);
+
+      setStatus("Ready");
+    }
+
+    // Helpers
+    function imageDataToTensor(imageData) {
+      const { data, width, height } = imageData;
+      const out = new Float32Array(1 * 3 * height * width);
+      let r = 0, g = height * width, b = 2 * height * width;
+      for (let i = 0, px = 0; i < data.length; i += 4, px++) {
+        out[r + px] = data[i] / 255;
+        out[g + px] = data[i + 1] / 255;
+        out[b + px] = data[i + 2] / 255;
+      }
+      return new ort.Tensor("float32", out, [1, 3, height, width]);
+    }
+    async function canvasToJPEG(canvas, quality = 0.7) {
+      return new Promise(res => canvas.toBlob(b => res(b), "image/jpeg", quality));
+    }
+    function scaleDepth(arr, scale) {
+      const out = new Float32Array(arr.length);
+      for (let i = 0; i < arr.length; i++) out[i] = arr[i] * scale;
+      return out;
+    }
+    function simulatedDepth(w, h) {
+      const d = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const dx = (x - w / 2) / (w / 2);
+          const dy = (y - h / 2) / (h / 2);
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          const noise = 0.08 * Math.sin(x * 0.11) * Math.cos(y * 0.07);
+          d[y * w + x] = Math.max(0.01, 1.0 - Math.min(1.0, dist) + noise);
+        }
+      }
+      return d;
+    }
+
+    // Visualization (with effective downsampling)
+    function renderPointCloud(depth, w, h, imageData) {
+      clearPoints();
+      const stride = Math.max(1, Math.floor(0.8 / S.pointSize));
+      const sampleCount = Math.ceil((w * h) / stride);
+
+      const positions = new Float32Array(sampleCount * 3);
+      const colors = new Float32Array(sampleCount * 3);
+
+      const fx = w, fy = w, cx = w / 2, cy = h / 2;
+
+      let pi = 0, ci = 0;
+      for (let i = 0; i < w * h; i += stride) {
+        const y = Math.floor(i / w), x = i - y * w;
+        const z = depth[i];
+        if (z <= 0) continue;
+
+        const X = (x - cx) * z / fx;
+        const Y = (y - cy) * z / fy;
+        const Z = z;
+
+        positions[pi++] = X;
+        positions[pi++] = -Y;
+        positions[pi++] = -Z;
+
+        const p4 = i * 4;
+        colors[ci++] = imageData.data[p4] / 255;
+        colors[ci++] = imageData.data[p4 + 1] / 255;
+        colors[ci++] = imageData.data[p4 + 2] / 255;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions.subarray(0, pi), 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(colors.subarray(0, ci), 3));
+
+      const mat = new THREE.PointsMaterial({ size: S.pointSize, vertexColors: true, sizeAttenuation: true });
+      const points = new THREE.Points(geo, mat);
+      pointGroup.add(points);
+
+      geo.computeBoundingBox();
+      const center = new THREE.Vector3();
+      geo.boundingBox.getCenter(center);
+      points.position.sub(center);
+    }
+
+    function renderDisplacedMesh(depth, w, h, imageData) {
+      clearMesh();
+      const geo = new THREE.PlaneGeometry(1, 1, w - 1, h - 1);
+      const pos = geo.attributes.position.array;
+
+      for (let i = 0; i < depth.length; i++) {
+        const z = -depth[i];
+        const vi = i * 3;
+        pos[vi + 2] = z;
+      }
+      geo.computeVertexNormals();
+
+      const texCanvas = document.createElement("canvas");
+      texCanvas.width = w; texCanvas.height = h;
+      const ctx = texCanvas.getContext("2d");
+      const imgData = ctx.createImageData(w, h);
+      imgData.data.set(imageData.data);
+      ctx.putImageData(imgData, 0, 0);
+      const texture = new THREE.CanvasTexture(texCanvas);
+      texture.flipY = true;
+
+      const mat = new THREE.MeshStandardMaterial({ map: texture, metalness: 0, roughness: 1 });
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.scale.set(1.8, 1.8, 1);
+      mesh.position.set(0, 0, -0.4);
+      scene.add(mesh);
+    }
+
+    // Kickoff log
+    term("Initializing DA3 realtime UI…", "ok");
+    setStatus("Idle");
+  </script>
+</body>
+</html>
+
