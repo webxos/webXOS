@@ -1,4 +1,4 @@
-# WebXOS Anything 2 – DA3 + Three.js Point Cloud Editor  
+# WebXOS Anything 2 – Three.js Point Cloud Editor  
 
 ### One-file zero-dependency 3D point cloud tool  
 Turn any **JPEG** image or **MP4** video (first frame) into an interactive 3D point cloud using brightness-as-depth (DA3 algorithm). Edit points live, export JSON.
