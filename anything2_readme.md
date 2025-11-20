@@ -62,5 +62,21 @@ Turn any **JPEG** image or **MP4** video (first frame) into an interactive 3D po
 - OrbitControls  
 - No backend, no build step, no npm
 
-License: MIT – fork, remix, use commercially.  
-Made with neon love in 2025. Enjoy!
+## USE CASES:
+
+Quantization: Reducing edge model size by using lower-precision numbers in 3D rendering (e.g., reducing models by 4-8 times with minimal accuracy loss).
+
+Pruning: Removing unnecessary or redundant edge neural network 3D processing.
+
+Knowledge Distillation: Training a smaller "edge" model to replicate the behavior of a larger "database" model.
+
+Hybrid Edge-Cloud Architectures: Seamless integration where complex spacial model training happens in the powerful cloud, while real-time, low-latency inference occurs at the edge. Workloads distributed dynamically based on requirements.
+
+Privacy and Security Focus: Processing sensitive data locally on a device inherently improves privacy and security by reducing the need for data transmission to the cloud, helping meet regulations like GDPR and HIPAA.
+
+5G Integration: For ultra-low latency and high bandwidth 5G networks to enable new edge AI applications, particularly those requiring real-time communication, such as autonomous vehicles and remote healthcare monitoring.
+
+Generative Computing at the Edge: Adapt Large Language Models (LLMs) and Small Language Models (SLMs) to run locally on edge devices for applications like offline translation and local voice assistants for 3D json data.
+
+License: MIT  
+
