@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DA3 MASK: CLOUD POINT FACE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+  body{background:#000;color:#0f0;overflow:hidden;height:100dvh;user-select:none}
+  canvas{display:block}
+  .banner{position:absolute;top:0;left:0;right:0;background:rgba(0,20,0,0.95);border-bottom:2px solid #0f0;padding:8px;font-size:11px;text-align:center;z-index:10;text-shadow:0 0 10px #0f0}
+  .status{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:8px;z-index:10}
+  .ind{padding:4px 8px;font-size:8px;background:rgba(0,50,0,0.9);border:1px solid #0f0;border-radius:4px}
+  .locked{background:rgba(0,255,0,0.9);box-shadow:0 0 12px #0f0;animation:p 1.5s infinite}
+  @keyframes p{0%,100%{opacity:1}50%{opacity:0.6}}
+</style>
+</head>
+<body>
+<div class="banner">DA3 MASK: REAL-TIME CLOUD POINT FACE</div>
+<canvas id="c"></canvas>
+<div class="status">
+  <div class="ind" id="status">DA3: OFFLINE</div>
+</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js';
+import '@tensorflow/tfjs-backend-webgl';
+import * as faceLandmarksDetection from 'https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.3';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 10);
+camera.position.set(0,0,0.8);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.target.set(0,0.1,0);
+
+const light = new THREE.HemisphereLight(0x00ff88, 0x0088ff, 2);
+scene.add(light);
+
+let detector, pointsGeo, pointsMat, points;
+let currentPoints = new Float32Array(468*3);
+
+pointsMat = new THREE.PointsMaterial({color:0x00ff88, size:0.004, sizeAttenuation:true});
+pointsGeo = new THREE.BufferGeometry();
+points = new THREE.Points(pointsGeo, pointsMat);
+scene.add(points);
+
+async function init() {
+  document.getElementById('status').textContent = 'DA3: LOADING';
+  detector = await faceLandmarksDetection.createDetector(
+    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+    {runtime:'tfjs', refineLandmarks:true}
+  );
+  document.getElementById('status').textContent = 'DA3: ONLINE';
+  document.getElementById('status').classList.add('locked');
+  requestAnimationFrame(loop);
+}
+
+function loop() {
+  controls.update();
+  if (detector) {
+    detector.estimateFaces({input: canvas}).then(faces => {
+      if (faces.length > 0) {
+        const landmarks = faces[0].keypoints;
+        for (let i = 0; i < 468; i++) {
+          const p = landmarks[i];
+          currentPoints[i*3]   = (p.x / innerWidth - 0.5) * 0.6;
+          currentPoints[i*3+1] = -(p.y / innerHeight - 0.5) * 0.6;
+          currentPoints[i*3+2] = p.z * 0.001 || 0;
+        }
+        pointsGeo.setAttribute('position', new THREE.BufferAttribute(currentPoints, 3));
+      }
+    });
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+init();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('data:application/javascript;base64,' + btoa(`
+    self.addEventListener('install', e => self.skipWaiting());
+    self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+  `));
+}
+</script>
+</body>
+</html>
