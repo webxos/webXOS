@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>edTV6</title>
+<style>
+  body,html{margin:0;height:100%;overflow:hidden;background:#000;color:#39ff14;font-family:monospace;}
+  canvas{width:100vw;height:100vh;display:block;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;}
+  .corner{padding:12px;background:rgba(0,10,0,0.8);border:1px solid #39ff14;}
+  #tl{top:0;left:0;}
+  #tr{top:0;right:0;text-align:right;}
+  #bl{bottom:0;left:0;}
+  #br{bottom:0;right:0;text-align:right;}
+  .btn{pointer-events:all;background:rgba(0,20,0,0.9);border:2px solid #39ff14;padding:14px 24px;font-size:16px;cursor:pointer;box-shadow:0 0 20px #39ff14;}
+  #calibrate{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#000;border:2px solid #39ff14;color:#39ff14;text-shadow:0 0 15px #39ff14;box-shadow:0 0 40px #39ff14, inset 0 0 20px #39ff14;animation:neon 1.5s infinite alternate;}
+  .pulse{animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:0.4}50%{opacity:1}}
+  @keyframes neon{from{box-shadow:0 0 20px #39ff14, inset 0 0 10px #39ff14;}to{box-shadow:0 0 50px #39ff14, inset 0 0 30px #39ff14;}}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="corner" id="tl"><h2>edTV6</h2><div id="status">OFFLINE</div></div>
+  <div class="corner pulse" id="tr">SCAN ACTIVE</div>
+  <div class="corner btn clutch" id="bl" onclick="toggleDensity()">DENSITY: LOW</div>
+  <div class="corner btn" id="br" onclick="resetView()">RESET VIEW</div>
+</div>
+
+<button id="calibrate" class="btn">CALIBRATE WEBCAM</button>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,100);
+camera.position.set(0,0,6);
+
+const controls = new OrbitControls(camera,canvas);
+controls.enableDamping = true;
+controls.target.set(0,0,0);
+controls.update();
+
+const grid = new THREE.GridHelper(10,20,0x39ff14,0x003300);
+scene.add(grid);
+
+let video, offscreen, ctx, points, density = 80;
+
+function createPointCloud(){
+  if(points){scene.remove(points);points.geometry.dispose();points.material.dispose();}
+  const count = density * density;
+  const geom = new THREE.BufferGeometry();
+  const pos = new Float32Array(count*3);
+  const col = new Float32Array(count*3);
+  geom.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geom.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const mat = new THREE.PointsMaterial({size:0.1,vertexColors:true,sizeAttenuation:true});
+  points = new THREE.Points(geom,mat);
+  scene.add(points);
+}
+createPointCloud();
+
+function startWebcam(){
+  try{
+    video = document.createElement('video');
+    video.playsinline = true;
+    video.autoplay = true;
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:640,height:480}})
+      .then(stream=>{video.srcObject=stream;video.play();})
+      .catch(err=>{console.error('WEBCAM ERROR:',err);document.getElementById('status').textContent='WEBCAM DENIED';});
+
+    offscreen = document.createElement('canvas');
+    ctx = offscreen.getContext('2d');
+
+    video.onloadedmetadata = ()=>{
+      offscreen.width = video.videoWidth;
+      offscreen.height = video.videoHeight;
+      document.getElementById('calibrate').remove();
+      document.getElementById('status').textContent='WEBCAM ONLINE';
+      console.log('DA3 WEBCAM ACTIVE');
+      animate();
+    };
+  }catch(err){console.error('INIT ERROR:',err);}
+}
+
+document.getElementById('calibrate').onclick = startWebcam;
+
+function updatePointCloud(){
+  if(!video || !ctx || video.readyState < 2) return;
+  try{
+    ctx.drawImage(video,0,0,offscreen.width,offscreen.height);
+    const img = ctx.getImageData(0,0,offscreen.width,offscreen.height);
+    const data = img.data;
+
+    const positions = points.geometry.attributes.position.array;
+    const colors = points.geometry.attributes.color.array;
+
+    let i = 0;
+    for(let y=0;y<density;y++){
+      for(let x=0;x<density;x++){
+        const sx = (x/density)*offscreen.width|0;
+        const sy = (y/density)*offscreen.height|0;
+        const idx = (sy*offscreen.width + sx)*4;
+
+        const brightness = (data[idx]+data[idx+1]+data[idx+2])/765;
+        positions[i*3]   = (x/density-0.5)*7;
+        positions[i*3+1] = (0.5-y/density)*7;
+        positions[i*3+2] = (brightness-0.5)*4;
+
+        colors[i*3]   = data[idx]/255;
+        colors[i*3+1] = data[idx+1]/255;
+        colors[i*3+2] = data[idx+2]/255;
+        i++;
+      }
+    }
+    points.geometry.attributes.position.needsUpdate = true;
+    points.geometry.attributes.color.needsUpdate = true;
+  }catch(err){console.error('FRAME ERROR:',err);}
+}
+
+window.toggleDensity = ()=>{
+  density = density===80?120:80;
+  document.getElementById('bl').textContent = `DENSITY: ${density===80?'LOW':'HIGH'}`;
+  createPointCloud();
+};
+
+window.resetView = ()=>{camera.position.set(0,0,6);controls.target.set(0,0,0);controls.update();};
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  updatePointCloud();
+  renderer.render(scene,camera);
+}
+
+addEventListener('resize',()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
