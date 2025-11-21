@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>EDTV: MILITARY MASK CREATOR</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<meta charset="UTF-8">
+<title>edTV: WEBXR MILITARY MASK TRY-ON</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
   body{background:#000;color:#0f0;overflow:hidden;height:100dvh;touch-action:manipulation;user-select:none}
@@ -16,11 +16,11 @@
   .banner{background:rgba(0,40,0,0.98);border-bottom:2px solid #0f0;padding:12px 8px;font-size:10px;text-align:center;text-shadow:0 0 10px #0f0}
   .content{flex:1;display:flex;flex-direction:column;gap:8px;padding:8px;padding-bottom:max(env(safe-area-inset-bottom),20px)}
   .ar-view{flex:1;position:relative;border:2px solid #0f0;overflow:hidden;background:#000;border-radius:8px;box-shadow:0 0 20px rgba(0,255,0,0.6)}
-  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:none}
   #canvas{position:absolute;inset:0;width:100%;height:100%}
   .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:10px;background:rgba(0,30,0,0.9);border:2px solid #0f0}
   .btn,.dropdown{font-size:9px;padding:10px 14px;border:2px solid #0f0;background:#000;color:#0f0;cursor:pointer;transition:.2s;flex:1 1 100px;max-width:220px}
-  .btn:hover,.btn:disabled,.dropdown:active{background:#0f0;color:#000;box-shadow:0 0 15px #0f0}
+  .btn:hover,.btn:active{background:#0f0;color:#000;box-shadow:0 0 15px #0f0}
   .terminal{height:16dvh;background:rgba(0,0,0,0.9);border:2px solid #0f0;padding:8px;font-size:8px;overflow-y:auto;color:#0f0}
   .status{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:8px;z-index:20;flex-wrap:wrap}
   .ind{padding:4px 8px;font-size:7px;background:rgba(0,60,0,0.9);border:1px solid #0f0;border-radius:4px}
@@ -31,28 +31,26 @@
 <body>
 <div id="app">
   <div class="grid"></div><div class="crt"></div>
-  <div class="banner">edTV: MILITARY MASK CREATOR</div>
+  <div class="banner">edTV: WEBXR MILITARY MASK TRY-ON</div>
   <div class="content">
     <div class="controls">
-      <button class="btn" id="start">SYNC / CALIBRATE / DEPLOY</button>
-      <button class="btn" id="export">EXPORT FIT JSON</button>
+      <button class="btn" id="start">ENTER XR</button>
       <select class="dropdown" id="mask-select">
         <option value="oni">ONI DEMON</option>
-        <option value="tactical">TACTICAL OPERATOR</option>
-        <option value="gas">GAS MASK CLASSIC</option>
-        <option value="respirator">MIRA RESPIRATOR</option>
+        <option value="tactical">TACTICAL</option>
+        <option value="gas">GAS MASK</option>
+        <option value="respirator">RESPIRATOR</option>
         <option value="cyber">CYBER HELMET</option>
-        <option value="skull">SKULL MASK</option>
-        <option value="wireframe">WIREFRAME GRID</option>
+        <option value="skull">SKULL</option>
       </select>
     </div>
-    <div class="terminal" id="log">>edTV ONLINE<br>> READY FOR DEPLOYMENT</div>
+    <div class="terminal" id="log">> READY</div>
     <div class="ar-view">
       <video id="video" autoplay playsinline muted></video>
       <canvas id="canvas"></canvas>
       <div class="status">
         <div class="ind" id="track">TRACKING: OFF</div>
-        <div class="ind" id="mask">MASK: ONI DEMON</div>
+        <div class="ind" id="mask">MASK: ONI</div>
       </div>
     </div>
   </div>
@@ -60,414 +58,144 @@
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import {ARButton} from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/webxr/ARButton.js';
 import {FaceLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
 const logEl = document.getElementById('log');
 const trackEl = document.getElementById('track');
 const maskEl = document.getElementById('mask');
-const startBtn = document.getElementById('start');
 
-let faceLandmarker, renderer, scene, camera, maskObject = null;
+let renderer, scene, camera, reticle;
+let maskGroup = new THREE.Group();
+let faceLandmarker;
 let currentMask = 'oni';
-let running = false;
-let rafId = null;
+let hitTestSource = null;
 
-// Mask configurations
-const maskConfigs = {
-  oni:       {scale: 1.7,  z: -0.58, y: -0.03, x: 0.00, color: 0x00ff00},
-  tactical:  {scale: 1.9,  z: -0.55, y:  0.05, x: 0.00, color: 0x008800},
-  gas:       {scale: 2.1,  z: -0.65, y:  0.01, x: 0.00, color: 0x00cc00},
-  respirator:{scale: 1.4,  z: -0.45, y:  0.08, x: 0.00, color: 0x00aa00},
-  cyber:     {scale: 1.8,  z: -0.52, y:  0.04, x: 0.00, color: 0x00ff88},
-  skull:     {scale: 1.6,  z: -0.60, y: -0.02, x: 0.00, color: 0x00ff44},
-  wireframe: {scale: 2.0,  z: -0.60, y:  0.00, x: 0.00, color: 0x00ff00}
+const configs = {
+  oni:       {scale:1.6, y:0.02, z:-0.55, color:0x00ff00},
+  tactical:  {scale:1.8, y:0.06, z:-0.52, color:0x004400},
+  gas:       {scale:2.0, y:0.03, z:-0.60, color:0x00ff44},
+  respirator:{scale:1.5, y:0.08, z:-0.48, color:0x0088ff},
+  cyber:     {scale:1.7, y:0.05, z:-0.50, color:0x00ffff},
+  skull:     {scale:1.6, y:0.00, z:-0.58, color:0xff0088}
 };
 
-function log(m) {
-  const line = document.createElement('div');
-  line.textContent = '> ' + m;
-  logEl.appendChild(line);
-  logEl.scrollTop = logEl.scrollHeight;
-}
+function log(t){const d=document.createElement('div');d.textContent='> '+t;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
 
-function initThree() {
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, 1, 0.1, 10);
-  renderer = new THREE.WebGLRenderer({canvas, alpha: true, antialias: true});
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+function createWireframeMask(type) {
+  maskGroup.clear();
+  const config = configs[type];
+  const material = new THREE.LineBasicMaterial({color: config.color, linewidth:2, transparent:true, opacity:0.9});
   
-  const light = new THREE.HemisphereLight(0xffffff, 0x00ff88, 1.4);
-  const dir = new THREE.DirectionalLight(0x88ff88, 0.8);
-  dir.position.set(0, 1, 0.75);
-  scene.add(light, dir);
-
-  resize();
-  window.addEventListener('resize', resize);
-}
-
-function resize() {
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-
-function clearMask() {
-  if (maskObject) {
-    maskObject.traverse(child => {
-      if (child.isMesh) {
-        child.geometry?.dispose();
-        child.material?.dispose?.();
-      }
-    });
-    scene.remove(maskObject);
-    maskObject = null;
+  // Main helmet shell
+  const shell = new THREE.BufferGeometry();
+  const verts = [];
+  for(let i=0;i<=64;i++){
+    const a = i/64*Math.PI*2;
+    const r = 0.22 + Math.sin(i/8)*0.02;
+    verts.push(Math.cos(a)*r, Math.sin(a)*r + 0.15, 0);
+    verts.push(Math.cos(a)*r*0.9, Math.sin(a)*r*0.9 + 0.15, -0.08);
   }
-}
-
-function createWireframeMask() {
-  const config = maskConfigs.wireframe;
+  shell.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
+  const lines = new THREE.LineSegments(shell, material);
+  maskGroup.add(lines);
   
-  // Create face-shaped geometry using BufferGeometry
-  const geometry = new THREE.BufferGeometry();
-  const vertices = [];
-  const indices = [];
+  // Visor grid
+  const visor = new THREE.BufferGeometry();
+  const vverts = [];
+  for(let x=-0.15;x<=0.15;x+=0.03)for(let y=-0.05;y<=0.1;y+=0.02){
+    vverts.push(x, y, -0.12, x+0.03, y, -0.12);
+    vverts.push(x, y, -0.12, x, y+0.02, -0.12);
+  }
+  visor.setAttribute('position', new THREE.Float32BufferAttribute(vverts,3));
+  maskGroup.add(new THREE.LineSegments(visor, material));
   
-  // Create a face-like shape with vertices
-  const segments = 20;
-  const radius = 0.2;
+  // Side panels
+  const side = new THREE.RingGeometry(0.08, 0.12, 16);
+  const left = new THREE.LineSegments(new THREE.EdgesGeometry(side), material);
+  left.position.set(-0.18, 0.08, -0.05);
+  const right = left.clone();
+  right.position.x = 0.18;
+  maskGroup.add(left, right);
   
-  // Create face outline
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    
-    // Face outline points (elliptical)
-    const x = Math.cos(theta) * radius * 1.5;
-    const y = Math.sin(theta) * radius;
-    const z = 0;
-    
-    vertices.push(x, y, z);
+  // Breathing vents
+  for(let i=0;i<5;i++){
+    const vent = new THREE.BoxGeometry(0.04, 0.02, 0.02);
+    const v = new THREE.LineSegments(new THREE.EdgesGeometry(vent), material);
+    v.position.set(-0.02 + i*0.01, -0.08, -0.18);
+    maskGroup.add(v);
   }
   
-  // Create eye sockets
-  const eyeRadius = 0.05;
-  const eyeOffsetX = 0.1;
-  const eyeOffsetY = 0.05;
-  
-  // Left eye
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    const x = Math.cos(theta) * eyeRadius - eyeOffsetX;
-    const y = Math.sin(theta) * eyeRadius + eyeOffsetY;
-    const z = 0;
-    
-    vertices.push(x, y, z);
-  }
-  
-  // Right eye
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    const x = Math.cos(theta) * eyeRadius + eyeOffsetX;
-    const y = Math.sin(theta) * eyeRadius + eyeOffsetY;
-    const z = 0;
-    
-    vertices.push(x, y, z);
-  }
-  
-  // Create mouth
-  const mouthRadius = 0.08;
-  const mouthOffsetY = -0.1;
-  
-  for (let i = 0; i <= segments/2; i++) {
-    const theta = (i / (segments/2)) * Math.PI;
-    const x = Math.cos(theta) * mouthRadius;
-    const y = Math.sin(theta) * mouthRadius * 0.5 + mouthOffsetY;
-    const z = 0;
-    
-    vertices.push(x, y, z);
-  }
-  
-  // Set vertices
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  
-  // Create lines for face outline
-  for (let i = 0; i < segments; i++) {
-    indices.push(i, i + 1);
-  }
-  
-  // Create lines for left eye
-  const leftEyeStart = segments + 1;
-  for (let i = 0; i < segments; i++) {
-    indices.push(leftEyeStart + i, leftEyeStart + i + 1);
-  }
-  
-  // Create lines for right eye
-  const rightEyeStart = segments + segments + 2;
-  for (let i = 0; i < segments; i++) {
-    indices.push(rightEyeStart + i, rightEyeStart + i + 1);
-  }
-  
-  // Create lines for mouth
-  const mouthStart = segments + segments + segments + 3;
-  for (let i = 0; i < segments/2; i++) {
-    indices.push(mouthStart + i, mouthStart + i + 1);
-  }
-  
-  geometry.setIndex(indices);
-  
-  const material = new THREE.LineBasicMaterial({ 
-    color: config.color,
-    linewidth: 1
-  });
-  
-  maskObject = new THREE.LineSegments(geometry, material);
-  maskObject.rotation.y = Math.PI;
-  maskObject.scale.setScalar(config.scale);
-  maskObject.position.set(config.x, config.y, config.z);
-  scene.add(maskObject);
-}
-
-function createBasicMask(type) {
-  const config = maskConfigs[type];
-  
-  // Create a simple 3D mask using BufferGeometry
-  const geometry = new THREE.BufferGeometry();
-  const vertices = [];
-  const indices = [];
-  
-  // Create a face-like geometry with vertices
-  const segments = 16;
-  const radius = 0.2;
-  
-  // Front face
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    
-    // Outer ring
-    const x = Math.cos(theta) * radius * 1.5;
-    const y = Math.sin(theta) * radius;
-    const z = 0;
-    
-    vertices.push(x, y, z);
-    
-    // Inner ring (slightly recessed)
-    const x2 = Math.cos(theta) * radius * 1.4;
-    const y2 = Math.sin(theta) * radius * 0.9;
-    const z2 = -0.05;
-    
-    vertices.push(x2, y2, z2);
-  }
-  
-  // Create indices for the face geometry
-  for (let i = 0; i < segments; i++) {
-    const base = i * 2;
-    
-    // Outer ring connection
-    indices.push(base, base + 2);
-    
-    // Inner ring connection
-    indices.push(base + 1, base + 3);
-    
-    // Connection between outer and inner
-    indices.push(base, base + 1);
-  }
-  
-  // Add eye holes
-  const eyeRadius = 0.06;
-  const eyeOffsetX = 0.1;
-  const eyeOffsetY = 0.05;
-  
-  // Left eye
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    const x = Math.cos(theta) * eyeRadius - eyeOffsetX;
-    const y = Math.sin(theta) * eyeRadius + eyeOffsetY;
-    const z = -0.02;
-    
-    vertices.push(x, y, z);
-  }
-  
-  // Right eye
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    const x = Math.cos(theta) * eyeRadius + eyeOffsetX;
-    const y = Math.sin(theta) * eyeRadius + eyeOffsetY;
-    const z = -0.02;
-    
-    vertices.push(x, y, z);
-  }
-  
-  // Create indices for eye holes
-  const leftEyeStart = (segments + 1) * 2;
-  for (let i = 0; i < segments; i++) {
-    indices.push(leftEyeStart + i, leftEyeStart + i + 1);
-  }
-  
-  const rightEyeStart = leftEyeStart + segments + 1;
-  for (let i = 0; i < segments; i++) {
-    indices.push(rightEyeStart + i, rightEyeStart + i + 1);
-  }
-  
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setIndex(indices);
-  
-  const material = new THREE.LineBasicMaterial({ 
-    color: config.color,
-    linewidth: 1
-  });
-  
-  maskObject = new THREE.LineSegments(geometry, material);
-  maskObject.rotation.y = Math.PI;
-  maskObject.scale.setScalar(config.scale);
-  maskObject.position.set(config.x, config.y, config.z);
-  scene.add(maskObject);
-}
-
-function loadMask(type) {
-  clearMask();
-  currentMask = type;
-  const config = maskConfigs[type];
-  
-  if (type === 'wireframe') {
-    createWireframeMask();
-  } else {
-    createBasicMask(type);
-  }
-  
+  maskGroup.scale.setScalar(config.scale);
+  maskGroup.position.y = config.y;
+  maskGroup.position.z = config.z;
+  scene.add(maskGroup);
   maskEl.textContent = `MASK: ${type.toUpperCase()}`;
-  log(`MASK LOADED: ${type.toUpperCase()}`);
 }
 
-// Smoothing
-const smooth = {
-  pos: new THREE.Vector3(),
-  rot: new THREE.Euler(),
-  scale: 1,
-  alpha: 0.4
-};
-
-function updateMask(landmarks) {
-  if (!maskObject || !landmarks) return;
-
-  // Flip X to match mirrored video
-  const lm = landmarks.map(p => ({x: 1 - p.x, y: p.y, z: p.z}));
-  const le = lm[33], re = lm[263], nose = lm[1];
-  const eyeDist = Math.hypot(re.x - le.x, re.y - le.y);
-  const centerX = (le.x + re.x) / 2;
-  const centerY = (le.y + re.y) / 2;
-
-  const config = maskConfigs[currentMask];
-  const targetScale = THREE.MathUtils.clamp(eyeDist * 11, 1.2, 3.5) * config.scale;
-  const targetX = (centerX - 0.5) * 2.3 + config.x;
-  const targetY = -(centerY - 0.5) * 2.3 + config.y + 0.06;
-  const targetZ = config.z;
-
-  // Rotation
-  const yaw = Math.PI + (re.x - le.x) * 4.2;
-  const pitch = THREE.MathUtils.degToRad((centerY - nose.y) * 36);
-  const roll = Math.atan2(re.y - le.y, re.x - le.x);
-
-  smooth.pos.lerp(new THREE.Vector3(targetX, targetY, targetZ), smooth.alpha);
-  smooth.scale = THREE.MathUtils.lerp(smooth.scale, targetScale, smooth.alpha);
-  smooth.rot.set(
-    THREE.MathUtils.lerp(smooth.rot.x, pitch, smooth.alpha),
-    THREE.MathUtils.lerp(smooth.rot.y, yaw, smooth.alpha),
-    THREE.MathUtils.lerp(smooth.rot.z, roll, smooth.alpha)
-  );
-
-  maskObject.position.copy(smooth.pos);
-  maskObject.scale.setScalar(smooth.scale);
-  maskObject.rotation.copy(smooth.rot);
-}
-
-async function startAR() {
-  if (running) return;
-  startBtn.disabled = true;
-  log('REQUESTING CAMERA...');
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} }
-    });
-    video.srcObject = stream;
-    await video.play();
-    log('CAMERA ACTIVE');
-
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
-    );
-
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: isIOS ? "CPU" : "GPU"
-      },
-      runningMode: "VIDEO",
-      numFaces: 1
-    });
-
-    log('AR CORE ONLINE – TRACKING LOCKED');
-    trackEl.textContent = 'TRACKING: LOCKED';
-    trackEl.classList.add('locked');
-    running = true;
-    loop();
-  } catch (e) {
-    log('ERROR: ' + e.message);
-    trackEl.textContent = 'TRACKING: FAILED';
-    startBtn.disabled = false;
-  }
-}
-
-function loop() {
-  if (!running) return;
-  if (video.readyState >= 2) {
-    const results = faceLandmarker.detectForVideo(video, Date.now());
-    if (results.faceLandmarks?.[0]) {
-      updateMask(results.faceLandmarks[0]);
-      renderer.render(scene, camera);
+async function startXR() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 20);
+  renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+  renderer.setPixelRatio(devicePixelRatio);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.xr.enabled = true;
+  
+  const light = new THREE.HemisphereLight(0xffffff, 0x00ff88, 1.6);
+  scene.add(light);
+  
+  document.body.appendChild(ARButton.createButton(renderer, {requiredFeatures: ['local-floor']}));
+  
+  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+  video.srcObject = stream;
+  await video.play();
+  
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'},
+    runningMode: 'VIDEO',
+    numFaces: 1
+  });
+  
+  trackEl.textContent = 'TRACKING: LOCKED';
+  trackEl.classList.add('locked');
+  createWireframeMask(currentMask);
+  
+  renderer.setAnimationLoop(time => {
+    if(video.readyState >= 2){
+      const results = faceLandmarker.detectForVideo(video, performance.now());
+      if(results.faceLandmarks?.[0]){
+        const lm = results.faceLandmarks[0].map(p=>({x:1-p.x,y:p.y,z:p.z}));
+        const le = lm[33], re = lm[263], nose = lm[1];
+        const eyeDist = Math.hypot(re.x-le.x, re.y-le.y);
+        const centerX = (le.x + re.x)/2 - 0.5;
+        const centerY = (le.y + re.y)/2 - 0.5;
+        
+        const config = configs[currentMask];
+        const scale = eyeDist * 12 * config.scale;
+        const yaw = Math.PI + (re.x - le.x)*5;
+        
+        maskGroup.position.set(centerX*1.2, -centerY*1.2 + 0.15, -0.6);
+        maskGroup.scale.setScalar(scale);
+        maskGroup.rotation.y = yaw;
+      }
     }
-  }
-  rafId = requestAnimationFrame(loop);
+    renderer.render(scene, camera);
+  });
+  
+  log('WEBXR MASK TRY-ON ACTIVE');
 }
 
-// Controls
-document.getElementById('start').onclick = startAR;
-document.getElementById('mask-select').onchange = e => loadMask(e.target.value);
-document.getElementById('export').onclick = () => {
-  if (!maskObject) return log('NO MASK');
-  const data = {
-    mask: currentMask,
-    position: maskObject.position.toArray(),
-    rotation: maskObject.rotation.toArray(),
-    scale: maskObject.scale.x
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `channel8_${currentMask}_fit.json`;
-  a.click();
-  log('FIT JSON EXPORTED');
+document.getElementById('start').onclick = startXR;
+document.getElementById('mask-select').onchange = e => {
+  currentMask = e.target.value;
+  createWireframeMask(currentMask);
+  log(`MASK: ${currentMask.toUpperCase()}`);
 };
 
-// Init
-initThree();
-loadMask('oni');
-log('SYSTEM READY – PRESS SYNC TO DEPLOY');
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && running) {
-    running = false;
-    cancelAnimationFrame(rafId);
-  } else if (!document.hidden && faceLandmarker) {
-    running = true;
-    loop();
-  }
-});
+log('PRESS ENTER XR');
 </script>
 </body>
 </html>
