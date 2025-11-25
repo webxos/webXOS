@@ -15,6 +15,10 @@ Train an AI assistant directly in your browser using your own `.md` files. No ba
 ![Pyodide](https://img.shields.io/badge/Powered_by-Pyodide-39FF14)  
 ![No backend](https://img.shields.io/badge/No_backend-100%25_local-blue)
 
+**KNOWN ERRORS**
+1: Some of the javascript catalog is broken the scripts do not work (js calculator etc)
+2. Fix coming soon for all catalog scripts
+
 ## Features
 
 - **Full Knowledge Pack Reading** – Drop any number of `.md` files → the bot reads **everything**, not just tiny chunks
