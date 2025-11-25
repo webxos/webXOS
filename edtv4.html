@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>edTV: MEDICAL MASK POINT CLOUD</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Press Start 2P',cursive;image-rendering:pixelated}
+  body{background:#000;color:#0ff;overflow:hidden;height:100vh}
+  #app{position:relative;width:100%;height:100vh;display:flex;flex-direction:column}
+  .grid{position:absolute;inset:0;background:
+    linear-gradient(rgba(0,255,255,0.08)1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,255,255,0.08)1px,transparent 1px);
+    background-size:16px 16px;z-index:-1}
+  .crt{position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(0,40,80,0.1)50%);
+    background-size:100% 4px;pointer-events:none;animation:scanlines 8s linear infinite}
+  @keyframes scanlines{0%{background-position:0 0}100%{background-position:0 100%}}
+  .banner{background:rgba(0,20,50,0.95);border-bottom:2px solid #0ff;padding:10px;text-align:center;
+    font-size:12px;letter-spacing:1px;text-shadow:0 0 12px #0ff}
+  .content{flex:1;display:flex;flex-direction:column;padding:10px;gap:10px}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;
+    padding:10px;background:rgba(0,30,60,0.8);border:1px solid #0ff;box-shadow:0 0 10px rgba(0,255,255,0.4)}
+  .btn,.btn-medical,.btn-vr{background:#000;border:1px solid #0ff;color:#0ff;padding:8px 16px;font-size:11px;
+    cursor:pointer;box-shadow:0 0 8px #0ff;transition:.2s}
+  .btn-medical{border-color:#f00;color:#f00;box-shadow:0 0 8px #f00}
+  .btn-vr{border-color:#0f0;color:#0f0;box-shadow:0 0 10px #0f0}
+  .btn:hover,.btn-medical:hover,.btn-vr:hover{background:#0ff;color:#000;box-shadow:0 0 20px #0ff}
+  .btn-medical:hover{background:#f00}
+  .btn-vr:hover{background:#0f0}
+  .dropdown{background:#000;border:1px solid #0ff;color:#0ff;padding:8px;font-size:10px;width:220px;box-shadow:0 0 8px rgba(0,255,255,0.5)}
+  .terminal{flex:1;background:rgba(0,20,40,0.8);border:1px solid #0ff;padding:10px;font-size:10px;
+    overflow-y:auto;max-height:28vh;box-shadow:0 0 10px rgba(0,255,255,0.3);user-select:text}
+  .ar-view{flex:3;position:relative;border:2px solid #0ff;background:#000;overflow:hidden;box-shadow:0 0 20px rgba(0,255,255,0.6)}
+  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);will-change:transform}
+  #view3d{position:absolute;inset:0;width:100%;height:100%;z-index:10}
+  .medical-indicators{position:absolute;top:10px;left:10px;display:flex;gap:10px;z-index:20;flex-wrap:wrap}
+  .indicator{background:rgba(255,0,0,0.7);border:1px solid #f00;color:#fff;padding:5px 10px;
+    font-size:9px;box-shadow:0 0 8px #f00;transition:all .4s}
+  .indicator.locked{background:rgba(0,255,0,0.8);border-color:#0f0;box-shadow:0 0 15px #0f0}
+  .indicator.vr{background:rgba(0,100,255,0.8);border-color:#0ff}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="grid"></div><div class="crt"></div>
+  <div class="banner" role="heading" aria-level="1">edTV: MEDICAL MASK POINT CLOUD</div>
+  <div class="content">
+    <div class="controls" role="group" aria-label="Controls">
+      <button class="btn-medical" id="start" aria-label="Start camera and sync">START WEBCAM</button>
+      <select class="dropdown" id="mask-select" aria-label="Select mask type">
+        <option value="surgical">SURGICAL MASK</option>
+        <option value="n95">N95 RESPIRATOR</option>
+        <option value="full_face">FULL FACE SHIELD</option>
+        <option value="goggle_mask">GOGGLE + MASK</option>
+        <option value="tactical">TACTICAL RESPIRATOR</option>
+      </select>
+      <select class="dropdown" id="addon-select" aria-label="Select addon">
+        <option value="none">NO ADDON</option>
+        <option value="comms">COMMS HEADSET</option>
+        <option value="filter">FILTER CARTRIDGE</option>
+        <option value="visor">VISOR</option>
+        <option value="sensor">VITAL SENSORS</option>
+      </select>
+    </div>
+    <div class="terminal" id="log" role="log" aria-live="polite">> MEDICAL POINT CLOUD SYSTEM<br>> 2025 PROTOCOL ACTIVE</div>
+    <div class="ar-view" aria-label="AR view">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="view3d"></canvas>
+      <div class="medical-indicators" aria-label="Status indicators">
+        <div class="indicator" id="track">TRACKING: OFF</div>
+        <div class="indicator" id="mask">MASK: NONE</div>
+        <div class="indicator" id="addon">ADDON: NONE</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('view3d');
+const logEl = document.getElementById('log');
+const trackEl = document.getElementById('track');
+const maskEl = document.getElementById('mask');
+const addonEl = document.getElementById('addon');
+
+let scene, camera, renderer;
+let maskGroup = new THREE.Group();
+let facePoints = new THREE.Points();
+let currentMask = 'surgical';
+let currentAddon = 'none';
+let isWebcamActive = false;
+let canvas2D, ctx2D;
+
+const maskConfigs = {
+  surgical: {scale: 1.8, y: -0.05, z: -0.45, color: 0x00ffff},
+  n95: {scale: 1.6, y: -0.03, z: -0.42, color: 0x00aaff},
+  full_face: {scale: 2.2, y: 0.02, z: -0.55, color: 0x0088ff},
+  goggle_mask: {scale: 1.9, y: 0.01, z: -0.48, color: 0x00ffcc},
+  tactical: {scale: 2.0, y: 0.00, z: -0.50, color: 0x00ff88}
+};
+
+const addonConfigs = {
+  comms: {color: 0xff00ff, scale: 0.8},
+  filter: {color: 0xffff00, scale: 0.6},
+  visor: {color: 0x00ffff, scale: 1.2},
+  sensor: {color: 0xff0000, scale: 0.5}
+};
+
+function log(m) {
+  const line = document.createElement('div');
+  line.textContent = `> ${m}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function init3D() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+  camera.position.z = 0.8;
+
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x0088ff, 2.2));
+  scene.add(new THREE.AmbientLight(0x00ffff, 0.8));
+
+  maskGroup = new THREE.Group();
+  scene.add(maskGroup);
+
+  createFacePointCloud();
+  createPointCloudMask(currentMask);
+  createPointCloudAddon(currentAddon);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  });
+
+  log('POINT CLOUD RENDER CORE ONLINE');
+}
+
+function createFacePointCloud() {
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(720 * 720 * 3);
+  const colors = new Float32Array(720 * 720 * 3);
+  
+  let index = 0;
+  for (let i = 0; i < 720; i++) {
+    for (let j = 0; j < 720; j++) {
+      positions[index] = (i - 360) * 0.01;
+      positions[index + 1] = (j - 360) * 0.01;
+      positions[index + 2] = 0;
+      
+      // Set initial color to cyan
+      colors[index] = 0.0;
+      colors[index + 1] = 1.0;
+      colors[index + 2] = 1.0;
+      
+      index += 3;
+    }
+  }
+  
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  
+  const material = new THREE.PointsMaterial({
+    size: 0.008,
+    vertexColors: true,
+    sizeAttenuation: true
+  });
+  
+  facePoints = new THREE.Points(geometry, material);
+  scene.add(facePoints);
+}
+
+function updateFacePointCloud() {
+  if (!isWebcamActive || !video || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  
+  // Get video dimensions
+  const srcW = video.videoWidth;
+  const srcH = video.videoHeight;
+  
+  // Calculate crop area to get center 720x720
+  const sx = Math.max(0, (srcW - 720) / 2);
+  const sy = Math.max(0, (srcH - 720) / 2);
+  const cropSize = Math.min(720, srcW, srcH);
+  
+  // Draw cropped video to 2D canvas for processing
+  ctx2D.clearRect(0, 0, canvas2D.width, canvas2D.height);
+  ctx2D.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas2D.width, canvas2D.height);
+  
+  const imageData = ctx2D.getImageData(0, 0, canvas2D.width, canvas2D.height);
+  const data = imageData.data;
+  
+  // Get point cloud geometry
+  const positions = facePoints.geometry.attributes.position.array;
+  const colors = facePoints.geometry.attributes.color.array;
+  
+  const depthIntensity = 8;
+  const width = canvas2D.width;
+  const height = canvas2D.height;
+  
+  // Update point positions based on video data (simplified depth from brightness)
+  let pointIndex = 0;
+  for (let i = 0; i < height; i += 1) {
+    for (let j = 0; j < width; j += 1) {
+      const pixelIndex = (i * width + j) * 4;
+      const r = data[pixelIndex] / 255;
+      const g = data[pixelIndex + 1] / 255;
+      const b = data[pixelIndex + 2] / 255;
+      
+      // Calculate brightness and use it as depth
+      const brightness = (r + g + b) / 3;
+      
+      // Map to 3D space (centered, scaled)
+      const x = (j / width - 0.5) * 10;
+      const y = (0.5 - i / height) * 10;
+      const z = (brightness - 0.5) * depthIntensity;
+      
+      // Update position
+      positions[pointIndex * 3] = x;
+      positions[pointIndex * 3 + 1] = y;
+      positions[pointIndex * 3 + 2] = z;
+      
+      // Use video colors for face point cloud
+      colors[pointIndex * 3] = r;
+      colors[pointIndex * 3 + 1] = g;
+      colors[pointIndex * 3 + 2] = b;
+      
+      pointIndex++;
+      
+      // Safety check - don't exceed point cloud size
+      if (pointIndex * 3 >= positions.length) break;
+    }
+    // Safety check - don't exceed point cloud size
+    if (pointIndex * 3 >= positions.length) break;
+  }
+  
+  // Mark attributes as needing update
+  facePoints.geometry.attributes.position.needsUpdate = true;
+  facePoints.geometry.attributes.color.needsUpdate = true;
+}
+
+function clearGroup(g) { 
+  while (g.children.length) g.remove(g.children[0]); 
+}
+
+function createPointCloudMask(type) {
+  clearGroup(maskGroup);
+  const cfg = maskConfigs[type];
+  const pointMaterial = new THREE.PointsMaterial({
+    color: cfg.color,
+    size: 0.02,
+    sizeAttenuation: true
+  });
+
+  // Create geometry for point cloud mask
+  const geometry = new THREE.BufferGeometry();
+  const positions = [];
+  const colors = [];
+  
+  // Base mask shape - varies by type
+  switch(type) {
+    case 'surgical':
+      // Simple rectangular mask
+      for(let x = -0.12; x <= 0.12; x += 0.008) {
+        for(let y = -0.08; y <= 0.04; y += 0.006) {
+          positions.push(x, y, -0.1);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'n95':
+      // Curved respirator shape
+      for(let i = 0; i < 64; i++) {
+        const a = i/64 * Math.PI;
+        for(let j = 0; j < 8; j++) {
+          const r = 0.1 + j * 0.01;
+          positions.push(Math.cos(a)*r, Math.sin(a)*0.06 - 0.02, -0.12 + j*0.01);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'full_face':
+      // Full face shield
+      for(let i = 0; i < 128; i++) {
+        const a = i/128 * Math.PI * 2;
+        for(let j = 0; j < 12; j++) {
+          const r = 0.15 + j * 0.008;
+          positions.push(Math.cos(a)*r, Math.sin(a)*0.1, -0.15);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'goggle_mask':
+      // Goggle area + mask
+      for(let x = -0.14; x <= 0.14; x += 0.01) {
+        for(let y = -0.06; y <= 0.08; y += 0.008) {
+          positions.push(x, y, -0.12);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      // Goggle frames
+      for(let side = -1; side <= 1; side += 2) {
+        for(let i = 0; i < 32; i++) {
+          const a = i/32 * Math.PI * 2;
+          positions.push(side*0.08 + Math.cos(a)*0.04, 0.03 + Math.sin(a)*0.03, -0.11);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'tactical':
+      // Tactical mask with filter areas
+      for(let x = -0.13; x <= 0.13; x += 0.01) {
+        for(let y = -0.09; y <= 0.05; y += 0.008) {
+          positions.push(x, y, -0.13);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      // Filter cartridges
+      for(let side = -1; side <= 1; side += 2) {
+        for(let i = 0; i < 16; i++) {
+          const a = i/16 * Math.PI * 2;
+          positions.push(side*0.1 + Math.cos(a)*0.03, -0.05 + Math.sin(a)*0.02, -0.15);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  
+  const pointCloud = new THREE.Points(geometry, pointMaterial);
+  maskGroup.add(pointCloud);
+
+  maskGroup.scale.setScalar(cfg.scale);
+  maskGroup.position.y = cfg.y;
+  maskGroup.position.z = cfg.z;
+  maskEl.textContent = `MASK: ${type.toUpperCase().replace('_',' ')}`;
+  log(`MASK APPLIED: ${type}`);
+}
+
+function createPointCloudAddon(type) {
+  // Remove existing addon
+  if (maskGroup.children.length > 1) {
+    maskGroup.remove(maskGroup.children[1]);
+  }
+  
+  if (type === 'none') {
+    addonEl.textContent = 'ADDON: NONE';
+    currentAddon = null;
+    log('ADDON REMOVED');
+    return;
+  }
+  
+  const cfg = addonConfigs[type];
+  const pointMaterial = new THREE.PointsMaterial({
+    color: cfg.color,
+    size: 0.015,
+    sizeAttenuation: true
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  const positions = [];
+  const colors = [];
+  
+  switch(type) {
+    case 'comms':
+      // Headset shape
+      for(let side = -1; side <= 1; side += 2) {
+        for(let i = 0; i < 32; i++) {
+          const a = i/32 * Math.PI * 2;
+          positions.push(side*0.15 + Math.cos(a)*0.04, 0.08 + Math.sin(a)*0.03, -0.08);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      // Headband
+      for(let i = 0; i < 64; i++) {
+        const a = i/64 * Math.PI;
+        positions.push(Math.cos(a)*0.18, 0.12, -0.05);
+        colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+      }
+      break;
+      
+    case 'filter':
+      // Filter cartridge
+      for(let i = 0; i < 32; i++) {
+        const a = i/32 * Math.PI * 2;
+        for(let j = 0; j < 8; j++) {
+          positions.push(0.12 + Math.cos(a)*0.03, -0.04 + Math.sin(a)*0.02, -0.18 + j*0.005);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'visor':
+      // Clear visor
+      for(let x = -0.16; x <= 0.16; x += 0.012) {
+        for(let y = -0.04; y <= 0.12; y += 0.01) {
+          positions.push(x, y, -0.09);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+      
+    case 'sensor':
+      // Vital sensors
+      for(let i = 0; i < 3; i++) {
+        for(let j = 0; j < 16; j++) {
+          const a = j/16 * Math.PI * 2;
+          positions.push(-0.08 + i*0.08, 0.06, -0.11 + Math.cos(a)*0.01);
+          colors.push(cfg.color >> 16 & 0xff, cfg.color >> 8 & 0xff, cfg.color & 0xff);
+        }
+      }
+      break;
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  
+  const pointCloud = new THREE.Points(geometry, pointMaterial);
+  maskGroup.add(pointCloud);
+
+  addonEl.textContent = `ADDON: ${type.toUpperCase()}`;
+  currentAddon = pointCloud;
+  log(`ADDON APPLIED: ${type}`);
+}
+
+function animate(time = 0) {
+  const seconds = time * 0.001;
+
+  if (isWebcamActive) {
+    updateFacePointCloud();
+    
+    // Auto-rotate slowly
+    facePoints.rotation.y += 0.002;
+    maskGroup.rotation.y += 0.002;
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+async function startWebcam() {
+  if (isWebcamActive) return;
+  log('INITIALIZING MEDICAL POINT CLOUD...');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { 
+        width: { ideal: 1280 }, 
+        height: { ideal: 720 }, 
+        facingMode: 'user' 
+      },
+      audio: false
+    });
+    
+    video.srcObject = stream;
+    video.play();
+    
+    // Create 2D canvas for processing video frames
+    canvas2D = document.createElement('canvas');
+    canvas2D.width = 720;
+    canvas2D.height = 720;
+    ctx2D = canvas2D.getContext('2d');
+    
+    // Wait for video to be ready
+    video.addEventListener('loadeddata', function() {
+      isWebcamActive = true;
+      trackEl.textContent = 'TRACKING: LOCKED';
+      trackEl.classList.add('locked');
+      log('WEBCAM ACTIVE - FACE POINT CLOUD ACTIVE');
+    });
+    
+  } catch (e) {
+    log('ERROR: ' + (e && e.message ? e.message : String(e)));
+    isWebcamActive = false;
+  }
+}
+
+function exportJSON() {
+  const payload = {
+    mask: maskEl.textContent.replace('MASK: ', ''),
+    addon: addonEl.textContent.replace('ADDON: ', ''),
+    timestamp: Date.now()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'medical_mask_pointcloud.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  log('EXPORTED POINT CLOUD CONFIG');
+}
+
+document.getElementById('start').onclick = startWebcam;
+document.getElementById('mask-select').onchange = e => {
+  currentMask = e.target.value;
+  createPointCloudMask(currentMask);
+};
+document.getElementById('addon-select').onchange = e => {
+  currentAddon = e.target.value;
+  createPointCloudAddon(currentAddon);
+};
+
+init3D();
+log('MEDICAL POINT CLOUD SYSTEM READY');
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
