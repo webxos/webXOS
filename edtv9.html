@@ -31,6 +31,7 @@
   <div id="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
   <script>
     const statusEl = document.getElementById('status');
     function log(level,msg){
@@ -41,22 +42,52 @@
       statusEl.prepend(div);
     }
 
-    // Simple Three.js scene
+    // Scene setup
     const scene=new THREE.Scene();
     const camera=new THREE.PerspectiveCamera(60,window.innerWidth/(window.innerHeight-52),0.1,1000);
     camera.position.set(0,2,6);
     const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('viewport')});
     renderer.setSize(window.innerWidth,window.innerHeight-52);
+    const controls=new THREE.OrbitControls(camera,renderer.domElement);
+    controls.enableDamping=true;
+    controls.dampingFactor=0.05;
+
     const grid=new THREE.GridHelper(20,20,0x335577,0x223344);
     scene.add(grid);
     const light=new THREE.HemisphereLight(0x88aaff,0x223344,0.8);
     scene.add(light);
 
+    // Point cloud placeholder
+    let points=null;
+    function createPointCloud(){
+      const geometry=new THREE.BufferGeometry();
+      const numPoints=2000;
+      const positions=new Float32Array(numPoints*3);
+      for(let i=0;i<numPoints;i++){
+        positions[i*3+0]=(Math.random()-0.5)*10;
+        positions[i*3+1]=(Math.random()-0.5)*10;
+        positions[i*3+2]=(Math.random()-0.5)*10;
+      }
+      geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
+      const material=new THREE.PointsMaterial({color:0xff8844,size:0.05});
+      points=new THREE.Points(geometry,material);
+      scene.add(points);
+      log('info','Demo point cloud generated.');
+    }
+
     function animate(){
       requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene,camera);
     }
     animate();
+
+    // Resize handler
+    window.addEventListener('resize',()=>{
+      camera.aspect=window.innerWidth/(window.innerHeight-52);
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth,window.innerHeight-52);
+    });
 
     // UI handlers
     document.getElementById('depthScale').addEventListener('input',e=>{
@@ -67,19 +98,64 @@
     });
     document.getElementById('pointSize').addEventListener('input',e=>{
       log('info','Point size set to '+e.target.value);
+      if(points) points.material.size=parseFloat(e.target.value)*0.02;
     });
 
-    document.getElementById('btnStart').onclick=()=>{
+    let stream=null;
+    let currentDeviceId=null;
+
+    async function initCamera(){
       if(location.protocol!=='https:' && location.hostname!=='localhost'){
-        log('critical','Camera requires HTTPS or localhost. Running in demo mode without webcam.');
+        log('critical','Camera requires HTTPS or localhost. Running in demo mode.');
+        createPointCloud();
         return;
       }
-      log('info','Start pressed — webcam init would go here.');
+      try{
+        const constraints={video:{deviceId:currentDeviceId?{exact:currentDeviceId}:undefined}};
+        stream=await navigator.mediaDevices.getUserMedia(constraints);
+        log('info','Camera stream started.');
+        createPointCloud(); // Replace with depth→point cloud pipeline
+        document.getElementById('btnStop').disabled=false;
+      }catch(err){
+        log('error','Camera init failed: '+err.message);
+      }
+    }
+
+    document.getElementById('btnStart').onclick=()=>initCamera();
+    document.getElementById('btnStop').onclick=()=>{
+      if(stream){
+        stream.getTracks().forEach(t=>t.stop());
+        stream=null;
+        log('info','Camera stopped.');
+      }
+      document.getElementById('btnStop').disabled=true;
     };
-    document.getElementById('btnStop').onclick=()=>log('info','Stop pressed.');
-    document.getElementById('btnSwitch').onclick=()=>log('info','Switch camera pressed.');
-    document.getElementById('btnClear').onclick=()=>log('info','Clear map pressed.');
+    document.getElementById('btnSwitch').onclick=async()=>{
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const cams=devices.filter(d=>d.kind==='videoinput');
+      if(cams.length>1){
+        const idx=cams.findIndex(d=>d.deviceId===currentDeviceId);
+        const next=cams[(idx+1)%cams.length];
+        currentDeviceId=next.deviceId;
+        log('info','Switching to camera: '+(next.label||'unknown'));
+        if(stream){
+          stream.getTracks().forEach(t=>t.stop());
+          stream=null;
+        }
+        initCamera();
+      }else{
+        log('warn','No alternate camera found.');
+      }
+    };
+    document.getElementById('btnClear').onclick=()=>{
+      if(points){
+        scene.remove(points);
+        points.geometry.dispose();
+        points.material.dispose();
+        points=null;
+        log('info','Point cloud cleared.');
+      }
+    };
   </script>
 </body>
 </html>
-
