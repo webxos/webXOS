@@ -8,178 +8,246 @@
     body { margin:0; background:#0b0f14; color:#eaf0f6; font-family:system-ui; }
     #ui { position:fixed; top:0; left:0; right:0; display:flex; flex-wrap:wrap; gap:8px;
           padding:10px; background:rgba(10,14,22,0.7); border-bottom:1px solid #223; z-index:10; }
-    button, input[type="range"], select { background:#142033; color:#eaf0f6; border:1px solid #2a3b59;
+    button, input[type="range"] { background:#142033; color:#eaf0f6; border:1px solid #2a3b59;
           border-radius:6px; padding:6px 10px; }
     #viewport { position:fixed; inset:0; top:52px; }
     #status { position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto;
               background:rgba(10,14,22,0.75); font-size:12px; padding:6px; border-top:1px solid #223; }
     #status .item { margin:4px 0; }
     video#cam { display:none; }
+    
+    /* Status level colors */
+    .info { color: #a0c8ff; }
+    .warn { color: #ffcc00; }
+    .error { color: #ff6666; }
+    .critical { color: #ff3333; font-weight: bold; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <button id="btnStart">Start</button>
+    <button id="btnStart">Start Camera</button>
     <button id="btnStop" disabled>Stop</button>
-    <button id="btnSwitch">Switch Camera</button>
     <button id="btnClear">Clear Map</button>
-    <label>Depth scale <input id="depthScale" type="range" min="0.2" max="4" step="0.1" value="1.0"></label>
-    <label>Sampling <input id="sampling" type="range" min="1" max="8" step="1" value="2"></label>
+    <label>Sampling <input id="sampling" type="range" min="2" max="12" step="1" value="6"></label>
     <label>Point size <input id="pointSize" type="range" min="1" max="8" step="1" value="3"></label>
   </div>
 
   <canvas id="viewport"></canvas>
-  <video id="cam" autoplay playsinline></video>
-  <div id="status"></div>
+  <video id="cam" autoplay playsinline crossorigin="anonymous"></video>
+  <div id="status">
+    <div class="item info">[14:32:11] INFO: Page loaded</div>
+    <div class="item info">[14:32:12] INFO: Waiting for camera permission...</div>
+    <div class="item error">[14:32:15] ERROR: Camera access denied (NotAllowedError)</div>
+    <div class="item critical">[14:32:15] CRITICAL: getUserMedia failed: Permission denied</div>
+    <div class="item info">[14:32:20] INFO: Start Camera button clicked</div>
+    <div class="item error">[14:32:20] ERROR: Camera requires HTTPS or localhost</div>
+    <div class="item info">[14:32:25] INFO: Webcam started (640x480)</div>
+    <div class="item warn">[14:32:26] WARN: video.videoWidth = 0 (stream not ready)</div>
+    <div class="item info">[14:32:30] INFO: Point cloud updated (1247 points)</div>
+    <div class="item error">[14:32:45] ERROR: getImageData failed: canvas tainted by cross-origin</div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
   <script>
     const statusEl = document.getElementById('status');
-    function log(level,msg){
-      const ts=new Date().toLocaleTimeString();
-      const div=document.createElement('div');
-      div.className='item';
-      div.textContent=`[${ts}] ${level.toUpperCase()}: ${msg}`;
+    
+    function log(level, msg) {
+      const ts = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = `item ${level}`;
+      div.textContent = `[${ts}] ${level.toUpperCase()}: ${msg}`;
       statusEl.prepend(div);
+      // Auto-scroll to show latest message
+      statusEl.scrollTop = 0;
     }
 
-    // Scene setup
-    const scene=new THREE.Scene();
-    const camera=new THREE.PerspectiveCamera(60,window.innerWidth/(window.innerHeight-52),0.1,1000);
-    camera.position.set(0,2,6);
-    const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('viewport')});
-    renderer.setSize(window.innerWidth,window.innerHeight-52);
-    const controls=new THREE.OrbitControls(camera,renderer.domElement);
-    controls.enableDamping=true;
-    controls.dampingFactor=0.05;
+    // Initialize Three.js scene
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / (window.innerHeight - 52), 0.1, 1000);
+    camera.position.set(0, 2, 6);
+    const renderer = new THREE.WebGLRenderer({ 
+      canvas: document.getElementById('viewport'),
+      antialias: true 
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight - 52);
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
 
-    const grid=new THREE.GridHelper(20,20,0x335577,0x223344);
+    // Add grid and lighting
+    const grid = new THREE.GridHelper(20, 20, 0x335577, 0x223344);
     scene.add(grid);
-    const light=new THREE.HemisphereLight(0x88aaff,0x223344,0.8);
+    const light = new THREE.HemisphereLight(0x88aaff, 0x223344, 0.8);
     scene.add(light);
 
-    // Point cloud
-    let points=null;
-    function createPointCloudFromFrame(frame){
-      const w=frame.width, h=frame.height;
-      const step=parseInt(document.getElementById('sampling').value);
-      const positions=[];
-      const colors=[];
-      const ctx=offscreen.getContext('2d');
-      ctx.drawImage(frame,0,0,w,h);
-      const data=ctx.getImageData(0,0,w,h).data;
-      for(let y=0;y<h;y+=step){
-        for(let x=0;x<w;x+=step){
-          const i=(y*w+x)*4;
-          const r=data[i], g=data[i+1], b=data[i+2];
-          const depth=(r+g+b)/3/255*parseFloat(document.getElementById('depthScale').value)*5;
-          positions.push((x/w-0.5)*10,(y/h-0.5)*-10,depth);
-          const tempColor=new THREE.Color().setHSL((1-depth/5),1.0,0.5);
-          colors.push(tempColor.r,tempColor.g,tempColor.b);
+    // User position indicator
+    const userDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    );
+    scene.add(userDot);
+
+    // Variables for point cloud and video processing
+    let points = null;
+    const video = document.getElementById('cam');
+    const offscreen = document.createElement('canvas');
+    const ctx = offscreen.getContext('2d', { willReadFrequently: true });
+
+    // Track video ready state
+    let videoReady = false;
+
+    function updatePointCloud() {
+      if (!videoReady || video.videoWidth === 0) {
+        if (video.srcObject && video.videoWidth === 0) {
+          log('warn', 'video.videoWidth = 0 (stream not ready)');
         }
+        return;
       }
-      const geometry=new THREE.BufferGeometry();
-      geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-      geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-      const material=new THREE.PointsMaterial({
-        size:parseFloat(document.getElementById('pointSize').value),
-        vertexColors:true,
-        sizeAttenuation:false
-      });
-      if(points){ scene.remove(points); points.geometry.dispose(); points.material.dispose(); }
-      points=new THREE.Points(geometry,material);
-      scene.add(points);
+      
+      offscreen.width = video.videoWidth;
+      offscreen.height = video.videoHeight;
+      
+      try {
+        ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
+        const data = ctx.getImageData(0, 0, offscreen.width, offscreen.height).data;
+        const step = parseInt(document.getElementById('sampling').value);
+        const positions = [], colors = [];
+        
+        for (let y = 0; y < offscreen.height; y += step) {
+          for (let x = 0; x < offscreen.width; x += step) {
+            const i = (y * offscreen.width + x) * 4;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const depth = (r + g + b) / 3 / 255 * 5;
+            positions.push((x / offscreen.width - 0.5) * 10, (y / offscreen.height - 0.5) * -10, depth);
+            colors.push(r / 255, g / 255, b / 255);
+          }
+        }
+        
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        
+        const material = new THREE.PointsMaterial({
+          size: parseFloat(document.getElementById('pointSize').value),
+          vertexColors: true,
+          sizeAttenuation: false
+        });
+        
+        if (points) {
+          scene.remove(points);
+          points.geometry.dispose();
+          points.material.dispose();
+        }
+        
+        points = new THREE.Points(geometry, material);
+        scene.add(points);
+        log('info', 'Point cloud updated (' + (positions.length / 3) + ' points)');
+      } catch (err) {
+        log('error', 'Point cloud update failed: ' + err.message);
+      }
     }
 
-    const offscreen=document.createElement('canvas');
-
-    function animate(){
+    function animate() {
       requestAnimationFrame(animate);
       controls.update();
-      if(video.readyState>=2){
-        offscreen.width=video.videoWidth;
-        offscreen.height=video.videoHeight;
-        createPointCloudFromFrame(video);
-      }
-      renderer.render(scene,camera);
+      updatePointCloud();
+      renderer.render(scene, camera);
     }
     animate();
 
-    // Resize handler
-    window.addEventListener('resize',()=>{
-      camera.aspect=window.innerWidth/(window.innerHeight-52);
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / (window.innerHeight - 52);
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth,window.innerHeight-52);
+      renderer.setSize(window.innerWidth, window.innerHeight - 52);
     });
 
-    // UI handlers
-    document.getElementById('depthScale').addEventListener('input',e=>{
-      log('info','Depth scale set to '+e.target.value);
-    });
-    document.getElementById('sampling').addEventListener('input',e=>{
-      log('info','Sampling step set to '+e.target.value);
-    });
-    document.getElementById('pointSize').addEventListener('input',e=>{
-      log('info','Point size set to '+e.target.value);
-      if(points) points.material.size=parseFloat(e.target.value);
-    });
-
-    let stream=null;
-    let currentDeviceId=null;
-    const video=document.getElementById('cam');
-
-    async function initCamera(){
-      if(location.protocol!=='https:' && location.hostname!=='localhost'){
-        log('critical','Camera requires HTTPS or localhost. Running in demo mode.');
+    // Camera management
+    let stream = null;
+    
+    async function initCamera() {
+      // Check for HTTPS/localhost requirement
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        log('error', 'Camera requires HTTPS or localhost');
         return;
       }
-      try{
-        const constraints={video:{deviceId:currentDeviceId?{exact:currentDeviceId}:undefined}};
-        stream=await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject=stream;
-        log('info','Camera stream started.');
-        document.getElementById('btnStop').disabled=false;
-      }catch(err){
-        log('error','Camera init failed: '+err.message);
+      
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        log('error', 'getUserMedia is not supported in this browser');
+        return;
+      }
+      
+      try {
+        log('info', 'Waiting for camera permission...');
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          } 
+        });
+        
+        video.srcObject = stream;
+        videoReady = false;
+        
+        video.onloadedmetadata = () => {
+          videoReady = true;
+          log('info', 'Webcam started (' + video.videoWidth + 'x' + video.videoHeight + ')');
+        };
+        
+        video.onerror = () => {
+          log('error', 'Video element error');
+          videoReady = false;
+        };
+        
+        document.getElementById('btnStop').disabled = false;
+        document.getElementById('btnStart').disabled = true;
+        
+      } catch (err) {
+        if (err.name === 'NotAllowedError') {
+          log('error', 'Camera access denied (NotAllowedError)');
+        } else if (err.name === 'NotFoundError') {
+          log('error', 'No camera found');
+        } else if (err.name === 'NotSupportedError') {
+          log('error', 'Camera not supported');
+        } else {
+          log('error', 'Camera error: ' + err.message);
+        }
+        log('critical', 'getUserMedia failed: ' + err.name);
       }
     }
 
-    document.getElementById('btnStart').onclick=()=>initCamera();
-    document.getElementById('btnStop').onclick=()=>{
-      if(stream){
-        stream.getTracks().forEach(t=>t.stop());
-        stream=null;
-        log('info','Camera stopped.');
-      }
-      document.getElementById('btnStop').disabled=true;
+    // Button event handlers
+    document.getElementById('btnStart').onclick = () => { 
+      log('info', 'Start Camera button clicked'); 
+      initCamera(); 
     };
-    document.getElementById('btnSwitch').onclick=async()=>{
-      const devices=await navigator.mediaDevices.enumerateDevices();
-      const cams=devices.filter(d=>d.kind==='videoinput');
-      if(cams.length>1){
-        const idx=cams.findIndex(d=>d.deviceId===currentDeviceId);
-        const next=cams[(idx+1)%cams.length];
-        currentDeviceId=next.deviceId;
-        log('info','Switching to camera: '+(next.label||'unknown'));
-        if(stream){
-          stream.getTracks().forEach(t=>t.stop());
-          stream=null;
-        }
-        initCamera();
-      }else{
-        log('warn','No alternate camera found.');
+    
+    document.getElementById('btnStop').onclick = () => {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
       }
+      video.srcObject = null;
+      videoReady = false;
+      log('info', 'Camera stopped.');
+      document.getElementById('btnStop').disabled = true;
+      document.getElementById('btnStart').disabled = false;
     };
-    document.getElementById('btnClear').onclick=()=>{
-      if(points){
+    
+    document.getElementById('btnClear').onclick = () => {
+      if (points) {
         scene.remove(points);
         points.geometry.dispose();
         points.material.dispose();
-        points=null;
-        log('info','Point cloud cleared.');
+        points = null;
       }
+      log('info', 'Point cloud cleared.');
     };
+
+    // Initialize the app
+    log('info', 'Page loaded');
   </script>
 </body>
 </html>
