@@ -14,6 +14,7 @@
     #status { position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto;
               background:rgba(10,14,22,0.75); font-size:12px; padding:6px; border-top:1px solid #223; }
     #status .item { margin:4px 0; }
+    video#cam { display:none; }
   </style>
 </head>
 <body>
@@ -28,6 +29,7 @@
   </div>
 
   <canvas id="viewport"></canvas>
+  <video id="cam" autoplay playsinline></video>
   <div id="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -57,27 +59,49 @@
     const light=new THREE.HemisphereLight(0x88aaff,0x223344,0.8);
     scene.add(light);
 
-    // Point cloud placeholder
+    // Point cloud
     let points=null;
-    function createPointCloud(){
-      const geometry=new THREE.BufferGeometry();
-      const numPoints=2000;
-      const positions=new Float32Array(numPoints*3);
-      for(let i=0;i<numPoints;i++){
-        positions[i*3+0]=(Math.random()-0.5)*10;
-        positions[i*3+1]=(Math.random()-0.5)*10;
-        positions[i*3+2]=(Math.random()-0.5)*10;
+    function createPointCloudFromFrame(frame){
+      const w=frame.width, h=frame.height;
+      const step=parseInt(document.getElementById('sampling').value);
+      const positions=[];
+      const colors=[];
+      const ctx=offscreen.getContext('2d');
+      ctx.drawImage(frame,0,0,w,h);
+      const data=ctx.getImageData(0,0,w,h).data;
+      for(let y=0;y<h;y+=step){
+        for(let x=0;x<w;x+=step){
+          const i=(y*w+x)*4;
+          const r=data[i], g=data[i+1], b=data[i+2];
+          const depth=(r+g+b)/3/255*parseFloat(document.getElementById('depthScale').value)*5;
+          positions.push((x/w-0.5)*10,(y/h-0.5)*-10,depth);
+          const tempColor=new THREE.Color().setHSL((1-depth/5),1.0,0.5);
+          colors.push(tempColor.r,tempColor.g,tempColor.b);
+        }
       }
-      geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
-      const material=new THREE.PointsMaterial({color:0xff8844,size:0.05});
+      const geometry=new THREE.BufferGeometry();
+      geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+      geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+      const material=new THREE.PointsMaterial({
+        size:parseFloat(document.getElementById('pointSize').value),
+        vertexColors:true,
+        sizeAttenuation:false
+      });
+      if(points){ scene.remove(points); points.geometry.dispose(); points.material.dispose(); }
       points=new THREE.Points(geometry,material);
       scene.add(points);
-      log('info','Demo point cloud generated.');
     }
+
+    const offscreen=document.createElement('canvas');
 
     function animate(){
       requestAnimationFrame(animate);
       controls.update();
+      if(video.readyState>=2){
+        offscreen.width=video.videoWidth;
+        offscreen.height=video.videoHeight;
+        createPointCloudFromFrame(video);
+      }
       renderer.render(scene,camera);
     }
     animate();
@@ -98,23 +122,23 @@
     });
     document.getElementById('pointSize').addEventListener('input',e=>{
       log('info','Point size set to '+e.target.value);
-      if(points) points.material.size=parseFloat(e.target.value)*0.02;
+      if(points) points.material.size=parseFloat(e.target.value);
     });
 
     let stream=null;
     let currentDeviceId=null;
+    const video=document.getElementById('cam');
 
     async function initCamera(){
       if(location.protocol!=='https:' && location.hostname!=='localhost'){
         log('critical','Camera requires HTTPS or localhost. Running in demo mode.');
-        createPointCloud();
         return;
       }
       try{
         const constraints={video:{deviceId:currentDeviceId?{exact:currentDeviceId}:undefined}};
         stream=await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject=stream;
         log('info','Camera stream started.');
-        createPointCloud(); // Replace with depth→point cloud pipeline
         document.getElementById('btnStop').disabled=false;
       }catch(err){
         log('error','Camera init failed: '+err.message);
