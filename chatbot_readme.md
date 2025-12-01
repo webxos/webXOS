@@ -5,7 +5,7 @@ Train an AI assistant directly in your browser using your own `.md` files. No ba
 
 ![[CHATBOT BANNER](https://github.com/webxos/webXOS/blob/main/assets/chatbot.jpeg)](https://github.com/webxos/webXOS/blob/main/assets/chatbot.jpeg)  
 
-# WEBXOS CHATBOT — UPDATES NOVEMBER 25, 2025
+# UNDER DEVELOPMENT — UPDATED DECEMBER 1, 2025
 
 **Local, private, offline-first AI chatbot with full markdown knowledge-base + sandboxed JavaScript/Python script execution**
 
@@ -15,9 +15,10 @@ Train an AI assistant directly in your browser using your own `.md` files. No ba
 ![Pyodide](https://img.shields.io/badge/Powered_by-Pyodide-39FF14)  
 ![No backend](https://img.shields.io/badge/No_backend-100%25_local-blue)
 
-**KNOWN ERRORS**
-1: Some of the javascript catalog is broken the scripts do not work (js calculator etc)
-2. Fix coming soon for all catalog scripts
+**WARNING KNOWN ERRORS**
+
+1: Some of the js/py catalog is broken the scripts do not work (calculator etc)
+2. Fix coming soon for all script library templates will work.
 
 ## Features
 
@@ -29,26 +30,14 @@ Train an AI assistant directly in your browser using your own `.md` files. No ba
 - **Export / Import everything** in a single markdown file
 - **100% offline** – works without internet after first load (Pyodide is cached)
 - **No server, no tracking, no accounts**
+- **Lightweight script execution (js and py skulpt/pyodide)**
+  
+## Usage
 
-## Quick Start (0-click)
+*Follow the in app guide for proper usage*
 
-1. Save the file as `webxos-chatbot.html`
-2. Double-click it → opens in your browser
-3. Drag & drop any `.md` files onto the **Train** tab
-4. Click **Auto-train**
-5. Go to **Chat** and ask anything → the bot now knows everything you just fed it
+### Context Window
 
-## Detailed Usage
-
-### 1. Adding Knowledge
-
-- Go to **Train** tab
-- Drag & drop one or many markdown files (`.md`, `.markdown`, `.mdx`)
-- Click **Auto-train**
-- Each file becomes a separate “Knowledge Pack”
-
-### 2. Editing Knowledge (live)
-
-- Click **Knowledge Packs** button → modal opens
+- Click **Context Window** button → add markdown files with context for the chatbot
 - Click any pack → edit the markdown on the right
-- Changes are saved instantly and affect answers immediately
+- Changes are saved instantly and affect suggestions immediately to start working with chatbot
