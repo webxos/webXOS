@@ -1,273 +1,281 @@
-# **webXOS: TOKEN FORGED**
+# **webXOS: TOKEN FORGED - Complete System Guide**
 
-by webxos.netlify.pp
+## **🔗 NETWORK VALIDATION SYSTEM**
 
-## **🚀 What Is This?**
-
-**webXOS: TOKEN FORGED** is a retro-style terminal simulator that demonstrates unlimited token creation and decentralized mining using 4 neural network "agents."
-
-**Think of it as:**
-- A **sandbox** for understanding token economics
-- A **visualization tool** for decentralized mining networks
-- An **educational platform** for PyTorch AI models
-- A **markdown-native wallet** system
-
-## **🎯 Core Philosophy**
+### **How 4-Agent Validation Works:**
+1. **Four PyTorch Neural Networks** (agents) work in parallel
+2. **Each agent generates unique SHA-256 hashes** using different architectures
+3. **Consensus requires 4/4 agents** to validate any network creation
+4. **Hashes combine** to create network genesis hash
 
 ```
-UNLIMITED SUPPLY = NO SCARCITY = TRUE ACCESSIBILITY
+CREATE NETWORK → Each Agent Generates Hash → Combined Validation → Network Created
+     ↓                ↓              ↓              ↓
+  Network   +  Agent-A Hash + Agent-B Hash + Agent-C Hash + Agent-D Hash = Genesis Hash
 ```
 
-Unlike traditional crypto with fixed caps, this demonstrates what happens when everyone can create tokens freely.
-
-## **🔧 How It Works (In 3 Steps)**
-
-### **1. AUTO-AUTHENTICATION**
-- No signups, no logins
-- Wallet auto-generates on load
-- You're immediately authenticated
-
-### **2. 4-AGENT MINING SYSTEM**
-Four PyTorch neural networks work together:
-
-| Agent | Network Type | Purpose |
-|-------|-------------|---------|
-| **Agent-A** | Sequential | Basic hash generation |
-| **Agent-B** | Convolutional | Pattern recognition |
-| **Agent-C** | Transformer | Complex computation |
-| **Agent-D** | Modular | Custom operations |
-
-**Each agent contributes 25% to total hash rate.**
-
-### **3. MARKDOWN-FIRST WALLETS**
-Your entire wallet exports as a single `.md` file containing:
-- Wallet address
-- All 4 PyTorch agent templates
-- Network creation history
-- Mining statistics
-
-## **🎮 Quick Start Guide**
-
-### **1. CREATE YOUR FIRST NETWORK**
-```
-Command: create
-Or click: CREATE NETWORK
-```
-
-Enter any name. Network creates with:
-- ✅ Unlimited token supply (∞)
-- ✅ Auto-generated symbol
-- ✅ 4-agent validation
-
-### **2. START MINING**
-```
-Command: mine
-Or click: START MINING
-```
-
-Watch as 4 agents work together:
-- Each generates unique hashes
-- Combined hash rate displayed in real-time
-- Unlimited tokens accumulate
-
-### **3. EXPORT YOUR WALLET**
-```
-Command: export
-Or click: EXPORT WALLET
-```
-
-Get a `.md` file with:
-```
-# webXOS: TOKEN FORGED WALLET ∞
-## WALLET INFORMATION
-- Address: 0x...
-- Balance: ∞ tokens
-- Total Hashes: [number]
-
-## 4-AGENT SYSTEM
-### AGENT-A
-- PyTorch Template: [code]
-- Status: mining/idle
-- Hashes Generated: [number]
-```
-
-## **💡 Key Concepts for Web3 Communities**
-
-### **❌ What It's NOT:**
-- **Not a real blockchain** - It's a simulation
-- **Not for real transactions** - No monetary value
-- **Not replacing existing tokens** - Educational tool only
-
-### **✅ What It DEMONSTRATES:**
-- **Decentralized consensus** - 4 agents must agree
-- **Proof-of-work concepts** - Hash generation visualized
-- **Wallet interoperability** - Markdown as universal format
-- **Token economics** - Unlimited vs limited supply
-
-### **🔗 Web3 Parallels:**
-```
-This App          ↔️ Real Web3
------------       -----------
-4 Agents          ↔️ Network Nodes
-Markdown Wallet   ↔️ JSON/Keystore Wallet
-Unlimited Tokens  ↔️ Governance/Utility Tokens
-Hash Generation   ↔️ Proof-of-Work/Proof-of-Stake
-```
-
-## **📊 The 4-Agent Architecture**
-
-Each agent represents a **real PyTorch neural network**:
-
+### **Technical Validation Flow:**
 ```python
-# Agent-A: Sequential (Simple)
-nn.Sequential(
-    nn.Linear(128, 64),
-    nn.ReLU(),
-    nn.Linear(64, 32)
-)
+# Each agent contributes unique computation
+Agent-A: Sequential Hash      → 25% validation weight
+Agent-B: Convolutional Hash   → 25% validation weight  
+Agent-C: Transformer Hash     → 25% validation weight
+Agent-D: Modular Hash         → 25% validation weight
 
-# Agent-B: Convolutional (Patterns)
-nn.Sequential(
-    nn.Conv1d(1, 32, 3),
-    nn.ReLU(),
-    nn.Flatten(),
-    nn.Linear(32 * 30, 64)
-)
-
-# Agent-C: Transformer (Complex)
-nn.TransformerEncoder(
-    nn.TransformerEncoderLayer(
-        d_model=512,
-        nhead=8
-    ),
-    num_layers=3
-)
-
-# Agent-D: Modular (Custom)
-class ModularNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.layer1 = nn.Linear(256, 128)
-        self.layer2 = nn.Linear(128, 64)
+# Combined validation = 100% consensus
+Network = Valid only when ALL 4 agents contribute
 ```
 
-**Why PyTorch?** It shows AI/ML can be part of decentralized systems.
-
-## **🔄 Workflow for Community Use**
-
-### **For DAOs:**
-1. **Create network** named after your DAO
-2. **Mine tokens** representing governance power
-3. **Export wallet** to document member contributions
-4. **Import wallet** to restore state on any device
-
-### **For Developers:**
-1. **Study the PyTorch templates** in markdown exports
-2. **Experiment with unlimited supply economics**
-3. **Test wallet import/export workflows**
-4. **Understand multi-agent consensus**
-
-### **For Educators:**
-1. **Show token creation** without financial risk
-2. **Visualize mining** with real-time graphs
-3. **Explain neural networks** in decentralized context
-4. **Demonstrate markdown** as data storage
-
-## **📈 Real Use Cases for Communities**
-
-### **1. Governance Simulation**
-- Create "Voting Token" network
-- Members mine tokens through participation
-- Export wallet = voting power snapshot
-
-### **2. Contribution Tracking**
-- Each contribution = hash generated
-- 4 agents = 4 verification methods
-- Markdown wallet = contribution history
-
-### **3. Educational Workshops**
-- **Beginner:** Create token, start mining
-- **Intermediate:** Export/import wallets
-- **Advanced:** Modify PyTorch templates
-- **Expert:** Fork the codebase
-
-## **⚡ Quick Commands Reference**
-
-```
-create        - Make new network (unlimited tokens)
-mine          - Start 4-agent mining
-stop          - Stop mining
-export        - Save wallet as .md file
-import        - Load wallet from .md file
-balance       - Show wallet info (∞ tokens)
-agents        - Show agent status
-networks      - List created networks
-void          - Reset everything
-clear         - Clear terminal
-help          - Show commands
-```
-
-## **🔒 Security & Privacy**
-
-**⚠️ Important:** This is a **local, browser-based** application:
-- No server communication
-- No data collection
-- No internet required after load
-- Wallets stored in browser localStorage
-- Export to .md = full backup
-
-**Best Practices:**
-1. **Export wallet** after creating networks
-2. **Save .md files** in secure location
-3. **Import wallet** on new devices
-4. **Void session** on shared computers
-
-## **🌐 Web3 Integration Potential**
-
-While this is a simulation, it demonstrates patterns for real systems:
-
-### **Future Bridge Concepts:**
-1. **Markdown → Smart Contract:** Convert .md wallet to on-chain data
-2. **Agent Hashes → Oracle Data:** Use generated hashes as random seeds
-3. **Network Creation → DAO Factory:** Template for real token creation
-4. **4-Agent Consensus → Layer 2:** Multi-validator model
-
-## **📱 Mobile & Desktop Ready**
-
-The app works on:
-- **Desktop:** Full terminal experience
-- **Tablet:** Optimized layout
-- **Mobile:** Touch-friendly buttons
-- **Offline:** Works without internet
-
-## **🚀 Getting Started in 60 Seconds**
-
-1. **Load the HTML file** in any browser
-2. **See wallet auto-generated** (0x... displayed)
-3. **Click CREATE NETWORK** or type `create`
-4. **Click START MINING** or type `mine`
-5. **Watch 4 agents work** in real-time
-6. **Click EXPORT WALLET** or type `export`
-
-**That's it.** You're now:
-- ✅ Running a decentralized network
-- ✅ Mining unlimited tokens
-- ✅ Using PyTorch AI agents
-- ✅ Managing a markdown wallet
-
-## **🔮 Why This Matters for Web3**
-
-The future of Web3 isn't just about scarcity—it's about:
-
-1. **Accessibility** (unlimited supply = no barriers)
-2. **Education** (visual tools = better understanding)
-3. **Interoperability** (markdown = universal format)
-4. **Decentralization** (4 agents = distributed power)
-
-**webXOS: TOKEN FORGED** shows what happens when we remove artificial scarcity and focus on pure creation.
+### **How This Works:**
+- **No single point of failure** - Remove one agent, validation fails
+- **Diverse computation** - Different neural architectures = different hash patterns
+- **Transparent process** - Each step visible in terminal/markdown export
 
 ---
 
-**🎮 Start creating. Start mining. Unlimited tokens await.**
+## **🔒 WALLET SECURITY SYSTEM**
 
-*No signup. No limits. Just pure token creation.*
+### **Three-Layer Security:**
+
+**Layer 1: Browser-Based Encryption**
+```
+Local Storage → SHA-256 Hashing → Encrypted Wallet Data
+      ↓               ↓                 ↓
+  Browser Only   No Server Storage   Cannot Export Raw
+```
+
+**Layer 2: Markdown Wallet Format**
+```
+Wallet Data → Structured Markdown → Human Readable + Machine Parsable
+     ↓               ↓                     ↓
+  No Binary     Text Format        Can Audit Manually
+```
+
+**Layer 3: Agent-Based Verification**
+```
+Import Wallet → 4 Agents Verify → Each Agent Validates Own Section
+     ↓               ↓                     ↓
+  Not Just Data   Hash Verification    Template Validation
+```
+
+### **What Gets Secured:**
+1. **Wallet Address** - Auto-generated, never transmitted
+2. **Network Hashes** - Validated by 4-agent consensus  
+3. **Inscription Log** - Cryptographically linked to wallet
+4. **Agent Templates** - Immutable PyTorch code in markdown
+
+### **What's NOT Secured (by design):**
+- **No private keys** - This is a test, your markdown file acts as a privte key/wallet/networkID verification in one
+- **No blockchain integration** - Session/Localdb simulation only, it runs on its own unique network
+- **No monetary value** - This is a unique concept token under development for testing
+
+---
+
+## **📝 INSCRIPTION SYSTEM**
+
+### **How Inscriptions Work:**
+```
+/inscript "message" → Creates Inscription Object → Saves to Wallet → Exports to Markdown
+      ↓                     ↓                         ↓                  ↓
+  User Input      Timestamp + Hash + Wallet    Local Storage    Embedded in .md file
+```
+
+### **Inscription Structure:**
+```markdown
+### Inscription #1
+- Timestamp: [ISO date]
+- ID: [SHA-256 of message + timestamp]
+- Network: [optional network context]
+- Wallet: [wallet address]
+- Message: [user text]
+
+Your inscription text here
+```
+
+### **Key Features:**
+- **Permanent** - Once created, survives export/import
+- **Ordered** - Chronological log in markdown file
+- **Network-Aware** - Can link to specific network
+- **Wallet-Bound** - Always tied to creating wallet
+
+---
+
+## **⚡ BASIC FUNCTIONS**
+
+### **Core Commands:**
+
+**CREATE NETWORK**
+```
+Input: Network name
+Output: 
+  - 4-agent validation
+  - Genesis hash
+  - Unlimited token supply
+  - Symbol (first 4 letters)
+```
+
+**START/STOP MINING**
+```
+Start: 4 agents generate hashes in parallel
+Stop: All agents idle, hash rate resets
+Mining Rate: 1 hash/100ms per agent = ~40 hashes/sec total
+```
+
+**EXPORT/IMPORT WALLET**
+```
+Export: All data → single .md file
+Import: .md file → restore complete state
+Includes: Wallet, agents, networks, inscriptions
+```
+
+**INSCRIPT**
+```
+Input: Any text message
+Output: Permanent markdown entry
+Use: Notes, updates, messages, logs
+```
+
+### **Terminal Commands:**
+```
+/create      - Create new network (unlimited tokens)
+/mine        - Start 4-agent mining  
+/stop        - Stop mining
+/export      - Save wallet as .md
+/import      - Load wallet from .md
+/balance     - Show wallet info
+/agents      - Show agent status  
+/inscript    - Create inscription
+/inscriptions- List all inscriptions
+/networks    - List created networks
+/status      - Show system status
+/clear       - Clear terminal
+/void        - Reset everything
+/help        - Show commands
+```
+
+---
+
+## **🔄 DATA FLOW**
+
+### **Full System Flow:**
+```
+1. USER ACTION (create/mine/inscript)
+   ↓
+2. 4-AGENT PROCESSING (parallel computation)
+   ↓
+3. HASH GENERATION (SHA-256 via Web Crypto API)
+   ↓
+4. LOCAL STORAGE (browser localStorage)
+   ↓
+5. MARKDOWN EXPORT (structured .md file)
+   ↓
+6. IMPORT RESTORATION (complete state recovery)
+```
+
+### **Persistence Chain:**
+```
+Browser Session → localStorage → Markdown File → New Browser Session
+      ↓                ↓              ↓                ↓
+  Temporary      Auto-save      Portable Backup    Full Restore
+```
+
+---
+
+## **🎯 QUICK REFERENCE**
+
+### **For Network Creation:**
+```
+1. Click CREATE or type /create
+2. Enter network name
+3. Watch 4 agents validate
+4. Network created with ∞ tokens
+```
+
+### **For Mining:**
+```
+1. Have at least one network
+2. Click MINE or type /mine  
+3. Watch 4 agents generate hashes
+4. Tokens: ∞ (always unlimited)
+```
+
+### **For Wallet Management:**
+```
+Export: Click EXPORT or /export → Get .md file
+Import: Click IMPORT or /import → Select .md file
+Inscript: Click INSCRIPT or /inscript → Add message
+```
+
+### **For Troubleshooting:**
+```
+No networks? → Create one first
+Not mining? → Start mining after network creation
+Lost data? → Should have exported .md file
+Want fresh start? → /void (WARNING: erases everything)
+```
+
+---
+
+## **📊 SYSTEM ARCHITECTURE SUMMARY**
+
+```
+webXOS: TOKEN FORGED
+├── 4-Agent Validation System
+│   ├── Agent-A: Sequential Network (25%)
+│   ├── Agent-B: Convolutional Network (25%)
+│   ├── Agent-C: Transformer Network (25%)
+│   └── Agent-D: Modular Network (25%)
+│
+├── Unlimited Token Economy
+│   └── All networks: ∞ supply
+│
+├── Markdown-First Wallet
+│   ├── Human-readable .md format
+│   ├── Contains PyTorch templates
+│   ├── Network history
+│   └── Inscription log
+│
+├── Local-Only Security
+│   ├── Browser storage only
+│   ├── No server communication
+│   └── Export/import via .md files
+│
+└── Terminal Interface
+    ├── Buttons for quick actions
+    ├── Commands for power users
+    └── Real-time status display
+```
+
+---
+
+## **🚀 GET STARTED IN 30 SECONDS**
+
+1. **Load the app** in any browser
+2. **Wallet auto-created** (address shown)
+3. **Click CREATE NETWORK** (enter name)
+4. **Click START MINING** (watch agents work)
+5. **Click INSCRIPT** (add a message)
+6. **Click EXPORT WALLET** (save .md file)
+
+- ✅ Running a 4-agent validation network
+- ✅ Mining unlimited tokens
+- ✅ Securing a markdown wallet
+- ✅ Creating permanent inscriptions
+
+---
+
+## **🎮 REMEMBER: DOES NOT INTEGRATE WITH ANY OTHER BLOCKCHAIN, THIS IS A UNIQUE WALLET APP**
+
+**This demonstrates:**
+- ✅ Decentralized validation concepts
+- ✅ AI/ML in consensus systems  
+- ✅ Markdown as data format
+- ✅ Unlimited token economics
+
+**This does NOT:**
+- ❌ Handle integration with other cryptocurrency - it operates on its on unique algorithm
+- ❌ Connect to API this app is made primitive and sanitized - session/localdb only
+- ❌ Store private keys - Your MARKDOWN wallet is your private key to access the tethered network
+- ❌ Have monetary value
+
+**Perfect for:** Education, prototyping, community experiments, and understanding Web3 concepts without financial risk.
