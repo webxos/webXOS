@@ -2,7 +2,7 @@
 
 *webxos.netlify.app/microseek*
 
-A minimal, browser-based text operating system inspired by terminal interfaces. Built as a single HTML file for portability, it provides file management, editing, and computation tools in a retro green-screen aesthetic. No server required—runs entirely client-side with local storage via IndexedDB.
+A minimal, browser-based text operating system agent inspired by terminal interfaces. Built as a single HTML file for portability, it provides file management, editing, and computation tools in a retro green-screen aesthetic. No server required—runs entirely client-side with local storage via IndexedDB.
 
 ## Features
 
