@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>webXOS Clipboard v1.0</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.2;
+            height: 100vh;
+            overflow: hidden;
+            cursor: text;
+        }
+
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .logo {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #0f0;
+            white-space: pre;
+            line-height: 1;
+            margin-bottom: 20px;
+            letter-spacing: 0;
+        }
+
+        .loading-bar {
+            width: 300px;
+            height: 2px;
+            background: #111;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .progress {
+            width: 0%;
+            height: 100%;
+            background: #0f0;
+            animation: load 2.5s ease-in-out forwards;
+        }
+
+        @keyframes load {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+
+        #terminal-container {
+            display: none;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            padding-bottom: 10px;
+            scroll-behavior: smooth;
+        }
+
+        .line {
+            margin-bottom: 2px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            word-break: break-word;
+        }
+
+        .prompt {
+            color: #0f0;
+        }
+
+        .cmd {
+            color: #0ff;
+        }
+
+        .response {
+            color: #0a0;
+        }
+
+        .error {
+            color: #f00;
+        }
+
+        .success {
+            color: #0f0;
+        }
+
+        .info {
+            color: #0af;
+        }
+
+        .stats {
+            color: #080;
+            font-size: 12px;
+        }
+
+        .timestamp {
+            color: #060;
+            font-size: 11px;
+        }
+
+        #input-container {
+            height: 40px;
+            background: #000;
+            border-top: 1px solid #0a0;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            flex-shrink: 0;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 20px;
+            gap: 10px;
+        }
+
+        .prompt-indicator {
+            color: #0f0;
+            margin-right: 8px;
+            flex-shrink: 0;
+            line-height: 20px;
+            height: 20px;
+        }
+
+        #input-display {
+            flex: 1;
+            position: relative;
+            height: 20px;
+            line-height: 20px;
+        }
+
+        .input-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre;
+            line-height: 20px;
+            height: 20px;
+        }
+
+        .cursor {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 8px;
+            height: 14px;
+            background: #0f0;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #111;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #0a0;
+        }
+
+        .suggestion {
+            color: #8f8;
+            font-style: italic;
+            font-size: 12px;
+        }
+
+        .welcome {
+            color: #0f0;
+            white-space: pre;
+        }
+
+        /* Prompt Links */
+        .prompt-link {
+            color: #0ff;
+            text-decoration: underline;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        .prompt-link:hover {
+            color: #0f0;
+        }
+
+        /* Modal Windows */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #000;
+            border: 2px solid #0f0;
+            z-index: 2000;
+            box-shadow: 0 0 20px #0f0;
+            padding: 20px;
+            min-width: 500px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #0a0;
+        }
+
+        .modal-title {
+            color: #0f0;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .modal-content {
+            max-height: calc(80vh - 100px);
+            overflow-y: auto;
+        }
+
+        /* Editor Styles */
+        .editor {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0a0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 10px;
+            resize: vertical;
+            margin-bottom: 10px;
+        }
+
+        .editor-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #0a0;
+            background: #111;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-label {
+            color: #0a0;
+            font-size: 12px;
+        }
+
+        .stat-value {
+            color: #0f0;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .editor-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn {
+            background: #000;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            flex: 1;
+        }
+
+        .btn:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .btn-primary {
+            background: #0a0;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .btn-primary:hover {
+            background: #0f0;
+        }
+
+        /* Export Modal */
+        .export-preview {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            color: #0a0;
+            border: 1px solid #0a0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 10px;
+            white-space: pre-wrap;
+            margin-bottom: 15px;
+            overflow-y: auto;
+        }
+
+        /* Upload Modal */
+        .upload-area {
+            border: 2px dashed #0a0;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #0f0;
+            background: #111;
+        }
+
+        .upload-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #0a0;
+        }
+
+        .upload-text {
+            color: #0a0;
+            font-size: 14px;
+        }
+
+        .upload-input {
+            display: none;
+        }
+
+        /* File Links in List */
+        .file-link {
+            color: #f0f;
+            text-decoration: underline;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        .file-link:hover {
+            color: #ff0;
+        }
+
+        /* Overlay */
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+        }
+
+        /* Send Button */
+        .send-btn {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            width: 32px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .send-btn:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="logo">
+/$$      /$$ /$$$$$$$$ /$$$$$$$  /$$   /$$  /$$$$$$   /$$$$$$ 
+| $$  /$ | $$| $$_____/| $$__  $$| $$  / $$ /$$__  $$ /$$__  $$
+| $$ /$$$| $$| $$      | $$  \ $$|  $$/ $$/| $$  \ $$| $$  \__/
+| $$/$$ $$ $$| $$$$$   | $$$$$$$  \  $$$$/ | $$  | $$|  $$$$$$ 
+| $$$$_  $$$$| $$__/   | $$__  $$  >$$  $$ | $$  | $$ \____  $$
+| $$$/ \  $$$| $$      | $$  \ $$ /$$/\  $$| $$  | $$ /$$  \ $$
+| $$/   \  $$| $$$$$$$$| $$$$$$$/| $$  \ $$|  $$$$$$/|  $$$$$$/
+|__/     \__/|________/|_______/ |__/  |__/ \______/  \______/ 
+        </div>
+        <div style="color:#0a0; margin-top:10px; font-size:12px;">loading webxos prompt system...</div>
+        <div class="loading-bar"><div class="progress"></div></div>
+    </div>
+
+    <div id="terminal-container">
+        <div id="output"></div>
+        <div id="input-container">
+            <div class="input-line">
+                <span class="prompt-indicator">$</span>
+                <div id="input-display">
+                    <div id="input-text" class="input-text"></div>
+                    <div id="cursor" class="cursor"></div>
+                </div>
+                <button id="send-btn" class="send-btn" title="Send (Enter)">↵</button>
+            </div>
+            <input type="text" id="hidden-input" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+        </div>
+    </div>
+
+    <!-- Overlay for modals -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- Editor Modal -->
+    <div class="modal" id="editor-modal">
+        <div class="modal-header">
+            <div class="modal-title">PROMPT EDITOR</div>
+            <button class="modal-close" onclick="closeEditor()">✕</button>
+        </div>
+        <div class="modal-content">
+            <textarea id="editor-text" class="editor" placeholder="Edit your prompt here..."></textarea>
+            <div class="editor-stats" id="editor-stats">
+                <div class="stat-item">
+                    <div class="stat-label">TOKENS</div>
+                    <div class="stat-value" id="editor-tokens">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">WORDS</div>
+                    <div class="stat-value" id="editor-words">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">ESTIMATION</div>
+                    <div class="stat-value" id="editor-estimation">$0.00</div>
+                </div>
+            </div>
+            <div class="editor-controls">
+                <button class="btn" onclick="reviewEditor()">REVIEW</button>
+                <button class="btn" onclick="formatEditor()">FORMAT</button>
+                <button class="btn btn-primary" onclick="saveEditor()">SAVE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal" id="export-modal">
+        <div class="modal-header">
+            <div class="modal-title">EXPORT ALL PROMPTS</div>
+            <button class="modal-close" onclick="closeExport()">✕</button>
+        </div>
+        <div class="modal-content">
+            <div class="export-preview" id="export-preview"></div>
+            <div class="editor-controls">
+                <button class="btn" onclick="copyExport()">COPY</button>
+                <button class="btn btn-primary" onclick="downloadExport()">DOWNLOAD</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="modal" id="upload-modal">
+        <div class="modal-header">
+            <div class="modal-title">UPLOAD MARKDOWN FILE</div>
+            <button class="modal-close" onclick="closeUpload()">✕</button>
+        </div>
+        <div class="modal-content">
+            <div class="upload-area" onclick="triggerFileInput()">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to select markdown file or drag & drop</div>
+            </div>
+            <input type="file" id="file-input" class="upload-input" accept=".md,.txt,.markdown" onchange="handleFileUpload(event)">
+            <div id="upload-status" style="color:#0a0; margin-top:10px; text-align:center;"></div>
+            <div class="editor-controls">
+                <button class="btn" onclick="closeUpload()">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const WEBXOS_ASCII = `/$$      /$$ /$$$$$$$$ /$$$$$$$  /$$   /$$  /$$$$$$   /$$$$$$ 
+| $$  /$ | $$| $$_____/| $$__  $$| $$  / $$ /$$__  $$ /$$__  $$
+| $$ /$$$| $$| $$      | $$  \\ $$|  $$/ $$/| $$  \\ $$| $$  \\__/
+| $$/$$ $$ $$| $$$$$   | $$$$$$$  \\  $$$$/ | $$  | $$|  $$$$$$ 
+| $$$$_  $$$$| $$__/   | $$__  $$  >$$  $$ | $$  | $$ \\____  $$
+| $$$/ \\  $$$| $$      | $$  \\ $$ /$$/\\  $$| $$  | $$ /$$  \\ $$
+| $$/   \\  $$| $$$$$$$$| $$$$$$$/| $$  \\ $$|  $$$$$$/|  $$$$$$/
+|__/     \\__/|________/|_______/ |__/  |__/ \\______/  \\______/ `;
+
+        // State
+        const state = {
+            prompts: [],
+            current: null,
+            history: [],
+            histIndex: -1,
+            inputText: '',
+            cursorPosition: 0,
+            typewriterQueue: [],
+            isTyping: false,
+            editingPromptId: null
+        };
+
+        // DOM elements
+        const loading = document.getElementById('loading');
+        const terminalContainer = document.getElementById('terminal-container');
+        const output = document.getElementById('output');
+        const inputText = document.getElementById('input-text');
+        const cursor = document.getElementById('cursor');
+        const hiddenInput = document.getElementById('hidden-input');
+        const sendBtn = document.getElementById('send-btn');
+        const overlay = document.getElementById('overlay');
+        const editorModal = document.getElementById('editor-modal');
+        const exportModal = document.getElementById('export-modal');
+        const uploadModal = document.getElementById('upload-modal');
+
+        // Initialize
+        setTimeout(() => {
+            loading.style.opacity = '0';
+            setTimeout(() => {
+                loading.style.display = 'none';
+                terminalContainer.style.display = 'flex';
+                initTerminal();
+            }, 500);
+        }, 2500);
+
+        function initTerminal() {
+            // Show ASCII art
+            addLine(WEBXOS_ASCII, 'welcome');
+            addLine('', 'response');
+            addLine('webxos clipboard v1.0 | prompt clipboard', 'response');
+            addLine('type /help or enter prompt directly', 'response');
+            addLine('', 'response');
+
+            // Initialize input system
+            setupInput();
+            loadPrompts();
+
+            // Init libs
+            setTimeout(() => {
+                addResponse('tensorflow.js loaded', 'success');
+                addResponse('system ready', 'success');
+            }, 100);
+        }
+
+        function setupInput() {
+            // Focus hidden input
+            hiddenInput.focus();
+
+            // Event listeners
+            hiddenInput.addEventListener('input', handleInput);
+            hiddenInput.addEventListener('keydown', handleKey);
+            sendBtn.addEventListener('click', submitCommand);
+            document.addEventListener('click', () => hiddenInput.focus());
+            
+            // Update display initially
+            updateDisplay();
+        }
+
+        function submitCommand() {
+            const cmd = state.inputText.trim();
+            if (cmd) {
+                state.history.unshift(cmd);
+                state.histIndex = -1;
+                addLine(`$ ${cmd}`, 'cmd');
+                process(cmd);
+                state.inputText = '';
+                state.cursorPosition = 0;
+                hiddenInput.value = '';
+                updateDisplay();
+                // Auto-scroll to bottom
+                setTimeout(() => {
+                    output.scrollTop = output.scrollHeight;
+                }, 10);
+            }
+        }
+
+        function handleInput(e) {
+            state.inputText = hiddenInput.value;
+            state.cursorPosition = hiddenInput.selectionStart;
+            updateDisplay();
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitCommand();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (state.histIndex < state.history.length - 1) {
+                    state.histIndex++;
+                    state.inputText = state.history[state.histIndex];
+                    state.cursorPosition = state.inputText.length;
+                    hiddenInput.value = state.inputText;
+                    updateDisplay();
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (state.histIndex > 0) {
+                    state.histIndex--;
+                    state.inputText = state.history[state.histIndex];
+                    state.cursorPosition = state.inputText.length;
+                    hiddenInput.value = state.inputText;
+                    updateDisplay();
+                } else {
+                    state.histIndex = -1;
+                    state.inputText = '';
+                    state.cursorPosition = 0;
+                    hiddenInput.value = '';
+                    updateDisplay();
+                }
+            } else {
+                // Update cursor position after key press
+                setTimeout(() => {
+                    state.cursorPosition = hiddenInput.selectionStart;
+                    updateDisplay();
+                }, 0);
+            }
+        }
+
+        function updateDisplay() {
+            // Update the displayed text
+            inputText.textContent = state.inputText;
+            
+            // Calculate cursor position
+            const textBeforeCursor = state.inputText.substring(0, state.cursorPosition);
+            
+            // Create temporary span to measure text width
+            const tempSpan = document.createElement('span');
+            tempSpan.style.fontFamily = "'Courier New', monospace";
+            tempSpan.style.fontSize = '14px';
+            tempSpan.style.whiteSpace = 'pre';
+            tempSpan.style.position = 'absolute';
+            tempSpan.style.visibility = 'hidden';
+            tempSpan.textContent = textBeforeCursor;
+            
+            document.body.appendChild(tempSpan);
+            const cursorLeft = tempSpan.offsetWidth;
+            document.body.removeChild(tempSpan);
+            
+            // Set cursor position
+            cursor.style.left = cursorLeft + 'px';
+        }
+
+        function process(cmd) {
+            if (cmd.startsWith('/')) {
+                const parts = cmd.split(' ');
+                const cmdName = parts[0].toLowerCase();
+                const args = parts.slice(1).join(' ');
+
+                switch(cmdName) {
+                    case '/help':
+                        showHelp();
+                        break;
+                    case '/new':
+                        createPrompt(args);
+                        break;
+                    case '/list':
+                        listPrompts();
+                        break;
+                    case '/review':
+                        review(args || state.current?.content);
+                        break;
+                    case '/save':
+                        savePrompt();
+                        break;
+                    case '/load':
+                        loadPrompt(args);
+                        break;
+                    case '/delete':
+                        deletePrompt(args);
+                        break;
+                    case '/clear':
+                        clearTerminal();
+                        break;
+                    case '/stats':
+                        showStats();
+                        break;
+                    case '/format':
+                        format(args || state.current?.content);
+                        break;
+                    case '/upload':
+                        openUpload();
+                        break;
+                    case '/export':
+                        if (args.toLowerCase() === 'all') {
+                            exportAll();
+                        } else {
+                            addResponse('use /export all to export all prompts', 'error');
+                        }
+                        break;
+                    case '/edit':
+                        editPrompt(args);
+                        break;
+                    default:
+                        addResponse('unknown command', 'error');
+                }
+            } else {
+                createPrompt(cmd);
+            }
+        }
+
+        function showHelp() {
+            const help = `/help          show commands
+/new [text]    create prompt
+/list          show saved prompts
+/review        review current
+/save          save current
+/load [id]     load prompt
+/delete [id]   delete prompt
+/clear         clear screen
+/stats         show stats
+/format        format prompt
+/upload        upload markdown file
+/export all    export all prompts
+/edit [id]     edit prompt`;
+            addResponse(help, 'response');
+        }
+
+        // Typewriter effect for responses
+        function addResponse(text, type = 'response') {
+            // Add to typewriter queue
+            state.typewriterQueue.push({text, type});
+            
+            // Start typing if not already typing
+            if (!state.isTyping) {
+                typeNextResponse();
+            }
+        }
+
+        function typeNextResponse() {
+            if (state.typewriterQueue.length === 0) {
+                state.isTyping = false;
+                return;
+            }
+
+            state.isTyping = true;
+            const item = state.typewriterQueue.shift();
+            const {text, type} = item;
+            
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.style.color = getColor(type);
+            output.appendChild(line);
+
+            let index = 0;
+            function typeChar() {
+                if (index < text.length) {
+                    line.textContent += text.charAt(index);
+                    index++;
+                    setTimeout(typeChar, 5); // 5ms per character
+                } else {
+                    output.scrollTop = output.scrollHeight;
+                    setTimeout(typeNextResponse, 100);
+                }
+            }
+            
+            typeChar();
+        }
+
+        function addLine(text, type = 'response') {
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.textContent = text;
+            line.style.color = getColor(type);
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function createPrompt(text) {
+            if (!text) {
+                addResponse('enter prompt text', 'error');
+                return;
+            }
+
+            state.current = {
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+                content: text,
+                time: new Date().toLocaleTimeString(),
+                date: new Date().toLocaleDateString(),
+                tokens: countTokens(text),
+                type: 'manual'
+            };
+
+            addResponse(`prompt created`, 'success');
+            
+            // Create line with prompt ID and edit link
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.style.color = '#0ff';
+            
+            const idSpan = document.createElement('span');
+            idSpan.textContent = `[${state.current.id}] `;
+            line.appendChild(idSpan);
+            
+            const editSpan = document.createElement('span');
+            editSpan.className = 'prompt-link';
+            editSpan.textContent = '[EDIT]';
+            editSpan.onclick = () => editPrompt(state.current.id);
+            line.appendChild(editSpan);
+            
+            output.appendChild(line);
+            
+            review(text);
+        }
+
+        function review(text) {
+            if (!text) {
+                addResponse('no text to review', 'error');
+                return;
+            }
+
+            const tokens = countTokens(text);
+            const words = text.split(/\s+/).length;
+            const lines = text.split('\n').length;
+
+            addResponse('review:', 'success');
+            addResponse(`tokens: ${tokens}`, 'stats');
+            addResponse(`words: ${words}`, 'stats');
+            addResponse(`lines: ${lines}`, 'stats');
+            addResponse(`estimation: $${(tokens * 0.002 / 1000).toFixed(6)}`, 'stats');
+
+            setTimeout(() => {
+                const response = simulateResponse(text);
+                addResponse('simulated response:', 'success');
+                addResponse(response, 'response');
+
+                const suggestions = getSuggestions(text);
+                if (suggestions.length > 0) {
+                    addResponse('suggestions:', 'info');
+                    suggestions.forEach(s => addResponse(`• ${s}`, 'suggestion'));
+                }
+            }, 300);
+        }
+
+        function listPrompts() {
+            if (state.prompts.length === 0) {
+                addResponse('no saved prompts', 'info');
+                return;
+            }
+
+            addResponse('saved prompts:', 'success');
+            state.prompts.forEach(p => {
+                const preview = p.content.length > 40 ? p.content.substring(0, 37) + '...' : p.content;
+                const line = document.createElement('div');
+                line.className = 'line';
+                line.style.color = '#0a0';
+                
+                const idSpan = document.createElement('span');
+                idSpan.style.color = '#0ff';
+                idSpan.textContent = `[${p.id}] `;
+                line.appendChild(idSpan);
+                
+                const textSpan = document.createElement('span');
+                textSpan.textContent = preview;
+                line.appendChild(textSpan);
+                
+                const tokenSpan = document.createElement('span');
+                tokenSpan.style.color = '#080';
+                tokenSpan.textContent = ` (${p.tokens}t)`;
+                line.appendChild(tokenSpan);
+                
+                // Edit link
+                const editSpan = document.createElement('span');
+                editSpan.className = 'prompt-link';
+                editSpan.textContent = ' [EDIT]';
+                editSpan.onclick = () => editPrompt(p.id);
+                line.appendChild(editSpan);
+                
+                // File link if exists
+                if (p.filename) {
+                    const fileSpan = document.createElement('span');
+                    fileSpan.className = 'file-link';
+                    fileSpan.textContent = ` [${p.filename}]`;
+                    fileSpan.onclick = () => editPrompt(p.id);
+                    line.appendChild(fileSpan);
+                }
+                
+                output.appendChild(line);
+            });
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function editPrompt(id) {
+            // Check if it's the current prompt (not saved yet)
+            if (state.current && state.current.id === id) {
+                openEditor(state.current.content);
+                state.editingPromptId = id;
+                return;
+            }
+            
+            // Otherwise check saved prompts
+            const prompt = state.prompts.find(p => p.id === id);
+            if (!prompt) {
+                addResponse('prompt not found: ' + id, 'error');
+                return;
+            }
+            
+            state.editingPromptId = id;
+            openEditor(prompt.content);
+        }
+
+        function openEditor(content = '') {
+            document.getElementById('editor-text').value = content;
+            updateEditorStats(content);
+            showModal('editor-modal');
+        }
+
+        function updateEditorStats(text) {
+            const tokens = countTokens(text);
+            const words = text.split(/\s+/).length;
+            const estimation = (tokens * 0.002 / 1000).toFixed(6);
+            
+            document.getElementById('editor-tokens').textContent = tokens;
+            document.getElementById('editor-words').textContent = words;
+            document.getElementById('editor-estimation').textContent = `$${estimation}`;
+        }
+
+        function reviewEditor() {
+            const text = document.getElementById('editor-text').value;
+            review(text);
+        }
+
+        function formatEditor() {
+            const editor = document.getElementById('editor-text');
+            const formatted = formatPromptText(editor.value);
+            editor.value = formatted;
+            updateEditorStats(formatted);
+        }
+
+        function saveEditor() {
+            const content = document.getElementById('editor-text').value;
+            if (!content.trim()) {
+                addResponse('cannot save empty prompt', 'error');
+                return;
+            }
+
+            if (state.editingPromptId) {
+                // Check if editing current (unsaved) prompt
+                if (state.current && state.current.id === state.editingPromptId) {
+                    state.current.content = content;
+                    state.current.tokens = countTokens(content);
+                    addResponse(`updated current prompt`, 'success');
+                } else {
+                    // Update existing saved prompt
+                    const index = state.prompts.findIndex(p => p.id === state.editingPromptId);
+                    if (index >= 0) {
+                        state.prompts[index].content = content;
+                        state.prompts[index].tokens = countTokens(content);
+                        state.prompts[index].time = new Date().toLocaleTimeString();
+                        addResponse(`updated prompt [${state.editingPromptId}]`, 'success');
+                    }
+                }
+            } else {
+                // Create new prompt
+                createPrompt(content);
+            }
+            
+            saveToStorage();
+            closeEditor();
+        }
+
+        function closeEditor() {
+            hideModal('editor-modal');
+            state.editingPromptId = null;
+        }
+
+        function savePrompt() {
+            if (!state.current) {
+                addResponse('no current prompt', 'error');
+                return;
+            }
+
+            const index = state.prompts.findIndex(p => p.id === state.current.id);
+            if (index >= 0) {
+                state.prompts[index] = state.current;
+            } else {
+                state.prompts.push(state.current);
+            }
+            saveToStorage();
+            addResponse(`saved [${state.current.id}]`, 'success');
+        }
+
+        function loadPrompt(id) {
+            const prompt = state.prompts.find(p => p.id === id);
+            if (!prompt) {
+                addResponse('prompt not found', 'error');
+                return;
+            }
+            state.current = prompt;
+            addResponse(`loaded [${prompt.id}]`, 'success');
+            addResponse(prompt.content, 'response');
+            addResponse(`${prompt.tokens}t | ${prompt.date} ${prompt.time}`, 'timestamp');
+        }
+
+        function deletePrompt(id) {
+            const index = state.prompts.findIndex(p => p.id === id);
+            if (index >= 0) {
+                state.prompts.splice(index, 1);
+                saveToStorage();
+                addResponse(`deleted [${id}]`, 'success');
+            } else {
+                addResponse('prompt not found', 'error');
+            }
+        }
+
+        function clearTerminal() {
+            output.innerHTML = '';
+            addLine(WEBXOS_ASCII, 'welcome');
+            addLine('', 'response');
+            addLine('terminal cleared', 'success');
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function showStats() {
+            const totalTokens = state.prompts.reduce((sum, p) => sum + p.tokens, 0);
+            const avgTokens = state.prompts.length > 0 ? Math.round(totalTokens / state.prompts.length) : 0;
+            
+            const stats = `prompts: ${state.prompts.length}
+total tokens: ${totalTokens}
+avg tokens: ${avgTokens}
+est. estimation: $${(totalTokens * 0.002 / 1000).toFixed(4)}
+storage: ${JSON.stringify(state.prompts).length} bytes`;
+            
+            addResponse('system stats:', 'success');
+            addResponse(stats, 'stats');
+        }
+
+        function format(text) {
+            if (!text) {
+                addResponse('no text to format', 'error');
+                return;
+            }
+            const formatted = formatPromptText(text);
+            if (state.current) {
+                state.current.content = formatted;
+                state.current.tokens = countTokens(formatted);
+            }
+            addResponse('formatted:', 'success');
+            addResponse(formatted, 'response');
+        }
+
+        function formatPromptText(text) {
+            let formatted = text.trim().replace(/\s+/g, ' ');
+            if (formatted.length > 0) {
+                formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+                if (!/[.!?]$/.test(formatted)) {
+                    formatted += '.';
+                }
+            }
+            return formatted;
+        }
+
+        function openUpload() {
+            showModal('upload-modal');
+        }
+
+        function closeUpload() {
+            hideModal('upload-modal');
+        }
+
+        function triggerFileInput() {
+            document.getElementById('file-input').click();
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const prompt = {
+                    id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+                    content: content,
+                    time: new Date().toLocaleTimeString(),
+                    date: new Date().toLocaleDateString(),
+                    tokens: countTokens(content),
+                    type: 'file',
+                    filename: file.name,
+                    size: file.size
+                };
+                
+                state.prompts.push(prompt);
+                saveToStorage();
+                
+                document.getElementById('upload-status').textContent = `Uploaded: ${file.name} (${formatBytes(file.size)})`;
+                setTimeout(() => {
+                    closeUpload();
+                    state.current = prompt;
+                    addResponse(`uploaded: ${file.name}`, 'success');
+                    review(content);
+                }, 1000);
+            };
+            reader.readAsText(file);
+        }
+
+        function exportAll() {
+            if (state.prompts.length === 0) {
+                addResponse('no prompts to export', 'error');
+                return;
+            }
+
+            let markdown = `# WEBXOS Prompt Export\n`;
+            markdown += `## Generated: ${new Date().toLocaleString()}\n`;
+            markdown += `## Total Prompts: ${state.prompts.length}\n\n`;
+
+            state.prompts.forEach((prompt, index) => {
+                markdown += `---\n\n`;
+                markdown += `### Prompt ${index + 1}: ${prompt.id}\n`;
+                markdown += `**Date:** ${prompt.date} ${prompt.time}\n`;
+                markdown += `**Tokens:** ${prompt.tokens}\n`;
+                if (prompt.filename) {
+                    markdown += `**File:** ${prompt.filename}\n`;
+                }
+                markdown += `\n\`\`\`\n${prompt.content}\n\`\`\`\n\n`;
+            });
+
+            markdown += `---\n\n`;
+            markdown += `*Exported from WEBXOS Clipboard v2.3*`;
+
+            document.getElementById('export-preview').textContent = markdown;
+            showModal('export-modal');
+        }
+
+        function closeExport() {
+            hideModal('export-modal');
+        }
+
+        function copyExport() {
+            const text = document.getElementById('export-preview').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                addResponse('export copied to clipboard', 'success');
+                closeExport();
+            });
+        }
+
+        function downloadExport() {
+            const text = document.getElementById('export-preview').textContent;
+            const blob = new Blob([text], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `webxos-export-${new Date().toISOString().split('T')[0]}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            addResponse('export downloaded', 'success');
+            closeExport();
+        }
+
+        function showModal(modalId) {
+            overlay.style.display = 'block';
+            document.getElementById(modalId).style.display = 'block';
+        }
+
+        function hideModal(modalId) {
+            overlay.style.display = 'none';
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function countTokens(text) {
+            return Math.ceil(text.length / 4);
+        }
+
+        function simulateResponse(text) {
+            const responses = [
+                "analyzing prompt structure for optimization...",
+                "processing request with tensorflow.js simulation...",
+                "reviewing prompt for improvements and suggestions...",
+                "analyzing token distribution and efficiency...",
+                "evaluating prompt effectiveness for LLM interaction..."
+            ];
+            const topics = [
+                "token efficiency", "clarity and structure",
+                "specificity and context", "formatting standards",
+                "estimation optimization", "response quality"
+            ];
+            const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+            const randomTopic = topics[Math.floor(Math.random() * topics.length)];
+            return `${randomResponse} focus: ${randomTopic}`;
+        }
+
+        function getSuggestions(text) {
+            const suggestions = [];
+            if (text.length > 500) suggestions.push("split into paragraphs");
+            if (!text.includes('\n') && text.length > 100) suggestions.push("add line breaks");
+            if (!text.trim().endsWith('.')) suggestions.push("end with punctuation");
+            if (text.split(' ').length < 10) suggestions.push("add more context");
+            return suggestions;
+        }
+
+        function getColor(type) {
+            const colors = {
+                'welcome': '#0f0',
+                'cmd': '#0ff',
+                'response': '#0a0',
+                'error': '#f00',
+                'success': '#0f0',
+                'info': '#0af',
+                'stats': '#080',
+                'timestamp': '#060',
+                'suggestion': '#8f8'
+            };
+            return colors[type] || '#0a0';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            else return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function loadPrompts() {
+            try {
+                const saved = localStorage.getItem('webxos_prompts');
+                if (saved) {
+                    state.prompts = JSON.parse(saved);
+                    if (state.prompts.length > 0) {
+                        addResponse(`loaded ${state.prompts.length} prompts`, 'success');
+                    }
+                }
+            } catch (e) {
+                addResponse('error loading prompts', 'error');
+            }
+        }
+
+        function saveToStorage() {
+            try {
+                localStorage.setItem('webxos_prompts', JSON.stringify(state.prompts));
+            } catch (e) {
+                addResponse('error saving prompts', 'error');
+            }
+        }
+
+        // Close modals when clicking overlay
+        overlay.addEventListener('click', () => {
+            hideModal('editor-modal');
+            hideModal('export-modal');
+            hideModal('upload-modal');
+        });
+
+        // Close modals with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideModal('editor-modal');
+                hideModal('export-modal');
+                hideModal('upload-modal');
+                hiddenInput.focus();
+            }
+        });
+    </script>
+</body>
+</html>
