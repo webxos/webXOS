@@ -10,9 +10,9 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Store visited URLs in memory (for single function invocation)
-// Note: For production, use Redis or database for persistence
 const visitedUrls = new Set();
 
 /**
@@ -35,10 +35,8 @@ async function crawlUrl(url) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0'
+        'Upgrade-Insecure-Requests': '1'
       },
       timeout: 10000 // 10 second timeout
     });
@@ -63,30 +61,16 @@ async function crawlUrl(url) {
         
         // Filter out invalid URLs and non-HTTP protocols
         if (isValidUrl(href) && (href.startsWith('http://') || href.startsWith('https://'))) {
-          // Remove fragments and query parameters for cleaner results
-          const cleanUrl = removeFragmentAndQuery(href);
+          // Remove fragments for cleaner results
+          const cleanUrl = removeFragment(href);
           links.add(cleanUrl);
-        }
-      }
-    });
-
-    // Also get links from other elements
-    $('link[href], img[src], script[src], iframe[src]').each((i, element) => {
-      const tagName = element.name;
-      const attr = tagName === 'link' ? 'href' : 'src';
-      let urlAttr = $(element).attr(attr);
-      
-      if (urlAttr) {
-        urlAttr = normalizeUrl(urlAttr, url);
-        if (isValidUrl(urlAttr)) {
-          links.add(urlAttr);
         }
       }
     });
 
     return {
       sourceUrl: url,
-      linksFound: Array.from(links).slice(0, 100), // Limit to 100 links per page
+      linksFound: Array.from(links).slice(0, 50), // Limit to 50 links per page
       title: $('title').text() || '',
       timestamp: new Date().toISOString(),
       status: 'success'
@@ -157,15 +141,14 @@ function normalizeUrl(href, baseUrl) {
 }
 
 /**
- * Remove fragment and query parameters from URL
+ * Remove fragment from URL
  * @param {string} url - URL to clean
  * @returns {string} Cleaned URL
  */
-function removeFragmentAndQuery(url) {
+function removeFragment(url) {
   try {
     const urlObj = new URL(url);
     urlObj.hash = '';
-    urlObj.search = '';
     return urlObj.href;
   } catch (_) {
     return url;
@@ -205,10 +188,10 @@ app.post('/crawl', async (req, res) => {
     
     // Add rate limiting check (basic)
     if (visitedUrls.has(startUrl)) {
-      return res.status(429).json({
+      return res.json({
         sourceUrl: startUrl,
         linksFound: [],
-        error: 'URL already visited recently',
+        message: 'URL already visited recently',
         timestamp: new Date().toISOString(),
         status: 'rate_limited'
       });
@@ -218,11 +201,11 @@ app.post('/crawl', async (req, res) => {
     visitedUrls.add(startUrl);
     
     // Clean up visited URLs if too many (prevent memory issues)
-    if (visitedUrls.size > 1000) {
-      // Convert to array, remove first 500
+    if (visitedUrls.size > 500) {
+      // Convert to array, remove first 250
       const urlsArray = Array.from(visitedUrls);
       visitedUrls.clear();
-      urlsArray.slice(500).forEach(url => visitedUrls.add(url));
+      urlsArray.slice(250).forEach(url => visitedUrls.add(url));
     }
     
     const result = await crawlUrl(startUrl);
@@ -243,49 +226,12 @@ app.post('/crawl', async (req, res) => {
   }
 });
 
-// Batch crawl endpoint (optional, for future enhancement)
-app.post('/crawl/batch', async (req, res) => {
-  try {
-    const { urls, maxConcurrent = 3 } = req.body;
-    
-    if (!urls || !Array.isArray(urls)) {
-      return res.status(400).json({ 
-        error: 'Missing or invalid urls array',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    // Limit number of URLs
-    const limitedUrls = urls.slice(0, 10);
-    
-    // Process URLs concurrently with limit
-    const results = [];
-    for (let i = 0; i < limitedUrls.length; i += maxConcurrent) {
-      const batch = limitedUrls.slice(i, i + maxConcurrent);
-      const batchPromises = batch.map(url => crawlUrl(url));
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-      
-      // Add delay between batches
-      if (i + maxConcurrent < limitedUrls.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-    
-    res.json({
-      results,
-      totalProcessed: results.length,
-      timestamp: new Date().toISOString(),
-      status: 'completed'
-    });
-  } catch (error) {
-    console.error('Batch crawl error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
+// Options for CORS preflight
+app.options('/crawl', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).end();
 });
 
 // Get crawler stats
@@ -293,7 +239,6 @@ app.get('/stats', (req, res) => {
   res.json({
     visitedUrls: visitedUrls.size,
     uptime: process.uptime(),
-    memoryUsage: process.memoryUsage(),
     timestamp: new Date().toISOString()
   });
 });
@@ -307,7 +252,6 @@ app.get('/', (req, res) => {
       'GET /': 'API information',
       'GET /ping': 'Health check',
       'POST /crawl': 'Crawl single URL',
-      'POST /crawl/batch': 'Crawl multiple URLs',
       'GET /stats': 'Crawler statistics'
     },
     documentation: 'See frontend at /index.html or /crawl.html'
@@ -343,5 +287,6 @@ if (require.main === module) {
     console.log(`WEBXOS Crawler API running on http://localhost:${PORT}`);
     console.log(`- Health check: http://localhost:${PORT}/ping`);
     console.log(`- API info: http://localhost:${PORT}/`);
+    console.log(`- Test endpoint: POST http://localhost:${PORT}/crawl`);
   });
 }
