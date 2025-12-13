@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEBXOS Crawler v2.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.2;
+            height: 100vh;
+            overflow: hidden;
+            cursor: text;
+        }
+
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+
+        .logo {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #0f0;
+            white-space: pre;
+            line-height: 1;
+            margin-bottom: 20px;
+            letter-spacing: 0;
+        }
+
+        .loading-bar {
+            width: 300px;
+            height: 2px;
+            background: #111;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .progress {
+            width: 0%;
+            height: 100%;
+            background: #0f0;
+            animation: load 2.5s ease-in-out forwards;
+        }
+
+        @keyframes load {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+
+        #terminal-container {
+            display: none;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            padding-bottom: 10px;
+            scroll-behavior: smooth;
+        }
+
+        .line {
+            margin-bottom: 2px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            word-break: break-word;
+        }
+
+        .prompt {
+            color: #0f0;
+        }
+
+        .cmd {
+            color: #0ff;
+        }
+
+        .response {
+            color: #0a0;
+        }
+
+        .error {
+            color: #f00;
+        }
+
+        .success {
+            color: #0f0;
+        }
+
+        .info {
+            color: #0af;
+        }
+
+        .stats {
+            color: #080;
+            font-size: 12px;
+        }
+
+        .timestamp {
+            color: #060;
+            font-size: 11px;
+        }
+
+        #input-container {
+            height: 40px;
+            background: #000;
+            border-top: 1px solid #0a0;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            flex-shrink: 0;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 20px;
+            gap: 10px;
+        }
+
+        .prompt-indicator {
+            color: #0f0;
+            margin-right: 8px;
+            flex-shrink: 0;
+            line-height: 20px;
+            height: 20px;
+        }
+
+        #input-display {
+            flex: 1;
+            position: relative;
+            height: 20px;
+            line-height: 20px;
+        }
+
+        .input-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre;
+            line-height: 20px;
+            height: 20px;
+        }
+
+        .cursor {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 8px;
+            height: 14px;
+            background: #0f0;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #111;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #0a0;
+        }
+
+        /* Web Crawler Specific Styles */
+        .url-link {
+            color: #0ff;
+            text-decoration: underline;
+            cursor: pointer;
+            word-break: break-all;
+        }
+
+        .url-link:hover {
+            color: #0f0;
+        }
+
+        .crawling {
+            color: #ff0;
+        }
+
+        .link-item {
+            margin: 3px 0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .link-item::before {
+            content: '├─ ';
+            color: #0a0;
+            position: absolute;
+            left: 0;
+        }
+
+        .link-item:last-child::before {
+            content: '└─ ';
+        }
+
+        .depth-0 { margin-left: 0; }
+        .depth-1 { margin-left: 20px; }
+        .depth-2 { margin-left: 40px; }
+        .depth-3 { margin-left: 60px; }
+        .depth-4 { margin-left: 80px; }
+
+        .crawl-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #0a0;
+            background: #111;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-label {
+            color: #0a0;
+            font-size: 12px;
+        }
+
+        .stat-value {
+            color: #0f0;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 4px;
+            background: #111;
+            margin: 10px 0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #0f0;
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        /* Modal Windows */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #000;
+            border: 2px solid #0f0;
+            z-index: 2000;
+            box-shadow: 0 0 20px #0f0;
+            padding: 20px;
+            min-width: 500px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #0a0;
+        }
+
+        .modal-title {
+            color: #0f0;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .modal-content {
+            max-height: calc(80vh - 100px);
+            overflow-y: auto;
+        }
+
+        /* Export Modal */
+        .export-preview {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            color: #0a0;
+            border: 1px solid #0a0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 10px;
+            white-space: pre-wrap;
+            margin-bottom: 15px;
+            overflow-y: auto;
+        }
+
+        /* Controls */
+        .btn {
+            background: #000;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            flex: 1;
+        }
+
+        .btn:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .btn-primary {
+            background: #0a0;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .btn-primary:hover {
+            background: #0f0;
+        }
+
+        .btn-danger {
+            background: #300;
+            border-color: #f00;
+            color: #f00;
+        }
+
+        .btn-danger:hover {
+            background: #f00;
+            color: #000;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        /* Overlay */
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+        }
+
+        /* Send Button */
+        .send-btn {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            width: 32px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .send-btn:hover {
+            background: #0a0;
+            color: #000;
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Results Panel */
+        .results-panel {
+            border: 1px solid #0a0;
+            margin: 10px 0;
+            padding: 10px;
+            background: #111;
+        }
+
+        .panel-title {
+            color: #0ff;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .warning {
+            color: #ff0;
+            border: 1px solid #ff0;
+            padding: 10px;
+            margin: 10px 0;
+            background: rgba(255, 255, 0, 0.1);
+        }
+
+        .queue-size {
+            color: #0af;
+            font-size: 12px;
+        }
+
+        .link-count {
+            color: #0a0;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="logo">
+  _____ ______  ___  _    _ _     
+ /  __ \| ___ \/ _ \| |  | | |    
+ | /  \/| |_/ / /_\ \ |  | | |    
+ | |    |    /|  _  | |/\| | |    
+ | \__/\| |\ \| | | \  /\  / |____
+  \____/\_| \_\_| |_/\/  \/\_____/
+        </div>
+        <div style="color:#0a0; margin-top:10px; font-size:12px;">initializing webxos crawler v2.0...</div>
+        <div class="loading-bar"><div class="progress"></div></div>
+    </div>
+
+    <div id="terminal-container">
+        <div id="output"></div>
+        <div id="input-container">
+            <div class="input-line">
+                <span class="prompt-indicator">$</span>
+                <div id="input-display">
+                    <div id="input-text" class="input-text"></div>
+                    <div id="cursor" class="cursor"></div>
+                </div>
+                <button id="send-btn" class="send-btn" title="Send (Enter)">↵</button>
+            </div>
+            <input type="text" id="hidden-input" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+        </div>
+    </div>
+
+    <!-- Overlay for modals -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- Export Modal -->
+    <div class="modal" id="export-modal">
+        <div class="modal-header">
+            <div class="modal-title">EXPORT CRAWL RESULTS</div>
+            <button class="modal-close" onclick="closeExport()">✕</button>
+        </div>
+        <div class="modal-content">
+            <div class="export-preview" id="export-preview"></div>
+            <div class="controls">
+                <button class="btn" onclick="copyExport()">COPY</button>
+                <button class="btn btn-primary" onclick="downloadExport()">DOWNLOAD</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const WEBXOS_ASCII = `  _____ ______  ___  _    _ _     
+ /  __ \\| ___ \\/ _ \\| |  | | |    
+ | /  \\/| |_/ / /_\\ \\ |  | | |    
+ | |    |    /|  _  | |/\\| | |    
+ | \\__/\\| |\\ \\| | | \\  /\\  / |____
+  \\____/\\_| \\_\\_| |_/\\/  \\/\\_____/`;
+
+        // State
+        const state = {
+            history: [],
+            histIndex: -1,
+            inputText: '',
+            cursorPosition: 0,
+            isCrawling: false,
+            currentCrawl: null,
+            crawls: [],
+            visitedUrls: new Set(),
+            crawlingQueue: [],
+            queueProcessing: false,
+            maxDepth: 2,
+            maxUrls: 50,
+            backendUrl: '/api/crawl', // Relative path for Netlify
+            delay: 1000, // ms between requests
+            statsInterval: null
+        };
+
+        // DOM elements
+        const loading = document.getElementById('loading');
+        const terminalContainer = document.getElementById('terminal-container');
+        const output = document.getElementById('output');
+        const inputText = document.getElementById('input-text');
+        const cursor = document.getElementById('cursor');
+        const hiddenInput = document.getElementById('hidden-input');
+        const sendBtn = document.getElementById('send-btn');
+        const overlay = document.getElementById('overlay');
+        const exportModal = document.getElementById('export-modal');
+
+        // Initialize
+        setTimeout(() => {
+            loading.style.opacity = '0';
+            setTimeout(() => {
+                loading.style.display = 'none';
+                terminalContainer.style.display = 'flex';
+                initTerminal();
+            }, 500);
+        }, 2500);
+
+        async function initTerminal() {
+            // Show ASCII art
+            addLine(WEBXOS_ASCII, 'welcome');
+            addLine('', 'response');
+            addLine('webxos web crawler v2.0', 'response');
+            addLine('bypass same-origin policy with server-side backend', 'response');
+            addLine('type /help for commands', 'response');
+            addLine('', 'response');
+            addLine('default backend: ' + state.backendUrl, 'info');
+            addLine('use /setbackend <url> to change backend endpoint', 'info');
+            addLine('use /testbackend to test backend connectivity', 'info');
+            addLine('', 'response');
+
+            // Test default backend
+            addLine('testing default backend...', 'info');
+            const backendOk = await pingBackend(state.backendUrl);
+            if (backendOk) {
+                addLine('✓ backend connected successfully', 'success');
+            } else {
+                addLine('✗ backend connection failed', 'error');
+                addLine('use /setbackend <url> to configure backend', 'warning');
+            }
+            addLine('', 'response');
+
+            // Initialize input system
+            setupInput();
+        }
+
+        function setupInput() {
+            // Focus hidden input
+            hiddenInput.focus();
+
+            // Event listeners
+            hiddenInput.addEventListener('input', handleInput);
+            hiddenInput.addEventListener('keydown', handleKey);
+            sendBtn.addEventListener('click', submitCommand);
+            document.addEventListener('click', () => hiddenInput.focus());
+            
+            // Update display initially
+            updateDisplay();
+        }
+
+        async function submitCommand() {
+            const cmd = state.inputText.trim();
+            if (cmd) {
+                state.history.unshift(cmd);
+                state.histIndex = -1;
+                addLine(`$ ${cmd}`, 'cmd');
+                await process(cmd);
+                state.inputText = '';
+                state.cursorPosition = 0;
+                hiddenInput.value = '';
+                updateDisplay();
+                // Auto-scroll to bottom
+                setTimeout(() => {
+                    output.scrollTop = output.scrollHeight;
+                }, 10);
+            }
+        }
+
+        function handleInput(e) {
+            state.inputText = hiddenInput.value;
+            state.cursorPosition = hiddenInput.selectionStart;
+            updateDisplay();
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitCommand();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (state.histIndex < state.history.length - 1) {
+                    state.histIndex++;
+                    state.inputText = state.history[state.histIndex];
+                    state.cursorPosition = state.inputText.length;
+                    hiddenInput.value = state.inputText;
+                    updateDisplay();
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (state.histIndex > 0) {
+                    state.histIndex--;
+                    state.inputText = state.history[state.histIndex];
+                    state.cursorPosition = state.inputText.length;
+                    hiddenInput.value = state.inputText;
+                    updateDisplay();
+                } else {
+                    state.histIndex = -1;
+                    state.inputText = '';
+                    state.cursorPosition = 0;
+                    hiddenInput.value = '';
+                    updateDisplay();
+                }
+            } else {
+                // Update cursor position after key press
+                setTimeout(() => {
+                    state.cursorPosition = hiddenInput.selectionStart;
+                    updateDisplay();
+                }, 0);
+            }
+        }
+
+        function updateDisplay() {
+            // Update the displayed text
+            inputText.textContent = state.inputText;
+            
+            // Calculate cursor position
+            const textBeforeCursor = state.inputText.substring(0, state.cursorPosition);
+            
+            // Create temporary span to measure text width
+            const tempSpan = document.createElement('span');
+            tempSpan.style.fontFamily = "'Courier New', monospace";
+            tempSpan.style.fontSize = '14px';
+            tempSpan.style.whiteSpace = 'pre';
+            tempSpan.style.position = 'absolute';
+            tempSpan.style.visibility = 'hidden';
+            tempSpan.textContent = textBeforeCursor;
+            
+            document.body.appendChild(tempSpan);
+            const cursorLeft = tempSpan.offsetWidth;
+            document.body.removeChild(tempSpan);
+            
+            // Set cursor position
+            cursor.style.left = cursorLeft + 'px';
+        }
+
+        async function process(cmd) {
+            if (cmd.startsWith('/')) {
+                const parts = cmd.split(' ');
+                const cmdName = parts[0].toLowerCase();
+                const args = parts.slice(1).join(' ');
+
+                switch(cmdName) {
+                    case '/help':
+                        showHelp();
+                        break;
+                    case '/crawl':
+                        if (args) {
+                            await startCrawl(args);
+                        } else {
+                            addResponse('usage: /crawl <url> [depth] [maxUrls]', 'error');
+                        }
+                        break;
+                    case '/stop':
+                        stopCrawl();
+                        break;
+                    case '/status':
+                        showStatus();
+                        break;
+                    case '/setbackend':
+                        if (args) {
+                            await setBackend(args);
+                        } else {
+                            addResponse('current backend: ' + state.backendUrl, 'info');
+                        }
+                        break;
+                    case '/testbackend':
+                        await testBackend();
+                        break;
+                    case '/setdepth':
+                        const depth = parseInt(args);
+                        if (!isNaN(depth) && depth >= 1 && depth <= 5) {
+                            state.maxDepth = depth;
+                            addResponse(`max depth set to ${depth}`, 'success');
+                        } else {
+                            addResponse('usage: /setdepth <1-5>', 'error');
+                        }
+                        break;
+                    case '/setmax':
+                        const max = parseInt(args);
+                        if (!isNaN(max) && max >= 10 && max <= 1000) {
+                            state.maxUrls = max;
+                            addResponse(`max URLs set to ${max}`, 'success');
+                        } else {
+                            addResponse('usage: /setmax <10-1000>', 'error');
+                        }
+                        break;
+                    case '/list':
+                        listCrawls();
+                        break;
+                    case '/export':
+                        exportResults();
+                        break;
+                    case '/clear':
+                        clearTerminal();
+                        break;
+                    case '/clearhistory':
+                        clearHistory();
+                        break;
+                    default:
+                        addResponse('unknown command', 'error');
+                }
+            } else if (isValidUrl(cmd)) {
+                await startCrawl(cmd);
+            } else {
+                addResponse('not a valid url or command', 'error');
+            }
+        }
+
+        function showHelp() {
+            const help = `/help                show commands
+/crawl <url>         start crawling from url
+/crawl <url> <depth> <max> start with custom params
+/stop                stop current crawl
+/status              show crawl status
+/setbackend <url>    change backend api url
+/testbackend         test backend connectivity
+/setdepth <1-5>      set max crawl depth (default: 2)
+/setmax <10-1000>    set max urls to crawl (default: 50)
+/list                list all crawls
+/export              export results
+/clear               clear terminal
+/clearhistory        clear crawl history`;
+            addResponse(help, 'response');
+        }
+
+        function addResponse(text, type = 'response') {
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.textContent = text;
+            line.style.color = getColor(type);
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function addLine(text, type = 'response') {
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.textContent = text;
+            line.style.color = getColor(type);
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function isValidUrl(string) {
+            // Allow both absolute URLs and relative paths
+            if (string.startsWith('/')) {
+                return true;
+            }
+            try {
+                new URL(string);
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        async function pingBackend(backendUrl) {
+            try {
+                const pingUrl = backendUrl.replace('/crawl', '/ping');
+                const response = await fetch(pingUrl, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                return response.ok;
+            } catch (error) {
+                console.error('Backend ping failed:', error);
+                return false;
+            }
+        }
+
+        async function testBackend() {
+            addResponse('testing backend connectivity...', 'info');
+            const backendOk = await pingBackend(state.backendUrl);
+            if (backendOk) {
+                addResponse('✓ backend is reachable', 'success');
+            } else {
+                addResponse('✗ backend is not reachable', 'error');
+                addResponse('check if backend server is running', 'warning');
+                addResponse('use /setbackend to configure correct URL', 'info');
+            }
+        }
+
+        async function setBackend(url) {
+            const backendUrl = url.trim();
+            
+            // Validate URL format
+            if (!isValidUrl(backendUrl)) {
+                addResponse('invalid url format. use absolute URL or path starting with /', 'error');
+                return;
+            }
+            
+            addResponse(`testing new backend: ${backendUrl}`, 'info');
+            const backendOk = await pingBackend(backendUrl);
+            
+            if (backendOk) {
+                state.backendUrl = backendUrl;
+                addResponse(`✓ backend set to: ${backendUrl}`, 'success');
+            } else {
+                addResponse(`✗ backend at ${backendUrl} is not reachable`, 'error');
+                addResponse('keeping current backend: ' + state.backendUrl, 'warning');
+            }
+        }
+
+        async function startCrawl(args) {
+            if (state.isCrawling) {
+                addResponse('crawl already in progress. use /stop first.', 'error');
+                return;
+            }
+
+            const parts = args.split(' ');
+            const url = parts[0];
+            const depth = parts[1] ? parseInt(parts[1]) : state.maxDepth;
+            const maxUrls = parts[2] ? parseInt(parts[2]) : state.maxUrls;
+
+            if (!isValidUrl(url)) {
+                addResponse('invalid url format', 'error');
+                return;
+            }
+
+            if (depth < 1 || depth > 5) {
+                addResponse('depth must be between 1 and 5', 'error');
+                return;
+            }
+
+            if (maxUrls < 10 || maxUrls > 1000) {
+                addResponse('max urls must be between 10 and 1000', 'error');
+                return;
+            }
+
+            // Test backend before starting
+            addResponse('testing backend connection...', 'info');
+            const backendOk = await pingBackend(state.backendUrl);
+            if (!backendOk) {
+                addResponse('backend is not reachable. use /setbackend to configure.', 'error');
+                return;
+            }
+
+            state.isCrawling = true;
+            state.currentCrawl = {
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+                startUrl: url,
+                depth: depth,
+                maxUrls: maxUrls,
+                startTime: new Date(),
+                visited: new Set(),
+                links: new Set(),
+                results: [],
+                status: 'starting'
+            };
+
+            state.visitedUrls.clear();
+            state.crawlingQueue = [{ url: url, depth: 0 }];
+            state.queueProcessing = false;
+
+            addResponse(`starting crawl [${state.currentCrawl.id}]`, 'success');
+            addResponse(`target: ${url}`, 'info');
+            addResponse(`depth: ${depth}, max urls: ${maxUrls}`, 'info');
+            addResponse('backend: ' + state.backendUrl, 'info');
+
+            // Create crawl stats panel
+            createCrawlPanel();
+
+            // Start crawl process using queue
+            processCrawlQueue();
+        }
+
+        function createCrawlPanel() {
+            const panel = document.createElement('div');
+            panel.className = 'results-panel';
+            panel.id = 'crawl-panel-' + state.currentCrawl.id;
+            
+            const title = document.createElement('div');
+            title.className = 'panel-title';
+            title.textContent = `CRAWL [${state.currentCrawl.id}]`;
+            panel.appendChild(title);
+
+            const stats = document.createElement('div');
+            stats.className = 'crawl-stats';
+            stats.id = 'crawl-stats-' + state.currentCrawl.id;
+            
+            const statsHtml = `
+                <div class="stat-item">
+                    <div class="stat-label">STATUS</div>
+                    <div class="stat-value" id="status-${state.currentCrawl.id}">STARTING</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">VISITED</div>
+                    <div class="stat-value" id="visited-${state.currentCrawl.id}">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">QUEUE</div>
+                    <div class="stat-value" id="queue-${state.currentCrawl.id}">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">ELAPSED</div>
+                    <div class="stat-value" id="elapsed-${state.currentCrawl.id}">0s</div>
+                </div>
+            `;
+            stats.innerHTML = statsHtml;
+            panel.appendChild(stats);
+
+            const progressContainer = document.createElement('div');
+            progressContainer.className = 'progress-container';
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress-bar';
+            progressBar.id = 'progress-' + state.currentCrawl.id;
+            progressContainer.appendChild(progressBar);
+            panel.appendChild(progressContainer);
+
+            const linksContainer = document.createElement('div');
+            linksContainer.id = 'links-' + state.currentCrawl.id;
+            linksContainer.style.maxHeight = '200px';
+            linksContainer.style.overflowY = 'auto';
+            linksContainer.style.marginTop = '10px';
+            panel.appendChild(linksContainer);
+
+            output.appendChild(panel);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function processCrawlQueue() {
+            if (state.queueProcessing || !state.isCrawling) return;
+            
+            state.queueProcessing = true;
+            state.currentCrawl.status = 'crawling';
+            
+            // Start stats update interval
+            if (state.statsInterval) clearInterval(state.statsInterval);
+            state.statsInterval = setInterval(updateStats, 1000);
+
+            try {
+                while (state.crawlingQueue.length > 0 && state.isCrawling) {
+                    const { url, depth } = state.crawlingQueue.shift();
+                    
+                    // Skip if already visited or at max depth/urls
+                    if (state.visitedUrls.has(url) || depth > state.currentCrawl.depth || 
+                        state.currentCrawl.visited.size >= state.currentCrawl.maxUrls) {
+                        continue;
+                    }
+
+                    await processUrl(url, depth);
+                    
+                    // Delay between requests
+                    if (state.delay > 0) {
+                        await new Promise(resolve => setTimeout(resolve, state.delay));
+                    }
+                    
+                    updateStats();
+                }
+                
+                // Queue is empty, crawl completed
+                completeCrawl();
+            } catch (error) {
+                console.error('Crawl queue error:', error);
+                state.currentCrawl.status = 'error';
+                state.currentCrawl.error = error.message;
+                addResponse(`crawl error: ${error.message}`, 'error');
+                state.isCrawling = false;
+            } finally {
+                state.queueProcessing = false;
+                if (state.statsInterval) {
+                    clearInterval(state.statsInterval);
+                    state.statsInterval = null;
+                }
+            }
+        }
+
+        async function processUrl(url, depth) {
+            // Mark as visited
+            state.visitedUrls.add(url);
+            state.currentCrawl.visited.add(url);
+            
+            addResponse(`crawling: ${url} (depth: ${depth})`, 'crawling');
+            
+            try {
+                // Call real backend API
+                const response = await fetch(state.backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startUrl: url })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Process links
+                const links = data.linksFound || [];
+                state.currentCrawl.results.push({
+                    url: url,
+                    depth: depth,
+                    links: links,
+                    timestamp: new Date()
+                });
+                
+                // Add new links to crawl queue
+                links.forEach(link => {
+                    if (!state.visitedUrls.has(link) && 
+                        state.currentCrawl.links.size < state.currentCrawl.maxUrls) {
+                        state.currentCrawl.links.add(link);
+                        
+                        // Add to queue for deeper crawling
+                        if (depth < state.currentCrawl.depth) {
+                            state.crawlingQueue.push({ url: link, depth: depth + 1 });
+                        }
+                    }
+                });
+                
+                // Display found links
+                displayCrawledUrl(url, depth, links.length);
+                
+                return links;
+            } catch (error) {
+                addResponse(`error crawling ${url}: ${error.message}`, 'error');
+                return [];
+            }
+        }
+
+        function displayCrawledUrl(url, depth, linkCount) {
+            const linksContainer = document.getElementById('links-' + state.currentCrawl.id);
+            if (!linksContainer) return;
+            
+            const linkItem = document.createElement('div');
+            linkItem.className = `link-item depth-${Math.min(depth, 4)}`;
+            
+            const urlSpan = document.createElement('span');
+            urlSpan.className = 'url-link';
+            urlSpan.textContent = url;
+            urlSpan.title = `Depth: ${depth}, Links: ${linkCount}`;
+            urlSpan.onclick = () => {
+                window.open(url, '_blank');
+            };
+            
+            const countSpan = document.createElement('span');
+            countSpan.className = 'link-count';
+            countSpan.textContent = `(${linkCount} links)`;
+            
+            linkItem.appendChild(urlSpan);
+            linkItem.appendChild(countSpan);
+            linksContainer.appendChild(linkItem);
+            linksContainer.scrollTop = linksContainer.scrollHeight;
+        }
+
+        function updateStats() {
+            if (!state.currentCrawl) return;
+
+            const stats = {
+                status: document.getElementById('status-' + state.currentCrawl.id),
+                visited: document.getElementById('visited-' + state.currentCrawl.id),
+                queue: document.getElementById('queue-' + state.currentCrawl.id),
+                elapsed: document.getElementById('elapsed-' + state.currentCrawl.id),
+                progress: document.getElementById('progress-' + state.currentCrawl.id)
+            };
+
+            if (stats.status) stats.status.textContent = state.currentCrawl.status.toUpperCase();
+            if (stats.visited) stats.visited.textContent = state.currentCrawl.visited.size;
+            if (stats.queue) stats.queue.textContent = state.crawlingQueue.length;
+            
+            const elapsedSeconds = Math.round((new Date() - state.currentCrawl.startTime) / 1000);
+            if (stats.elapsed) stats.elapsed.textContent = `${elapsedSeconds}s`;
+            
+            const progress = Math.min(100, (state.currentCrawl.visited.size / state.currentCrawl.maxUrls) * 100);
+            if (stats.progress) stats.progress.style.width = `${progress}%`;
+        }
+
+        function completeCrawl() {
+            if (!state.currentCrawl) return;
+            
+            state.currentCrawl.status = 'completed';
+            state.currentCrawl.endTime = new Date();
+            state.crawls.push({...state.currentCrawl});
+            
+            updateStats();
+            addResponse(`crawl [${state.currentCrawl.id}] completed`, 'success');
+            addResponse(`total visited: ${state.currentCrawl.visited.size}`, 'stats');
+            addResponse(`total links found: ${state.currentCrawl.links.size}`, 'stats');
+            const elapsed = Math.round((state.currentCrawl.endTime - state.currentCrawl.startTime) / 1000);
+            addResponse(`elapsed time: ${elapsed}s`, 'stats');
+            
+            state.isCrawling = false;
+            state.currentCrawl = null;
+            state.visitedUrls.clear();
+            state.crawlingQueue = [];
+        }
+
+        function stopCrawl() {
+            if (!state.isCrawling) {
+                addResponse('no crawl in progress', 'error');
+                return;
+            }
+            
+            state.isCrawling = false;
+            state.currentCrawl.status = 'stopped';
+            state.currentCrawl.endTime = new Date();
+            state.crawls.push({...state.currentCrawl});
+            
+            addResponse(`crawl [${state.currentCrawl.id}] stopped`, 'success');
+            addResponse(`visited ${state.currentCrawl.visited.size} urls`, 'stats');
+            addResponse(`found ${state.currentCrawl.links.size} links`, 'stats');
+            
+            updateStats();
+            state.currentCrawl = null;
+            state.visitedUrls.clear();
+            state.crawlingQueue = [];
+            
+            if (state.statsInterval) {
+                clearInterval(state.statsInterval);
+                state.statsInterval = null;
+            }
+        }
+
+        function showStatus() {
+            if (state.isCrawling && state.currentCrawl) {
+                addResponse('crawl in progress:', 'success');
+                addResponse(`id: ${state.currentCrawl.id}`, 'info');
+                addResponse(`url: ${state.currentCrawl.startUrl}`, 'info');
+                addResponse(`status: ${state.currentCrawl.status}`, 'info');
+                addResponse(`visited: ${state.currentCrawl.visited.size}/${state.currentCrawl.maxUrls}`, 'stats');
+                addResponse(`queue: ${state.crawlingQueue.length} URLs`, 'stats');
+                addResponse(`depth: ${Math.max(...state.currentCrawl.results.map(r => r.depth))}/${state.currentCrawl.depth}`, 'stats');
+                addResponse(`links found: ${state.currentCrawl.links.size}`, 'stats');
+                
+                const elapsed = Math.round((new Date() - state.currentCrawl.startTime) / 1000);
+                addResponse(`elapsed: ${elapsed}s`, 'stats');
+                addResponse(`backend: ${state.backendUrl}`, 'info');
+            } else {
+                addResponse('no active crawl', 'info');
+                addResponse(`total crawls in history: ${state.crawls.length}`, 'stats');
+                addResponse(`backend: ${state.backendUrl}`, 'info');
+            }
+        }
+
+        function listCrawls() {
+            if (state.crawls.length === 0) {
+                addResponse('no crawl history', 'info');
+                return;
+            }
+
+            addResponse('crawl history:', 'success');
+            state.crawls.forEach((crawl, index) => {
+                const elapsed = crawl.endTime ? 
+                    Math.round((crawl.endTime - crawl.startTime) / 1000) : 
+                    Math.round((new Date() - crawl.startTime) / 1000);
+                
+                addResponse(`${index + 1}. [${crawl.id}]`, 'info');
+                addResponse(`   url: ${crawl.startUrl}`, 'response');
+                addResponse(`   status: ${crawl.status}`, 'response');
+                addResponse(`   visited: ${crawl.visited.size} urls`, 'stats');
+                addResponse(`   links: ${crawl.links.size} found`, 'stats');
+                addResponse(`   time: ${elapsed}s`, 'stats');
+                addResponse('', 'response');
+            });
+        }
+
+        function exportResults() {
+            if (state.crawls.length === 0 && !state.currentCrawl) {
+                addResponse('no results to export', 'error');
+                return;
+            }
+
+            let markdown = `# WEBXOS Crawler Export\n`;
+            markdown += `## Generated: ${new Date().toLocaleString()}\n`;
+            markdown += `## Backend URL: ${state.backendUrl}\n\n`;
+
+            const crawlsToExport = state.currentCrawl ? [state.currentCrawl] : state.crawls;
+            
+            crawlsToExport.forEach((crawl, index) => {
+                markdown += `---\n\n`;
+                markdown += `### Crawl ${index + 1}: ${crawl.id}\n`;
+                markdown += `**Start URL:** ${crawl.startUrl}\n`;
+                markdown += `**Status:** ${crawl.status}\n`;
+                markdown += `**Start Time:** ${crawl.startTime.toLocaleString()}\n`;
+                if (crawl.endTime) {
+                    markdown += `**End Time:** ${crawl.endTime.toLocaleString()}\n`;
+                    const elapsed = Math.round((crawl.endTime - crawl.startTime) / 1000);
+                    markdown += `**Duration:** ${elapsed}s\n`;
+                }
+                markdown += `**Visited URLs:** ${crawl.visited.size}\n`;
+                markdown += `**Links Found:** ${crawl.links.size}\n\n`;
+                
+                markdown += `#### Visited URLs:\n\`\`\`\n`;
+                crawl.visited.forEach(url => {
+                    markdown += `${url}\n`;
+                });
+                markdown += `\`\`\`\n\n`;
+                
+                markdown += `#### All Links Found:\n\`\`\`\n`;
+                crawl.links.forEach(link => {
+                    markdown += `${link}\n`;
+                });
+                markdown += `\`\`\`\n\n`;
+            });
+
+            markdown += `---\n\n`;
+            markdown += `*Exported from WEBXOS Crawler v2.0*`;
+
+            document.getElementById('export-preview').textContent = markdown;
+            showModal('export-modal');
+        }
+
+        function clearTerminal() {
+            output.innerHTML = '';
+            addLine(WEBXOS_ASCII, 'welcome');
+            addLine('', 'response');
+            addLine('webxos web crawler v2.0', 'response');
+            addLine('terminal cleared', 'success');
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearHistory() {
+            state.crawls = [];
+            addResponse('crawl history cleared', 'success');
+        }
+
+        function closeExport() {
+            hideModal('export-modal');
+        }
+
+        function copyExport() {
+            const text = document.getElementById('export-preview').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                addResponse('export copied to clipboard', 'success');
+                closeExport();
+            });
+        }
+
+        function downloadExport() {
+            const text = document.getElementById('export-preview').textContent;
+            const blob = new Blob([text], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `webxos-crawl-export-${new Date().toISOString().split('T')[0]}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            addResponse('export downloaded', 'success');
+            closeExport();
+        }
+
+        function showModal(modalId) {
+            overlay.style.display = 'block';
+            document.getElementById(modalId).style.display = 'block';
+        }
+
+        function hideModal(modalId) {
+            overlay.style.display = 'none';
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function getColor(type) {
+            const colors = {
+                'welcome': '#0f0',
+                'cmd': '#0ff',
+                'response': '#0a0',
+                'error': '#f00',
+                'success': '#0f0',
+                'info': '#0af',
+                'stats': '#080',
+                'timestamp': '#060',
+                'crawling': '#ff0'
+            };
+            return colors[type] || '#0a0';
+        }
+
+        // Close modals when clicking overlay
+        overlay.addEventListener('click', () => {
+            hideModal('export-modal');
+        });
+
+        // Close modals with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideModal('export-modal');
+                hiddenInput.focus();
+            }
+        });
+    </script>
+</body>
+</html>
