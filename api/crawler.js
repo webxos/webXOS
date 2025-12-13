@@ -1,292 +1,271 @@
-const express = require('express');
-const cors = require('cors');
-const cheerio = require('cheerio');
-const fetch = require('node-fetch');
-const serverless = require('serverless-http');
+import * as cheerio from 'cheerio';
 
-// Initialize Express app
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Store visited URLs in memory (for single function invocation)
-const visitedUrls = new Set();
+// Simple in-memory cache for rate limiting (per function instance)
+const requestCounts = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX = 30; // 30 requests per minute per IP
 
 /**
- * Fetch and parse a URL to extract all links
- * @param {string} url - The URL to crawl
- * @returns {Promise<Array<string>>} Array of absolute URLs found on the page
+ * Check rate limit
  */
-async function crawlUrl(url) {
-  try {
-    console.log(`Crawling: ${url}`);
-    
-    // Validate URL
-    if (!isValidUrl(url)) {
-      throw new Error(`Invalid URL: ${url}`);
-    }
-
-    // Fetch the page
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      },
-      timeout: 10000 // 10 second timeout
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    
-    // Extract all links
-    const links = new Set();
-    
-    // Get all anchor tags
-    $('a[href]').each((i, element) => {
-      let href = $(element).attr('href');
-      
-      if (href) {
-        // Convert relative URLs to absolute
-        href = normalizeUrl(href, url);
-        
-        // Filter out invalid URLs and non-HTTP protocols
-        if (isValidUrl(href) && (href.startsWith('http://') || href.startsWith('https://'))) {
-          // Remove fragments for cleaner results
-          const cleanUrl = removeFragment(href);
-          links.add(cleanUrl);
-        }
-      }
-    });
-
-    return {
-      sourceUrl: url,
-      linksFound: Array.from(links).slice(0, 50), // Limit to 50 links per page
-      title: $('title').text() || '',
-      timestamp: new Date().toISOString(),
-      status: 'success'
-    };
-  } catch (error) {
-    console.error(`Error crawling ${url}:`, error.message);
-    return {
-      sourceUrl: url,
-      linksFound: [],
-      error: error.message,
-      timestamp: new Date().toISOString(),
-      status: 'error'
-    };
-  }
-}
-
-/**
- * Check if a string is a valid URL
- * @param {string} string - URL to validate
- * @returns {boolean} True if valid URL
- */
-function isValidUrl(string) {
-  try {
-    const url = new URL(string);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch (_) {
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  let requests = requestCounts.get(ip) || [];
+  
+  // Remove old requests
+  requests = requests.filter(time => time > windowStart);
+  
+  if (requests.length >= RATE_LIMIT_MAX) {
     return false;
   }
+  
+  requests.push(now);
+  requestCounts.set(ip, requests);
+  return true;
 }
 
 /**
- * Normalize a URL (convert relative to absolute)
- * @param {string} href - URL to normalize
- * @param {string} baseUrl - Base URL for resolution
- * @returns {string} Normalized absolute URL
+ * Clean URL by removing fragments, trailing slashes, and normalizing
  */
-function normalizeUrl(href, baseUrl) {
-  try {
-    // Remove whitespace and trim
-    href = href.trim();
-    
-    // Skip javascript:, mailto:, tel:, etc.
-    if (href.startsWith('javascript:') || 
-        href.startsWith('mailto:') || 
-        href.startsWith('tel:') ||
-        href.startsWith('#')) {
-      return href;
-    }
-    
-    // Handle protocol-relative URLs
-    if (href.startsWith('//')) {
-      href = 'https:' + href;
-    }
-    
-    // Handle relative URLs
-    if (href.startsWith('/')) {
-      const base = new URL(baseUrl);
-      href = base.origin + href;
-    } else if (!href.startsWith('http')) {
-      const base = new URL(baseUrl);
-      href = new URL(href, base.origin).href;
-    }
-    
-    return href;
-  } catch (_) {
-    return href;
-  }
-}
-
-/**
- * Remove fragment from URL
- * @param {string} url - URL to clean
- * @returns {string} Cleaned URL
- */
-function removeFragment(url) {
+function cleanUrl(url) {
   try {
     const urlObj = new URL(url);
+    
+    // Remove fragment
     urlObj.hash = '';
-    return urlObj.href;
-  } catch (_) {
+    
+    // Remove trailing slash if not root
+    if (urlObj.pathname.endsWith('/') && urlObj.pathname !== '/') {
+      urlObj.pathname = urlObj.pathname.slice(0, -1);
+    }
+    
+    // Normalize hostname to lowercase
+    urlObj.hostname = urlObj.hostname.toLowerCase();
+    
+    return urlObj.toString();
+  } catch {
     return url;
   }
 }
 
-// Routes
-
-// Health check endpoint
-app.get('/ping', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'WEBXOS Crawler API is running',
-    version: '2.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Single URL crawl endpoint
-app.post('/crawl', async (req, res) => {
+/**
+ * Normalize a URL (convert relative to absolute with proper base handling)
+ */
+function normalizeUrl(href, baseUrl) {
   try {
-    const { startUrl } = req.body;
+    // Trim whitespace
+    href = href.trim();
     
-    if (!startUrl) {
-      return res.status(400).json({ 
-        error: 'Missing startUrl parameter',
-        timestamp: new Date().toISOString()
-      });
+    // Skip non-HTTP URLs
+    if (href.startsWith('javascript:') || 
+        href.startsWith('mailto:') || 
+        href.startsWith('tel:') ||
+        href.startsWith('#') ||
+        href === '') {
+      return null;
     }
     
-    if (!isValidUrl(startUrl)) {
-      return res.status(400).json({ 
-        error: 'Invalid URL format',
-        timestamp: new Date().toISOString()
-      });
+    // Handle protocol-relative URLs (//example.com)
+    if (href.startsWith('//')) {
+      const base = new URL(baseUrl);
+      href = base.protocol + href;
     }
     
-    // Add rate limiting check (basic)
-    if (visitedUrls.has(startUrl)) {
-      return res.json({
-        sourceUrl: startUrl,
-        linksFound: [],
-        message: 'URL already visited recently',
-        timestamp: new Date().toISOString(),
-        status: 'rate_limited'
-      });
-    }
+    // Use the full baseUrl (not just origin) for proper path resolution
+    const urlObj = new URL(href, baseUrl);
     
-    // Add to visited (with expiration - simple approach)
-    visitedUrls.add(startUrl);
-    
-    // Clean up visited URLs if too many (prevent memory issues)
-    if (visitedUrls.size > 500) {
-      // Convert to array, remove first 250
-      const urlsArray = Array.from(visitedUrls);
-      visitedUrls.clear();
-      urlsArray.slice(250).forEach(url => visitedUrls.add(url));
-    }
-    
-    const result = await crawlUrl(startUrl);
-    
-    // Add CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    res.json(result);
+    // Clean the normalized URL
+    return cleanUrl(urlObj.toString());
   } catch (error) {
-    console.error('Crawl endpoint error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
+    console.log('Failed to normalize URL:', href);
+    return null;
   }
-});
-
-// Options for CORS preflight
-app.options('/crawl', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.status(200).end();
-});
-
-// Get crawler stats
-app.get('/stats', (req, res) => {
-  res.json({
-    visitedUrls: visitedUrls.size,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    name: 'WEBXOS Crawler API',
-    version: '2.0.0',
-    endpoints: {
-      'GET /': 'API information',
-      'GET /ping': 'Health check',
-      'POST /crawl': 'Crawl single URL',
-      'GET /stats': 'Crawler statistics'
-    },
-    documentation: 'See frontend at /index.html or /crawl.html'
-  });
-});
-
-// Handle 404
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Endpoint not found',
-    path: req.path,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Export for Netlify Functions
-module.exports.handler = serverless(app);
-
-// For local development
-if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`WEBXOS Crawler API running on http://localhost:${PORT}`);
-    console.log(`- Health check: http://localhost:${PORT}/ping`);
-    console.log(`- API info: http://localhost:${PORT}/`);
-    console.log(`- Test endpoint: POST http://localhost:${PORT}/crawl`);
-  });
 }
+
+export const handler = async (event, context) => {
+  // Set CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers,
+      body: ''
+    };
+  }
+
+  try {
+    // Extract client IP for rate limiting
+    const clientIp = event.headers['x-nf-client-connection-ip'] || 
+                    event.headers['x-forwarded-for'] || 
+                    'unknown';
+    
+    // Apply rate limiting
+    if (!checkRateLimit(clientIp)) {
+      return {
+        statusCode: 429,
+        headers,
+        body: JSON.stringify({
+          error: 'Rate limit exceeded. Please try again later.',
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
+
+    // Handle different endpoints
+    const path = event.path.replace('/.netlify/functions/crawler', '');
+    
+    // Ping endpoint
+    if (path === '/ping' && event.httpMethod === 'GET') {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'ok',
+          message: 'WEBXOS Crawler API is running',
+          version: '2.0.0',
+          timestamp: new Date().toISOString(),
+          rateLimit: '30 requests per minute'
+        })
+      };
+    }
+    
+    // Crawl endpoint
+    if (path === '/crawl' && event.httpMethod === 'POST') {
+      const body = JSON.parse(event.body || '{}');
+      const { startUrl } = body;
+      
+      if (!startUrl) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ 
+            error: 'Missing startUrl parameter',
+            timestamp: new Date().toISOString()
+          })
+        };
+      }
+      
+      if (!startUrl.startsWith('http://') && !startUrl.startsWith('https://')) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ 
+            error: 'Invalid URL format. Must start with http:// or https://',
+            timestamp: new Date().toISOString()
+          })
+        };
+      }
+      
+      console.log(`[NETLIFY] Crawling: ${startUrl}`);
+      
+      // Set up timeout with AbortController (Netlify functions have 10s timeout)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      try {
+        // Fetch with timeout
+        const response = await fetch(startUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          return {
+            statusCode: response.status,
+            headers,
+            body: JSON.stringify({
+              error: `HTTP ${response.status}: ${response.statusText}`,
+              timestamp: new Date().toISOString()
+            })
+          };
+        }
+        
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        
+        // Extract links with proper normalization
+        const linksSet = new Set();
+        
+        $('a[href]').each((i, element) => {
+          const href = $(element).attr('href');
+          if (href) {
+            const normalized = normalizeUrl(href, startUrl);
+            if (normalized) {
+              linksSet.add(normalized);
+            }
+          }
+        });
+        
+        // Extract metadata
+        const title = $('title').text() || '';
+        
+        const result = {
+          sourceUrl: startUrl,
+          linksFound: Array.from(linksSet).slice(0, 30), // Limit for Netlify
+          title: title,
+          status: 'success',
+          timestamp: new Date().toISOString()
+        };
+        
+        console.log(`[NETLIFY] Success: ${startUrl} (${result.linksFound.length} links)`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify(result)
+        };
+        
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+      }
+    }
+    
+    // 404 for unknown endpoints
+    return {
+      statusCode: 404,
+      headers,
+      body: JSON.stringify({
+        error: 'Endpoint not found',
+        path: path,
+        timestamp: new Date().toISOString()
+      })
+    };
+    
+  } catch (error) {
+    console.error('[NETLIFY] Error:', error.message);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error';
+    
+    if (error.name === 'AbortError') {
+      statusCode = 408;
+      errorMessage = 'Request timeout';
+    } else if (error.message.includes('HTTP')) {
+      errorMessage = error.message;
+    }
+    
+    return {
+      statusCode: statusCode,
+      headers,
+      body: JSON.stringify({
+        error: errorMessage,
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+};
