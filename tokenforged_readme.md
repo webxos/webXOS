@@ -1,5 +1,7 @@
 # **webXOS: TOKEN FORGED - Complete System Guide**
 
+WARNING: *Token Forged in a conceptual primitive blockchain ledger and defi network that does not integrate with any other blockchain or defi. It operates on a unique state of the art pytorch and qiskit qubit validated system that is under testing for research and development.*
+
 ## **🔗 NETWORK VALIDATION SYSTEM**
 
 ### **How 4-Agent Validation Works:**
