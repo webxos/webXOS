@@ -1,0 +1,2319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEBXOS Terminal</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --neon: #00ff00;
+            --neon-dim: #008800;
+            --dark: #000000;
+            --yellow: #ffff00;
+        }
+
+        body {
+            background: var(--dark);
+            color: var(--neon);
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Loading Screen */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--dark);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-logo {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--neon);
+            white-space: pre;
+            line-height: 1;
+            margin-bottom: 30px;
+            letter-spacing: 0;
+            text-shadow: 0 0 10px var(--neon);
+        }
+
+        .loading-bar-container {
+            width: 500px;
+            background: var(--dark);
+            border: 1px solid var(--neon-dim);
+            padding: 3px;
+            margin: 20px 0;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+        }
+
+        .loading-bar {
+            width: 0%;
+            height: 20px;
+            background: var(--neon);
+            position: relative;
+            overflow: hidden;
+            transition: width 3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .loading-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(0, 255, 0, 0.4),
+                transparent
+            );
+            animation: scan 1.5s infinite linear;
+        }
+
+        @keyframes scan {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .loading-text {
+            color: var(--neon);
+            font-size: 18px;
+            margin: 15px 0;
+            text-shadow: 0 0 8px var(--neon);
+            letter-spacing: 2px;
+        }
+
+        .loading-subtext {
+            color: var(--neon-dim);
+            font-size: 14px;
+            margin-top: 10px;
+            text-transform: uppercase;
+        }
+
+        .loading-dots {
+            display: inline-block;
+            width: 60px;
+            text-align: left;
+        }
+
+        .loading-dots::after {
+            content: '...';
+            animation: dots 1.5s infinite steps(4, end);
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        /* Terminal Container */
+        #terminal-container {
+            display: none;
+            height: 100vh;
+            flex-direction: column;
+            background: var(--dark);
+            position: relative;
+        }
+
+        /* Output Area */
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            scroll-behavior: smooth;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .messages-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding-bottom: 20px;
+        }
+
+        /* Message Types */
+        .message {
+            position: relative;
+            margin-bottom: 8px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        .message.cmd {
+            color: var(--neon);
+        }
+
+        .message.response {
+            color: var(--neon);
+        }
+
+        .message.ai-response {
+            color: var(--neon);
+            margin-left: 15px;
+        }
+
+        .message.script {
+            color: var(--yellow);
+        }
+
+        .message.error {
+            color: #ff0000;
+        }
+
+        .message.info {
+            color: var(--neon-dim);
+        }
+
+        .message.success {
+            color: var(--neon);
+        }
+
+        .message.system {
+            color: var(--neon-dim);
+            font-size: 14px;
+            border-top: 1px solid var(--neon-dim);
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+
+        .message.typewriter {
+            color: var(--neon);
+            border-left: 2px solid var(--neon-dim);
+            padding-left: 10px;
+            margin-top: 10px;
+        }
+
+        /* File Item in Terminal */
+        .file-item-terminal {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            margin: 8px 0;
+            background: rgba(0, 255, 0, 0.05);
+            border: 1px solid var(--neon-dim);
+            border-radius: 4px;
+        }
+
+        .file-item-terminal:hover {
+            background: rgba(0, 255, 0, 0.08);
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-title {
+            color: var(--neon);
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .file-description {
+            color: var(--neon-dim);
+            font-size: 13px;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-btn {
+            background: transparent;
+            border: 1px solid var(--neon-dim);
+            color: var(--neon);
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .action-btn:hover {
+            background: rgba(0, 255, 0, 0.1);
+            border-color: var(--neon);
+        }
+
+        .action-btn.run {
+            border-color: var(--yellow);
+            color: var(--yellow);
+        }
+
+        .action-btn.run:hover {
+            background: rgba(255, 255, 0, 0.1);
+        }
+
+        /* Compact Editor Modal */
+        .compact-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--dark);
+            color: var(--neon);
+            z-index: 2000;
+            padding: 15px;
+            width: 85vw;
+            height: 85vh;
+            max-width: 900px;
+            max-height: 85vh;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            border: 2px solid var(--neon);
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+        }
+
+        .compact-modal.script-editor {
+            border-color: var(--yellow);
+            box-shadow: 0 0 30px rgba(255, 255, 0, 0.3);
+        }
+
+        .modal-header-compact {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--neon);
+        }
+
+        .modal-header-compact.script {
+            border-bottom-color: var(--yellow);
+        }
+
+        .modal-title-compact {
+            color: var(--neon);
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .modal-title-compact.script {
+            color: var(--yellow);
+        }
+
+        .modal-close-compact {
+            background: transparent;
+            border: none;
+            color: var(--neon);
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            padding: 0 10px;
+        }
+
+        .modal-close-compact:hover {
+            color: var(--yellow);
+        }
+
+        /* Main content area */
+        .modal-content-compact {
+            height: calc(100% - 120px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Editor textarea */
+        .editor-textarea {
+            flex: 1;
+            background: var(--dark);
+            color: var(--neon);
+            border: 1px solid var(--neon);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 15px;
+            outline: none;
+            resize: none;
+            overflow-y: auto;
+            width: 100%;
+        }
+
+        .editor-textarea.script {
+            color: var(--yellow);
+            border-color: var(--yellow);
+        }
+
+        /* Controls bar */
+        .editor-controls-compact {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--neon-dim);
+            flex-wrap: wrap;
+        }
+
+        .editor-controls-compact.script {
+            border-top-color: var(--yellow);
+        }
+
+        .control-btn {
+            background: transparent;
+            border: 1px solid var(--neon);
+            color: var(--neon);
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 8px 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-radius: 3px;
+            min-width: 100px;
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        .control-btn.script {
+            border-color: var(--yellow);
+            color: var(--yellow);
+        }
+
+        .control-btn.script:hover {
+            background: rgba(255, 255, 0, 0.1);
+        }
+
+        .control-btn.primary {
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        .control-btn.primary.script {
+            background: rgba(255, 255, 0, 0.1);
+        }
+
+        /* Prompt Line */
+        .prompt-line {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .prompt-indicator {
+            color: var(--neon);
+            font-weight: bold;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        .prompt-text {
+            flex: 1;
+            color: var(--neon);
+            line-height: 1.4;
+        }
+
+        /* Input Container */
+        #input-container {
+            min-height: 50px;
+            background: var(--dark);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            flex-shrink: 0;
+            gap: 15px;
+            border-top: 1px solid var(--neon-dim);
+            position: sticky;
+            bottom: 0;
+            width: 100%;
+            z-index: 10;
+        }
+
+        .input-prompt {
+            color: var(--neon);
+            font-weight: bold;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        #input-display {
+            flex: 1;
+            position: relative;
+            height: 30px;
+        }
+
+        .input-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            color: var(--neon);
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            white-space: pre;
+            line-height: 30px;
+            height: 30px;
+        }
+
+        .input-cursor {
+            position: absolute;
+            top: 5px;
+            left: 0;
+            width: 10px;
+            height: 18px;
+            background: var(--neon);
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+
+        /* Buttons */
+        .text-btn {
+            background: transparent;
+            border: 1px solid var(--neon-dim);
+            color: var(--neon);
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 5px 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 16px;
+            border-radius: 3px;
+        }
+
+        .text-btn:hover {
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        /* Scrollbar */
+        #output::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #output::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #output::-webkit-scrollbar-thumb {
+            background: var(--neon-dim);
+            border-radius: 3px;
+        }
+
+        #output::-webkit-scrollbar-thumb:hover {
+            background: var(--neon);
+        }
+
+        .editor-textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .editor-textarea::-webkit-scrollbar-track {
+            background: rgba(0, 255, 0, 0.05);
+        }
+
+        .editor-textarea::-webkit-scrollbar-thumb {
+            background: var(--neon-dim);
+            border-radius: 4px;
+        }
+
+        .editor-textarea::-webkit-scrollbar-thumb:hover {
+            background: var(--neon);
+        }
+
+        /* ASCII Art */
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            line-height: 1;
+            white-space: pre;
+            margin-bottom: 15px;
+            color: var(--neon);
+            text-shadow: 0 0 8px var(--neon);
+        }
+
+        .ascii-art.chatbot {
+            font-size: 8px;
+            color: var(--neon);
+            text-shadow: 0 0 5px var(--neon);
+            margin: 20px 0;
+        }
+
+        /* Suggestions */
+        .suggestions {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--neon-dim);
+            font-size: 14px;
+            color: var(--neon-dim);
+        }
+
+        .suggestion-item {
+            display: inline-block;
+            margin-right: 15px;
+            cursor: pointer;
+            color: var(--neon-dim);
+            font-size: 14px;
+            text-decoration: underline;
+        }
+
+        .suggestion-item:hover {
+            color: var(--neon);
+        }
+
+        /* Scroll to bottom */
+        .scroll-to-bottom {
+            position: fixed;
+            bottom: 70px;
+            right: 20px;
+            background: var(--neon);
+            color: var(--dark);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            z-index: 90;
+            opacity: 0.8;
+        }
+
+        .scroll-to-bottom:hover {
+            opacity: 1;
+        }
+
+        /* Terminal Footer */
+        .terminal-footer {
+            font-size: 11px;
+            color: var(--neon-dim);
+            opacity: 0.5;
+            margin-left: auto;
+            padding-right: 10px;
+            white-space: nowrap;
+        }
+
+        /* Input wrapper */
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--neon-dim);
+        }
+
+        /* File stats */
+        .file-stats-compact {
+            font-size: 12px;
+            color: var(--neon-dim);
+            margin-left: 15px;
+        }
+
+        /* New File Button */
+        .new-file-btn {
+            background: transparent;
+            border: 2px dashed var(--neon-dim);
+            color: var(--neon-dim);
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 10px 15px;
+            margin: 15px 0;
+            text-align: center;
+            width: 100%;
+            border-radius: 4px;
+        }
+
+        .new-file-btn:hover {
+            border-color: var(--neon);
+            color: var(--neon);
+            background: rgba(0, 255, 0, 0.05);
+        }
+
+        .new-file-btn.script {
+            border-color: rgba(255, 255, 0, 0.3);
+            color: rgba(255, 255, 0, 0.7);
+        }
+
+        .new-file-btn.script:hover {
+            border-color: var(--yellow);
+            color: var(--yellow);
+            background: rgba(255, 255, 0, 0.05);
+        }
+
+        /* Calculator prompt */
+        .calc-prompt {
+            color: var(--yellow);
+            font-weight: bold;
+        }
+
+        .calc-result {
+            color: var(--yellow);
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading">
+        <div class="loading-logo">
+    :::       ::: :::::::::: :::::::::  :::    :::  ::::::::   :::::::: 
+   :+:       :+: :+:        :+:    :+: :+:    :+: :+:    :+: :+:    :+: 
+  +:+       +:+ +:+        +:+    +:+  +:+  +:+  +:+    +:+ +:+         
+ +#+  +:+  +#+ +#++:++#   +#++:++#+    +#++:+   +#+    +:+ +#++:++#++   
++#+ +#+#+ +#+ +#+        +#+    +#+  +#+  +#+  +#+    +#+        +#+    
+#+#+# #+#+#  #+#        #+#    #+# #+#    #+# #+#    #+# #+#    #+#     
+###   ###   ########## #########  ###    ###  ########   ######## 
+        </div>
+        
+        <div class="loading-text">WEBXOS TERMINAL<span class="loading-dots"></span></div>
+        
+        <div class="loading-bar-container">
+            <div class="loading-bar" id="loading-bar"></div>
+        </div>
+        
+        <div class="loading-text" id="loading-status">INITIALIZING SYSTEM<span class="loading-dots"></span></div>
+        <div class="loading-subtext">[SYSTEM BOOT: WEBXOS v3.0]</div>
+    </div>
+
+    <!-- Terminal Container -->
+    <div id="terminal-container">
+        <div id="output">
+            <div class="messages-container" id="messages-container"></div>
+        </div>
+        <div id="input-container">
+            <div class="input-wrapper">
+                <div class="input-prompt" id="input-prompt">$</div>
+                <div id="input-display">
+                    <div id="input-text" class="input-text"></div>
+                    <div id="input-cursor" class="input-cursor"></div>
+                </div>
+                <button class="text-btn" onclick="importCommand()">IMPORT</button>
+                <button class="text-btn" onclick="exportCommand()">EXPORT</button>
+                <button class="text-btn" onclick="sendCommand()">SEND</button>
+                <div class="terminal-footer">WEBXOS v3.0</div>
+                <input type="text" id="hidden-input" autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+    </div>
+
+    <!-- Scroll to bottom button -->
+    <button class="scroll-to-bottom" id="scroll-to-bottom" onclick="scrollToBottom()">↓</button>
+
+    <!-- Compact Context Editor Modal -->
+    <div class="compact-modal" id="context-editor-modal">
+        <div class="modal-header-compact">
+            <div class="modal-title-compact">CONTEXT EDITOR: <span id="context-editor-title">Untitled.md</span></div>
+            <button class="modal-close-compact" onclick="closeEditor('context')">✕</button>
+        </div>
+        <div class="modal-content-compact">
+            <textarea id="context-editor" class="editor-textarea" placeholder="# Markdown content here
+# Use headings, lists, and code blocks
+# This file can be read with /read [filename] command"></textarea>
+            <div class="editor-controls-compact">
+                <button class="control-btn primary" onclick="saveContext()">SAVE</button>
+                <button class="control-btn" onclick="readCurrentContext()">READ</button>
+                <button class="control-btn" onclick="testReadContext()">TEST READ</button>
+                <button class="control-btn" onclick="deleteCurrentContext()" id="context-delete-btn" style="margin-left: auto;">DELETE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compact Script Editor Modal -->
+    <div class="compact-modal script-editor" id="script-editor-modal">
+        <div class="modal-header-compact script">
+            <div class="modal-title-compact script">SCRIPT EDITOR: <span id="script-editor-title">Untitled.js</span>
+                <span class="file-stats-compact" id="script-stats">0 chars</span>
+            </div>
+            <button class="modal-close-compact" onclick="closeEditor('script')">✕</button>
+        </div>
+        <div class="modal-content-compact">
+            <textarea id="script-editor" class="editor-textarea script" placeholder="// Write JavaScript or JSON here
+
+// EXAMPLE 1: JSON with run function
+// {
+//   \"name\": \"my-script\",
+//   \"description\": \"A custom script\",
+//   \"run\": \"function() { return 'Hello from script!'; }\"
+// }
+
+// EXAMPLE 2: Pure JavaScript function
+// function() {
+//   return 'Current time: ' + new Date().toLocaleTimeString();
+// }
+
+// EXAMPLE 3: Plain text
+// \"This is a text script\"
+
+// EXAMPLE 4: Any JSON object
+// {\"message\": \"Hello\", \"timestamp\": \"2024-01-01\"}"></textarea>
+            <div class="editor-controls-compact script">
+                <button class="control-btn script primary" onclick="saveScript()">SAVE</button>
+                <button class="control-btn script" onclick="runCurrentScript()">RUN</button>
+                <button class="control-btn script" onclick="testScript()">TEST</button>
+                <button class="control-btn script" onclick="deleteCurrentScript()" id="script-delete-btn" style="margin-left: auto;">DELETE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="compact-modal" id="upload-modal">
+        <div class="modal-header-compact">
+            <div class="modal-title-compact" id="upload-title">UPLOAD FILES</div>
+            <button class="modal-close-compact" onclick="closeModal('upload-modal')">✕</button>
+        </div>
+        <div class="modal-content-compact">
+            <div style="text-align:center; padding:30px; border:2px dashed var(--neon); margin-bottom:20px; cursor:pointer;" onclick="triggerFileInput()">
+                <div style="font-size:36px; margin-bottom:20px;">📁</div>
+                <div style="font-size:20px; margin-bottom:10px; color:var(--neon);">CLICK TO SELECT FILES</div>
+                <div style="color:var(--neon-dim); font-size:14px; margin-top:10px;" id="upload-hint">
+                    Upload .md or .json files
+                </div>
+            </div>
+            
+            <input type="file" id="file-input" style="display:none;" multiple accept=".md,.json" onchange="handleFileUpload(event)">
+            
+            <div id="upload-status" style="margin:20px 0; font-size:14px; text-align:center;"></div>
+            
+            <div class="editor-controls-compact">
+                <button class="control-btn primary" onclick="processUploadedFiles()" id="process-btn" style="display:none;">PROCESS</button>
+                <button class="control-btn" onclick="closeModal('upload-modal')">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const WEBXOS_ASCII = `    :::       ::: :::::::::: :::::::::  :::    :::  ::::::::   :::::::: 
+   :+:       :+: :+:        :+:    :+: :+:    :+: :+:    :+: :+:    :+: 
+  +:+       +:+ +:+        +:+    +:+  +:+  +:+  +:+    +:+ +:+         
+ +#+  +:+  +#+ +#++:++#   +#++:++#+    +#++:+   +#+    +:+ +#++:++#++   
++#+ +#+#+ +#+ +#+        +#+    +#+  +#+  +#+  +#+    +#+        +#+    
+#+#+# #+#+#  #+#        #+#    #+# #+#    #+# #+#    #+# #+#    #+#     
+###   ###   ########## #########  ###    ###  ########   ######## `;
+
+        const CHATBOT_ASCII = `          _             _       _    _                 _            _               _          _       
+        /\\ \\           / /\\    / /\\ / /\\              /\\ \\         / /\\            /\\ \\       /\\ \\     
+       /  \\ \\         / / /   / / // /  \\             \\_\\ \\       / /  \\          /  \\ \\      \\_\\ \\    
+      / /\\ \\ \\       / /_/   / / // / /\\ \\            /\\__ \\     / / /\\ \\        / /\\ \\ \\     /\\__ \\   
+     / / /\\ \\ \\     / /\\ \\__/ / // / /\\ \\ \\          / /_ \\ \\   / / /\\ \\ \\      / / /\\ \\ \\   / /_ \\ \\  
+    / / /  \\ \\_\\   / /\\ \\___\\/ // / /  \\ \\ \\        / / /\\ \\ \\ / / /\\ \\_\\ \\    / / /  \\ \\_\\ / / /\\ \\ \\ 
+   / / /    \\/_/  / / /\\/___/ // / /___/ /\\ \\      / / /  \\/_// / /\\ \\ \\___\\  / / /   / / // / /  \\/_/ 
+  / / /          / / /   / / // / /_____/ /\\ \\    / / /      / / /  \\ \\ \\__/ / / /   / / // / /        
+ / / /________  / / /   / / // /_________/\\ \\ \\  / / /      / / /____\\_\\ \\  / / /___/ / // / /         
+/ / /_________\\/ / /   / / // / /_       __\\ \\_\\/_/ /      / / /__________\\/ / /____\\/ //_/ /          
+\\/____________/\\/_/    \\/_/ \\_\\___\\     /____/_/\\_\\/       \\/_____________/\\/_________/ \\_\\/           `;
+
+        // Main State
+        const state = {
+            knowledgeBase: [],
+            scripts: [],
+            currentInput: '',
+            history: [],
+            histIndex: -1,
+            cursorPosition: 0,
+            uploadedFiles: [],
+            uploadType: '',
+            activeContext: null,
+            activeScript: null,
+            autoScroll: true,
+            calculatorMode: false,
+            calculatorFunction: null,
+            isTyping: false
+        };
+
+        // DOM Elements
+        const loading = document.getElementById('loading');
+        const loadingBar = document.getElementById('loading-bar');
+        const loadingStatus = document.getElementById('loading-status');
+        const terminalContainer = document.getElementById('terminal-container');
+        const output = document.getElementById('output');
+        const messagesContainer = document.getElementById('messages-container');
+        const inputText = document.getElementById('input-text');
+        const inputPrompt = document.getElementById('input-prompt');
+        const cursor = document.getElementById('input-cursor');
+        const hiddenInput = document.getElementById('hidden-input');
+        const scrollToBottomBtn = document.getElementById('scroll-to-bottom');
+        
+        // Editor elements
+        const contextEditorModal = document.getElementById('context-editor-modal');
+        const contextEditor = document.getElementById('context-editor');
+        const contextEditorTitle = document.getElementById('context-editor-title');
+        const contextDeleteBtn = document.getElementById('context-delete-btn');
+        
+        const scriptEditorModal = document.getElementById('script-editor-modal');
+        const scriptEditor = document.getElementById('script-editor');
+        const scriptEditorTitle = document.getElementById('script-editor-title');
+        const scriptStats = document.getElementById('script-stats');
+        const scriptDeleteBtn = document.getElementById('script-delete-btn');
+
+        // Initialize System with cool loading screen
+        window.addEventListener('load', async () => {
+            await initializeSystemWithLoading();
+        });
+
+        async function initializeSystemWithLoading() {
+            // Phase 1: Initializing
+            loadingStatus.innerHTML = 'LOADING CORE SYSTEMS<span class="loading-dots"></span>';
+            loadingBar.style.width = '20%';
+            await delay(800);
+            
+            // Phase 2: Loading modules
+            loadingStatus.innerHTML = 'LOADING MODULES<span class="loading-dots"></span>';
+            loadingBar.style.width = '40%';
+            await delay(600);
+            
+            // Phase 3: Initializing scripts
+            loadingStatus.innerHTML = 'INITIALIZING SCRIPTS<span class="loading-dots"></span>';
+            loadingBar.style.width = '60%';
+            initBuiltinScripts();
+            await delay(500);
+            
+            // Phase 4: Loading data
+            loadingStatus.innerHTML = 'LOADING SAVED DATA<span class="loading-dots"></span>';
+            loadingBar.style.width = '80%';
+            loadSavedData();
+            await delay(400);
+            
+            // Phase 5: Finalizing
+            loadingStatus.innerHTML = 'FINALIZING<span class="loading-dots"></span>';
+            loadingBar.style.width = '100%';
+            await delay(300);
+            
+            // Complete loading
+            loading.style.opacity = '0';
+            loading.style.transition = 'opacity 0.8s ease';
+            
+            setTimeout(() => {
+                loading.style.display = 'none';
+                terminalContainer.style.display = 'flex';
+                initTerminal();
+            }, 800);
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function initTerminal() {
+            // Display the CHATBOT ASCII art
+            addASCIIDisplay(CHATBOT_ASCII, 'chatbot');
+            
+            // Display a welcome message
+            addSystemMessage('CHATBOT TERMINAL v3.0', 'response');
+            
+            // Show help commands as a list at startup
+            showHelpStartup();
+            
+            // Show system status
+            addSystemMessage(`System: ${state.knowledgeBase.length} context files, ${state.scripts.length} scripts loaded`, 'system');
+
+            setupInput();
+            setupScrolling();
+        }
+
+        function showHelpStartup() {
+            const commands = [
+                '/help',
+                '/context',
+                '/scripts', 
+                '/import',
+                '/export',
+                '/clear',
+                '/stats',
+                '/calc',
+                '/list',
+                '/run',
+                '/newscript',
+                '/read'
+            ];
+            
+            addSystemMessage('Available commands:', 'success');
+            
+            // Create a clean list format
+            const helpList = document.createElement('div');
+            helpList.className = 'message';
+            helpList.style.color = 'var(--neon)';
+            helpList.style.fontFamily = "'Courier New', monospace";
+            helpList.style.whiteSpace = 'pre';
+            helpList.style.lineHeight = '1.4';
+            helpList.style.marginTop = '10px';
+            helpList.style.marginBottom = '10px';
+            
+            // Display commands in a clean list format
+            let helpText = '';
+            commands.forEach(cmd => {
+                helpText += `${cmd}\n`;
+            });
+            
+            helpList.textContent = helpText;
+            messagesContainer.appendChild(helpList);
+            
+            scheduleScrollCheck();
+        }
+
+        function setupInput() {
+            hiddenInput.focus();
+            hiddenInput.addEventListener('input', handleInput);
+            hiddenInput.addEventListener('keydown', handleKey);
+            document.addEventListener('click', () => hiddenInput.focus());
+            updateDisplay();
+        }
+
+        function setupScrolling() {
+            output.addEventListener('scroll', () => {
+                const distanceFromBottom = output.scrollHeight - output.scrollTop - output.clientHeight;
+                state.autoScroll = distanceFromBottom <= 100;
+                scrollToBottomBtn.style.display = distanceFromBottom > 100 ? 'flex' : 'none';
+            });
+        }
+
+        function scrollToBottom() {
+            output.scrollTop = output.scrollHeight;
+            state.autoScroll = true;
+            scrollToBottomBtn.style.display = 'none';
+        }
+
+        function handleInput(e) {
+            state.currentInput = hiddenInput.value;
+            state.cursorPosition = hiddenInput.selectionStart;
+            updateDisplay();
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (state.calculatorMode) {
+                    handleCalculatorInput();
+                } else {
+                    sendCommand();
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateHistory(-1);
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateHistory(1);
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                autoComplete();
+            } else {
+                setTimeout(() => {
+                    state.cursorPosition = hiddenInput.selectionStart;
+                    updateDisplay();
+                }, 0);
+            }
+        }
+
+        function navigateHistory(direction) {
+            if (state.history.length === 0) return;
+            
+            state.histIndex += direction;
+            if (state.histIndex < -1) state.histIndex = -1;
+            if (state.histIndex >= state.history.length) state.histIndex = state.history.length - 1;
+            
+            if (state.histIndex === -1) {
+                state.currentInput = '';
+            } else {
+                state.currentInput = state.history[state.histIndex];
+            }
+            
+            hiddenInput.value = state.currentInput;
+            hiddenInput.selectionStart = hiddenInput.selectionEnd = state.currentInput.length;
+            updateDisplay();
+        }
+
+        function autoComplete() {
+            const commands = ['/help', '/context', '/scripts', '/import', '/export', 
+                            '/clear', '/stats', '/calc', '/list', '/run', '/newscript', '/read'];
+            
+            const current = state.currentInput.toLowerCase();
+            const matches = commands.filter(cmd => cmd.startsWith(current));
+            
+            if (matches.length === 1) {
+                state.currentInput = matches[0];
+                hiddenInput.value = state.currentInput;
+                updateDisplay();
+            } else if (matches.length > 1) {
+                addSystemMessage(`Suggestions: ${matches.join(', ')}`, 'info');
+            }
+        }
+
+        function sendCommand() {
+            const cmd = state.currentInput.trim();
+            if (!cmd) return;
+            
+            if (state.history[0] !== cmd) {
+                state.history.unshift(cmd);
+            }
+            state.histIndex = -1;
+            
+            addUserMessage(cmd, 'cmd');
+            processCommand(cmd);
+            
+            state.currentInput = '';
+            hiddenInput.value = '';
+            updateDisplay();
+            state.autoScroll = true;
+        }
+
+        // Simplified to use the submitCommand function
+        function submitCommand(cmd) {
+            state.currentInput = cmd;
+            sendCommand();
+        }
+
+        function importCommand() {
+            state.uploadType = 'both';
+            document.getElementById('upload-title').textContent = 'UPLOAD FILES';
+            document.getElementById('upload-hint').textContent = 'Select .md or .json files (.md → Context, .json → Scripts)';
+            document.getElementById('upload-modal').style.display = 'block';
+            state.uploadedFiles = [];
+            document.getElementById('upload-status').textContent = '';
+            document.getElementById('process-btn').style.display = 'none';
+            document.getElementById('file-input').value = '';
+            hiddenInput.blur();
+        }
+
+        function exportCommand() {
+            if (state.knowledgeBase.length === 0 && state.scripts.length === 0) {
+                addSystemMessage('No data to export.', 'info');
+                return;
+            }
+            
+            // Create markdown export
+            let markdown = `# WEBXOS Terminal Export\n\n`;
+            markdown += `## Export Information\n`;
+            markdown += `- Export Date: ${new Date().toISOString()}\n`;
+            markdown += `- Version: WEBXOS v3.0\n`;
+            markdown += `- Context Files: ${state.knowledgeBase.length}\n`;
+            markdown += `- Scripts: ${state.scripts.length}\n\n`;
+            
+            // Context files section
+            if (state.knowledgeBase.length > 0) {
+                markdown += `## Context Files\n\n`;
+                state.knowledgeBase.forEach((file, index) => {
+                    markdown += `### ${file.name}\n\n`;
+                    markdown += `\`\`\`markdown\n${file.content}\n\`\`\`\n\n`;
+                });
+            }
+            
+            // Scripts section
+            if (state.scripts.length > 0) {
+                markdown += `## Scripts\n\n`;
+                markdown += `*Total scripts: ${state.scripts.length}*\n\n`;
+                
+                state.scripts.forEach((script, index) => {
+                    markdown += `### Script ${index + 1}: ${script.title}\n\n`;
+                    markdown += `**Description:** ${script.description || 'No description'}\n\n`;
+                    markdown += `**Code:**\n\n`;
+                    markdown += `\`\`\`json\n${script.code}\n\`\`\`\n\n`;
+                });
+            }
+            
+            const blob = new Blob([markdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `webxos-export-${Date.now()}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            addSystemMessage('Data exported to markdown file.', 'success');
+        }
+
+        function updateDisplay() {
+            inputText.textContent = state.currentInput;
+            
+            const textBeforeCursor = state.currentInput.substring(0, state.cursorPosition);
+            const tempSpan = document.createElement('span');
+            tempSpan.style.fontFamily = "'Courier New', monospace";
+            tempSpan.style.fontSize = '16px';
+            tempSpan.style.whiteSpace = 'pre';
+            tempSpan.style.position = 'absolute';
+            tempSpan.style.visibility = 'hidden';
+            tempSpan.textContent = textBeforeCursor;
+            
+            document.body.appendChild(tempSpan);
+            const cursorLeft = tempSpan.offsetWidth;
+            document.body.removeChild(tempSpan);
+            
+            cursor.style.left = cursorLeft + 'px';
+            
+            // Update prompt color based on mode
+            if (state.calculatorMode) {
+                inputPrompt.textContent = 'calc>';
+                inputPrompt.style.color = 'var(--yellow)';
+            } else {
+                inputPrompt.textContent = '$';
+                inputPrompt.style.color = 'var(--neon)';
+            }
+        }
+
+        async function processCommand(cmd) {
+            if (cmd.startsWith('/')) {
+                const parts = cmd.split(' ');
+                const cmdName = parts[0].toLowerCase();
+                const args = parts.slice(1).join(' ');
+                
+                switch(cmdName) {
+                    case '/help':
+                        showHelp();
+                        break;
+                    case '/context':
+                        if (args === 'list') {
+                            listContext();
+                        } else {
+                            showContextFiles();
+                        }
+                        break;
+                    case '/scripts':
+                        if (args === 'list') {
+                            listScripts();
+                        } else if (args.startsWith('run ')) {
+                            runScriptByName(args.substring(4));
+                        } else {
+                            showScriptFiles();
+                        }
+                        break;
+                    case '/import':
+                        importCommand();
+                        break;
+                    case '/export':
+                        exportCommand();
+                        break;
+                    case '/clear':
+                        clearTerminal();
+                        break;
+                    case '/stats':
+                        showStats();
+                        break;
+                    case '/calc':
+                        runCalculator();
+                        break;
+                    case '/list':
+                        listAll();
+                        break;
+                    case '/run':
+                        if (args) runScriptByName(args);
+                        else addSystemMessage('Usage: /run [script-name]', 'error');
+                        break;
+                    case '/newscript':
+                        openNewScriptEditor();
+                        break;
+                    case '/read':
+                        if (args) readContextFile(args);
+                        else addSystemMessage('Usage: /read [filename] or /read [index]', 'error');
+                        break;
+                    default:
+                        addSystemMessage('Unknown command. Type /help for available commands.', 'error');
+                }
+            } else {
+                await chatWithAI(cmd);
+            }
+        }
+
+        function showHelp() {
+            const commands = [
+                '/help',
+                '/context',
+                '/scripts', 
+                '/import',
+                '/export',
+                '/clear',
+                '/stats',
+                '/calc',
+                '/list',
+                '/run',
+                '/newscript',
+                '/read'
+            ];
+            
+            addSystemMessage('Available commands:', 'success');
+            
+            // Create a clean list format
+            const helpList = document.createElement('div');
+            helpList.className = 'message';
+            helpList.style.color = 'var(--neon)';
+            helpList.style.fontFamily = "'Courier New', monospace";
+            helpList.style.whiteSpace = 'pre';
+            helpList.style.lineHeight = '1.4';
+            helpList.style.marginTop = '10px';
+            helpList.style.marginBottom = '10px';
+            
+            // Display commands in a clean list format
+            let helpText = '';
+            commands.forEach(cmd => {
+                helpText += `${cmd}\n`;
+            });
+            
+            helpList.textContent = helpText;
+            messagesContainer.appendChild(helpList);
+            
+            scheduleScrollCheck();
+        }
+
+        // ========== CONTEXT FILES ==========
+        function showContextFiles() {
+            addSystemMessage('CONTEXT FILES (.md):', 'success');
+            
+            if (state.knowledgeBase.length === 0) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'empty-state';
+                emptyDiv.innerHTML = `
+                    <div style="font-size: 24px; margin-bottom: 10px;">📄</div>
+                    <div>No context files yet.</div>
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        Upload .md files or create new files
+                    </div>
+                `;
+                messagesContainer.appendChild(emptyDiv);
+            } else {
+                state.knowledgeBase.forEach((file, index) => {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'file-item-terminal';
+                    
+                    let preview = file.content.replace(/\n/g, ' ').substring(0, 60);
+                    if (file.content.length > 60) preview += '...';
+                    
+                    fileDiv.innerHTML = `
+                        <div class="file-info">
+                            <div class="file-title">${index + 1}. ${file.name}</div>
+                            <div class="file-description">${preview}</div>
+                            <div class="file-description">${file.content.length} chars</div>
+                        </div>
+                        <div class="file-actions">
+                            <button class="action-btn" onclick="readContextFile('${file.name}')">READ</button>
+                            <button class="action-btn" onclick="editContext('${file.id}')">EDIT</button>
+                        </div>
+                    `;
+                    messagesContainer.appendChild(fileDiv);
+                });
+            }
+            
+            const newBtn = document.createElement('button');
+            newBtn.className = 'new-file-btn';
+            newBtn.innerHTML = '+ CREATE NEW CONTEXT FILE';
+            newBtn.onclick = () => openNewContextEditor();
+            messagesContainer.appendChild(newBtn);
+            
+            scheduleScrollCheck();
+        }
+
+        function listContext() {
+            if (state.knowledgeBase.length === 0) {
+                addSystemMessage('No context files.', 'info');
+                return;
+            }
+            
+            addSystemMessage('CONTEXT FILES (simple list):', 'success');
+            state.knowledgeBase.forEach((file, index) => {
+                addSystemMessage(`${index + 1}. ${file.name} (${file.content.length} chars)`, 'info');
+            });
+        }
+
+        function editContext(fileId) {
+            const file = state.knowledgeBase.find(f => f.id === fileId);
+            if (file) {
+                state.activeContext = file;
+                contextEditorTitle.textContent = file.name;
+                contextEditor.value = file.content;
+                contextDeleteBtn.style.display = 'block';
+                contextEditorModal.style.display = 'block';
+                hiddenInput.blur();
+                
+                setTimeout(() => contextEditor.focus(), 100);
+            } else {
+                addSystemMessage('Error: File not found.', 'error');
+            }
+        }
+
+        function openNewContextEditor() {
+            state.activeContext = null;
+            contextEditorTitle.textContent = 'new-context.md';
+            contextEditor.value = '# New Context File\n\nAdd markdown content here...\n\n## Features\n- Use headings with #\n- Create lists with -\n- Add code blocks with ```\n\nThis file can be read with /read command';
+            contextDeleteBtn.style.display = 'none';
+            contextEditorModal.style.display = 'block';
+            hiddenInput.blur();
+            
+            setTimeout(() => contextEditor.focus(), 100);
+        }
+
+        function saveContext() {
+            const content = contextEditor.value.trim();
+            const name = contextEditorTitle.textContent;
+            
+            if (!content) {
+                addSystemMessage('Error: Content required.', 'error');
+                return;
+            }
+            
+            if (state.activeContext) {
+                state.activeContext.content = content;
+                state.activeContext.name = name;
+                addSystemMessage(`Updated: ${name}`, 'success');
+            } else {
+                const contextFile = {
+                    id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+                    name: name,
+                    content: content,
+                    type: 'manual',
+                    timestamp: new Date().toISOString()
+                };
+                
+                state.knowledgeBase.push(contextFile);
+                state.activeContext = contextFile;
+                addSystemMessage(`Created: ${name}`, 'success');
+            }
+            
+            saveToStorage();
+            closeEditor('context');
+        }
+
+        function readCurrentContext() {
+            if (!state.activeContext) {
+                addSystemMessage('Error: No context file loaded.', 'error');
+                return;
+            }
+            
+            closeEditor('context');
+            readContextFile(state.activeContext.name);
+        }
+
+        function testReadContext() {
+            if (!state.activeContext) {
+                addSystemMessage('Error: No context file loaded.', 'error');
+                return;
+            }
+            
+            addSystemMessage(`Preview of ${state.activeContext.name}:`, 'success');
+            
+            const preview = state.activeContext.content.substring(0, 200);
+            addSystemMessage(preview + (state.activeContext.content.length > 200 ? '...' : ''), 'info');
+        }
+
+        function deleteCurrentContext() {
+            if (!state.activeContext) {
+                addSystemMessage('Error: No context file selected.', 'error');
+                return;
+            }
+            
+            const fileName = state.activeContext.name;
+            state.knowledgeBase = state.knowledgeBase.filter(f => f.id !== state.activeContext.id);
+            state.activeContext = null;
+            
+            saveToStorage();
+            closeEditor('context');
+            addSystemMessage(`Deleted: ${fileName}`, 'success');
+            
+            showContextFiles();
+        }
+
+        function readContextFile(query) {
+            if (state.isTyping) {
+                addSystemMessage('Another file is currently being read. Please wait.', 'error');
+                return;
+            }
+
+            if (!query) {
+                addSystemMessage('Usage: /read [filename] or /read [index]', 'error');
+                return;
+            }
+
+            let file = null;
+
+            const index = parseInt(query);
+            if (!isNaN(index) && index >= 1 && index <= state.knowledgeBase.length) {
+                file = state.knowledgeBase[index - 1];
+            } else {
+                const lowerQuery = query.toLowerCase();
+                file = state.knowledgeBase.find(f => 
+                    f.name.toLowerCase().includes(lowerQuery)
+                );
+                
+                if (!file) {
+                    file = state.knowledgeBase.find(f => 
+                        f.name.toLowerCase().replace('.md', '').includes(lowerQuery)
+                    );
+                }
+            }
+
+            if (!file) {
+                addSystemMessage(`File not found: "${query}". Use /context to see available files.`, 'error');
+                return;
+            }
+
+            addSystemMessage(`Reading: ${file.name}`, 'success');
+            
+            state.isTyping = true;
+            typeWriterEffect(file.content, file.name);
+        }
+
+        function typeWriterEffect(text, fileName) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message typewriter';
+            messageDiv.style.color = 'var(--neon)';
+            messageDiv.textContent = '';
+            messagesContainer.appendChild(messageDiv);
+            
+            scheduleScrollCheck();
+            
+            let i = 0;
+            const charDelay = 5;
+            
+            function typeNextChar() {
+                if (i < text.length) {
+                    messageDiv.textContent += text.charAt(i);
+                    i++;
+                    
+                    setTimeout(typeNextChar, charDelay);
+                    
+                    if (i % 10 === 0) {
+                        scheduleScrollCheck();
+                    }
+                } else {
+                    state.isTyping = false;
+                    messageDiv.textContent += '\n\n[End of file]';
+                    scheduleScrollCheck();
+                    addSystemMessage(`Finished reading: ${fileName}`, 'info');
+                }
+            }
+            
+            typeNextChar();
+        }
+
+        // ========== SCRIPTS ==========
+        function showScriptFiles() {
+            addSystemMessage('SCRIPTS (.json / JavaScript):', 'script');
+            
+            if (state.scripts.length === 0) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'empty-state';
+                emptyDiv.innerHTML = `
+                    <div style="font-size: 24px; margin-bottom: 10px;">⚡</div>
+                    <div>No scripts yet.</div>
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        Upload .json files or create new scripts
+                    </div>
+                `;
+                messagesContainer.appendChild(emptyDiv);
+            } else {
+                state.scripts.forEach((script, index) => {
+                    const scriptDiv = document.createElement('div');
+                    scriptDiv.className = 'file-item-terminal';
+                    
+                    scriptDiv.innerHTML = `
+                        <div class="file-info">
+                            <div class="file-title" style="color: var(--yellow);">${index + 1}. ${script.title}</div>
+                            <div class="file-description">${script.description || 'No description'}</div>
+                            <div class="file-description">${script.code.length} chars • ${script.type}</div>
+                        </div>
+                        <div class="file-actions">
+                            <button class="action-btn run" onclick="runScriptByName('${script.title}')">RUN</button>
+                            <button class="action-btn" onclick="editScript('${script.id}')">EDIT</button>
+                        </div>
+                    `;
+                    messagesContainer.appendChild(scriptDiv);
+                });
+            }
+            
+            const newBtn = document.createElement('button');
+            newBtn.className = 'new-file-btn script';
+            newBtn.innerHTML = '+ CREATE NEW SCRIPT';
+            newBtn.onclick = () => openNewScriptEditor();
+            messagesContainer.appendChild(newBtn);
+            
+            scheduleScrollCheck();
+        }
+
+        function listScripts() {
+            if (state.scripts.length === 0) {
+                addSystemMessage('No scripts available.', 'info');
+                return;
+            }
+            
+            addSystemMessage('SCRIPTS (simple list):', 'script');
+            state.scripts.forEach((script, index) => {
+                addSystemMessage(`${index + 1}. ${script.title} - ${script.description || 'No description'}`, 'script');
+            });
+        }
+
+        function editScript(scriptId) {
+            const script = state.scripts.find(s => s.id === scriptId);
+            if (script) {
+                state.activeScript = script;
+                scriptEditorTitle.textContent = script.title;
+                scriptEditor.value = script.code;
+                scriptStats.textContent = `${script.code.length} chars`;
+                scriptDeleteBtn.style.display = script.builtin ? 'none' : 'block';
+                scriptEditorModal.style.display = 'block';
+                hiddenInput.blur();
+                
+                setTimeout(() => {
+                    scriptEditor.focus();
+                    scriptEditor.addEventListener('input', updateScriptStats);
+                }, 100);
+            } else {
+                addScriptOutput('Error: Script not found.', 'SCRIPT ERROR');
+            }
+        }
+
+        function openNewScriptEditor() {
+            state.activeScript = null;
+            scriptEditorTitle.textContent = 'new-script.js';
+            scriptEditor.value = `// Write JavaScript or JSON here
+
+// EXAMPLE 1: JSON with run function
+// {
+//   "name": "my-script",
+//   "description": "A custom script",
+//   "run": "function() { return 'Hello from script!'; }"
+// }
+
+// EXAMPLE 2: Pure JavaScript function
+// function() {
+//   return 'Current time: ' + new Date().toLocaleTimeString();
+// }`;
+            scriptStats.textContent = '0 chars';
+            scriptDeleteBtn.style.display = 'none';
+            scriptEditorModal.style.display = 'block';
+            hiddenInput.blur();
+            
+            setTimeout(() => {
+                scriptEditor.focus();
+                scriptEditor.addEventListener('input', updateScriptStats);
+            }, 100);
+        }
+
+        function updateScriptStats() {
+            const code = scriptEditor.value;
+            scriptStats.textContent = `${code.length} chars`;
+        }
+
+        function saveScript() {
+            const code = scriptEditor.value.trim();
+            const name = scriptEditorTitle.textContent;
+            
+            if (!code) {
+                addScriptOutput('Error: Script code required.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            let scriptType = 'json';
+            let description = 'Custom script';
+            let title = name.replace('.js', '').replace('.json', '');
+            
+            try {
+                const parsed = JSON.parse(code);
+                if (typeof parsed === 'object' && parsed.run) {
+                    description = parsed.description || 'JSON script with run function';
+                    if (parsed.name) title = parsed.name;
+                } else if (typeof parsed === 'string') {
+                    scriptType = 'text';
+                    description = 'Text script';
+                } else {
+                    description = 'JSON data script';
+                }
+            } catch (e) {
+                const trimmedCode = code.trim();
+                if (trimmedCode.startsWith('function') || 
+                    (trimmedCode.startsWith('(') && trimmedCode.includes('=>')) ||
+                    trimmedCode.includes('return')) {
+                    scriptType = 'javascript';
+                    description = 'JavaScript function';
+                } else {
+                    scriptType = 'text';
+                    description = 'Text script';
+                }
+            }
+            
+            if (state.activeScript) {
+                state.activeScript.code = code;
+                state.activeScript.type = scriptType;
+                state.activeScript.description = description;
+                state.activeScript.title = title;
+                addScriptOutput(`Updated: ${title}`, 'SCRIPT');
+            } else {
+                const script = {
+                    id: 'scr_' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+                    title: title,
+                    description: description,
+                    type: scriptType,
+                    code: code,
+                    builtin: false
+                };
+                
+                state.scripts.push(script);
+                state.activeScript = script;
+                addScriptOutput(`Created: ${title}`, 'SCRIPT');
+            }
+            
+            saveToStorage();
+            updateScriptStats();
+            closeEditor('script');
+        }
+
+        function runCurrentScript() {
+            const code = scriptEditor.value.trim();
+            
+            if (!code) {
+                addScriptOutput('Error: Script code required.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            // Check if this is the calculator script
+            if (state.activeScript && state.activeScript.title === 'calculator') {
+                closeEditor('script');
+                runCalculator();
+                return;
+            }
+            
+            // Check if the code contains calculator function
+            try {
+                const parsed = JSON.parse(code);
+                if (parsed && parsed.name && parsed.name.toLowerCase().includes('calculator')) {
+                    closeEditor('script');
+                    runCalculator();
+                    return;
+                }
+            } catch (e) {
+                // Not JSON, continue with normal execution
+            }
+            
+            const result = executeScriptCode(code);
+            const scriptName = state.activeScript ? state.activeScript.title : 'SCRIPT';
+            addScriptOutput(`${result}`, scriptName);
+            
+            // Close editor after running
+            closeEditor('script');
+        }
+
+        function testScript() {
+            const code = scriptEditor.value.trim();
+            
+            if (!code) {
+                addScriptOutput('Error: Script code required.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            const result = executeScriptCode(code);
+            const scriptName = state.activeScript ? state.activeScript.title : 'TEST SCRIPT';
+            addScriptOutput(`[TEST] ${result}`, scriptName);
+        }
+
+        function deleteCurrentScript() {
+            if (!state.activeScript) {
+                addScriptOutput('Error: No script selected.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            if (state.activeScript.builtin) {
+                addScriptOutput('Error: Cannot delete built-in scripts.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            const scriptName = state.activeScript.title;
+            state.scripts = state.scripts.filter(s => s.id !== state.activeScript.id);
+            state.activeScript = null;
+            
+            saveToStorage();
+            closeEditor('script');
+            addScriptOutput(`Deleted: ${scriptName}`, 'SCRIPT');
+        }
+
+        function executeScriptCode(code, scriptName = 'SCRIPT') {
+            try {
+                try {
+                    const parsed = JSON.parse(code);
+                    
+                    if (parsed && typeof parsed === 'object' && parsed.run) {
+                        const runFunc = new Function(`return (${parsed.run})`)();
+                        const result = runFunc();
+                        return result;
+                    }
+                    else if (typeof parsed === 'string') {
+                        return parsed;
+                    }
+                    else {
+                        return JSON.stringify(parsed, null, 2);
+                    }
+                } catch (jsonError) {
+                    const trimmedCode = code.trim();
+                    
+                    if (trimmedCode.startsWith('function') || 
+                        trimmedCode.startsWith('(') && trimmedCode.includes('=>') ||
+                        trimmedCode.includes('return')) {
+                        
+                        let funcStr = trimmedCode;
+                        if (!trimmedCode.startsWith('(') && trimmedCode.includes('=>')) {
+                            funcStr = `(${trimmedCode})`;
+                        }
+                        
+                        try {
+                            const func = new Function(`return ${funcStr}`)();
+                            if (typeof func === 'function') {
+                                const result = func();
+                                return result;
+                            } else {
+                                return func;
+                            }
+                        } catch (funcError) {
+                            return `[Executable code detected but failed to run: ${funcError.message}]\n\nCode:\n${code}`;
+                        }
+                    } else {
+                        return code;
+                    }
+                }
+            } catch (error) {
+                return `[Script execution error: ${error.message}]\n\nCode:\n${code}`;
+            }
+        }
+
+        function runScriptByName(name) {
+            const script = state.scripts.find(s => 
+                s.title.toLowerCase() === name.toLowerCase()
+            );
+            
+            if (script) {
+                // Special handling for calculator script
+                if (script.title === 'calculator') {
+                    runCalculator();
+                    return;
+                }
+                
+                addSystemMessage(`Running: ${script.title}`, 'script');
+                
+                const result = executeScriptCode(script.code, script.title);
+                
+                addScriptOutput(`${result}`, script.title);
+            } else {
+                addScriptOutput(`Script "${name}" not found.`, 'SCRIPT ERROR');
+            }
+        }
+
+        // ========== CALCULATOR ==========
+        function initBuiltinScripts() {
+            const calculatorScript = {
+                id: 'calc-json',
+                title: 'calculator',
+                description: 'Text-based calculator with basic operations',
+                type: 'json',
+                code: JSON.stringify({
+                    name: "calculator",
+                    version: "1.0",
+                    description: "Simple calculator with basic operations",
+                    author: "WEBXOS System",
+                    run: `function(input) { 
+                        if (!input && input !== 0) {
+                            return "Calculator ready. Enter expressions like: 2+2, 10*5, (5+3)*2\\nType /exit to return to terminal";
+                        }
+                        
+                        if (typeof input === 'string' && input.toLowerCase() === '/exit') {
+                            return "Exiting calculator...";
+                        }
+                        
+                        if (typeof input === 'string' && input.toLowerCase() === 'history') {
+                            if (!this.history || this.history.length === 0) {
+                                return "No calculation history yet";
+                            }
+                            return this.history.slice(-5).map(h => h.expression + ' = ' + h.result).join('\\n');
+                        }
+                        
+                        try {
+                            const sanitized = String(input).replace(/[^0-9+\\-*/().\\s]/g, '');
+                            
+                            if (!sanitized.trim()) {
+                                return "Error: Invalid expression";
+                            }
+                            
+                            const calculateFn = new Function('return (' + sanitized + ')');
+                            const result = calculateFn();
+                            
+                            if (!this.history) {
+                                this.history = [];
+                            }
+                            
+                            this.history.push({
+                                expression: input,
+                                result: result,
+                                timestamp: new Date().toISOString()
+                            });
+                            
+                            if (this.history.length > 50) {
+                                this.history.shift();
+                            }
+                            
+                            return result;
+                            
+                        } catch (error) {
+                            return "Error: " + error.message;
+                        }
+                    }`
+                }, null, 2),
+                builtin: true
+            };
+
+            if (!state.scripts.find(s => s.id === 'calc-json')) {
+                state.scripts.push(calculatorScript);
+            }
+        }
+
+        function runCalculator() {
+            const calcScript = state.scripts.find(s => s.title === 'calculator');
+            
+            if (!calcScript) {
+                addScriptOutput('Calculator script not found.', 'SCRIPT ERROR');
+                return;
+            }
+            
+            try {
+                const scriptObj = JSON.parse(calcScript.code);
+                
+                if (!scriptObj.run) {
+                    addScriptOutput('Error: Calculator script has no "run" function.', 'SCRIPT ERROR');
+                    return;
+                }
+                
+                state.calculatorFunction = new Function(`return (${scriptObj.run})`)();
+                state.calculatorMode = true;
+                state.calculatorHistory = [];
+                
+                // Show calculator header in yellow
+                const calcHeader = document.createElement('div');
+                calcHeader.className = 'message script';
+                calcHeader.style.color = 'var(--yellow)';
+                calcHeader.textContent = 'CALCULATOR MODE [Type /exit to return to terminal]';
+                messagesContainer.appendChild(calcHeader);
+                
+                // Show initial help
+                const calcHelp = document.createElement('div');
+                calcHelp.className = 'message';
+                calcHelp.style.color = 'var(--neon)';
+                calcHelp.textContent = 'Enter expressions: 2+2, 10*5, (5+3)*2\nType "history" to see last 5 calculations';
+                messagesContainer.appendChild(calcHelp);
+                
+                scheduleScrollCheck();
+                
+            } catch (error) {
+                addScriptOutput(`Failed to load calculator: ${error.message}`, 'SCRIPT ERROR');
+            }
+        }
+
+        function handleCalculatorInput() {
+            const cmd = state.currentInput.trim();
+            if (!cmd) return;
+            
+            // Add to history
+            if (state.history[0] !== cmd) {
+                state.history.unshift(cmd);
+            }
+            state.histIndex = -1;
+            
+            // Show user's input in yellow
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message';
+            userMsg.style.color = 'var(--yellow)';
+            userMsg.textContent = `calc> ${cmd}`;
+            messagesContainer.appendChild(userMsg);
+            
+            // Handle /exit command
+            if (cmd.toLowerCase() === '/exit') {
+                state.calculatorMode = false;
+                state.calculatorFunction = null;
+                
+                const exitMsg = document.createElement('div');
+                exitMsg.className = 'message';
+                exitMsg.style.color = 'var(--neon)';
+                exitMsg.textContent = 'Calculator mode exited. Returning to terminal.';
+                messagesContainer.appendChild(exitMsg);
+                
+                state.currentInput = '';
+                hiddenInput.value = '';
+                updateDisplay();
+                scheduleScrollCheck();
+                return;
+            }
+            
+            // Run calculator function
+            try {
+                const result = state.calculatorFunction(cmd);
+                
+                // Show result in yellow
+                const resultMsg = document.createElement('div');
+                resultMsg.className = 'message script';
+                resultMsg.style.color = 'var(--yellow)';
+                resultMsg.textContent = `= ${result}`;
+                messagesContainer.appendChild(resultMsg);
+            } catch (error) {
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'message error';
+                errorMsg.textContent = `Error: ${error.message}`;
+                messagesContainer.appendChild(errorMsg);
+            }
+            
+            // Clear input
+            state.currentInput = '';
+            hiddenInput.value = '';
+            updateDisplay();
+            state.autoScroll = true;
+            scheduleScrollCheck();
+        }
+
+        // ========== FILE UPLOAD ==========
+        function triggerFileInput() {
+            document.getElementById('file-input').click();
+        }
+
+        function handleFileUpload(event) {
+            const files = event.target.files;
+            if (!files.length) return;
+            
+            const allowedFiles = Array.from(files).filter(file => {
+                const ext = file.name.split('.').pop().toLowerCase();
+                return ext === 'md' || ext === 'json';
+            });
+            
+            if (allowedFiles.length === 0) {
+                document.getElementById('upload-status').innerHTML = 
+                    '<div style="color:#ff0000;">Error: Only .md and .json files are allowed</div>';
+                document.getElementById('process-btn').style.display = 'none';
+                return;
+            }
+            
+            state.uploadedFiles = allowedFiles;
+            
+            const mdCount = allowedFiles.filter(f => f.name.toLowerCase().endsWith('.md')).length;
+            const jsonCount = allowedFiles.filter(f => f.name.toLowerCase().endsWith('.json')).length;
+            
+            const fileList = allowedFiles.map(f => 
+                `<div style="margin:5px 0;">• ${f.name} (${(f.size/1024).toFixed(1)} KB)</div>`
+            ).join('');
+            
+            document.getElementById('upload-status').innerHTML = 
+                `<div style="color:var(--neon); margin-bottom:10px;">
+                    Selected ${allowedFiles.length} file(s): ${mdCount} .md, ${jsonCount} .json
+                </div>
+                 <div style="max-height:200px; overflow-y:auto;">${fileList}</div>`;
+            document.getElementById('process-btn').style.display = 'block';
+        }
+
+        async function processUploadedFiles() {
+            if (state.uploadedFiles.length === 0) {
+                addSystemMessage('No files to process.', 'error');
+                closeModal('upload-modal');
+                return;
+            }
+            
+            addSystemMessage('Processing files...', 'info');
+            closeModal('upload-modal');
+            
+            let processed = 0;
+            let mdCount = 0;
+            let jsonCount = 0;
+            
+            for (const file of state.uploadedFiles) {
+                try {
+                    const content = await readFileAsText(file);
+                    const fileName = file.name;
+                    const ext = fileName.split('.').pop().toLowerCase();
+                    
+                    if (ext === 'md') {
+                        const contextFile = {
+                            id: 'imp_' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+                            name: fileName,
+                            content: content,
+                            type: 'imported',
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        state.knowledgeBase.push(contextFile);
+                        addSystemMessage(`Added context: ${fileName}`, 'success');
+                        mdCount++;
+                        processed++;
+                        
+                    } else if (ext === 'json') {
+                        try {
+                            JSON.parse(content);
+                            
+                            let scriptType = 'json';
+                            let description = 'Uploaded JSON script';
+                            let title = fileName.replace('.json', '');
+                            
+                            try {
+                                const parsed = JSON.parse(content);
+                                if (parsed && parsed.name) {
+                                    title = parsed.name;
+                                }
+                                if (parsed && parsed.description) {
+                                    description = parsed.description;
+                                }
+                                if (parsed && parsed.run) {
+                                    description = 'JSON script with run function';
+                                } else if (typeof parsed === 'string') {
+                                    scriptType = 'text';
+                                    description = 'Text script';
+                                }
+                            } catch (e) {
+                            }
+                            
+                            const script = {
+                                id: 'scr_' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+                                title: title,
+                                description: description,
+                                type: scriptType,
+                                code: content,
+                                builtin: false
+                            };
+                            
+                            state.scripts.push(script);
+                            addScriptOutput(`Added script: ${script.title}`, 'SCRIPT IMPORT');
+                            jsonCount++;
+                            processed++;
+                            
+                        } catch (e) {
+                            const script = {
+                                id: 'scr_' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+                                title: fileName.replace('.json', ''),
+                                description: 'Text script (invalid JSON)',
+                                type: 'text',
+                                code: content,
+                                builtin: false
+                            };
+                            
+                            state.scripts.push(script);
+                            addScriptOutput(`Added as text script: ${script.title}`, 'SCRIPT IMPORT');
+                            jsonCount++;
+                            processed++;
+                        }
+                    }
+                } catch (error) {
+                    addScriptOutput(`Error processing: ${file.name}`, 'SCRIPT ERROR');
+                }
+            }
+            
+            saveToStorage();
+            addScriptOutput(`Import complete: ${processed} files processed (${mdCount} .md → Context, ${jsonCount} .json → Scripts)`, 'SCRIPT IMPORT');
+            
+            state.uploadedFiles = [];
+        }
+
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('Failed to read file'));
+                reader.readAsText(file);
+            });
+        }
+
+        // ========== MESSAGE FUNCTIONS ==========
+        function addASCIIDisplay(ascii, type = 'normal') {
+            const container = document.createElement('div');
+            container.className = type === 'chatbot' ? 'ascii-art chatbot' : 'ascii-art';
+            container.textContent = ascii;
+            messagesContainer.appendChild(container);
+            scheduleScrollCheck();
+        }
+
+        function addUserMessage(text, type = 'cmd') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'prompt-line';
+            
+            const indicator = document.createElement('div');
+            indicator.className = 'prompt-indicator';
+            indicator.textContent = '$';
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'prompt-text';
+            textDiv.style.color = type === 'cmd' ? 'var(--neon)' : 'var(--neon)';
+            textDiv.textContent = text;
+            
+            messageDiv.appendChild(indicator);
+            messageDiv.appendChild(textDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            scheduleScrollCheck();
+        }
+
+        function addSystemMessage(text, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = text;
+            
+            if (type === 'script' || text.includes('/scripts') || text.includes('SCRIPT:')) {
+                messageDiv.style.color = 'var(--yellow)';
+            }
+            
+            messagesContainer.appendChild(messageDiv);
+            scheduleScrollCheck();
+        }
+
+        function addScriptOutput(text, scriptName = 'SCRIPT') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message script';
+            messageDiv.style.color = 'var(--yellow)';
+            messageDiv.textContent = `[${scriptName}] ${text}`;
+            messagesContainer.appendChild(messageDiv);
+            scheduleScrollCheck();
+        }
+
+        function scheduleScrollCheck() {
+            requestAnimationFrame(() => {
+                if (state.autoScroll) {
+                    output.scrollTop = output.scrollHeight;
+                }
+                const distanceFromBottom = output.scrollHeight - output.scrollTop - output.clientHeight;
+                scrollToBottomBtn.style.display = distanceFromBottom > 100 ? 'flex' : 'none';
+            });
+        }
+
+        // ========== UTILITY FUNCTIONS ==========
+        function clearTerminal() {
+            messagesContainer.innerHTML = '';
+            addASCIIDisplay(CHATBOT_ASCII, 'chatbot');
+            addSystemMessage('Terminal cleared.', 'success');
+            state.autoScroll = true;
+        }
+
+        function showStats() {
+            const storageSize = JSON.stringify(state).length;
+            const contextChars = state.knowledgeBase.reduce((sum, file) => sum + file.content.length, 0);
+            const scriptChars = state.scripts.reduce((sum, script) => sum + script.code.length, 0);
+            
+            addSystemMessage('SYSTEM STATISTICS:', 'success');
+            addSystemMessage(`Context files: ${state.knowledgeBase.length}`, 'info');
+            addSystemMessage(`Total context characters: ${contextChars.toLocaleString()}`, 'info');
+            addSystemMessage(`Available scripts: ${state.scripts.length}`, 'script');
+            addSystemMessage(`Total script characters: ${scriptChars.toLocaleString()}`, 'script');
+            addSystemMessage(`Storage used: ${formatBytes(storageSize)}`, 'info');
+            addSystemMessage(`Command history: ${state.history.length} entries`, 'info');
+        }
+
+        function listAll() {
+            showStats();
+            addSystemMessage('', 'info');
+            listContext();
+            addSystemMessage('', 'info');
+            listScripts();
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function saveToStorage() {
+            try {
+                localStorage.setItem('webxos_minimal', JSON.stringify({
+                    knowledgeBase: state.knowledgeBase,
+                    scripts: state.scripts,
+                    history: state.history
+                }));
+            } catch (e) {
+                addSystemMessage('Storage error', 'error');
+            }
+        }
+
+        function loadSavedData() {
+            try {
+                const saved = localStorage.getItem('webxos_minimal');
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    state.knowledgeBase = data.knowledgeBase || [];
+                    state.scripts = data.scripts || [];
+                    state.history = data.history || [];
+                }
+            } catch (e) {
+            }
+        }
+
+        async function chatWithAI(message) {
+            addSystemMessage('Thinking...', 'info');
+            
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            let response = `You asked: "${message}"\n\n`;
+            
+            if (message.toLowerCase().includes('hello')) {
+                addASCIIDisplay(CHATBOT_ASCII, 'chatbot');
+                response += "HELLO. WELCOME TO CHATBOT TERMINAL v3.0";
+            } else if (message.toLowerCase().includes('script')) {
+                response += `I have ${state.scripts.length} scripts available. Use /scripts to view them.`;
+            } else if (message.toLowerCase().includes('context')) {
+                response += `I have ${state.knowledgeBase.length} context files loaded. Use /context to view them.`;
+            } else if (message.toLowerCase().includes('help')) {
+                response += 'Use /help for commands. Try /calc for calculator or /scripts for scripts.';
+            } else {
+                response += "I'm CHATBOT Terminal, a text-based assistant. I can help with scripts, calculations, and context files.";
+            }
+            
+            addSystemMessage(response, 'ai-response');
+        }
+
+        // ========== MODAL FUNCTIONS ==========
+        function closeEditor(type) {
+            if (type === 'context') {
+                contextEditorModal.style.display = 'none';
+                state.activeContext = null;
+            } else if (type === 'script') {
+                scriptEditorModal.style.display = 'none';
+                scriptEditor.removeEventListener('input', updateScriptStats);
+                state.activeScript = null;
+            }
+            hiddenInput.focus();
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+            hiddenInput.focus();
+        }
+
+        // Event Listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeEditor('context');
+                closeEditor('script');
+                closeModal('upload-modal');
+                hiddenInput.focus();
+            }
+        });
+
+        // Initialize
+        hiddenInput.focus();
+    </script>
+</body>
+</html>
