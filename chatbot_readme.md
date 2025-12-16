@@ -1,4 +1,4 @@
-# WEBXOS — Chatbot (version 2)
+# WEBXOS — Chatbot (version 3)
 
 **A single-file, zero-dependency, Markdown-only personal knowledge base chatbot**  
 Train an AI assistant directly in your browser using your own `.md` files. No backend, no API keys, fully offline.
