@@ -1,0 +1,2226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLIGNUM :: CAD/3D Printing IDE [Concept Demo]</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        /* Reset & Base */
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+        
+        html, body { 
+            height: 100%; 
+            background: #000;
+            font-family: 'Share Tech Mono', monospace;
+            color: #fff;
+        }
+        
+        body {
+            overflow: hidden;
+        }
+        
+        :root {
+            --black: #000000;
+            --white: #ffffff;
+            --gray-10: #0a0a0a;
+            --gray-20: #111111;
+            --gray-30: #1a1a1a;
+            --gray-40: #222222;
+            --gray-50: #333333;
+            --gray-60: #444444;
+            --gray-70: #666666;
+            --gray-80: #888888;
+            --gray-90: #cccccc;
+            --green: #00ff88;
+            --blue: #0088ff;
+            --purple: #8800ff;
+            --orange: #ff8800;
+            --red: #ff5555;
+            --cyan: #00ffff;
+            --yellow: #ffff00;
+        }
+        
+        /* Main Container */
+        .ide-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            background: var(--black);
+        }
+        
+        /* Header */
+        .ide-header {
+            padding: 0.5rem 1rem;
+            background: var(--gray-10);
+            border-bottom: 1px solid var(--gray-40);
+            height: 50px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--orange);
+        }
+        
+        .logo-sub {
+            color: var(--gray-80);
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+            font-weight: 400;
+        }
+        
+        .demo-tag {
+            background: var(--orange);
+            color: var(--black);
+            padding: 0.15rem 0.5rem;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-left: 0.5rem;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+        
+        .header-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .control-btn {
+            background: var(--gray-20);
+            border: 1px solid var(--gray-40);
+            color: var(--gray-90);
+            padding: 0.4rem 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 2px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--white);
+            background: var(--gray-30);
+        }
+        
+        .control-btn.active {
+            background: var(--white);
+            color: var(--black);
+            border-color: var(--white);
+        }
+        
+        /* Status Indicators */
+        .status-indicators {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--gray-80);
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--gray-40);
+        }
+        
+        .status-dot.active {
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+        }
+        
+        /* Main Content Area */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* 3D View Area */
+        .viewer-area {
+            flex: 1;
+            position: relative;
+            background: var(--black);
+        }
+        
+        .viewer-area.inverted {
+            background: var(--white);
+        }
+        
+        #canvas-3d {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        .viewer-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+        
+        .viewer-stats {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--gray-40);
+            padding: 0.8rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            min-width: 180px;
+            pointer-events: auto;
+            border-radius: 3px;
+        }
+        
+        .viewer-area.inverted .viewer-stats {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: var(--gray-60);
+        }
+        
+        .viewer-area.inverted .stat-label {
+            color: var(--gray-30);
+        }
+        
+        .viewer-area.inverted .stat-value {
+            color: var(--black);
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.3rem;
+            color: var(--gray-90);
+        }
+        
+        .stat-label {
+            color: var(--gray-70);
+        }
+        
+        .stat-value {
+            color: var(--white);
+            font-weight: 500;
+        }
+        
+        /* Control Panel */
+        .control-panel {
+            width: 320px;
+            background: var(--gray-10);
+            border-left: 1px solid var(--gray-40);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        
+        /* Smart Controls Section - TOP */
+        .smart-controls-section {
+            border-bottom: 1px solid var(--gray-40);
+            padding: 1rem;
+            background: var(--gray-20);
+        }
+        
+        .panel-section {
+            border-bottom: 1px solid var(--gray-40);
+            padding: 1rem;
+        }
+        
+        .section-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--orange);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+        
+        /* Smart Parameter Controls */
+        .smart-param-group {
+            margin-bottom: 1.2rem;
+            border: 1px solid var(--gray-40);
+            padding: 0.8rem;
+            border-radius: 3px;
+            background: var(--gray-30);
+        }
+        
+        .smart-param-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.6rem;
+        }
+        
+        .smart-param-label {
+            color: var(--gray-80);
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .smart-param-label i {
+            color: var(--purple);
+        }
+        
+        .smart-param-value {
+            color: var(--white);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            min-width: 50px;
+            text-align: right;
+            background: var(--gray-40);
+            padding: 0.2rem 0.5rem;
+            border-radius: 2px;
+        }
+        
+        .smart-param-slider {
+            width: 100%;
+            height: 4px;
+            background: var(--gray-40);
+            -webkit-appearance: none;
+            appearance: none;
+            outline: none;
+            border-radius: 2px;
+        }
+        
+        .smart-param-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--orange);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid var(--white);
+        }
+        
+        .smart-param-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: var(--orange);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid var(--white);
+        }
+        
+        .smart-param-desc {
+            color: var(--gray-70);
+            font-size: 0.7rem;
+            margin-top: 0.4rem;
+            font-style: italic;
+        }
+        
+        .param-details {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--gray-80);
+        }
+        
+        .param-detail {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            text-align: center;
+        }
+        
+        .param-detail-label {
+            font-size: 0.6rem;
+            color: var(--gray-70);
+            margin-bottom: 0.2rem;
+        }
+        
+        .param-detail-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--green);
+        }
+        
+        .ai-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.8rem;
+            padding: 0.4rem;
+            background: var(--gray-20);
+            border-radius: 3px;
+            font-size: 0.75rem;
+            color: var(--gray-80);
+        }
+        
+        .ai-status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--gray-40);
+        }
+        
+        .ai-status-dot.active {
+            background: var(--green);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        /* Button Groups */
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+            margin-top: 0.8rem;
+        }
+        
+        .action-btn {
+            background: var(--gray-20);
+            border: 1px solid var(--gray-40);
+            color: var(--gray-90);
+            padding: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 2px;
+        }
+        
+        .action-btn:hover {
+            border-color: var(--white);
+            background: var(--gray-30);
+        }
+        
+        .action-btn.primary {
+            background: var(--orange);
+            color: var(--black);
+            border-color: var(--orange);
+            font-weight: bold;
+        }
+        
+        .action-btn.primary:hover {
+            background: #ffaa00;
+        }
+        
+        /* Shape Library */
+        .shape-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.6rem;
+            margin-top: 0.8rem;
+        }
+        
+        .shape-btn {
+            background: var(--gray-20);
+            border: 1px solid var(--gray-40);
+            color: var(--gray-90);
+            padding: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            border-radius: 2px;
+        }
+        
+        .shape-btn:hover {
+            border-color: var(--white);
+        }
+        
+        .shape-btn.active {
+            background: var(--white);
+            color: var(--black);
+            border-color: var(--white);
+        }
+        
+        /* System Status */
+        .system-status {
+            margin-top: 1.2rem;
+        }
+        
+        .system-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .system-tag {
+            padding: 0.2rem 0.5rem;
+            background: var(--gray-20);
+            border: 1px solid var(--gray-40);
+            font-size: 0.7rem;
+            color: var(--gray-80);
+            border-radius: 2px;
+        }
+        
+        .system-tag.highlight {
+            background: var(--orange);
+            color: var(--black);
+            font-weight: bold;
+        }
+        
+        /* Footer */
+        .ide-footer {
+            padding: 0.5rem 1rem;
+            background: var(--gray-10);
+            border-top: 1px solid var(--gray-40);
+            height: 50px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+        
+        .prompt {
+            color: var(--orange);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .footer-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--white);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            outline: none;
+        }
+        
+        /* Console Overlay */
+        .console-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            display: none;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        
+        .console-header {
+            padding: 1rem;
+            background: var(--gray-10);
+            border-bottom: 1px solid var(--gray-40);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .console-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--orange);
+        }
+        
+        .console-close {
+            background: none;
+            border: none;
+            color: var(--gray-70);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .console-close:hover {
+            color: var(--white);
+        }
+        
+        .console-body {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .console-output {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .console-line {
+            margin-bottom: 0.3rem;
+            min-height: 1.2rem;
+        }
+        
+        .console-input {
+            background: transparent;
+            border: none;
+            color: var(--white);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            outline: none;
+            flex: 1;
+            margin-left: 0.5rem;
+        }
+        
+        .line-info { color: var(--blue); }
+        .line-success { color: var(--green); }
+        .line-warning { color: var(--orange); }
+        .line-error { color: var(--red); }
+        .line-output { color: var(--gray-80); }
+        .line-shape { color: var(--purple); }
+        .line-ai { color: var(--cyan); }
+        
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--black);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .loading-content {
+            text-align: center;
+        }
+        
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--gray-40);
+            border-top-color: var(--orange);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .control-panel {
+                width: 100%;
+                border-left: none;
+                border-top: 1px solid var(--gray-40);
+                max-height: 40vh;
+            }
+            
+            .btn-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .shape-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        /* Utility Classes */
+        .hidden {
+            display: none !important;
+        }
+        
+        .visible {
+            display: flex !important;
+        }
+        
+        /* Demo Notice */
+        .demo-notice {
+            background: rgba(255, 136, 0, 0.1);
+            border: 1px solid var(--orange);
+            padding: 0.8rem;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: var(--orange);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div style="color: var(--orange); font-size: 1.1rem; margin-bottom: 0.5rem;">
+                COLIGNUM CAD/3D Printing IDE
+            </div>
+            <div style="color: var(--gray-80); font-size: 0.9rem;">
+                Initializing Multi-Parameter AI Engine...
+            </div>
+        </div>
+    </div>
+
+    <!-- Console Overlay -->
+    <div class="console-overlay" id="console-overlay">
+        <div class="console-header">
+            <div class="console-title">COLIGNUM CAD Assistant [Multi-Parameter AI]</div>
+            <button class="console-close" id="console-close">&times;</button>
+        </div>
+        <div class="console-body">
+            <div class="console-output" id="console-output">
+                <div class="console-line line-warning">⚠️ COLIGNUM CAD/3D Printing Terminal v3.0 [MP-AI]</div>
+                <div class="console-line line-warning">⚠️ Multi-Parameter AI Smart Controls Active</div>
+                <div class="console-line line-info">Each slider controls 3+ parameters simultaneously</div>
+                <div class="console-line line-success">Smart Sliders: Morph, Detail, Form - AI-enhanced multi-control</div>
+                <div class="console-line line-success">Type /schem to export full model documentation</div>
+                <div class="console-line line-success">Ready for design commands.</div>
+            </div>
+            <div style="display: flex; align-items: center; margin-top: 0.8rem;">
+                <span class="prompt">></span>
+                <input type="text" class="console-input" id="console-input" autocomplete="off" placeholder="Type command...">
+            </div>
+        </div>
+    </div>
+
+    <!-- Main IDE -->
+    <div class="ide-container">
+        <!-- Header -->
+        <header class="ide-header">
+            <div class="logo">
+                COLIGNUM<span class="logo-sub">MP-AI CAD/3D Printing<span class="demo-tag">SMART</span></span>
+            </div>
+            
+            <div class="status-indicators">
+                <div class="status-item">
+                    <div class="status-dot active"></div>
+                    <span>MP-AI Engine</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot active"></div>
+                    <span>3-in-1 Controls</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot active"></div>
+                    <span>Export Ready</span>
+                </div>
+            </div>
+            
+            <div class="header-controls">
+                <button class="control-btn active" data-mode="wireframe">WIREFRAME</button>
+                <button class="control-btn" data-mode="solid">SOLID</button>
+                <button class="control-btn" data-mode="points">POINTS</button>
+                <button class="control-btn" id="invert-btn">INVERT</button>
+                <button class="control-btn" id="console-btn">CONSOLE</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- 3D Viewer -->
+            <div class="viewer-area" id="viewer-area">
+                <canvas id="canvas-3d"></canvas>
+                <div class="viewer-overlay">
+                    <div class="viewer-stats">
+                        <div class="stat-row">
+                            <span class="stat-label">MODE:</span>
+                            <span class="stat-value" id="stat-mode">MP-AI DESIGN</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">VERTICES:</span>
+                            <span class="stat-value" id="stat-vertices">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">FACES:</span>
+                            <span class="stat-value" id="stat-faces">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">AI PARAMS:</span>
+                            <span class="stat-value" id="stat-params">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">STATUS:</span>
+                            <span class="stat-value" id="stat-status">READY</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <!-- AI Smart Controls Section - TOP (3 Sliders Only) -->
+                <div class="smart-controls-section">
+                    <div class="section-title">MULTI-PARAMETER AI CONTROLS</div>
+                    
+                    <!-- MORPH: Scale + Rotation + Position -->
+                    <div class="smart-param-group">
+                        <div class="smart-param-header">
+                            <div class="smart-param-label">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>MORPH</span>
+                            </div>
+                            <span class="smart-param-value" id="param-morph">50%</span>
+                        </div>
+                        <input type="range" class="smart-param-slider" id="slider-morph" min="0" max="100" value="50" step="1">
+                        <div class="smart-param-desc">
+                            3-in-1: Scale + Rotation + Position (AI-balanced)
+                        </div>
+                        <div class="param-details">
+                            <div class="param-detail">
+                                <div class="param-detail-label">SCALE</div>
+                                <div class="param-detail-value" id="detail-scale">100%</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">ROTATION</div>
+                                <div class="param-detail-value" id="detail-rotation">0°</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">POSITION</div>
+                                <div class="param-detail-value" id="detail-position">0.0</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- DETAIL: Subdivision + Noise + Smoothing -->
+                    <div class="smart-param-group">
+                        <div class="smart-param-header">
+                            <div class="smart-param-label">
+                                <i class="fas fa-wave-square"></i>
+                                <span>DETAIL</span>
+                            </div>
+                            <span class="smart-param-value" id="param-detail">50%</span>
+                        </div>
+                        <input type="range" class="smart-param-slider" id="slider-detail" min="0" max="100" value="50" step="1">
+                        <div class="smart-param-desc">
+                            3-in-1: Subdivision + Noise + Edge Smoothing
+                        </div>
+                        <div class="param-details">
+                            <div class="param-detail">
+                                <div class="param-detail-label">SUBDIVISION</div>
+                                <div class="param-detail-value" id="detail-subdivide">1.0x</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">NOISE</div>
+                                <div class="param-detail-value" id="detail-noise">0.0</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">SMOOTH</div>
+                                <div class="param-detail-value" id="detail-smooth">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- FORM: Extrusion + Twist + Bevel -->
+                    <div class="smart-param-group">
+                        <div class="smart-param-header">
+                            <div class="smart-param-label">
+                                <i class="fas fa-expand-alt"></i>
+                                <span>FORM</span>
+                            </div>
+                            <span class="smart-param-value" id="param-form">50%</span>
+                        </div>
+                        <input type="range" class="smart-param-slider" id="slider-form" min="0" max="100" value="50" step="1">
+                        <div class="smart-param-desc">
+                            3-in-1: Extrusion + Twist + Edge Bevel
+                        </div>
+                        <div class="param-details">
+                            <div class="param-detail">
+                                <div class="param-detail-label">EXTRUSION</div>
+                                <div class="param-detail-value" id="detail-extrude">0.0</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">TWIST</div>
+                                <div class="param-detail-value" id="detail-twist">0°</div>
+                            </div>
+                            <div class="param-detail">
+                                <div class="param-detail-label">BEVEL</div>
+                                <div class="param-detail-value" id="detail-bevel">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="ai-status">
+                        <div class="ai-status-dot active" id="ai-status-dot"></div>
+                        <span id="ai-status-text">Multi-Parameter AI Ready - Each slider controls 3 parameters</span>
+                    </div>
+                </div>
+                
+                <!-- Shape Generation -->
+                <div class="panel-section">
+                    <div class="section-title">SHAPE LIBRARY</div>
+                    
+                    <div class="shape-grid">
+                        <button class="shape-btn" data-shape="cube">CUBE</button>
+                        <button class="shape-btn" data-shape="sphere">SPHERE</button>
+                        <button class="shape-btn" data-shape="cylinder">CYLINDER</button>
+                        <button class="shape-btn" data-shape="cone">CONE</button>
+                        <button class="shape-btn" data-shape="torus">TORUS</button>
+                        <button class="shape-btn" data-shape="tetrahedron">TETRA</button>
+                        <button class="shape-btn" data-shape="bracket">BRACKET</button>
+                        <button class="shape-btn" data-shape="flange">FLANGE</button>
+                        <button class="shape-btn" data-shape="gear">GEAR</button>
+                    </div>
+                    
+                    <div class="btn-group" style="margin-top: 1rem;">
+                        <button class="action-btn primary" id="btn-generate">NEW SHAPE</button>
+                        <button class="action-btn" id="btn-export">EXPORT</button>
+                        <button class="action-btn" id="btn-clear">CLEAR</button>
+                        <button class="action-btn" id="btn-schem">SCHEM</button>
+                    </div>
+                </div>
+
+                <!-- System Info -->
+                <div class="panel-section">
+                    <div class="section-title">SYSTEM INFO</div>
+                    
+                    <div class="system-tags">
+                        <span class="system-tag highlight">MP-AI EDITING</span>
+                        <span class="system-tag">3-in-1 Controls</span>
+                        <span class="system-tag">JSON Export</span>
+                        <span class="system-tag">STL Export</span>
+                        <span class="system-tag">Smart README</span>
+                        <span class="system-tag">ZIP Archive</span>
+                    </div>
+                    
+                    <div class="param-group" style="margin-top: 1rem;">
+                        <div class="param-header">
+                            <span class="param-label">MEMORY USAGE</span>
+                            <span class="param-value" id="param-memory">0 KB</span>
+                        </div>
+                        <div style="height: 4px; background: var(--gray-40); margin-top: 0.4rem; border-radius: 2px;">
+                            <div id="memory-fill" style="height: 100%; background: var(--green); width: 0%; transition: width 0.3s; border-radius: 2px;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="demo-notice">
+                        <strong>⚠️ MULTI-PARAMETER AI DEMO</strong><br>
+                        Each slider controls 3+ parameters simultaneously<br>
+                        AI balances parameters for optimal design results
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="ide-footer">
+            <span class="prompt">></span>
+            <input type="text" class="footer-input" id="footer-input" placeholder="Type /schem for documentation or /help for commands...">
+        </footer>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let currentObject = null;
+        let vizMode = 'wireframe';
+        let isInverted = false;
+        let aiWorker = null;
+        let isAIProcessing = false;
+        
+        // Multi-parameter AI values
+        let multiParams = {
+            morph: 50,      // Controls: scale, rotation, position
+            detail: 50,     // Controls: subdivision, noise, smoothing
+            form: 50        // Controls: extrusion, twist, bevel
+        };
+        
+        // Current parameter values (derived from multi-params)
+        let currentParams = {
+            scale: 1.0,
+            rotation: 0,
+            position: 0,
+            subdivide: 1.0,
+            noise: 0,
+            smooth: 0,
+            extrude: 0,
+            twist: 0,
+            bevel: 0
+        };
+        
+        // Extended Shape definitions with geometry functions
+        const shapePresets = {
+            // Basic Geometric Shapes
+            cube: {
+                type: 'cube',
+                create: () => new THREE.BoxGeometry(4, 4, 4),
+                vertices: 8,
+                faces: 12,
+                color: 0x888888,
+                category: 'basic'
+            },
+            sphere: {
+                type: 'sphere',
+                create: () => new THREE.SphereGeometry(3, 32, 32),
+                vertices: 1026,
+                faces: 2048,
+                color: 0x777777,
+                category: 'basic'
+            },
+            cylinder: {
+                type: 'cylinder',
+                create: () => new THREE.CylinderGeometry(2, 2, 6, 32),
+                vertices: 66,
+                faces: 64,
+                color: 0x999999,
+                category: 'basic'
+            },
+            cone: {
+                type: 'cone',
+                create: () => new THREE.ConeGeometry(3, 6, 32),
+                vertices: 34,
+                faces: 32,
+                color: 0xaaaaaa,
+                category: 'basic'
+            },
+            torus: {
+                type: 'torus',
+                create: () => new THREE.TorusGeometry(3, 1, 16, 32),
+                vertices: 544,
+                faces: 512,
+                color: 0xbbbbbb,
+                category: 'basic'
+            },
+            tetrahedron: {
+                type: 'tetrahedron',
+                create: () => new THREE.TetrahedronGeometry(4),
+                vertices: 4,
+                faces: 4,
+                color: 0xcccccc,
+                category: 'basic'
+            },
+            
+            // CAD Models
+            bracket: {
+                type: 'bracket',
+                create: () => createBracketGeometry(),
+                vertices: 24,
+                faces: 12,
+                color: 0x666666,
+                category: 'cad'
+            },
+            flange: {
+                type: 'flange',
+                create: () => createFlangeGeometry(),
+                vertices: 66,
+                faces: 64,
+                color: 0x777777,
+                category: 'cad'
+            },
+            gear: {
+                type: 'gear',
+                create: () => createGearGeometry(),
+                vertices: 288,
+                faces: 284,
+                color: 0x888888,
+                category: 'cad'
+            }
+        };
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Initialize 3D engine
+                await initThreeJS();
+                
+                // Initialize AI Worker
+                await initAIWorker();
+                
+                // Initialize event listeners
+                initEventListeners();
+                
+                // Hide loading screen
+                document.getElementById('loading-overlay').style.display = 'none';
+                
+                // Create default shape
+                createShape('cube');
+                
+                // Log startup message
+                logToConsole('COLIGNUM Multi-Parameter AI CAD IDE initialized', 'success');
+                logToConsole('3 Smart Sliders Active - Each controls 3+ parameters', 'ai');
+                logToConsole('MORPH: Scale + Rotation + Position', 'info');
+                logToConsole('DETAIL: Subdivision + Noise + Smoothing', 'info');
+                logToConsole('FORM: Extrusion + Twist + Bevel', 'info');
+                logToConsole('Type /schem to export model documentation', 'info');
+                
+                // Set up auto-scroll for console
+                const consoleOutput = document.getElementById('console-output');
+                const observer = new MutationObserver(() => {
+                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                });
+                observer.observe(consoleOutput, { childList: true, subtree: true });
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                document.getElementById('loading-overlay').innerHTML = `
+                    <div style="color: var(--red); text-align: center;">
+                        <div style="font-size: 1.2rem; margin-bottom: 1rem;">AI Engine Failed</div>
+                        <div style="color: var(--gray-80); font-size: 0.9rem;">${error.message}</div>
+                        <button onclick="location.reload()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: var(--orange); border: none; color: var(--black); cursor: pointer; border-radius: 3px;">
+                            Retry
+                        </button>
+                    </div>
+                `;
+            }
+        });
+        
+        // Initialize Three.js
+        async function initThreeJS() {
+            return new Promise((resolve, reject) => {
+                try {
+                    // Get canvas
+                    const canvas = document.getElementById('canvas-3d');
+                    
+                    // Create scene
+                    scene = new THREE.Scene();
+                    scene.background = new THREE.Color(0x000000);
+                    
+                    // Create camera
+                    camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+                    camera.position.set(10, 8, 10);
+                    
+                    // Create renderer
+                    renderer = new THREE.WebGLRenderer({ 
+                        canvas: canvas,
+                        antialias: true,
+                        alpha: false
+                    });
+                    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+                    renderer.setPixelRatio(window.devicePixelRatio);
+                    
+                    // Add controls
+                    controls = new THREE.OrbitControls(camera, renderer.domElement);
+                    controls.enableDamping = true;
+                    controls.dampingFactor = 0.05;
+                    
+                    // Add lighting
+                    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+                    scene.add(ambientLight);
+                    
+                    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
+                    directionalLight1.position.set(10, 10, 10);
+                    scene.add(directionalLight1);
+                    
+                    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+                    directionalLight2.position.set(-10, -10, -10);
+                    scene.add(directionalLight2);
+                    
+                    // Handle window resize
+                    window.addEventListener('resize', onWindowResize);
+                    
+                    // Start animation loop
+                    animate();
+                    
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }
+        
+        // Initialize AI Web Worker for multi-parameter processing
+        async function initAIWorker() {
+            return new Promise((resolve) => {
+                const workerCode = `
+                    self.addEventListener('message', function(e) {
+                        const { type, multiParam, value, vertices } = e.data;
+                        
+                        // Simulate AI processing time
+                        setTimeout(() => {
+                            let processedVertices = [...vertices];
+                            let derivedParams = {};
+                            
+                            // Calculate derived parameters based on multi-parameter value
+                            const normalizedValue = value / 100;
+                            
+                            switch(multiParam) {
+                                case 'morph':
+                                    // MORPH: Scale + Rotation + Position
+                                    const scale = 0.5 + normalizedValue * 1.5; // 0.5x to 2.0x
+                                    const rotation = normalizedValue * 360; // 0° to 360°
+                                    const position = normalizedValue * 4 - 2; // -2 to 2
+                                    
+                                    processedVertices = vertices.map(v => {
+                                        // Apply scale
+                                        const scaled = [
+                                            v[0] * scale,
+                                            v[1] * scale,
+                                            v[2] * scale
+                                        ];
+                                        
+                                        // Apply rotation around Y axis
+                                        const rad = rotation * Math.PI / 180;
+                                        const cos = Math.cos(rad);
+                                        const sin = Math.sin(rad);
+                                        const rotated = [
+                                            scaled[0] * cos - scaled[2] * sin,
+                                            scaled[1],
+                                            scaled[0] * sin + scaled[2] * cos
+                                        ];
+                                        
+                                        // Apply position
+                                        return [
+                                            rotated[0] + position,
+                                            rotated[1] + position * 0.5,
+                                            rotated[2] - position
+                                        ];
+                                    });
+                                    
+                                    derivedParams = { scale, rotation, position };
+                                    break;
+                                    
+                                case 'detail':
+                                    // DETAIL: Subdivision + Noise + Smoothing
+                                    const subdivide = 1 + normalizedValue * 3; // 1x to 4x
+                                    const noise = normalizedValue * 0.5; // 0 to 0.5
+                                    const smooth = normalizedValue * 100; // 0% to 100%
+                                    
+                                    // Create more vertices for subdivision
+                                    if (subdivide > 1.5) {
+                                        const newVerts = [];
+                                        const factor = Math.floor(subdivide);
+                                        for (let i = 0; i < vertices.length; i++) {
+                                            newVerts.push(vertices[i]);
+                                            // Add intermediate vertices
+                                            for (let j = 1; j < factor; j++) {
+                                                const next = (i + 1) % vertices.length;
+                                                newVerts.push([
+                                                    vertices[i][0] + (vertices[next][0] - vertices[i][0]) * (j / factor),
+                                                    vertices[i][1] + (vertices[next][1] - vertices[i][1]) * (j / factor),
+                                                    vertices[i][2] + (vertices[next][2] - vertices[i][2]) * (j / factor)
+                                                ]);
+                                            }
+                                        }
+                                        processedVertices = newVerts;
+                                    }
+                                    
+                                    // Apply noise
+                                    processedVertices = processedVertices.map(v => [
+                                        v[0] + (Math.random() - 0.5) * noise,
+                                        v[1] + (Math.random() - 0.5) * noise,
+                                        v[2] + (Math.random() - 0.5) * noise
+                                    ]);
+                                    
+                                    // Apply smoothing
+                                    if (smooth > 30 && processedVertices.length > 3) {
+                                        for (let i = 1; i < processedVertices.length - 1; i++) {
+                                            const smoothFactor = smooth / 100;
+                                            processedVertices[i][0] = (processedVertices[i-1][0] + processedVertices[i][0] + processedVertices[i+1][0]) / 3 * smoothFactor + processedVertices[i][0] * (1 - smoothFactor);
+                                            processedVertices[i][1] = (processedVertices[i-1][1] + processedVertices[i][1] + processedVertices[i+1][1]) / 3 * smoothFactor + processedVertices[i][1] * (1 - smoothFactor);
+                                            processedVertices[i][2] = (processedVertices[i-1][2] + processedVertices[i][2] + processedVertices[i+1][2]) / 3 * smoothFactor + processedVertices[i][2] * (1 - smoothFactor);
+                                        }
+                                    }
+                                    
+                                    derivedParams = { subdivide, noise, smooth };
+                                    break;
+                                    
+                                case 'form':
+                                    // FORM: Extrusion + Twist + Bevel
+                                    const extrude = normalizedValue * 2; // 0 to 2
+                                    const twist = normalizedValue * 720; // 0° to 720°
+                                    const bevel = normalizedValue * 100; // 0% to 100%
+                                    
+                                    // Apply extrusion (scale in Y direction)
+                                    processedVertices = vertices.map(v => [
+                                        v[0],
+                                        v[1] * (1 + extrude),
+                                        v[2]
+                                    ]);
+                                    
+                                    // Apply twist
+                                    const twistRad = twist * Math.PI / 180;
+                                    processedVertices = processedVertices.map(v => {
+                                        const angle = Math.atan2(v[2], v[0]) + twistRad * (v[1] / 10);
+                                        const radius = Math.sqrt(v[0] * v[0] + v[2] * v[2]);
+                                        return [
+                                            radius * Math.cos(angle),
+                                            v[1],
+                                            radius * Math.sin(angle)
+                                        ];
+                                    });
+                                    
+                                    // Apply bevel (round edges)
+                                    if (bevel > 20) {
+                                        const bevelFactor = bevel / 100;
+                                        processedVertices = processedVertices.map(v => {
+                                            // Find distance from center
+                                            const dist = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                                            // Normalize and scale back with bevel
+                                            return [
+                                                v[0] * (1 - bevelFactor) + (v[0] / dist) * bevelFactor,
+                                                v[1] * (1 - bevelFactor) + (v[1] / dist) * bevelFactor,
+                                                v[2] * (1 - bevelFactor) + (v[2] / dist) * bevelFactor
+                                            ];
+                                        });
+                                    }
+                                    
+                                    derivedParams = { extrude, twist, bevel };
+                                    break;
+                            }
+                            
+                            self.postMessage({
+                                type: 'multi_param_processed',
+                                multiParam: multiParam,
+                                value: value,
+                                vertices: processedVertices,
+                                derivedParams: derivedParams
+                            });
+                        }, 150); // Simulate AI processing time
+                    });
+                `;
+                
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                aiWorker = new Worker(URL.createObjectURL(blob));
+                
+                aiWorker.onmessage = function(e) {
+                    if (e.data.type === 'multi_param_processed' && currentObject) {
+                        applyMultiParamEffect(e.data.multiParam, e.data.vertices, e.data.derivedParams);
+                        updateAIStatus(`${e.data.multiParam.toUpperCase()} applied: ${e.data.value}%`);
+                        isAIProcessing = false;
+                    }
+                };
+                
+                resolve();
+            });
+        }
+        
+        // Initialize event listeners
+        function initEventListeners() {
+            // Mode buttons
+            document.querySelectorAll('.control-btn[data-mode]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    setVizMode(e.target.dataset.mode);
+                });
+            });
+            
+            // Shape buttons
+            document.querySelectorAll('.shape-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    createShape(e.target.dataset.shape);
+                    closeConsole(); // Auto-close console
+                });
+            });
+            
+            // Control buttons
+            document.getElementById('console-btn').addEventListener('click', openConsole);
+            document.getElementById('invert-btn').addEventListener('click', toggleInvert);
+            document.getElementById('btn-generate').addEventListener('click', () => openConsole());
+            document.getElementById('btn-export').addEventListener('click', exportModel);
+            document.getElementById('btn-clear').addEventListener('click', clearScene);
+            document.getElementById('btn-schem').addEventListener('click', () => generateSchematic());
+            
+            // Console controls
+            document.getElementById('console-close').addEventListener('click', closeConsole);
+            
+            // Console input
+            document.getElementById('console-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    processCommand(e.target.value.trim());
+                    e.target.value = '';
+                }
+            });
+            
+            // Footer input
+            document.getElementById('footer-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const cmd = e.target.value.trim();
+                    if (cmd.toLowerCase() === '/schem') {
+                        generateSchematic();
+                    } else {
+                        openConsole();
+                        setTimeout(() => {
+                            document.getElementById('console-input').value = cmd;
+                            document.getElementById('console-input').focus();
+                        }, 10);
+                    }
+                }
+            });
+            
+            // Multi-Parameter AI Sliders (3 sliders only)
+            const multiSliders = [
+                { id: 'slider-morph', param: 'morph' },
+                { id: 'slider-detail', param: 'detail' },
+                { id: 'slider-form', param: 'form' }
+            ];
+            
+            multiSliders.forEach(slider => {
+                const element = document.getElementById(slider.id);
+                const valueElement = document.getElementById(`param-${slider.param}`);
+                
+                let timeoutId = null;
+                
+                element.addEventListener('input', (e) => {
+                    const value = parseInt(e.target.value);
+                    valueElement.textContent = `${value}%`;
+                    multiParams[slider.param] = value;
+                    
+                    // Update derived parameter displays
+                    updateDerivedParamDisplays(slider.param, value);
+                    
+                    // Update active parameters count
+                    const activeParams = Object.values(multiParams).filter(v => v !== 50).length;
+                    document.getElementById('stat-params').textContent = activeParams;
+                    
+                    // Debounce AI processing
+                    clearTimeout(timeoutId);
+                    timeoutId = setTimeout(() => {
+                        if (currentObject && !isAIProcessing) {
+                            processMultiParam(slider.param, value);
+                        }
+                    }, 300);
+                });
+            });
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'F1') {
+                    e.preventDefault();
+                    openConsole();
+                } else if (e.key === 'Escape') {
+                    closeConsole();
+                } else if (e.ctrlKey && e.key === 'e') {
+                    e.preventDefault();
+                    exportModel();
+                } else if (e.key === 'Delete') {
+                    e.preventDefault();
+                    clearScene();
+                } else if (e.ctrlKey && e.key === 's') {
+                    e.preventDefault();
+                    generateSchematic();
+                }
+            });
+        }
+        
+        // Update derived parameter displays
+        function updateDerivedParamDisplays(multiParam, value) {
+            const normalizedValue = value / 100;
+            
+            switch(multiParam) {
+                case 'morph':
+                    const scale = (0.5 + normalizedValue * 1.5).toFixed(2);
+                    const rotation = (normalizedValue * 360).toFixed(0);
+                    const position = (normalizedValue * 4 - 2).toFixed(1);
+                    
+                    document.getElementById('detail-scale').textContent = `${(scale * 100).toFixed(0)}%`;
+                    document.getElementById('detail-rotation').textContent = `${rotation}°`;
+                    document.getElementById('detail-position').textContent = position;
+                    
+                    currentParams.scale = parseFloat(scale);
+                    currentParams.rotation = parseFloat(rotation);
+                    currentParams.position = parseFloat(position);
+                    break;
+                    
+                case 'detail':
+                    const subdivide = (1 + normalizedValue * 3).toFixed(1);
+                    const noise = (normalizedValue * 0.5).toFixed(2);
+                    const smooth = (normalizedValue * 100).toFixed(0);
+                    
+                    document.getElementById('detail-subdivide').textContent = `${subdivide}x`;
+                    document.getElementById('detail-noise').textContent = noise;
+                    document.getElementById('detail-smooth').textContent = `${smooth}%`;
+                    
+                    currentParams.subdivide = parseFloat(subdivide);
+                    currentParams.noise = parseFloat(noise);
+                    currentParams.smooth = parseFloat(smooth);
+                    break;
+                    
+                case 'form':
+                    const extrude = (normalizedValue * 2).toFixed(2);
+                    const twist = (normalizedValue * 720).toFixed(0);
+                    const bevel = (normalizedValue * 100).toFixed(0);
+                    
+                    document.getElementById('detail-extrude').textContent = extrude;
+                    document.getElementById('detail-twist').textContent = `${twist}°`;
+                    document.getElementById('detail-bevel').textContent = `${bevel}%`;
+                    
+                    currentParams.extrude = parseFloat(extrude);
+                    currentParams.twist = parseFloat(twist);
+                    currentParams.bevel = parseFloat(bevel);
+                    break;
+            }
+        }
+        
+        // Create a 3D shape
+        function createShape(shapeType) {
+            clearScene();
+            
+            const preset = shapePresets[shapeType];
+            if (!preset) {
+                logToConsole(`Unknown shape: ${shapeType}`, 'error');
+                return;
+            }
+            
+            // Create geometry
+            const geometry = preset.create();
+            
+            // Create materials
+            const wireframeMat = new THREE.LineBasicMaterial({ 
+                color: 0xffffff,
+                linewidth: 1
+            });
+            
+            const solidMat = new THREE.MeshLambertMaterial({ 
+                color: preset.color,
+                transparent: true,
+                opacity: 0.7
+            });
+            
+            const pointsMat = new THREE.PointsMaterial({ 
+                color: 0xffffff,
+                size: 0.05,
+                sizeAttenuation: true
+            });
+            
+            // Create objects
+            const wireframe = new THREE.LineSegments(new THREE.WireframeGeometry(geometry), wireframeMat);
+            const solid = new THREE.Mesh(geometry, solidMat);
+            const points = new THREE.Points(geometry, pointsMat);
+            
+            // Add to scene
+            scene.add(wireframe);
+            scene.add(solid);
+            scene.add(points);
+            
+            // Store original vertices for AI processing
+            const vertices = [];
+            const positions = geometry.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                vertices.push([positions[i], positions[i+1], positions[i+2]]);
+            }
+            
+            // Set current object
+            currentObject = { 
+                wireframe, 
+                solid, 
+                points, 
+                geometry,
+                preset,
+                wireframeMat,
+                solidMat,
+                pointsMat,
+                originalVertices: vertices,
+                currentVertices: vertices
+            };
+            
+            // Reset multi-parameters to defaults
+            resetMultiParams();
+            
+            // Set initial visibility
+            setVizMode(vizMode);
+            
+            // Update stats
+            updateStats(preset.vertices, preset.faces);
+            updateMemoryUsage();
+            
+            // Log action
+            logToConsole(`Created ${shapeType.toUpperCase()} shape (${preset.category})`, 'success');
+            logToConsole(`${preset.vertices} vertices, ${preset.faces} faces`, 'info');
+            logToConsole('Use the 3 smart sliders to control multiple parameters each', 'ai');
+            
+            // Auto-close console
+            closeConsole();
+        }
+        
+        // Geometry creation functions
+        function createBracketGeometry() {
+            const shape = new THREE.Shape();
+            shape.moveTo(-3, -1);
+            shape.lineTo(3, -1);
+            shape.lineTo(3, 1);
+            shape.lineTo(1, 1);
+            shape.lineTo(1, 5);
+            shape.lineTo(-3, 5);
+            shape.lineTo(-3, -1);
+            
+            const extrudeSettings = {
+                steps: 1,
+                depth: 2,
+                bevelEnabled: false
+            };
+            
+            return new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        }
+        
+        function createFlangeGeometry() {
+            return new THREE.CylinderGeometry(5, 5, 1, 32);
+        }
+        
+        function createGearGeometry() {
+            const points = [];
+            const teeth = 12;
+            
+            for (let i = 0; i < teeth * 2; i++) {
+                const angle = (i / (teeth * 2)) * Math.PI * 2;
+                const radius = i % 2 === 0 ? 4 : 3;
+                points.push(new THREE.Vector2(
+                    Math.cos(angle) * radius,
+                    Math.sin(angle) * radius
+                ));
+            }
+            
+            const shape = new THREE.Shape(points);
+            const extrudeSettings = {
+                steps: 1,
+                depth: 2,
+                bevelEnabled: false
+            };
+            
+            return new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        }
+        
+        // Process geometry with multi-parameter AI
+        function processMultiParam(multiParam, value) {
+            if (!currentObject || !aiWorker || isAIProcessing) return;
+            
+            isAIProcessing = true;
+            updateAIStatus(`AI processing ${multiParam} (3 parameters)...`);
+            
+            // Send to AI worker
+            aiWorker.postMessage({
+                type: 'process',
+                multiParam: multiParam,
+                value: value,
+                vertices: currentObject.currentVertices
+            });
+        }
+        
+        // Apply multi-parameter effect to geometry
+        function applyMultiParamEffect(multiParam, vertices, derivedParams) {
+            if (!currentObject) return;
+            
+            // Update current vertices
+            currentObject.currentVertices = vertices;
+            
+            // Update current params with derived values
+            Object.assign(currentParams, derivedParams);
+            
+            // Create new geometry from vertices
+            const newGeometry = new THREE.BufferGeometry();
+            const vertexArray = new Float32Array(vertices.length * 3);
+            
+            for (let i = 0; i < vertices.length; i++) {
+                vertexArray[i * 3] = vertices[i][0];
+                vertexArray[i * 3 + 1] = vertices[i][1];
+                vertexArray[i * 3 + 2] = vertices[i][2];
+            }
+            
+            newGeometry.setAttribute('position', new THREE.BufferAttribute(vertexArray, 3));
+            newGeometry.computeVertexNormals();
+            
+            // Update all objects
+            scene.remove(currentObject.wireframe);
+            scene.remove(currentObject.solid);
+            scene.remove(currentObject.points);
+            
+            currentObject.geometry = newGeometry;
+            currentObject.wireframe = new THREE.LineSegments(new THREE.WireframeGeometry(newGeometry), currentObject.wireframeMat);
+            currentObject.solid = new THREE.Mesh(newGeometry, currentObject.solidMat);
+            currentObject.points = new THREE.Points(newGeometry, currentObject.pointsMat);
+            
+            scene.add(currentObject.wireframe);
+            scene.add(currentObject.solid);
+            scene.add(currentObject.points);
+            
+            // Set visibility
+            setVizMode(vizMode);
+            
+            // Update stats
+            updateStats(vertices.length, vertices.length / 2);
+            updateMemoryUsage();
+            
+            // Apply invert mode if needed
+            applyInvertMode();
+            
+            // Log parameter changes
+            logToConsole(`${multiParam.toUpperCase()} updated: ${Object.entries(derivedParams).map(([k, v]) => `${k}=${v}`).join(', ')}`, 'ai');
+        }
+        
+        // Reset multi-parameters to defaults
+        function resetMultiParams() {
+            multiParams = {
+                morph: 50,
+                detail: 50,
+                form: 50
+            };
+            
+            currentParams = {
+                scale: 1.0,
+                rotation: 0,
+                position: 0,
+                subdivide: 1.0,
+                noise: 0,
+                smooth: 0,
+                extrude: 0,
+                twist: 0,
+                bevel: 0
+            };
+            
+            // Reset sliders
+            Object.keys(multiParams).forEach(param => {
+                const slider = document.getElementById(`slider-${param}`);
+                const valueElement = document.getElementById(`param-${param}`);
+                if (slider) {
+                    slider.value = 50;
+                    valueElement.textContent = '50%';
+                }
+            });
+            
+            // Reset derived displays
+            updateDerivedParamDisplays('morph', 50);
+            updateDerivedParamDisplays('detail', 50);
+            updateDerivedParamDisplays('form', 50);
+            
+            document.getElementById('stat-params').textContent = '0';
+            updateAIStatus('Multi-Parameter AI Ready - Each slider controls 3 parameters');
+        }
+        
+        // Update AI status
+        function updateAIStatus(message) {
+            const statusElement = document.getElementById('ai-status-text');
+            const dotElement = document.getElementById('ai-status-dot');
+            
+            if (statusElement) {
+                statusElement.textContent = message;
+                dotElement.classList.toggle('active', message.includes('Ready'));
+            }
+        }
+        
+        // Set visualization mode
+        function setVizMode(mode) {
+            vizMode = mode;
+            
+            if (!currentObject) return;
+            
+            // Update button states
+            document.querySelectorAll('.control-btn[data-mode]').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.control-btn[data-mode="${mode}"]`)?.classList.add('active');
+            
+            // Set visibility
+            currentObject.wireframe.visible = (mode === 'wireframe');
+            currentObject.solid.visible = (mode === 'solid');
+            currentObject.points.visible = (mode === 'points');
+            
+            // Update stats
+            document.getElementById('stat-mode').textContent = mode.toUpperCase();
+            
+            logToConsole(`Visualization mode: ${mode}`, 'info');
+        }
+        
+        // Toggle invert mode (2 modes only)
+        function toggleInvert() {
+            isInverted = !isInverted;
+            const viewerArea = document.getElementById('viewer-area');
+            const invertBtn = document.getElementById('invert-btn');
+            
+            if (isInverted) {
+                // White background with black lines/points
+                scene.background = new THREE.Color(0xffffff);
+                viewerArea.classList.add('inverted');
+                invertBtn.textContent = 'NORMAL';
+                
+                if (currentObject) {
+                    currentObject.wireframeMat.color.set(0x000000);
+                    currentObject.pointsMat.color.set(0x000000);
+                    currentObject.solidMat.color.set(0x222222);
+                }
+                
+                logToConsole('Canvas inverted: white background, black lines', 'info');
+            } else {
+                // Black background with white lines/points
+                scene.background = new THREE.Color(0x000000);
+                viewerArea.classList.remove('inverted');
+                invertBtn.textContent = 'INVERT';
+                
+                if (currentObject) {
+                    currentObject.wireframeMat.color.set(0xffffff);
+                    currentObject.pointsMat.color.set(0xffffff);
+                    currentObject.solidMat.color.set(currentObject.preset.color);
+                }
+                
+                logToConsole('Canvas normal: black background, white lines', 'info');
+            }
+        }
+        
+        // Apply current invert mode to geometry
+        function applyInvertMode() {
+            if (!currentObject) return;
+            
+            if (isInverted) {
+                currentObject.wireframeMat.color.set(0x000000);
+                currentObject.pointsMat.color.set(0x000000);
+                currentObject.solidMat.color.set(0x222222);
+            } else {
+                currentObject.wireframeMat.color.set(0xffffff);
+                currentObject.pointsMat.color.set(0xffffff);
+                currentObject.solidMat.color.set(currentObject.preset.color);
+            }
+        }
+        
+        // Generate schematic documentation with multi-parameter data
+        function generateSchematic() {
+            if (!currentObject) {
+                logToConsole('No model to document', 'error');
+                return;
+            }
+            
+            try {
+                const preset = currentObject.preset;
+                const vertices = currentObject.currentVertices.length;
+                const faces = Math.floor(vertices / 2);
+                
+                // Create comprehensive markdown content
+                const mdContent = `# COLIGNUM Multi-Parameter AI CAD Model Documentation
+## Model Schematic Report v3.0
+
+### Basic Information
+- **Model Name**: ${preset.type.toUpperCase()}
+- **Category**: ${preset.category.toUpperCase()}
+- **Creation Date**: ${new Date().toISOString()}
+- **COLIGNUM Version**: Multi-Parameter AI v3.0
+
+### Multi-Parameter AI Settings
+| Control | Value | Derived Parameters |
+|---------|-------|-------------------|
+| **MORPH** | ${multiParams.morph}% | Scale: ${currentParams.scale.toFixed(2)}x, Rotation: ${currentParams.rotation.toFixed(0)}°, Position: ${currentParams.position.toFixed(1)} |
+| **DETAIL** | ${multiParams.detail}% | Subdivision: ${currentParams.subdivide.toFixed(1)}x, Noise: ${currentParams.noise.toFixed(2)}, Smooth: ${currentParams.smooth.toFixed(0)}% |
+| **FORM** | ${multiParams.form}% | Extrusion: ${currentParams.extrude.toFixed(2)}, Twist: ${currentParams.twist.toFixed(0)}°, Bevel: ${currentParams.bevel.toFixed(0)}% |
+
+### Geometry Metrics
+| Metric | Value | Description |
+|--------|-------|-------------|
+| **Vertices** | ${vertices} | Total points in the mesh |
+| **Faces** | ${faces} | Polygonal surfaces |
+| **Vertex Density** | ${(vertices / 100).toFixed(2)}/cm³ | Estimated spatial resolution |
+| **Mesh Complexity** | ${vertices < 100 ? 'Low' : vertices < 1000 ? 'Medium' : 'High'} | Based on vertex count |
+| **AI Modification** | ${Object.values(multiParams).some(v => v !== 50) ? 'Yes' : 'No'} | Multi-parameter AI applied |
+
+### Design Analysis
+- **Original Shape**: ${preset.type} (${preset.vertices} vertices)
+- **Current Modification**: ${Object.values(multiParams).filter(v => v !== 50).length} active AI controls
+- **Parameter Balance**: AI balances 3 parameters per control slider
+- **Geometric Integrity**: ${vertices > preset.vertices * 2 ? 'Highly modified' : 'Moderately modified'}
+
+### Multi-Parameter AI Features
+1. **MORPH Control**: Simultaneously adjusts scale, rotation, and position
+2. **DETAIL Control**: Balances subdivision, noise, and smoothing
+3. **FORM Control**: Combines extrusion, twist, and bevel effects
+4. **AI Optimization**: Parameters are balanced for design coherence
+
+### Build Recommendations (AI-Generated)
+1. **3D Printing**: ${currentParams.scale > 1.5 ? 'Consider reducing scale for printability' : 'Good scale for printing'}
+2. **CAD Import**: ${preset.category === 'cad' ? 'CAD-compatible geometry' : 'May require format conversion'}
+3. **Parameter Adjustment**: ${Object.values(multiParams).some(v => v > 70) ? 'Some parameters at high values - consider reducing' : 'Parameters within optimal range'}
+4. **Mesh Optimization**: ${vertices > 500 ? 'Consider reducing detail for performance' : 'Mesh complexity is optimal'}
+
+### Export Information
+- **File Formats**: JSON, STL, OBJ (simulated)
+- **Multi-Parameter Data**: Includes all AI-derived parameters
+- **Schematic Documentation**: This comprehensive analysis
+- **ZIP Archive**: Complete package with smart README
+
+### Model History
+- Created with COLIGNUM Multi-Parameter AI CAD/3D Printing IDE
+- Modified with 3-in-1 smart controls (${Object.values(multiParams).filter(v => v !== 50).length} active)
+- ${Object.values(multiParams).some(v => v !== 50) ? 'Enhanced with AI-balanced multi-parameter editing' : 'Base geometry - no AI modifications'}
+- Exported for documentation and sharing
+
+---
+*This schematic was automatically generated by COLIGNUM's Multi-Parameter AI documentation system.*
+*Model demonstrates advanced 3-in-1 control interface concepts.*`;
+
+                // Create and download markdown file
+                const blob = new Blob([mdContent], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `colignum_mpai_schematic_${preset.type}_${Date.now()}.md`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                logToConsole('Multi-Parameter schematic documentation generated', 'success');
+                logToConsole('Markdown includes all AI-derived parameter data', 'ai');
+                
+            } catch (error) {
+                console.error('Schematic generation error:', error);
+                logToConsole('Schematic generation failed: ' + error.message, 'error');
+            }
+        }
+        
+        // Export model with enhanced README
+        function exportModel() {
+            if (!currentObject) {
+                logToConsole('No model to export', 'error');
+                return;
+            }
+            
+            try {
+                const preset = currentObject.preset;
+                const vertices = currentObject.currentVertices.length;
+                const faces = Math.floor(vertices / 2);
+                
+                // Create export data with multi-parameter metadata
+                const exportData = {
+                    metadata: {
+                        name: `colignum_mpai_${preset.type}_${Date.now()}`,
+                        timestamp: new Date().toISOString(),
+                        format: 'COLIGNUM Multi-Parameter AI Demo',
+                        version: '3.0',
+                        multi_parameter_ai: true
+                    },
+                    model: {
+                        type: preset.type,
+                        category: preset.category,
+                        vertices: vertices,
+                        faces: faces,
+                        original_vertices: preset.vertices,
+                        color: preset.color
+                    },
+                    multi_parameters: multiParams,
+                    derived_parameters: currentParams,
+                    notes: 'This model was created with COLIGNUM Multi-Parameter AI CAD/3D Printing IDE.'
+                };
+                
+                // Create ZIP
+                const zip = new JSZip();
+                
+                // Add JSON
+                zip.file('model.json', JSON.stringify(exportData, null, 2));
+                
+                // Add enhanced README with multi-parameter insights
+                const readme = `COLIGNUM Multi-Parameter AI CAD/3D Printing Export
+=====================================================
+
+MODEL INFORMATION:
+------------------
+Model: ${preset.type.toUpperCase()}
+Category: ${preset.category.toUpperCase()}
+Vertices: ${vertices} (Original: ${preset.vertices})
+Faces: ${faces}
+Created: ${new Date().toISOString()}
+
+MULTI-PARAMETER AI SETTINGS:
+----------------------------
+Each slider controls 3 parameters simultaneously:
+
+1. MORPH CONTROL (${multiParams.morph}%)
+   - Scale: ${currentParams.scale.toFixed(2)}x
+   - Rotation: ${currentParams.rotation.toFixed(0)}°
+   - Position: ${currentParams.position.toFixed(1)}
+
+2. DETAIL CONTROL (${multiParams.detail}%)
+   - Subdivision: ${currentParams.subdivide.toFixed(1)}x
+   - Noise: ${currentParams.noise.toFixed(2)}
+   - Smoothing: ${currentParams.smooth.toFixed(0)}%
+
+3. FORM CONTROL (${multiParams.form}%)
+   - Extrusion: ${currentParams.extrude.toFixed(2)}
+   - Twist: ${currentParams.twist.toFixed(0)}°
+   - Bevel: ${currentParams.bevel.toFixed(0)}%
+
+AI DESIGN ANALYSIS:
+-------------------
+- Total Parameters Controlled: 9 (3 per slider)
+- Active AI Controls: ${Object.values(multiParams).filter(v => v !== 50).length}
+- Parameter Balance: AI-balanced for optimal design
+- Mesh Modification: ${vertices > preset.vertices ? 'Enhanced' : 'Original'}
+
+BUILD INSIGHTS:
+---------------
+1. 3-IN-1 CONTROLS: Each slider manages multiple parameters
+2. AI OPTIMIZATION: Parameters are balanced automatically
+3. DESIGN COHERENCE: Multi-parameter approach maintains design integrity
+4. SMART EDITING: Complex modifications simplified through AI
+
+INCLUDED FILES:
+---------------
+1. model.json - Complete model data with multi-parameter metadata
+2. model.stl - STL format (simulated for demo)
+3. README.txt - This comprehensive documentation
+
+MULTI-PARAMETER FEATURES:
+-------------------------
+- 3 smart sliders controlling 9 total parameters
+- AI-balanced parameter relationships
+- Real-time geometry processing
+- Smart documentation generation
+- Export-ready formats
+
+---
+This is a conceptual demonstration of multi-parameter AI CAD editing.
+All features are simulated to show advanced 3-in-1 control concepts.`;
+
+                zip.file('README.txt', readme);
+                
+                // Add STL placeholder
+                zip.file('model.stl', `solid COLIGNUM_MPAI_DEMO\nendsolid COLIGNUM_MPAI_DEMO\n`);
+                
+                // Generate and download
+                zip.generateAsync({type: 'blob'}).then(content => {
+                    const url = URL.createObjectURL(content);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `colignum_mpai_${preset.type}_${Date.now()}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    logToConsole('Multi-parameter AI model exported successfully', 'success');
+                    logToConsole('Includes 9 parameter documentation in README', 'ai');
+                });
+                
+            } catch (error) {
+                console.error('Export error:', error);
+                logToConsole('Export failed: ' + error.message, 'error');
+            }
+        }
+        
+        // Clear scene
+        function clearScene() {
+            if (currentObject) {
+                scene.remove(currentObject.wireframe);
+                scene.remove(currentObject.solid);
+                scene.remove(currentObject.points);
+                
+                currentObject.wireframe.geometry.dispose();
+                currentObject.solid.geometry.dispose();
+                currentObject.points.geometry.dispose();
+                
+                currentObject = null;
+            }
+            
+            resetMultiParams();
+            updateStats(0, 0);
+            updateMemoryUsage();
+            
+            logToConsole('Scene cleared', 'success');
+        }
+        
+        // Update statistics
+        function updateStats(vertices, faces) {
+            document.getElementById('stat-vertices').textContent = vertices;
+            document.getElementById('stat-faces').textContent = faces;
+            document.getElementById('stat-status').textContent = currentObject ? 'MP-AI DESIGN' : 'EMPTY';
+        }
+        
+        // Update memory usage
+        function updateMemoryUsage() {
+            if (!currentObject) {
+                document.getElementById('param-memory').textContent = '0 KB';
+                document.getElementById('memory-fill').style.width = '0%';
+                return;
+            }
+            
+            // Estimate memory usage
+            const vertices = currentObject.currentVertices.length;
+            const estimatedSize = vertices * 3 * 4; // 3 floats per vertex, 4 bytes per float
+            
+            const kb = Math.round(estimatedSize / 1024);
+            document.getElementById('param-memory').textContent = `${kb} KB`;
+            
+            const percentage = Math.min((kb / 2048) * 100, 100);
+            document.getElementById('memory-fill').style.width = `${percentage}%`;
+        }
+        
+        // Console functions
+        function openConsole() {
+            document.getElementById('console-overlay').style.display = 'flex';
+            setTimeout(() => {
+                document.getElementById('console-input').focus();
+            }, 10);
+        }
+        
+        function closeConsole() {
+            document.getElementById('console-overlay').style.display = 'none';
+        }
+        
+        function logToConsole(message, type = 'output') {
+            const line = document.createElement('div');
+            line.className = `console-line line-${type}`;
+            line.textContent = message;
+            document.getElementById('console-output').appendChild(line);
+        }
+        
+        function processCommand(cmd) {
+            if (!cmd) return;
+            
+            // Log command
+            logToConsole(`> ${cmd}`, 'output');
+            
+            const parts = cmd.split(' ');
+            const command = parts[0].toLowerCase();
+            
+            switch(command) {
+                case '/help':
+                    showHelp();
+                    break;
+                    
+                case '/generate':
+                case '/create':
+                    if (parts[1]) {
+                        const shape = parts[1].toLowerCase();
+                        if (shapePresets[shape]) {
+                            createShape(shape);
+                        } else {
+                            logToConsole(`Unknown shape: ${shape}`, 'error');
+                            logToConsole('Available shapes:', 'info');
+                            Object.keys(shapePresets).forEach(s => {
+                                logToConsole(`  ${s} (${shapePresets[s].category})`, 'output');
+                            });
+                        }
+                    } else {
+                        logToConsole('Available shapes:', 'info');
+                        Object.entries(shapePresets).forEach(([name, preset]) => {
+                            logToConsole(`  ${name} - ${preset.category} (${preset.vertices} vertices)`, 'output');
+                        });
+                        logToConsole('Usage: /create [shape_name]', 'info');
+                    }
+                    break;
+                    
+                case '/export':
+                    exportModel();
+                    break;
+                    
+                case '/schem':
+                    generateSchematic();
+                    break;
+                    
+                case '/clear':
+                    clearScene();
+                    break;
+                    
+                case '/wireframe':
+                case '/solid':
+                case '/points':
+                    setVizMode(command.substring(1));
+                    break;
+                    
+                case '/invert':
+                    toggleInvert();
+                    break;
+                    
+                case '/status':
+                    logToConsole('=== MULTI-PARAMETER AI STATUS ===', 'success');
+                    logToConsole(`Mode: ${vizMode.toUpperCase()}`, 'output');
+                    logToConsole(`Inverted: ${isInverted ? 'Yes' : 'No'}`, 'output');
+                    logToConsole(`Current object: ${currentObject ? currentObject.preset.type : 'None'}`, 'output');
+                    logToConsole(`Active AI controls: ${Object.values(multiParams).filter(v => v !== 50).length}`, 'ai');
+                    logToConsole(`Total parameters controlled: 9 (3 per slider)`, 'output');
+                    logToConsole('Version: Multi-Parameter AI v3.0', 'info');
+                    break;
+                    
+                case '/params':
+                    logToConsole('=== CURRENT PARAMETERS ===', 'ai');
+                    logToConsole('Multi-Parameter Controls:', 'info');
+                    logToConsole(`  MORPH: ${multiParams.morph}% (Scale: ${currentParams.scale.toFixed(2)}x, Rotation: ${currentParams.rotation.toFixed(0)}°, Position: ${currentParams.position.toFixed(1)})`, 'output');
+                    logToConsole(`  DETAIL: ${multiParams.detail}% (Subdivision: ${currentParams.subdivide.toFixed(1)}x, Noise: ${currentParams.noise.toFixed(2)}, Smooth: ${currentParams.smooth.toFixed(0)}%)`, 'output');
+                    logToConsole(`  FORM: ${multiParams.form}% (Extrusion: ${currentParams.extrude.toFixed(2)}, Twist: ${currentParams.twist.toFixed(0)}°, Bevel: ${currentParams.bevel.toFixed(0)}%)`, 'output');
+                    break;
+                    
+                case '/about':
+                    logToConsole('=== COLIGNUM MULTI-PARAMETER AI CAD IDE ===', 'success');
+                    logToConsole('Advanced 3-in-1 control interface for CAD/3D printing', 'info');
+                    logToConsole('Each slider controls 3+ parameters simultaneously', 'ai');
+                    logToConsole('AI balances parameters for optimal design results', 'info');
+                    logToConsole('Smart documentation generation with /schem command', 'info');
+                    logToConsole('Concept demonstration - Not a commercial product', 'warning');
+                    break;
+                    
+                default:
+                    logToConsole(`Unknown command: ${command}`, 'error');
+                    logToConsole('Type /help for available commands', 'info');
+            }
+        }
+        
+        // Show help
+        function showHelp() {
+            logToConsole('=== COLIGNUM MULTI-PARAMETER AI CAD IDE - COMMANDS ===', 'success');
+            logToConsole('BASIC COMMANDS:', 'info');
+            logToConsole('  /help           - Show this help', 'output');
+            logToConsole('  /about          - About multi-parameter AI demo', 'output');
+            logToConsole('  /status         - Show AI system status', 'output');
+            logToConsole('  /params         - Show current parameter values', 'output');
+            logToConsole('', 'output');
+            logToConsole('SHAPE COMMANDS:', 'info');
+            logToConsole('  /create [shape] - Create a shape (auto-closes console)', 'output');
+            logToConsole('  /generate       - List all available shapes', 'output');
+            logToConsole('', 'output');
+            logToConsole('VIEW COMMANDS:', 'info');
+            logToConsole('  /wireframe      - Wireframe view', 'output');
+            logToConsole('  /solid          - Solid view', 'output');
+            logToConsole('  /points         - Points view', 'output');
+            logToConsole('  /invert         - Toggle invert (2 modes)', 'output');
+            logToConsole('', 'output');
+            logToConsole('FILE COMMANDS:', 'info');
+            logToConsole('  /export         - Export model with multi-parameter README', 'output');
+            logToConsole('  /schem          - Generate schematic documentation (.md)', 'output');
+            logToConsole('  /clear          - Clear current model', 'output');
+            logToConsole('', 'output');
+            logToConsole('AVAILABLE SHAPES:', 'info');
+            Object.entries(shapePresets).forEach(([name, preset]) => {
+                logToConsole(`  ${name.padEnd(12)} - ${preset.category} (${preset.vertices} vertices)`, 'output');
+            });
+            logToConsole('', 'output');
+            logToConsole('MULTI-PARAMETER AI SLIDERS (3 SLIDERS):', 'ai');
+            logToConsole('  1. MORPH - Scale + Rotation + Position (3-in-1)', 'info');
+            logToConsole('  2. DETAIL - Subdivision + Noise + Smoothing (3-in-1)', 'info');
+            logToConsole('  3. FORM - Extrusion + Twist + Bevel (3-in-1)', 'info');
+            logToConsole('', 'output');
+            logToConsole('Each slider controls 3 parameters simultaneously with AI balancing', 'ai');
+        }
+        
+        // Window resize handler
+        function onWindowResize() {
+            const canvas = document.getElementById('canvas-3d');
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (currentObject && currentObject.solid.visible) {
+                // Add subtle auto-rotation based on current rotation parameter
+                const rotationSpeed = 0.003 + (currentParams.rotation / 36000);
+                currentObject.solid.rotation.y += rotationSpeed;
+                if (currentObject.wireframe) currentObject.wireframe.rotation.y += rotationSpeed;
+                if (currentObject.points) currentObject.points.rotation.y += rotationSpeed;
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
