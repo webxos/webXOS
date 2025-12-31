@@ -98,4 +98,6 @@ Offline capabilities: The client-side approach means that some tools can functio
 - **X**: Follow [@webxos](https://x.com/webxos) for updates.
 - **Website**: Explore our ecosystem at [webxos.netlify.app](https://webxos.netlify.app).
 
-*[![committers.top badge](https://user-badge.committers.top/united_states/USERNAME.svg)](https://user-badge.committers.top/united_states/USERNAME)*
+*[![committers.top badge](https://user-badge.committers.top/united_states/webXOS.svg)](https://user-badge.committers.top/united_states/webXOS)*
+*[![Anurag's GitHub stats](https://github-readme-stats.vercel.app/api?webXOS=anuraghazra)](https://github.com/anuraghazra/github-readme-stats)*
+*
