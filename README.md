@@ -97,4 +97,5 @@ Offline capabilities: The client-side approach means that some tools can functio
 - **GitHub**: [webxos/webxos](https://github.com/webxos/webxos)
 - **X**: Follow [@webxos](https://x.com/webxos) for updates.
 - **Website**: Explore our ecosystem at [webxos.netlify.app](https://webxos.netlify.app).
-[![committers.top badge](https://user-badge.committers.top/united_states/USERNAME.svg)](https://user-badge.committers.top/united_states/USERNAME)
+
+*[![committers.top badge](https://user-badge.committers.top/united_states/USERNAME.svg)](https://user-badge.committers.top/united_states/USERNAME)*
