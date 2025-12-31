@@ -97,5 +97,4 @@ Local data processing for web tools
 - **GitHub**: [webxos/webxos](https://github.com/webxos/webxos)
 - **X**: Follow [@webxos](https://x.com/webxos) for updates.
 - **Website**: Explore our ecosystem at [webxos.netlify.app](https://webxos.netlify.app).
-
-Join us in shaping the decentralized, sustainable web with Webxos!
+[![committers.top badge](https://user-badge.committers.top/REGION/USERNAME.svg)](https://user-badge.committers.top/REGION/USERNAME)
