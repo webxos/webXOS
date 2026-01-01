@@ -1,6 +1,9 @@
 # MUMPS RAG Terminal (mumps_rag_v1.py)
 
-Lightweight Python terminal simulating basic MUMPS global storage with in-memory database and simple RAG retrieval over `^DOC` nodes.
+A Lightweight Python terminal simulating basic MUMPS global storage with in-memory database and simple RAG retrieval over `^DOC` nodes.
+
+*MUMPS (Massachusetts General Hospital Utility Multi-Programming System), also known as M, uses a
+concise, whitespace-aware syntax designed for high-throughput data processing and a built-in hierarchical database.*
 
 ## Overview
 
