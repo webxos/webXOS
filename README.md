@@ -1,5 +1,17 @@
 # webXOS 2026:
 
+<div align="center">
+
+![webXOS Banner](https://img.shields.io/badge/WEBXOS-2026-00d4aa?style=for-the-badge&logo=webgl&logoColor=white)
+![Browser First](https://img.shields.io/badge/BROWSER_FIRST-✓-00d4aa?style=for-the-badge)
+![100% Client-Side](https://img.shields.io/badge/100%25_CLIENT_SIDE-✓-00d4aa?style=for-the-badge)
+[![Website](https://img.shields.io/badge/webXOS.netlify.app-Explore_Apps-00d4aa?style=for-the-badge&logo=netlify&logoColor=white)](https://webxos.netlify.app)
+[![GitHub](https://img.shields.io/badge/GitHub-webxos/webxos-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/webxos/webxos)
+[![Hugging Face](https://img.shields.io/badge/Hugging_Face-🤗_webxos-FFD21E?style=for-the-badge&logo=huggingface&logoColor=white)](https://huggingface.co/webxos)
+[![Follow on X](https://img.shields.io/badge/Follow_@webxos-1DA1F2?style=for-the-badge&logo=x&logoColor=white)](https://x.com/webxos)
+
+</div>
+
 **webXOS** is an innovative software development company developing progressive web applications tailored for decentralized web3 environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [huggingface.co/webxos](https://huggingface.co/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
 
 Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness AI-driven tools to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, webXOS empowers developers to build the future. 
