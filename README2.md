@@ -1,5 +1,35 @@
 # webXOS 2026: Browser-First Web3 Development Platform
 
+<div style="
+    background: #00FF00;
+    border-left: 4px solid #00FF00;
+    padding: 1.5rem;
+    margin: 2rem 0;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    color: #00FF00;
+    border-radius: 0 8px 8px 0;
+">
+    <pre style="
+        font-size: 12px;
+        line-height: 1.2;
+        margin: 0;
+        overflow-x: auto;
+        color: #00FF00;
+    ">
+      ___           ___                         ___            ___           ___     
+     /\  \         /\__\         _____         /|  |          /\  \         /\__\    
+    _\:\  \       /:/ _/_       /::\  \       |:|  |         /::\  \       /:/ _/_   
+   /\ \:\  \     /:/ /\__\     /:/\:\  \      |:|  |        /:/\:\  \     /:/ /\  \  
+  _\:\ \:\  \   /:/ /:/ _/_   /:/ /::\__\   __|:|__|       /:/  \:\  \   /:/ /::\  \ 
+ /\ \:\ \:\__\ /:/_/:/ /\__\ /:/_/:/\:|__| /::::\__\_____ /:/__/ \:\__\ /:/_/:/\:\__\
+ \:\ \:\/:/  / \:\/:/ /:/  / \:\/:/ /:/  / ~~~~\::::/___/ \:\  \ /:/  / \:\/:/ /:/  /
+  \:\ \::/  /   \::/_/:/  /   \::/_/:/  /      |:|~~|      \:\  /:/  /   \::/ /:/  / 
+   \:\/:/  /     \:\/:/  /     \:\/:/  /       |:|  |       \:\/:/  /     \/_/:/  /  
+    \::/  /       \::/  /       \::/  /        |:|__|        \::/  /        /:/  /   
+     \/__/         \/__/         \/__/         |/__/          \/__/         \/__/    
+    </pre>
+</div>
+
 <div align="center">
 
 ![webXOS Banner](https://img.shields.io/badge/WEBXOS-2026-00d4aa?style=for-the-badge&logo=webgl&logoColor=white)
