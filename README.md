@@ -29,8 +29,6 @@
      \/__/         \/__/         \/__/         |/__/          \/__/         \/__/    
     </pre>
 </div>
-
-<div align="center">
     
 <div align="center">
 
