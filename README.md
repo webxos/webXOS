@@ -131,9 +131,3 @@ Instantaneous results without cloud uploads: WEBXOS offers web tools that proces
 
 Example: Image manipulation: When a user resizes or crops an image with a WEBXOS tool, the processing happens on their computer. The image file is not uploaded to a cloud server, ensuring that the original, sensitive data never leaves their control.
 Offline capabilities: The client-side approach means that some tools can function offline, which inherently means no data is being sent to a server. This design ensures that the application's functionality is resilient and private, even without an internet connection. 
-    
-# Community & Support
-
-- **GitHub**: [webxos/webxos](https://github.com/webxos/webxos)
-- **X**: Follow [@webxos](https://x.com/webxos) for updates.
-- **Website**: Explore our ecosystem at [webxos.netlify.app](https://webxos.netlify.app).
