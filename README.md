@@ -2,9 +2,6 @@
 
 <div align="center">
 
-![webXOS Banner](https://img.shields.io/badge/WEBXOS-2026-00d4aa?style=for-the-badge&logo=webgl&logoColor=white)
-![Browser First](https://img.shields.io/badge/BROWSER_FIRST-✓-00d4aa?style=for-the-badge)
-![100% Client-Side](https://img.shields.io/badge/100%25_CLIENT_SIDE-✓-00d4aa?style=for-the-badge)
 [![Website](https://img.shields.io/badge/webXOS.netlify.app-Explore_Apps-00d4aa?style=for-the-badge&logo=netlify&logoColor=white)](https://webxos.netlify.app)
 [![GitHub](https://img.shields.io/badge/GitHub-webxos/webxos-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/webxos/webxos)
 [![Hugging Face](https://img.shields.io/badge/Hugging_Face-🤗_webxos-FFD21E?style=for-the-badge&logo=huggingface&logoColor=white)](https://huggingface.co/webxos)
