@@ -2,7 +2,7 @@
 
 <div style="
     background: #00FF00;
-    border-center: 4px solid #00FF00;
+    border-left: 4px solid #00FF00;
     padding: 1.5rem;
     margin: 2rem 0;
     font-family: 'Fira Code', 'Courier New', monospace;
