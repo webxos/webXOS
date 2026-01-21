@@ -1,0 +1,2485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelCraft - BETA TEST by webXOS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        body {
+            background: #0a0a1a;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* Camera viewport */
+        #camera-viewport {
+            position: absolute;
+            width: 800px;
+            height: 600px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            overflow: hidden;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        /* World background canvas */
+        #world-canvas {
+            position: absolute;
+            width: 2400px;
+            height: 1800px;
+        }
+
+        /* Voxels container with chunk optimization */
+        #voxels-container {
+            position: absolute;
+            width: 2400px;
+            height: 1800px;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Optimized voxel rendering */
+        .voxel-chunk {
+            position: absolute;
+            width: 160px; /* 8 voxels * 20px */
+            height: 160px; /* 8 voxels * 20px */
+            overflow: hidden;
+        }
+
+        .voxel {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 1px solid;
+            pointer-events: auto;
+            box-shadow: 
+                inset -2px -2px 0 rgba(0,0,0,0.3),
+                inset 1px 1px 0 rgba(255,255,255,0.1);
+            transition: filter 0.1s;
+        }
+
+        .voxel:hover {
+            filter: brightness(1.2);
+            z-index: 10;
+        }
+
+        /* Voxel types */
+        .voxel.grass {
+            background: #32cd32;
+            border-color: #228b22;
+        }
+
+        .voxel.dirt {
+            background: #8b4513;
+            border-color: #5d2f0d;
+        }
+
+        .voxel.stone {
+            background: #808080;
+            border-color: #606060;
+        }
+
+        .voxel.wood {
+            background: #8b4513;
+            border-color: #5d2f0d;
+            background-image: repeating-linear-gradient(90deg, 
+                transparent, 
+                transparent 4px, 
+                #a0522d 4px, 
+                #a0522d 5px);
+        }
+
+        .voxel.brick {
+            background: #b22222;
+            border-color: #8b0000;
+        }
+
+        .voxel.glass {
+            background: rgba(147, 197, 253, 0.6);
+            border-color: #93c5fd;
+        }
+
+        .voxel.gold {
+            background: #ffd700;
+            border-color: #daa520;
+        }
+
+        .voxel.sand {
+            background: #f0e68c;
+            border-color: #d2b48c;
+        }
+
+        /* Player character - Zelda Link style */
+        #player {
+            position: absolute;
+            width: 16px;
+            height: 24px;
+            z-index: 1000;
+            pointer-events: none;
+            filter: drop-shadow(2px 2px 0 #000);
+            transition: transform 0.05s;
+        }
+
+        .player-body {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #008000;
+            border: 2px solid #006400;
+            top: 8px;
+            left: 2px;
+        }
+
+        .player-head {
+            position: absolute;
+            width: 10px;
+            height: 8px;
+            background: #fcd34d;
+            border: 2px solid #d97706;
+            top: 0;
+            left: 3px;
+        }
+
+        .player-hat {
+            position: absolute;
+            width: 14px;
+            height: 4px;
+            background: #dc2626;
+            border: 2px solid #b91c1c;
+            top: -4px;
+            left: 1px;
+        }
+
+        .player-legs {
+            position: absolute;
+            width: 4px;
+            height: 8px;
+            background: #008000;
+            border: 2px solid #006400;
+            bottom: 0;
+        }
+
+        .player-leg-left {
+            left: 4px;
+        }
+
+        .player-leg-right {
+            right: 4px;
+        }
+
+        .player-torch {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            right: -14px;
+            top: 4px;
+        }
+
+        .torch-flame {
+            position: absolute;
+            width: 6px;
+            height: 8px;
+            background: linear-gradient(to top, #ff4500, #ff9900);
+            border-radius: 50% 50% 20% 20%;
+            left: 5px;
+            top: 2px;
+            animation: torchFlicker 0.8s infinite alternate;
+            box-shadow: 0 0 8px #ff4500;
+        }
+
+        .torch-rod {
+            position: absolute;
+            width: 2px;
+            height: 12px;
+            background: #8b4513;
+            bottom: 0;
+            left: 7px;
+        }
+
+        @keyframes torchFlicker {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+        }
+
+        /* Jetpack effect - SLOWER */
+        .jetpack-effect {
+            position: absolute;
+            width: 8px;
+            height: 12px;
+            bottom: -12px;
+            left: 4px;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        .jetpack-flame {
+            position: absolute;
+            width: 6px;
+            height: 10px;
+            background: linear-gradient(to top, #ff9900, #ff4500, #ff0000);
+            border-radius: 50% 50% 20% 20%;
+            left: 1px;
+            top: 0;
+            animation: jetpackFlicker 0.5s infinite alternate; /* Slowed from 0.3s */
+            box-shadow: 0 0 6px #ff4500;
+        }
+
+        @keyframes jetpackFlicker {
+            0% { transform: scaleY(0.7); opacity: 0.5; } /* Slower/smaller */
+            100% { transform: scaleY(1.0); opacity: 0.8; } /* Reduced max size */
+        }
+
+        /* UI Panels */
+        .ui-panel {
+            background: rgba(0, 0, 0, 0.85);
+            border: 3px solid #4a4a4a;
+            border-radius: 5px;
+            padding: 12px;
+            margin: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        /* Top-left panel */
+        #top-left-ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 2000;
+            min-width: 200px;
+        }
+
+        /* Top-right panel */
+        #top-right-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            min-width: 150px;
+        }
+
+        /* Bottom-left panel */
+        #bottom-left-ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 2000;
+            min-width: 200px;
+        }
+
+        /* Bottom-right panel */
+        #bottom-right-ui {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+            min-width: 150px;
+        }
+
+        /* Notification area - Moved to side */
+        #notification-area {
+            position: absolute;
+            top: 20px;
+            left: 240px; /* Positioned to the right of top-left panel */
+            z-index: 2000;
+            max-width: 250px;
+            pointer-events: none;
+        }
+
+        .notification {
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #0f0;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0,255,0,0.3);
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: opacity 0.3s, transform 0.3s;
+            max-height: 0;
+            overflow: hidden;
+        }
+
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+            max-height: 100px;
+            margin-bottom: 6px;
+        }
+
+        .notification.hiding {
+            opacity: 0;
+            transform: translateX(10px);
+            max-height: 0;
+            margin-bottom: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-width: 0;
+        }
+
+        /* Block palette */
+        .block-palette {
+            display: grid;
+            grid-template-columns: repeat(5, 32px);
+            grid-template-rows: repeat(2, 32px);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        /* Segment palette */
+        .segment-palette {
+            display: grid;
+            grid-template-columns: repeat(4, 40px);
+            grid-template-rows: repeat(2, 40px);
+            gap: 8px;
+            margin-bottom: 12px;
+            border-top: 2px solid #4a4a4a;
+            padding-top: 12px;
+            margin-top: 12px;
+        }
+
+        .segment-label {
+            color: #0f0;
+            font-size: 11px;
+            margin-bottom: 8px;
+            text-align: center;
+            grid-column: 1 / -1;
+        }
+
+        .block-btn, .segment-btn {
+            width: 32px;
+            height: 32px;
+            border: 2px solid #333;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #222;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .segment-btn {
+            width: 40px;
+            height: 40px;
+            position: relative;
+        }
+
+        .segment-preview {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(4, 25%);
+            grid-template-rows: repeat(4, 25%);
+            gap: 1px;
+        }
+
+        .segment-cell {
+            background: currentColor;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .block-btn:hover, .segment-btn:hover {
+            transform: scale(1.1);
+            border-color: #666;
+        }
+
+        .block-btn.active, .segment-btn.active {
+            border-color: #00ff00;
+            box-shadow: 0 0 8px #00ff00;
+        }
+
+        .block-preview {
+            width: 24px;
+            height: 24px;
+            border: 1px solid;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .game-btn {
+            padding: 8px 12px;
+            background: #333;
+            border: 2px solid #666;
+            color: white;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            border-radius: 3px;
+        }
+
+        .game-btn:hover {
+            background: #444;
+            transform: translateY(-1px);
+            border-color: #888;
+        }
+
+        .game-btn:active {
+            transform: translateY(1px);
+        }
+
+        .game-btn.green {
+            background: #008000;
+            border-color: #00aa00;
+        }
+
+        .game-btn.blue {
+            background: #0066cc;
+            border-color: #0088ff;
+        }
+
+        .game-btn.red {
+            background: #cc0000;
+            border-color: #ff4444;
+        }
+
+        .game-btn.yellow {
+            background: #996600;
+            border-color: #cc9900;
+        }
+
+        /* Status display */
+        .status-display {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #0f0;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+        }
+
+        .status-label {
+            color: #aaa;
+        }
+
+        .status-value {
+            color: #0f0;
+            font-weight: bold;
+        }
+
+        /* Crosshair */
+        #crosshair {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+            z-index: 999;
+            transform: translate(-50%, -50%);
+        }
+
+        .crosshair-dot {
+            width: 3px;
+            height: 3px;
+            background: #00ff00;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px #00ff00;
+        }
+
+        /* Welcome screen - SIMPLIFIED */
+        #welcome-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 5000;
+        }
+
+        .welcome-title {
+            font-family: 'Courier New', monospace;
+            font-size: 32px; /* Smaller */
+            color: #0f0;
+            text-shadow: 
+                2px 2px 0 #000,
+                4px 4px 0 rgba(0,255,0,0.3);
+            margin-bottom: 20px;
+            letter-spacing: 2px;
+        }
+
+        .welcome-subtitle {
+            color: #0f0;
+            font-size: 16px; /* Smaller */
+            margin-bottom: 40px;
+            text-align: center;
+            max-width: 500px;
+            line-height: 1.5;
+        }
+
+        .control-list {
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #4a4a4a;
+            padding: 20px;
+            margin: 20px;
+            border-radius: 5px;
+            max-width: 400px;
+            display: none; /* Hidden by default */
+        }
+
+        .control-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #0f0;
+        }
+
+        .control-key {
+            background: #333;
+            padding: 2px 8px;
+            border: 2px solid #666;
+            border-radius: 3px;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        /* Hidden canvas for export */
+        #export-canvas {
+            display: none;
+        }
+
+        /* Day/Night overlay */
+        #time-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 500;
+            transition: background 1s;
+        }
+
+        /* Minimap */
+        #minimap-container {
+            width: 150px;
+            height: 112px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #4a4a4a;
+            border-radius: 3px;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+
+        /* FPS counter */
+        .fps-counter {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            color: #0f0;
+            z-index: 3000;
+            background: rgba(0,0,0,0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        /* Block highlight */
+        .voxel-highlight {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ff00;
+            pointer-events: none;
+            z-index: 999;
+            box-shadow: 0 0 8px #00ff00;
+            display: none;
+        }
+
+        /* Grid overlay */
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 255, 0, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 0, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            pointer-events: none;
+            z-index: 50;
+            display: none;
+        }
+        
+        /* Placement preview */
+        .placement-preview {
+            position: absolute;
+            pointer-events: none;
+            z-index: 800;
+        }
+
+        .placement-voxel {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            opacity: 0.7;
+            border: 1px solid;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div id="game-container">
+            <!-- Camera Viewport -->
+            <div id="camera-viewport">
+                <!-- World background canvas -->
+                <canvas id="world-canvas"></canvas>
+                
+                <!-- Voxels container with chunk optimization -->
+                <div id="voxels-container">
+                    <!-- Voxel chunks will be added here -->
+                </div>
+                
+                <!-- Grid overlay for building -->
+                <div class="grid-overlay" id="grid-overlay"></div>
+                
+                <!-- Placement preview -->
+                <div class="placement-preview" id="placement-preview"></div>
+                
+                <!-- Block highlight -->
+                <div class="voxel-highlight" id="voxel-highlight"></div>
+                
+                <!-- Player Character -->
+                <div id="player">
+                    <div class="player-head"></div>
+                    <div class="player-hat"></div>
+                    <div class="player-body"></div>
+                    <div class="player-legs player-leg-left"></div>
+                    <div class="player-legs player-leg-right"></div>
+                    <div class="player-torch">
+                        <div class="torch-flame"></div>
+                        <div class="torch-rod"></div>
+                    </div>
+                    <!-- Jetpack effect -->
+                    <div class="jetpack-effect" id="jetpack-effect" style="display: none;">
+                        <div class="jetpack-flame"></div>
+                    </div>
+                </div>
+                
+                <!-- Day/Night Overlay -->
+                <div id="time-overlay"></div>
+            </div>
+            
+            <!-- FPS Counter -->
+            <div class="fps-counter" id="fps-counter">FPS: 60</div>
+            
+            <!-- Notification Area (moved to side) -->
+            <div id="notification-area"></div>
+            
+            <!-- UI Panels -->
+            
+            <!-- Top Left: Block Palette & Segment Palette -->
+            <div id="top-left-ui" class="ui-panel">
+                <div class="block-palette" id="block-palette"></div>
+                
+                <!-- Tetris Segment Palette -->
+                <div class="segment-palette" id="segment-palette">
+                    <div class="segment-label">SEGMENTS</div>
+                </div>
+                
+                <div class="btn-group">
+                    <button class="game-btn green" id="export-btn">EXPORT (E)</button>
+                    <button class="game-btn blue" id="daynight-btn">DAY/NIGHT (N)</button>
+                    <button class="game-btn" id="grid-btn">GRID (G)</button>
+                    <!-- NEW UNDO BUTTON -->
+                    <button class="game-btn yellow" id="undo-btn" title="Undo last action (Ctrl+Z)">UNDO (Z)</button>
+                </div>
+            </div>
+            
+            <!-- Top Right: Game Info -->
+            <div id="top-right-ui" class="ui-panel">
+                <div class="status-display">
+                    <div class="status-row">
+                        <span class="status-label">Mode:</span>
+                        <span class="status-value" id="mode-display">BUILD</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Selected:</span>
+                        <span class="status-value" id="block-display">GRASS</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Time:</span>
+                        <span class="status-value" id="time-display">DAY</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Voxels:</span>
+                        <span class="status-value" id="voxel-count">0</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Position:</span>
+                        <span class="status-value" id="player-pos">0,0</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Jetpack:</span>
+                        <span class="status-value" id="jetpack-status">UNLIMITED</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Undo History:</span>
+                        <span class="status-value" id="undo-count">0</span>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="game-btn red" id="reset-btn">RESET (R)</button>
+                    <button class="game-btn" id="mode-btn">TOGGLE MODE (B)</button>
+                </div>
+            </div>
+            
+            <!-- Bottom Left: Controls -->
+            <div id="bottom-left-ui" class="ui-panel">
+                <div class="status-display">
+                    <div style="color:#0f0; margin-bottom:6px; font-size:12px;">CONTROLS</div>
+                    <div class="status-row">
+                        <span class="status-label">Move:</span>
+                        <span class="status-value">WASD</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Jump:</span>
+                        <span class="status-value">SPACE</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Jetpack:</span>
+                        <span class="status-value">SHIFT (in air)</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Build:</span>
+                        <span class="status-value">LEFT CLICK</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Mine:</span>
+                        <span class="status-value">RIGHT CLICK</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Run:</span>
+                        <span class="status-value">SHIFT (ground)</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Segments:</span>
+                        <span class="status-value">I, T, L, Q</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Undo:</span>
+                        <span class="status-value">Z or Ctrl+Z</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bottom Right: Minimap -->
+            <div id="bottom-right-ui" class="ui-panel">
+                <div style="color:#0f0; margin-bottom:6px; font-size:12px; text-align:center;">MINIMAP</div>
+                <canvas id="minimap-container"></canvas>
+            </div>
+            
+            <!-- Crosshair -->
+            <div id="crosshair">
+                <div class="crosshair-dot"></div>
+            </div>
+            
+            <!-- Welcome Screen - SIMPLIFIED -->
+            <div id="welcome-screen">
+                <div class="welcome-title">PIXELCRAFT</div>
+                <div class="welcome-subtitle">
+                    BETA TEST by webXOS<br>
+                    Build • Explore • Create
+                </div>
+                
+                <button class="game-btn green" id="start-btn" style="padding:12px 40px; font-size:16px; margin-top:30px;">
+                    START GAME
+                </button>
+                
+                <button class="game-btn" id="show-controls-btn" style="padding:8px 20px; font-size:12px; margin-top:15px;">
+                    SHOW CONTROLS
+                </button>
+                
+                <!-- Hidden controls that can be toggled -->
+                <div class="control-list" id="controls-list">
+                    <div class="control-item">
+                        <span>MOVEMENT</span>
+                        <span class="control-key">W A S D</span>
+                    </div>
+                    <div class="control-item">
+                        <span>JUMP</span>
+                        <span class="control-key">SPACE</span>
+                    </div>
+                    <div class="control-item">
+                        <span>JETPACK (in air)</span>
+                        <span class="control-key">SHIFT</span>
+                    </div>
+                    <div class="control-item">
+                        <span>BUILD</span>
+                        <span class="control-key">LEFT CLICK</span>
+                    </div>
+                    <div class="control-item">
+                        <span>MINE</span>
+                        <span class="control-key">RIGHT CLICK</span>
+                    </div>
+                    <div class="control-item">
+                        <span>BLOCK SELECT (1-9)</span>
+                        <span class="control-key">1 2 3 4 5 6 7 8 9</span>
+                    </div>
+                    <div class="control-item">
+                        <span>TETRIS SEGMENTS</span>
+                        <span class="control-key">I T L Q</span>
+                    </div>
+                    <div class="control-item">
+                        <span>UNDO</span>
+                        <span class="control-key">Z / Ctrl+Z</span>
+                    </div>
+                    <div class="control-item">
+                        <span>EXPORT SCENE</span>
+                        <span class="control-key">E</span>
+                    </div>
+                    <div class="control-item">
+                        <span>DAY/NIGHT</span>
+                        <span class="control-key">N</span>
+                    </div>
+                    <div class="control-item">
+                        <span>TOGGLE GRID</span>
+                        <span class="control-key">G</span>
+                    </div>
+                    <div class="control-item">
+                        <span>RESET WORLD</span>
+                        <span class="control-key">R</span>
+                    </div>
+                    <div class="control-item">
+                        <span>MENU</span>
+                        <span class="control-key">ESC</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hidden Canvas for Export -->
+            <canvas id="export-canvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        class PixelCraftGame {
+            constructor() {
+                // Game settings
+                this.voxelSize = 20;
+                this.worldWidth = 120;   // 120 * 20 = 2400px
+                this.worldHeight = 90;   // 90 * 20 = 1800px
+                this.chunkSize = 8;      // 8x8 voxels per chunk
+                
+                // Performance tracking
+                this.fps = 60;
+                this.lastFrameTime = 0;
+                this.frameCount = 0;
+                this.lastFpsUpdate = 0;
+                
+                // Data structures
+                this.voxelGrid = Array(this.worldHeight).fill().map(() => Array(this.worldWidth).fill(null));
+                this.chunks = new Map();
+                this.voxelElements = new Map();
+                
+                // UNDO HISTORY
+                this.actionHistory = [];
+                this.maxHistory = 50; // Limit undo history to prevent memory issues
+                
+                // Camera settings
+                this.camera = {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                    smoothness: 0.1
+                };
+                
+                // Player settings with unlimited jetpack (SLOWER)
+                this.player = {
+                    x: 400,
+                    y: 100,
+                    width: 12,
+                    height: 24,
+                    velocityX: 0,
+                    velocityY: 0,
+                    speed: 3.5,
+                    runSpeed: 5.5,
+                    jumpForce: 12.5,
+                    gravity: 0.85,
+                    friction: 0.85,
+                    airFriction: 0.95,
+                    isGrounded: false,
+                    facing: 'right',
+                    canJump: true,
+                    maxFallSpeed: 25,
+                    coyoteTime: 0.15,
+                    coyoteTimer: 0,
+                    jumpBufferTime: 0.1,
+                    jumpBufferTimer: 0,
+                    jetpackForce: -0.4, // SLOWER: Reduced from -0.8 to -0.4
+                    isUsingJetpack: false,
+                    // REMOVED: fuel system for unlimited jetpack
+                };
+                
+                // Game state
+                this.selectedVoxel = 'grass';
+                this.selectedSegment = null; // null or one of: 'i', 't', 'l', 'square'
+                this.isDay = true;
+                this.gameTime = 0;
+                this.isPaused = false;
+                this.buildMode = true;
+                this.showGrid = false;
+                this.lastTime = performance.now();
+                
+                // Tetris segment definitions
+                this.segments = {
+                    'i': [ // I shape (4 vertical)
+                        {x: 0, y: 0},
+                        {x: 0, y: 1},
+                        {x: 0, y: 2},
+                        {x: 0, y: 3}
+                    ],
+                    't': [ // T shape
+                        {x: 0, y: 0},
+                        {x: -1, y: 1},
+                        {x: 0, y: 1},
+                        {x: 1, y: 1}
+                    ],
+                    'l': [ // L shape
+                        {x: 0, y: 0},
+                        {x: 0, y: 1},
+                        {x: 0, y: 2},
+                        {x: 1, y: 2}
+                    ],
+                    'square': [ // Square shape (2x2)
+                        {x: 0, y: 0},
+                        {x: 1, y: 0},
+                        {x: 0, y: 1},
+                        {x: 1, y: 1}
+                    ]
+                };
+                
+                // Get elements
+                this.playerElement = document.getElementById('player');
+                this.voxelsContainer = document.getElementById('voxels-container');
+                this.cameraViewport = document.getElementById('camera-viewport');
+                this.timeOverlay = document.getElementById('time-overlay');
+                this.minimapCanvas = document.getElementById('minimap-container');
+                this.minimapCtx = this.minimapCanvas.getContext('2d');
+                this.welcomeScreen = document.getElementById('welcome-screen');
+                this.worldCanvas = document.getElementById('world-canvas');
+                this.worldCtx = this.worldCanvas.getContext('2d');
+                this.voxelHighlight = document.getElementById('voxel-highlight');
+                this.gridOverlay = document.getElementById('grid-overlay');
+                this.placementPreview = document.getElementById('placement-preview');
+                this.jetpackEffect = document.getElementById('jetpack-effect');
+                this.notificationArea = document.getElementById('notification-area');
+                
+                // Setup canvases
+                this.worldCanvas.width = this.worldWidth * this.voxelSize;
+                this.worldCanvas.height = this.worldHeight * this.voxelSize;
+                this.minimapCanvas.width = 150;
+                this.minimapCanvas.height = 112;
+                
+                // Voxel types - LAVA REMOVED
+                this.voxelTypes = [
+                    { id: 'grass', name: 'Grass', color: '#32cd32', border: '#228b22', key: '1', collidable: true },
+                    { id: 'dirt', name: 'Dirt', color: '#8b4513', border: '#5d2f0d', key: '2', collidable: true },
+                    { id: 'stone', name: 'Stone', color: '#808080', border: '#606060', key: '3', collidable: true },
+                    { id: 'wood', name: 'Wood', color: '#8b4513', border: '#5d2f0d', key: '4', collidable: true },
+                    { id: 'brick', name: 'Brick', color: '#b22222', border: '#8b0000', key: '5', collidable: true },
+                    { id: 'glass', name: 'Glass', color: 'rgba(147,197,253,0.6)', border: '#93c5fd', key: '6', collidable: true },
+                    { id: 'gold', name: 'Gold', color: '#ffd700', border: '#daa520', key: '7', collidable: true },
+                    { id: 'sand', name: 'Sand', color: '#f0e68c', border: '#d2b48c', key: '9', collidable: true }
+                ];
+                
+                // Input state
+                this.keys = {};
+                this.mouse = { x: 0, y: 0, left: false, right: false };
+                
+                // Initialize
+                this.init();
+            }
+            
+            init() {
+                this.drawBackground();
+                this.createWorld();
+                this.setupControls();
+                this.setupPalette();
+                this.setupSegmentPalette();
+                this.updateUI();
+                this.updateMinimap();
+                
+                // Start game loop
+                this.gameLoop();
+            }
+            
+            drawBackground() {
+                const ctx = this.worldCtx;
+                const gradient = ctx.createLinearGradient(0, 0, 0, this.worldCanvas.height);
+                
+                // Day sky gradient
+                gradient.addColorStop(0, '#1e3c72');
+                gradient.addColorStop(0.1, '#2a5298');
+                gradient.addColorStop(0.2, '#87CEEB');
+                gradient.addColorStop(0.3, '#76b5c5');
+                gradient.addColorStop(0.4, '#5D8AA8');
+                gradient.addColorStop(0.6, '#3D2B1F');
+                gradient.addColorStop(0.8, '#2C1810');
+                gradient.addColorStop(1, '#1a0f0a');
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, this.worldCanvas.width, this.worldCanvas.height);
+                
+                // Draw clouds
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                for (let i = 0; i < 20; i++) {
+                    const x = (i * 150) % this.worldCanvas.width;
+                    const y = 50 + Math.sin(i * 0.5) * 20;
+                    const size = 40 + Math.sin(i) * 10;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.arc(x + size * 0.6, y - size * 0.3, size * 0.7, 0, Math.PI * 2);
+                    ctx.arc(x - size * 0.6, y - size * 0.3, size * 0.7, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            createWorld() {
+                // Clear existing voxels
+                this.voxelsContainer.innerHTML = '';
+                this.voxelGrid = Array(this.worldHeight).fill().map(() => Array(this.worldWidth).fill(null));
+                this.chunks.clear();
+                this.voxelElements.clear();
+                
+                // Clear undo history when creating new world
+                this.actionHistory = [];
+                this.updateUndoCount();
+                
+                // Create terrain with solid foundation
+                const groundLevel = 45;
+                
+                for (let x = 0; x < this.worldWidth; x++) {
+                    // Add terrain variation
+                    const variation = Math.sin(x * 0.1) * 3;
+                    const currentGround = groundLevel + Math.floor(variation);
+                    
+                    for (let y = currentGround; y < this.worldHeight; y++) {
+                        // Surface layer
+                        if (y === currentGround || y === currentGround + 1) {
+                            this.addVoxel(x, y, 'grass');
+                        }
+                        // Dirt layer
+                        else if (y < currentGround + 4 + Math.sin(x * 0.2) * 2) {
+                            this.addVoxel(x, y, 'dirt');
+                        }
+                        // Stone layer
+                        else {
+                            this.addVoxel(x, y, 'stone');
+                        }
+                    }
+                }
+                
+                // Add solid bedrock at bottom
+                for (let x = 0; x < this.worldWidth; x++) {
+                    for (let y = this.worldHeight - 5; y < this.worldHeight; y++) {
+                        this.addVoxel(x, y, 'stone');
+                    }
+                }
+                
+                // Add caves and ores
+                for (let i = 0; i < 40; i++) {
+                    const caveX = Math.floor(Math.random() * this.worldWidth);
+                    const caveY = groundLevel + 10 + Math.floor(Math.random() * 30);
+                    this.createCave(caveX, caveY);
+                }
+                
+                // Add trees
+                for (let x = 15; x < this.worldWidth; x += 10) {
+                    if (Math.random() > 0.3) {
+                        const surfaceY = this.findSurfaceY(x);
+                        if (surfaceY && surfaceY < groundLevel + 10) {
+                            this.createTree(x, surfaceY - 1);
+                        }
+                    }
+                }
+                
+                // Add starting house
+                this.createHouse(12, groundLevel - 1);
+                
+                // Add sand pools instead for variety
+                for (let i = 0; i < 3; i++) {
+                    const poolX = 40 + i * 30;
+                    const surfaceY = this.findSurfaceY(poolX);
+                    if (surfaceY) {
+                        this.createSandPool(poolX, surfaceY);
+                    }
+                }
+                
+                // Place player on starting platform
+                const startSurface = this.findSurfaceY(12);
+                if (startSurface) {
+                    this.player.y = (startSurface - 5) * this.voxelSize;
+                    this.player.x = 12 * this.voxelSize;
+                    
+                    // Clear a safe spawn area
+                    for (let dx = -2; dx <= 2; dx++) {
+                        for (let dy = -2; dy <= 0; dy++) {
+                            this.removeVoxel(12 + dx, startSurface + dy);
+                        }
+                    }
+                }
+                
+                console.log('World created with', this.getVoxelCount(), 'voxels');
+            }
+            
+            findSurfaceY(x) {
+                for (let y = 0; y < this.worldHeight; y++) {
+                    if (this.voxelGrid[y][x]) {
+                        return y;
+                    }
+                }
+                return null;
+            }
+            
+            createCave(x, y) {
+                const radius = 3 + Math.random() * 4;
+                for (let dx = -radius; dx <= radius; dx++) {
+                    for (let dy = -radius; dy <= radius; dy++) {
+                        if (dx*dx + dy*dy <= radius*radius) {
+                            const caveX = x + dx;
+                            const caveY = y + dy;
+                            if (caveX >= 0 && caveX < this.worldWidth && caveY >= 0 && caveY < this.worldHeight) {
+                                this.removeVoxel(caveX, caveY);
+                                
+                                // Sometimes add ores
+                                if (Math.random() < 0.1 && caveY > 50) {
+                                    this.addVoxel(caveX, caveY, Math.random() < 0.5 ? 'gold' : 'stone');
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            createTree(x, y) {
+                // Trunk
+                const height = 4 + Math.floor(Math.random() * 3);
+                for (let dy = 1; dy <= height; dy++) {
+                    this.addVoxel(x, y - dy, 'wood');
+                }
+                
+                // Leaves
+                const leavesY = y - height;
+                for (let dx = -2; dx <= 2; dx++) {
+                    for (let dy = -3; dy <= 0; dy++) {
+                        const distance = Math.sqrt(dx*dx + dy*dy);
+                        if (distance <= 2.5 && (dx !== 0 || dy !== -3)) {
+                            this.addVoxel(x + dx, leavesY + dy, 'grass');
+                        }
+                    }
+                }
+            }
+            
+            createHouse(x, y) {
+                // Floor
+                for (let dx = 0; dx < 7; dx++) {
+                    for (let dy = 0; dy < 5; dy++) {
+                        this.addVoxel(x + dx, y + dy, 'wood');
+                    }
+                }
+                
+                // Clear interior
+                for (let dx = 1; dx < 6; dx++) {
+                    for (let dy = 1; dy < 4; dy++) {
+                        this.removeVoxel(x + dx, y + dy);
+                    }
+                }
+                
+                // Door
+                this.removeVoxel(x + 3, y);
+                this.removeVoxel(x + 3, y + 1);
+                
+                // Windows
+                this.addVoxel(x + 1, y + 2, 'glass');
+                this.addVoxel(x + 5, y + 2, 'glass');
+                
+                // Roof
+                for (let dx = -1; dx < 8; dx++) {
+                    this.addVoxel(x + dx, y - 1, 'wood');
+                }
+            }
+            
+            createSandPool(x, y) {
+                const width = 4 + Math.floor(Math.random() * 4);
+                const depth = 2 + Math.floor(Math.random() * 2);
+                
+                for (let dx = -Math.floor(width/2); dx <= Math.floor(width/2); dx++) {
+                    for (let dy = 0; dy < depth; dy++) {
+                        const poolX = x + dx;
+                        const poolY = y + dy;
+                        if (poolX >= 0 && poolX < this.worldWidth && poolY >= 0 && poolY < this.worldHeight) {
+                            this.addVoxel(poolX, poolY, 'sand');
+                        }
+                    }
+                }
+            }
+            
+            getChunkKey(x, y) {
+                const chunkX = Math.floor(x / this.chunkSize);
+                const chunkY = Math.floor(y / this.chunkSize);
+                return `${chunkX},${chunkY}`;
+            }
+            
+            getOrCreateChunk(chunkX, chunkY) {
+                const key = `${chunkX},${chunkY}`;
+                
+                if (!this.chunks.has(key)) {
+                    const chunk = document.createElement('div');
+                    chunk.className = 'voxel-chunk';
+                    chunk.style.left = `${chunkX * this.chunkSize * this.voxelSize}px`;
+                    chunk.style.top = `${chunkY * this.chunkSize * this.voxelSize}px`;
+                    chunk.dataset.chunkX = chunkX;
+                    chunk.dataset.chunkY = chunkY;
+                    this.voxelsContainer.appendChild(chunk);
+                    this.chunks.set(key, {
+                        element: chunk,
+                        voxels: new Set()
+                    });
+                }
+                
+                return this.chunks.get(key);
+            }
+            
+            addVoxel(x, y, type) {
+                // Validate coordinates
+                x = Math.floor(x);
+                y = Math.floor(y);
+                
+                if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) {
+                    return null;
+                }
+                
+                // Remove existing voxel
+                this.removeVoxel(x, y);
+                
+                // Update grid
+                this.voxelGrid[y][x] = type;
+                
+                // Get or create chunk
+                const chunkX = Math.floor(x / this.chunkSize);
+                const chunkY = Math.floor(y / this.chunkSize);
+                const chunk = this.getOrCreateChunk(chunkX, chunkY);
+                
+                // Create voxel element
+                const voxel = document.createElement('div');
+                voxel.className = `voxel ${type}`;
+                voxel.dataset.type = type;
+                voxel.dataset.x = x;
+                voxel.dataset.y = y;
+                
+                const localX = x - (chunkX * this.chunkSize);
+                const localY = y - (chunkY * this.chunkSize);
+                
+                voxel.style.left = `${localX * this.voxelSize}px`;
+                voxel.style.top = `${localY * this.voxelSize}px`;
+                
+                // Set colors
+                const voxelType = this.voxelTypes.find(v => v.id === type);
+                if (voxelType) {
+                    voxel.style.background = voxelType.color;
+                    voxel.style.borderColor = voxelType.border;
+                }
+                
+                chunk.element.appendChild(voxel);
+                chunk.voxels.add(voxel);
+                
+                // Store reference
+                const voxelKey = `${x},${y}`;
+                this.voxelElements.set(voxelKey, {
+                    element: voxel,
+                    chunk: chunk
+                });
+                
+                // Update UI
+                this.updateVoxelCount();
+                
+                return voxel;
+            }
+            
+            // NEW: Record action for undo
+            recordAction(action) {
+                // Add to history
+                this.actionHistory.push(action);
+                
+                // Limit history size
+                if (this.actionHistory.length > this.maxHistory) {
+                    this.actionHistory.shift();
+                }
+                
+                // Update UI
+                this.updateUndoCount();
+            }
+            
+            // NEW: Update undo count display
+            updateUndoCount() {
+                document.getElementById('undo-count').textContent = this.actionHistory.length;
+            }
+            
+            // NEW: Undo last action
+            undoLastAction() {
+                if (this.actionHistory.length === 0) {
+                    this.showNotification("Nothing to undo");
+                    return;
+                }
+                
+                const action = this.actionHistory.pop();
+                
+                if (action.type === 'place') {
+                    // Undo placement - remove voxels
+                    action.voxels.forEach(voxel => {
+                        this.removeVoxel(voxel.x, voxel.y);
+                    });
+                    this.showNotification(`Undo: Removed ${action.voxels.length} voxel(s)`);
+                } else if (action.type === 'remove') {
+                    // Undo removal - restore voxels
+                    action.voxels.forEach(voxel => {
+                        this.addVoxel(voxel.x, voxel.y, voxel.type);
+                    });
+                    this.showNotification(`Undo: Restored ${action.voxels.length} voxel(s)`);
+                }
+                
+                this.updateMinimap();
+                this.updateUndoCount();
+            }
+            
+            removeVoxel(x, y) {
+                // Validate coordinates
+                x = Math.floor(x);
+                y = Math.floor(y);
+                
+                if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) {
+                    return;
+                }
+                
+                // Record what was removed for undo
+                const voxelType = this.voxelGrid[y][x];
+                if (voxelType) {
+                    // Record removal action
+                    this.recordAction({
+                        type: 'remove',
+                        voxels: [{x, y, type: voxelType}],
+                        timestamp: Date.now()
+                    });
+                }
+                
+                // Update grid
+                this.voxelGrid[y][x] = null;
+                
+                // Remove from voxel elements
+                const voxelKey = `${x},${y}`;
+                const voxelData = this.voxelElements.get(voxelKey);
+                
+                if (voxelData) {
+                    // Remove from chunk
+                    voxelData.chunk.voxels.delete(voxelData.element);
+                    voxelData.element.remove();
+                    
+                    // Remove from map
+                    this.voxelElements.delete(voxelKey);
+                    
+                    // Update UI
+                    this.updateVoxelCount();
+                }
+            }
+            
+            getVoxelAt(x, y) {
+                // Validate and round coordinates
+                x = Math.floor(x);
+                y = Math.floor(y);
+                
+                if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) {
+                    return null;
+                }
+                
+                const type = this.voxelGrid[y][x];
+                if (!type) return null;
+                
+                return {
+                    x, y, type,
+                    element: this.voxelElements.get(`${x},${y}`)?.element || null
+                };
+            }
+            
+            getVoxelCount() {
+                return this.voxelElements.size;
+            }
+            
+            updateVoxelCount() {
+                document.getElementById('voxel-count').textContent = this.getVoxelCount();
+            }
+            
+            setupControls() {
+                // Start button
+                document.getElementById('start-btn').addEventListener('click', () => {
+                    this.welcomeScreen.style.display = 'none';
+                    this.updateCamera();
+                });
+                
+                // Show controls button
+                document.getElementById('show-controls-btn').addEventListener('click', () => {
+                    const controlsList = document.getElementById('controls-list');
+                    controlsList.style.display = controlsList.style.display === 'none' ? 'block' : 'none';
+                });
+                
+                // UI buttons
+                document.getElementById('export-btn').addEventListener('click', () => this.exportAsJPEG());
+                document.getElementById('daynight-btn').addEventListener('click', () => this.toggleDayNight());
+                document.getElementById('reset-btn').addEventListener('click', () => this.resetWorld());
+                document.getElementById('mode-btn').addEventListener('click', () => this.toggleBuildMode());
+                document.getElementById('grid-btn').addEventListener('click', () => this.toggleGrid());
+                document.getElementById('undo-btn').addEventListener('click', () => this.undoLastAction());
+                
+                // Keyboard controls
+                window.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        this.welcomeScreen.style.display = this.welcomeScreen.style.display === 'none' ? 'flex' : 'none';
+                        return;
+                    }
+                    
+                    const key = e.key.toLowerCase();
+                    this.keys[key] = true;
+                    
+                    // Block selection (1-9)
+                    if (e.key >= '1' && e.key <= '9') {
+                        const index = parseInt(e.key) - 1;
+                        if (this.voxelTypes[index]) {
+                            this.selectVoxel(this.voxelTypes[index].id);
+                        }
+                    }
+                    
+                    // Segment selection (I, T, L, Q for square)
+                    if (key === 'i' || key === 't' || key === 'l' || key === 'q') {
+                        this.selectSegment(key === 'q' ? 'square' : key);
+                    }
+                    
+                    // Special keys
+                    switch(key) {
+                        case 'e':
+                            this.exportAsJPEG();
+                            break;
+                        case 'n':
+                            this.toggleDayNight();
+                            break;
+                        case 'r':
+                            this.resetWorld();
+                            break;
+                        case 'b':
+                            this.toggleBuildMode();
+                            break;
+                        case 'g':
+                            this.toggleGrid();
+                            break;
+                        case 'z':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                this.undoLastAction();
+                            } else if (!e.ctrlKey) {
+                                this.undoLastAction();
+                            }
+                            break;
+                    }
+                    
+                    // Jump buffer
+                    if (e.key === ' ') {
+                        e.preventDefault();
+                        this.player.jumpBufferTimer = this.player.jumpBufferTime;
+                    }
+                    
+                    // Prevent space from scrolling
+                    if (e.key === ' ') {
+                        e.preventDefault();
+                    }
+                });
+                
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key.toLowerCase()] = false;
+                    
+                    // Stop jetpack when shift released
+                    if (e.key.toLowerCase() === 'shift') {
+                        this.player.isUsingJetpack = false;
+                        this.jetpackEffect.style.display = 'none';
+                    }
+                });
+                
+                // Mouse controls
+                this.cameraViewport.addEventListener('mousemove', (e) => {
+                    const rect = this.cameraViewport.getBoundingClientRect();
+                    
+                    // Calculate mouse position in viewport
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    
+                    // Convert to world coordinates
+                    this.mouse.x = Math.floor((mouseX + this.camera.x) / this.voxelSize);
+                    this.mouse.y = Math.floor((mouseY + this.camera.y) / this.voxelSize);
+                    
+                    // Clamp to world bounds
+                    this.mouse.x = Math.max(0, Math.min(this.mouse.x, this.worldWidth - 1));
+                    this.mouse.y = Math.max(0, Math.min(this.mouse.y, this.worldHeight - 1));
+                    
+                    // Update crosshair
+                    const crosshair = document.getElementById('crosshair');
+                    crosshair.style.left = `${e.clientX}px`;
+                    crosshair.style.top = `${e.clientY}px`;
+                    
+                    // Update placement preview
+                    this.updatePlacementPreview();
+                });
+                
+                // Left click - Build
+                this.cameraViewport.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) {
+                        this.mouse.left = true;
+                        e.preventDefault();
+                        
+                        if (this.buildMode) {
+                            if (this.selectedSegment) {
+                                this.placeSegment(this.mouse.x, this.mouse.y, this.selectedSegment);
+                            } else {
+                                // Single voxel placement
+                                const canBuild = this.canPlaceVoxel(this.mouse.x, this.mouse.y);
+                                
+                                if (canBuild) {
+                                    if (!this.getVoxelAt(this.mouse.x, this.mouse.y)) {
+                                        this.addVoxelWithUndo(this.mouse.x, this.mouse.y, this.selectedVoxel);
+                                        this.updateMinimap();
+                                        this.showNotification(`Placed ${this.selectedVoxel}`);
+                                    }
+                                } else {
+                                    this.showNotification("Can't build inside player!");
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Right click - Mine
+                this.cameraViewport.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    this.mouse.right = true;
+                    
+                    // Only mine single voxels, not segments
+                    const voxel = this.getVoxelAt(this.mouse.x, this.mouse.y);
+                    if (voxel) {
+                        // removeVoxel automatically records undo action
+                        this.removeVoxel(this.mouse.x, this.mouse.y);
+                        this.updateMinimap();
+                        this.showNotification(`Mined ${voxel.type}`);
+                    }
+                });
+                
+                window.addEventListener('mouseup', (e) => {
+                    if (e.button === 0) this.mouse.left = false;
+                    if (e.button === 2) this.mouse.right = false;
+                });
+                
+                // Prevent right click menu
+                document.addEventListener('contextmenu', (e) => {
+                    if (e.target.closest('#camera-viewport')) {
+                        e.preventDefault();
+                    }
+                });
+            }
+            
+            // NEW: Add voxel with undo recording
+            addVoxelWithUndo(x, y, type) {
+                // Record placement action BEFORE adding
+                this.recordAction({
+                    type: 'place',
+                    voxels: [{x, y, type}],
+                    timestamp: Date.now()
+                });
+                
+                // Then add the voxel
+                return this.addVoxel(x, y, type);
+            }
+            
+            canPlaceVoxel(x, y) {
+                // Convert player position to grid coordinates
+                const playerLeft = Math.floor(this.player.x / this.voxelSize);
+                const playerRight = Math.floor((this.player.x + this.player.width - 1) / this.voxelSize);
+                const playerTop = Math.floor(this.player.y / this.voxelSize);
+                const playerBottom = Math.floor((this.player.y + this.player.height - 1) / this.voxelSize);
+                
+                // Check if target position is inside player's collision box
+                if (x >= playerLeft && x <= playerRight && y >= playerTop && y <= playerBottom) {
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            canPlaceSegment(x, y, segment) {
+                const positions = this.segments[segment];
+                
+                // Check all positions in the segment
+                for (const pos of positions) {
+                    const targetX = x + pos.x;
+                    const targetY = y + pos.y;
+                    
+                    // Check world bounds
+                    if (targetX < 0 || targetX >= this.worldWidth || targetY < 0 || targetY >= this.worldHeight) {
+                        return false;
+                    }
+                    
+                    // Check if position is inside player
+                    if (!this.canPlaceVoxel(targetX, targetY)) {
+                        return false;
+                    }
+                    
+                    // Check if position is already occupied
+                    if (this.getVoxelAt(targetX, targetY)) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
+            
+            placeSegment(x, y, segment) {
+                if (!this.canPlaceSegment(x, y, segment)) {
+                    this.showNotification("Can't place segment here!");
+                    return;
+                }
+                
+                const positions = this.segments[segment];
+                const placedVoxels = [];
+                
+                // Record segment placement as single action
+                const segmentAction = {
+                    type: 'place',
+                    voxels: [],
+                    timestamp: Date.now(),
+                    segmentType: segment
+                };
+                
+                for (const pos of positions) {
+                    const targetX = x + pos.x;
+                    const targetY = y + pos.y;
+                    
+                    if (this.canPlaceVoxel(targetX, targetY) && !this.getVoxelAt(targetX, targetY)) {
+                        // Record voxel for undo
+                        segmentAction.voxels.push({x: targetX, y: targetY, type: this.selectedVoxel});
+                        
+                        // Add voxel
+                        this.addVoxel(targetX, targetY, this.selectedVoxel);
+                        placedVoxels.push({x: targetX, y: targetY});
+                    }
+                }
+                
+                if (placedVoxels.length > 0) {
+                    // Record the segment placement action
+                    this.recordAction(segmentAction);
+                    
+                    this.updateMinimap();
+                    this.showNotification(`Placed ${segment.toUpperCase()} segment (${placedVoxels.length} voxels)`);
+                }
+            }
+            
+            updatePlacementPreview() {
+                // Clear existing preview
+                this.placementPreview.innerHTML = '';
+                
+                const voxelType = this.voxelTypes.find(v => v.id === this.selectedVoxel);
+                if (!voxelType) return;
+                
+                if (this.selectedSegment) {
+                    // Show segment preview
+                    const positions = this.segments[this.selectedSegment];
+                    let canPlaceAll = true;
+                    
+                    for (const pos of positions) {
+                        const targetX = this.mouse.x + pos.x;
+                        const targetY = this.mouse.y + pos.y;
+                        
+                        // Calculate screen position
+                        const screenX = targetX * this.voxelSize - this.camera.x;
+                        const screenY = targetY * this.voxelSize - this.camera.y;
+                        
+                        // Create preview voxel
+                        const previewVoxel = document.createElement('div');
+                        previewVoxel.className = 'placement-voxel';
+                        previewVoxel.style.left = `${screenX}px`;
+                        previewVoxel.style.top = `${screenY}px`;
+                        previewVoxel.style.background = voxelType.color;
+                        previewVoxel.style.borderColor = voxelType.border;
+                        
+                        // Check if placement is valid
+                        const canPlace = this.canPlaceVoxel(targetX, targetY);
+                        const isEmpty = !this.getVoxelAt(targetX, targetY);
+                        
+                        if (canPlace && isEmpty) {
+                            previewVoxel.style.opacity = '0.7';
+                        } else {
+                            previewVoxel.style.opacity = '0.3';
+                            canPlaceAll = false;
+                        }
+                        
+                        this.placementPreview.appendChild(previewVoxel);
+                    }
+                    
+                    // Update preview container opacity based on overall validity
+                    this.placementPreview.style.opacity = canPlaceAll ? '1' : '0.5';
+                    
+                } else {
+                    // Show single voxel preview
+                    const screenX = this.mouse.x * this.voxelSize - this.camera.x;
+                    const screenY = this.mouse.y * this.voxelSize - this.camera.y;
+                    
+                    const previewVoxel = document.createElement('div');
+                    previewVoxel.className = 'placement-voxel';
+                    previewVoxel.style.left = `${screenX}px`;
+                    previewVoxel.style.top = `${screenY}px`;
+                    previewVoxel.style.background = voxelType.color;
+                    previewVoxel.style.borderColor = voxelType.border;
+                    
+                    // Check if placement is valid
+                    const canPlace = this.canPlaceVoxel(this.mouse.x, this.mouse.y);
+                    const isEmpty = !this.getVoxelAt(this.mouse.x, this.mouse.y);
+                    
+                    if (canPlace && isEmpty) {
+                        previewVoxel.style.opacity = '0.7';
+                    } else {
+                        previewVoxel.style.opacity = '0.4';
+                    }
+                    
+                    this.placementPreview.appendChild(previewVoxel);
+                }
+            }
+            
+            setupPalette() {
+                const palette = document.getElementById('block-palette');
+                palette.innerHTML = '';
+                
+                this.voxelTypes.forEach(voxel => {
+                    const btn = document.createElement('div');
+                    btn.className = `block-btn ${voxel.id === this.selectedVoxel && !this.selectedSegment ? 'active' : ''}`;
+                    btn.dataset.voxel = voxel.id;
+                    btn.title = `${voxel.name} (${voxel.key})`;
+                    
+                    const preview = document.createElement('div');
+                    preview.className = 'block-preview';
+                    preview.style.background = voxel.color;
+                    preview.style.borderColor = voxel.border;
+                    
+                    btn.appendChild(preview);
+                    
+                    btn.addEventListener('click', () => {
+                        this.selectVoxel(voxel.id);
+                    });
+                    
+                    palette.appendChild(btn);
+                });
+            }
+            
+            setupSegmentPalette() {
+                const palette = document.getElementById('segment-palette');
+                
+                // Remove existing segment label (keep the first one)
+                const existingLabel = palette.querySelector('.segment-label');
+                if (existingLabel) {
+                    palette.innerHTML = '';
+                    palette.appendChild(existingLabel);
+                }
+                
+                const segments = [
+                    { id: 'i', name: 'I Shape', key: 'I' },
+                    { id: 't', name: 'T Shape', key: 'T' },
+                    { id: 'l', name: 'L Shape', key: 'L' },
+                    { id: 'square', name: 'Square', key: 'Q' }
+                ];
+                
+                segments.forEach(segment => {
+                    const btn = document.createElement('div');
+                    btn.className = `segment-btn ${segment.id === this.selectedSegment ? 'active' : ''}`;
+                    btn.dataset.segment = segment.id;
+                    btn.title = `${segment.name} (${segment.key})`;
+                    
+                    const preview = document.createElement('div');
+                    preview.className = 'segment-preview';
+                    
+                    // Create visual representation of the segment
+                    const positions = this.segments[segment.id];
+                    
+                    // Find min/max for centering
+                    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+                    positions.forEach(pos => {
+                        minX = Math.min(minX, pos.x);
+                        maxX = Math.max(maxX, pos.x);
+                        minY = Math.min(minY, pos.y);
+                        maxY = Math.max(maxY, pos.y);
+                    });
+                    
+                    // Create grid cells
+                    for (let dx = minX; dx <= maxX; dx++) {
+                        for (let dy = minY; dy <= maxY; dy++) {
+                            const cell = document.createElement('div');
+                            cell.className = 'segment-cell';
+                            
+                            // Check if this position is part of the segment
+                            const isPartOfSegment = positions.some(pos => pos.x === dx && pos.y === dy);
+                            
+                            if (isPartOfSegment) {
+                                const voxelType = this.voxelTypes.find(v => v.id === this.selectedVoxel);
+                                cell.style.color = voxelType ? voxelType.color : '#32cd32';
+                            } else {
+                                cell.style.color = 'transparent';
+                            }
+                            
+                            // Calculate grid position
+                            const gridX = dx - minX;
+                            const gridY = dy - minY;
+                            
+                            cell.style.gridColumn = gridX + 1;
+                            cell.style.gridRow = gridY + 1;
+                            
+                            preview.appendChild(cell);
+                        }
+                    }
+                    
+                    btn.appendChild(preview);
+                    
+                    btn.addEventListener('click', () => {
+                        this.selectSegment(segment.id);
+                    });
+                    
+                    palette.appendChild(btn);
+                });
+            }
+            
+            selectVoxel(voxelId) {
+                this.selectedVoxel = voxelId;
+                this.selectedSegment = null;
+                
+                // Update UI
+                document.querySelectorAll('.block-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelectorAll('.segment-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelector(`.block-btn[data-voxel="${voxelId}"]`).classList.add('active');
+                
+                const voxelType = this.voxelTypes.find(v => v.id === voxelId);
+                document.getElementById('block-display').textContent = voxelType.name.toUpperCase();
+                
+                // Update segment previews with new color
+                this.setupSegmentPalette();
+                
+                this.showNotification(`Selected: ${voxelType.name}`);
+            }
+            
+            selectSegment(segmentId) {
+                this.selectedSegment = segmentId;
+                
+                // Update UI
+                document.querySelectorAll('.block-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelectorAll('.segment-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelector(`.segment-btn[data-segment="${segmentId}"]`).classList.add('active');
+                
+                const segmentNames = {
+                    'i': 'I-SHAPE',
+                    't': 'T-SHAPE', 
+                    'l': 'L-SHAPE',
+                    'square': 'SQUARE'
+                };
+                
+                document.getElementById('block-display').textContent = segmentNames[segmentId];
+                
+                this.showNotification(`Selected: ${segmentNames[segmentId]} segment`);
+            }
+            
+            toggleBuildMode() {
+                this.buildMode = !this.buildMode;
+                document.getElementById('mode-display').textContent = this.buildMode ? 'BUILD' : 'MINE';
+                this.showNotification(this.buildMode ? 'Build mode' : 'Mine mode');
+            }
+            
+            toggleGrid() {
+                this.showGrid = !this.showGrid;
+                this.gridOverlay.style.display = this.showGrid ? 'block' : 'none';
+                this.showNotification(this.showGrid ? 'Grid ON' : 'Grid OFF');
+            }
+            
+            updatePlayer(deltaTime) {
+                // Movement input
+                let moveX = 0;
+                const left = this.keys['a'] || this.keys['arrowleft'];
+                const right = this.keys['d'] || this.keys['arrowright'];
+                const run = this.keys['shift'];
+                
+                // Horizontal movement
+                if (left && !right) {
+                    moveX = -this.player.speed;
+                    this.player.facing = 'left';
+                    this.playerElement.style.transform = 'scaleX(-1)';
+                    this.jetpackEffect.style.left = '10px';
+                } else if (right && !left) {
+                    moveX = this.player.speed;
+                    this.player.facing = 'right';
+                    this.playerElement.style.transform = 'scaleX(1)';
+                    this.jetpackEffect.style.left = '4px';
+                }
+                
+                // Apply running (only on ground)
+                if (run && this.player.isGrounded) {
+                    moveX *= (this.player.runSpeed / this.player.speed);
+                }
+                
+                // JETPACK: Apply upward force when shift is held in air (UNLIMITED)
+                if (run && !this.player.isGrounded) {
+                    this.player.isUsingJetpack = true;
+                    // SLOWER: Reduced force from -0.8 to -0.4
+                    this.player.velocityY += this.player.jetpackForce;
+                    // NO FUEL CONSUMPTION - UNLIMITED JETPACK
+                    this.jetpackEffect.style.display = 'block';
+                } else {
+                    this.player.isUsingJetpack = false;
+                    this.jetpackEffect.style.display = 'none';
+                }
+                
+                // Update coyote timer
+                if (this.player.isGrounded) {
+                    this.player.coyoteTimer = this.player.coyoteTime;
+                } else {
+                    this.player.coyoteTimer -= deltaTime / 1000;
+                }
+                
+                // Update jump buffer
+                this.player.jumpBufferTimer -= deltaTime / 1000;
+                
+                // Jumping with coyote time and jump buffer
+                if (this.player.jumpBufferTimer > 0 && this.player.coyoteTimer > 0 && this.player.canJump) {
+                    this.player.velocityY = -this.player.jumpForce;
+                    this.player.isGrounded = false;
+                    this.player.coyoteTimer = 0;
+                    this.player.jumpBufferTimer = 0;
+                    this.player.canJump = false;
+                    
+                    setTimeout(() => {
+                        this.player.canJump = true;
+                    }, 200);
+                }
+                
+                // Apply physics
+                this.player.velocityX = moveX;
+                
+                // Only apply gravity if not using jetpack
+                if (!this.player.isUsingJetpack) {
+                    this.player.velocityY += this.player.gravity;
+                }
+                
+                this.player.velocityY = Math.min(this.player.velocityY, this.player.maxFallSpeed);
+                
+                // Apply friction (different in air vs ground)
+                if (this.player.isGrounded) {
+                    this.player.velocityX *= this.player.friction;
+                } else {
+                    this.player.velocityX *= this.player.airFriction;
+                }
+                
+                // Store old position for collision resolution
+                const oldX = this.player.x;
+                const oldY = this.player.y;
+                
+                // Apply movement
+                this.player.x += this.player.velocityX;
+                this.player.y += this.player.velocityY;
+                
+                // Handle collisions
+                this.handleCollisions();
+                
+                // Keep player in world bounds
+                this.player.x = Math.max(0, Math.min(this.player.x, this.worldWidth * this.voxelSize - this.player.width));
+                this.player.y = Math.max(0, Math.min(this.player.y, this.worldHeight * this.voxelSize - this.player.height));
+                
+                // Update position display
+                document.getElementById('player-pos').textContent = 
+                    `${Math.floor(this.player.x/this.voxelSize)},${Math.floor(this.player.y/this.voxelSize)}`;
+                
+                // Update jetpack status (always shows UNLIMITED)
+                document.getElementById('jetpack-status').textContent = 'UNLIMITED';
+                
+                // Update camera
+                this.updateCamera();
+            }
+            
+            handleCollisions() {
+                const playerRect = {
+                    x: this.player.x,
+                    y: this.player.y,
+                    width: this.player.width,
+                    height: this.player.height
+                };
+                
+                // Reset grounded state
+                this.player.isGrounded = false;
+                
+                // Get player bounds in grid coordinates
+                const playerLeft = Math.floor(playerRect.x / this.voxelSize);
+                const playerRight = Math.floor((playerRect.x + playerRect.width - 1) / this.voxelSize);
+                const playerTop = Math.floor(playerRect.y / this.voxelSize);
+                const playerBottom = Math.floor((playerRect.y + playerRect.height - 1) / this.voxelSize);
+                
+                // For falling: check all cells between current and previous position
+                if (this.player.velocityY > 0) { // Falling
+                    const prevBottom = Math.floor((playerRect.y - this.player.velocityY + playerRect.height - 1) / this.voxelSize);
+                    const checkFromY = Math.max(prevBottom, playerTop - 1);
+                    
+                    for (let y = checkFromY; y <= playerBottom + 1; y++) {
+                        for (let x = playerLeft - 1; x <= playerRight + 1; x++) {
+                            if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) continue;
+                            
+                            const voxelType = this.voxelGrid[y][x];
+                            if (!voxelType) continue;
+                            
+                            const voxelInfo = this.voxelTypes.find(v => v.id === voxelType);
+                            if (!voxelInfo || !voxelInfo.collidable) continue;
+                            
+                            const voxelRect = {
+                                x: x * this.voxelSize,
+                                y: y * this.voxelSize,
+                                width: this.voxelSize,
+                                height: this.voxelSize
+                            };
+                            
+                            if (this.checkCollision(playerRect, voxelRect)) {
+                                this.resolveCollision(playerRect, voxelRect);
+                            }
+                        }
+                    }
+                } else {
+                    // For other directions, use the original check
+                    for (let y = playerTop - 1; y <= playerBottom + 1; y++) {
+                        for (let x = playerLeft - 1; x <= playerRight + 1; x++) {
+                            if (x < 0 || x >= this.worldWidth || y < 0 || y >= this.worldHeight) continue;
+                            
+                            const voxelType = this.voxelGrid[y][x];
+                            if (!voxelType) continue;
+                            
+                            const voxelInfo = this.voxelTypes.find(v => v.id === voxelType);
+                            if (!voxelInfo || !voxelInfo.collidable) continue;
+                            
+                            const voxelRect = {
+                                x: x * this.voxelSize,
+                                y: y * this.voxelSize,
+                                width: this.voxelSize,
+                                height: this.voxelSize
+                            };
+                            
+                            if (this.checkCollision(playerRect, voxelRect)) {
+                                this.resolveCollision(playerRect, voxelRect);
+                            }
+                        }
+                    }
+                }
+                
+                // Update player position
+                this.player.x = playerRect.x;
+                this.player.y = playerRect.y;
+            }
+            
+            checkCollision(rect1, rect2) {
+                return rect1.x < rect2.x + rect2.width &&
+                       rect1.x + rect1.width > rect2.x &&
+                       rect1.y < rect2.y + rect2.height &&
+                       rect1.y + rect1.height > rect2.y;
+            }
+            
+            resolveCollision(playerRect, voxelRect) {
+                // Calculate penetration depths
+                const leftOverlap = (playerRect.x + playerRect.width) - voxelRect.x;
+                const rightOverlap = (voxelRect.x + voxelRect.width) - playerRect.x;
+                const topOverlap = (playerRect.y + playerRect.height) - voxelRect.y;
+                const bottomOverlap = (voxelRect.y + voxelRect.height) - playerRect.y;
+                
+                // Find smallest overlap
+                const overlaps = [
+                    { side: 'left', value: leftOverlap },
+                    { side: 'right', value: rightOverlap },
+                    { side: 'top', value: topOverlap },
+                    { side: 'bottom', value: bottomOverlap }
+                ];
+                
+                overlaps.sort((a, b) => a.value - b.value);
+                const minOverlap = overlaps[0];
+                
+                // Resolve collision with a small epsilon to prevent getting stuck
+                const epsilon = 0.1;
+                
+                switch (minOverlap.side) {
+                    case 'top':
+                        // Landing on block
+                        playerRect.y = voxelRect.y - playerRect.height - epsilon;
+                        this.player.velocityY = 0;
+                        this.player.isGrounded = true;
+                        break;
+                        
+                    case 'bottom':
+                        // Hitting head
+                        playerRect.y = voxelRect.y + voxelRect.height + epsilon;
+                        this.player.velocityY = 0;
+                        break;
+                        
+                    case 'left':
+                        // Left side collision
+                        playerRect.x = voxelRect.x - playerRect.width - epsilon;
+                        this.player.velocityX = 0;
+                        break;
+                        
+                    case 'right':
+                        // Right side collision
+                        playerRect.x = voxelRect.x + voxelRect.width + epsilon;
+                        this.player.velocityX = 0;
+                        break;
+                }
+            }
+            
+            updateCamera() {
+                // Target position (center on player)
+                const targetX = this.player.x + this.player.width/2 - this.camera.width/2;
+                const targetY = this.player.y + this.player.height/2 - this.camera.height/2;
+                
+                // Smooth interpolation
+                this.camera.x += (targetX - this.camera.x) * this.camera.smoothness;
+                this.camera.y += (targetY - this.camera.y) * this.camera.smoothness;
+                
+                // Clamp to world bounds
+                this.camera.x = Math.max(0, Math.min(this.camera.x, this.worldWidth * this.voxelSize - this.camera.width));
+                this.camera.y = Math.max(0, Math.min(this.camera.y, this.worldHeight * this.voxelSize - this.camera.height));
+                
+                // Update world position
+                this.voxelsContainer.style.transform = `translate(${-this.camera.x}px, ${-this.camera.y}px)`;
+                this.worldCanvas.style.transform = `translate(${-this.camera.x}px, ${-this.camera.y}px)`;
+                this.gridOverlay.style.transform = `translate(${-this.camera.x}px, ${-this.camera.y}px)`;
+                
+                // Update player position on screen
+                const screenX = this.player.x - this.camera.x;
+                const screenY = this.player.y - this.camera.y;
+                this.playerElement.style.left = `${screenX}px`;
+                this.playerElement.style.top = `${screenY}px`;
+            }
+            
+            updateUI() {
+                // Update time display
+                document.getElementById('time-display').textContent = this.isDay ? 'DAY' : 'NIGHT';
+                
+                // Update visuals
+                if (this.isDay) {
+                    this.timeOverlay.style.background = 'transparent';
+                    this.worldCanvas.style.filter = 'brightness(1)';
+                } else {
+                    this.timeOverlay.style.background = 'rgba(0, 0, 50, 0.6)';
+                    this.worldCanvas.style.filter = 'brightness(0.6)';
+                }
+            }
+            
+            updateFPS(currentTime) {
+                this.frameCount++;
+                
+                if (currentTime >= this.lastFpsUpdate + 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / (currentTime - this.lastFpsUpdate));
+                    document.getElementById('fps-counter').textContent = `FPS: ${this.fps}`;
+                    this.frameCount = 0;
+                    this.lastFpsUpdate = currentTime;
+                }
+            }
+            
+            updateMinimap() {
+                const ctx = this.minimapCtx;
+                const width = this.minimapCanvas.width;
+                const height = this.minimapCanvas.height;
+                
+                // Clear minimap
+                ctx.fillStyle = this.isDay ? '#87CEEB' : '#0a0a2a';
+                ctx.fillRect(0, 0, width, height);
+                
+                // Draw voxels
+                const scaleX = width / this.worldWidth;
+                const scaleY = height / this.worldHeight;
+                
+                // Draw terrain
+                for (let y = 0; y < this.worldHeight; y++) {
+                    for (let x = 0; x < this.worldWidth; x++) {
+                        const voxelType = this.voxelGrid[y][x];
+                        if (voxelType) {
+                            const voxelInfo = this.voxelTypes.find(v => v.id === voxelType);
+                            if (voxelInfo) {
+                                ctx.fillStyle = voxelInfo.color;
+                                ctx.fillRect(
+                                    x * scaleX,
+                                    y * scaleY,
+                                    Math.max(1, scaleX),
+                                    Math.max(1, scaleY)
+                                );
+                            }
+                        }
+                    }
+                }
+                
+                // Draw player
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(
+                    (this.player.x / this.voxelSize) * scaleX - 2,
+                    (this.player.y / this.voxelSize) * scaleY - 2,
+                    4, 4
+                );
+                
+                // Draw camera view
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(
+                    (this.camera.x / this.voxelSize) * scaleX,
+                    (this.camera.y / this.voxelSize) * scaleY,
+                    (this.camera.width / this.voxelSize) * scaleX,
+                    (this.camera.height / this.voxelSize) * scaleY
+                );
+            }
+            
+            // NEW: Show notification in side panel
+            showNotification(message) {
+                const notification = document.createElement('div');
+                notification.className = 'notification show';
+                notification.textContent = message;
+                
+                // Add to notification area
+                this.notificationArea.appendChild(notification);
+                
+                // Remove after delay
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    notification.classList.add('hiding');
+                    
+                    setTimeout(() => {
+                        if (notification.parentNode === this.notificationArea) {
+                            this.notificationArea.removeChild(notification);
+                        }
+                    }, 300);
+                }, 2000);
+            }
+            
+            toggleDayNight() {
+                this.isDay = !this.isDay;
+                this.updateUI();
+                this.showNotification(this.isDay ? 'Daytime' : 'Nighttime');
+            }
+            
+            exportAsJPEG() {
+                const canvas = document.getElementById('export-canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Set canvas size to camera view
+                canvas.width = this.camera.width;
+                canvas.height = this.camera.height;
+                
+                // Fill background
+                ctx.fillStyle = this.isDay ? '#87CEEB' : '#0a0a2a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw visible voxels
+                const startX = Math.floor(this.camera.x / this.voxelSize);
+                const startY = Math.floor(this.camera.y / this.voxelSize);
+                const endX = Math.ceil((this.camera.x + this.camera.width) / this.voxelSize);
+                const endY = Math.ceil((this.camera.y + this.camera.height) / this.voxelSize);
+                
+                for (let x = startX; x <= endX; x++) {
+                    for (let y = startY; y <= endY; y++) {
+                        const voxelType = this.voxelGrid[y][x];
+                        if (voxelType) {
+                            const voxelInfo = this.voxelTypes.find(v => v.id === voxelType);
+                            if (voxelInfo) {
+                                const screenX = x * this.voxelSize - this.camera.x;
+                                const screenY = y * this.voxelSize - this.camera.y;
+                                
+                                ctx.fillStyle = voxelInfo.color;
+                                ctx.fillRect(screenX, screenY, this.voxelSize, this.voxelSize);
+                                
+                                ctx.strokeStyle = voxelInfo.border;
+                                ctx.lineWidth = 1;
+                                ctx.strokeRect(screenX, screenY, this.voxelSize, this.voxelSize);
+                            }
+                        }
+                    }
+                }
+                
+                // Draw player
+                const playerScreenX = this.player.x - this.camera.x;
+                const playerScreenY = this.player.y - this.camera.y;
+                
+                // Player body
+                ctx.fillStyle = '#008000';
+                ctx.fillRect(playerScreenX + 2, playerScreenY + 8, 12, 12);
+                
+                // Player head
+                ctx.fillStyle = '#fcd34d';
+                ctx.fillRect(playerScreenX + 3, playerScreenY, 10, 8);
+                
+                // Player hat
+                ctx.fillStyle = '#dc2626';
+                ctx.fillRect(playerScreenX + 2, playerScreenY - 4, 14, 4);
+                
+                // Player legs
+                ctx.fillStyle = '#008000';
+                ctx.fillRect(playerScreenX + 4, playerScreenY + 20, 4, 4);
+                ctx.fillRect(playerScreenX + 10, playerScreenY + 20, 4, 4);
+                
+                // Torch
+                ctx.fillStyle = '#8b4513';
+                ctx.fillRect(playerScreenX + 14, playerScreenY + 4, 2, 12);
+                
+                const gradient = ctx.createRadialGradient(
+                    playerScreenX + 15, playerScreenY + 4, 0,
+                    playerScreenX + 15, playerScreenY + 4, 4
+                );
+                gradient.addColorStop(0, '#ffff00');
+                gradient.addColorStop(1, '#ff4500');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(playerScreenX + 15, playerScreenY + 4, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Jetpack effect if active
+                if (this.player.isUsingJetpack) {
+                    const jetpackGradient = ctx.createRadialGradient(
+                        playerScreenX + 8, playerScreenY + 24, 0,
+                        playerScreenX + 8, playerScreenY + 30, 6
+                    );
+                    jetpackGradient.addColorStop(0, '#ffff00');
+                    jetpackGradient.addColorStop(0.5, '#ff9900');
+                    jetpackGradient.addColorStop(1, '#ff4500');
+                    ctx.fillStyle = jetpackGradient;
+                    ctx.beginPath();
+                    ctx.ellipse(playerScreenX + 8, playerScreenY + 28, 3, 6, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                // Add title
+                ctx.fillStyle = '#0f0';
+                ctx.font = 'bold 16px "Courier New"';
+                ctx.fillText('PIXELCRAFT', 10, 20);
+                ctx.font = '12px "Courier New"';
+                ctx.fillStyle = '#aaa';
+                ctx.fillText(new Date().toLocaleDateString(), 10, 35);
+                
+                // Add segment info if selected
+                if (this.selectedSegment) {
+                    ctx.fillStyle = '#0f0';
+                    ctx.font = '10px "Courier New"';
+                    ctx.fillText(`Segment: ${this.selectedSegment.toUpperCase()}`, 10, 50);
+                }
+                
+                // Export as JPEG
+                const link = document.createElement('a');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                link.download = `pixelcraft-${timestamp}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 0.9);
+                link.click();
+                
+                this.showNotification('🎨 Scene exported!');
+            }
+            
+            resetWorld() {
+                if (confirm('Reset the world? All changes will be lost.')) {
+                    this.createWorld();
+                    this.updateMinimap();
+                    this.showNotification('World reset!');
+                }
+            }
+            
+            gameLoop(currentTime = 0) {
+                // Calculate delta time
+                const deltaTime = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+                
+                // Update FPS counter
+                this.updateFPS(currentTime);
+                
+                if (this.welcomeScreen.style.display === 'none' && !this.isPaused) {
+                    // Update player with delta time
+                    this.updatePlayer(deltaTime);
+                    
+                    // Update minimap every 500ms for performance
+                    if (currentTime % 500 < 16) {
+                        this.updateMinimap();
+                    }
+                    
+                    // Update placement preview
+                    this.updatePlacementPreview();
+                    
+                    // REMOVED: Auto day/night cycle - now only manual toggle
+                }
+                
+                requestAnimationFrame((time) => this.gameLoop(time));
+            }
+        }
+
+        // Start the game when page loads
+        window.addEventListener('load', () => {
+            const game = new PixelCraftGame();
+            window.game = game; // Make game accessible from console
+        });
+    </script>
+</body>
+</html>
