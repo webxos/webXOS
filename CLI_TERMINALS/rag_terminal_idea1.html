@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal RAG CLI by webXOS</title>
+    <meta name="description" content="A privacy-focused RAG IDE that runs entirely in your browser">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💻</text></svg>">
+    <style>
+        /* IBM 3270 Terminal Style */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --terminal-bg: #0a0a0a;
+            --terminal-fg: #00ff00;
+            --terminal-border: #333;
+            --terminal-accent: #ffff00;
+            --terminal-dim: #006600;
+            --terminal-error: #ff3333;
+            --terminal-warning: #ffaa00;
+            --terminal-info: #00aaff;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--terminal-bg);
+            color: var(--terminal-fg);
+            line-height: 1.4;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #app {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .terminal-header {
+            padding: 10px 15px;
+            border-bottom: 2px solid var(--terminal-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #111;
+            flex-shrink: 0;
+        }
+
+        .terminal-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: var(--terminal-accent);
+        }
+
+        .terminal-status {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9em;
+        }
+
+        .status-indicator {
+            padding: 2px 8px;
+            border-radius: 3px;
+            background: #222;
+        }
+
+        .status-online {
+            color: var(--terminal-fg);
+        }
+
+        .status-offline {
+            color: #666;
+        }
+
+        /* Main container */
+        .terminal-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .terminal-sidebar {
+            width: 300px;
+            border-right: 1px solid var(--terminal-border);
+            padding: 15px;
+            overflow-y: auto;
+            background: #111;
+            flex-shrink: 0;
+        }
+
+        .sidebar-section {
+            margin-bottom: 25px;
+        }
+
+        .sidebar-title {
+            font-size: 1em;
+            color: var(--terminal-accent);
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--terminal-border);
+        }
+
+        .db-stats {
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .file-list {
+            list-style: none;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--terminal-border);
+            padding: 5px;
+        }
+
+        .file-item {
+            padding: 5px;
+            border-bottom: 1px solid #222;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .file-item:hover {
+            background: #222;
+        }
+
+        .file-item.active {
+            background: #003300;
+            color: var(--terminal-fg);
+        }
+
+        /* Button styling */
+        .terminal-btn {
+            background: #222;
+            border: 1px solid var(--terminal-border);
+            color: var(--terminal-fg);
+            padding: 8px 12px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            margin: 5px 0;
+            width: 100%;
+            transition: all 0.2s;
+        }
+
+        .terminal-btn:hover {
+            background: #333;
+            border-color: var(--terminal-fg);
+        }
+
+        .terminal-btn:active {
+            background: #444;
+        }
+
+        .terminal-btn.primary {
+            background: #003300;
+            color: var(--terminal-fg);
+            font-weight: bold;
+        }
+
+        .terminal-btn.warning {
+            background: #332200;
+            color: var(--terminal-warning);
+        }
+
+        .terminal-btn.danger {
+            background: #330000;
+            color: var(--terminal-error);
+        }
+
+        /* Main content */
+        .terminal-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        .output-panel {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            padding: 15px;
+            border: 1px solid var(--terminal-border);
+            background: #111;
+            font-size: 0.95em;
+        }
+
+        .output-line {
+            margin-bottom: 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .output-line.system {
+            color: var(--terminal-dim);
+        }
+
+        .output-line.user {
+            color: var(--terminal-info);
+        }
+
+        .output-line.assistant {
+            color: var(--terminal-fg);
+        }
+
+        .output-line.error {
+            color: var(--terminal-error);
+        }
+
+        .output-line.warning {
+            color: var(--terminal-warning);
+        }
+
+        .output-line.success {
+            color: #00ff00;
+        }
+
+        /* Input area */
+        .input-panel {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-field {
+            flex: 1;
+            background: #111;
+            border: 1px solid var(--terminal-border);
+            color: var(--terminal-fg);
+            font-family: 'Courier New', monospace;
+            padding: 12px;
+            font-size: 1em;
+            outline: none;
+        }
+
+        .input-field:focus {
+            border-color: var(--terminal-fg);
+        }
+
+        .send-btn {
+            background: #003300;
+            border: 1px solid var(--terminal-border);
+            color: var(--terminal-fg);
+            padding: 0 20px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+
+        .send-btn:hover {
+            background: #005500;
+        }
+
+        .send-btn:disabled {
+            background: #222;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        /* Progress indicators */
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #222;
+            margin: 5px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--terminal-fg);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--terminal-fg);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* File upload */
+        .file-upload {
+            display: none;
+        }
+
+        .upload-label {
+            display: block;
+            text-align: center;
+            padding: 10px;
+            border: 1px dashed var(--terminal-border);
+            margin: 10px 0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-label:hover {
+            background: #222;
+            border-color: var(--terminal-fg);
+        }
+
+        /* Tabs */
+        .tab-container {
+            display: flex;
+            border-bottom: 1px solid var(--terminal-border);
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-right: 5px;
+            background: #111;
+        }
+
+        .tab.active {
+            background: var(--terminal-bg);
+            border-color: var(--terminal-border);
+            border-bottom: 1px solid var(--terminal-bg);
+            color: var(--terminal-accent);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .terminal-container {
+                flex-direction: column;
+            }
+            
+            .terminal-sidebar {
+                width: 100%;
+                max-height: 300px;
+                border-right: none;
+                border-bottom: 1px solid var(--terminal-border);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Terminal Header -->
+        <div class="terminal-header">
+            <div class="terminal-title">Terminal RAG CLI by webXOS</div>
+            <div class="terminal-status">
+                <div class="status-indicator" id="dbStatus">DB: <span class="status-offline">OFFLINE</span></div>
+                <div class="status-indicator" id="embeddingStatus">EMBED: <span class="status-offline">OFFLINE</span></div>
+                <div class="status-indicator" id="llmStatus">LLM: <span class="status-offline">OFFLINE</span></div>
+            </div>
+        </div>
+
+        <!-- Main Container -->
+        <div class="terminal-container">
+            <!-- Sidebar -->
+            <div class="terminal-sidebar">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">DATABASE</div>
+                    <div class="db-stats">
+                        <div class="stat-item">
+                            <span>Documents:</span>
+                            <span id="docCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Chunks:</span>
+                            <span id="chunkCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Storage:</span>
+                            <span id="storageUsed">0 KB</span>
+                        </div>
+                    </div>
+                    <button class="terminal-btn primary" id="clearDbBtn">CLEAR DATABASE</button>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-title">DOCUMENTS</div>
+                    <label class="upload-label" for="fileUpload">
+                        📁 UPLOAD DOCUMENTS (TXT, MD, PDF)
+                    </label>
+                    <input type="file" id="fileUpload" class="file-upload" multiple accept=".txt,.md,.pdf">
+                    
+                    <div class="sidebar-title" style="margin-top: 20px;">FILES</div>
+                    <ul class="file-list" id="fileList">
+                        <li class="file-item">No documents loaded</li>
+                    </ul>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-title">MODELS</div>
+                    <select id="embeddingModel" class="terminal-btn" style="margin-bottom: 10px;">
+                        <option value="miniLM">all-MiniLM-L6-v2 (Fast)</option>
+                        <option value="mxbai">mxbai-embed-large (Accurate)</option>
+                    </select>
+                    
+                    <select id="llmModel" class="terminal-btn">
+                        <option value="local">Local LLM (WebLLM)</option>
+                        <option value="api">External API</option>
+                    </select>
+                    
+                    <button class="terminal-btn" id="loadModelsBtn" style="margin-top: 10px;">LOAD MODELS</button>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-title">SETTINGS</div>
+                    <div class="stat-item">
+                        <span>Chunk Size:</span>
+                        <span><input type="number" id="chunkSize" value="500" min="100" max="2000" style="width: 70px; background: #222; border: 1px solid #333; color: #00ff00; padding: 2px;"></span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Retrieve K:</span>
+                        <span><input type="number" id="retrieveK" value="5" min="1" max="20" style="width: 70px; background: #222; border: 1px solid #333; color: #00ff00; padding: 2px;"></span>
+                    </div>
+                    <button class="terminal-btn warning" id="exportBtn">EXPORT DATABASE</button>
+                    <button class="terminal-btn danger" id="resetBtn">FACTORY RESET</button>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="terminal-content">
+                <!-- Tabs -->
+                <div class="tab-container">
+                    <div class="tab active" data-tab="chat">CHAT</div>
+                    <div class="tab" data-tab="documents">DOCUMENTS</div>
+                    <div class="tab" data-tab="search">VECTOR SEARCH</div>
+                    <div class="tab" data-tab="status">SYSTEM STATUS</div>
+                </div>
+
+                <!-- Output Panel -->
+                <div class="output-panel" id="outputPanel">
+                    <div class="output-line system">=== TERMINAL RAG IDE INITIALIZED ===</div>
+                    <div class="output-line system">Type 'help' for available commands or upload documents to begin.</div>
+                    <div class="output-line system">All data is processed locally in your browser.</div>
+                    <div class="output-line system">=====================================</div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="progress-bar" id="progressBar" style="display: none;">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+
+                <!-- Input Panel -->
+                <div class="input-panel">
+                    <input type="text" class="input-field" id="commandInput" placeholder="Enter query or command (type 'help' for options)...">
+                    <button class="send-btn" id="sendBtn">SEND</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Main Application State
+        const AppState = {
+            db: null,
+            embeddingModel: null,
+            llmModel: null,
+            isProcessing: false,
+            documents: new Map(),
+            chunks: new Map(),
+            settings: {
+                chunkSize: 500,
+                retrieveK: 5,
+                embeddingModel: 'miniLM',
+                llmModel: 'local'
+            }
+        };
+
+        // IndexedDB Setup
+        const DB_NAME = 'TerminalRAGDB';
+        const DB_VERSION = 1;
+        const STORES = {
+            DOCUMENTS: 'documents',
+            CHUNKS: 'chunks',
+            SETTINGS: 'settings'
+        };
+
+        // Initialize IndexedDB
+        async function initDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                request.onupgradeneeded = function(event) {
+                    const db = event.target.result;
+                    
+                    if (!db.objectStoreNames.contains(STORES.DOCUMENTS)) {
+                        const documentStore = db.createObjectStore(STORES.DOCUMENTS, { keyPath: 'id' });
+                        documentStore.createIndex('name', 'name', { unique: false });
+                        documentStore.createIndex('type', 'type', { unique: false });
+                    }
+                    
+                    if (!db.objectStoreNames.contains(STORES.CHUNKS)) {
+                        const chunkStore = db.createObjectStore(STORES.CHUNKS, { keyPath: 'id' });
+                        chunkStore.createIndex('documentId', 'documentId', { unique: false });
+                        chunkStore.createIndex('embedding', 'embedding', { unique: false });
+                    }
+                    
+                    if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
+                        db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
+                    }
+                };
+                
+                request.onsuccess = function(event) {
+                    AppState.db = event.target.result;
+                    updateStatus('dbStatus', 'ONLINE');
+                    loadSettings();
+                    updateDatabaseStats();
+                    logOutput('Database initialized successfully.', 'system');
+                    resolve(AppState.db);
+                };
+                
+                request.onerror = function(event) {
+                    logOutput('Failed to initialize database.', 'error');
+                    reject(event.target.error);
+                };
+            });
+        }
+
+        // Update status indicators
+        function updateStatus(elementId, status) {
+            const element = document.getElementById(elementId);
+            const span = element.querySelector('span');
+            span.textContent = status;
+            span.className = status === 'ONLINE' ? 'status-online' : 'status-offline';
+        }
+
+        // Log output to terminal
+        function logOutput(message, type = 'system') {
+            const outputPanel = document.getElementById('outputPanel');
+            const line = document.createElement('div');
+            line.className = `output-line ${type}`;
+            line.textContent = `> ${message}`;
+            outputPanel.appendChild(line);
+            outputPanel.scrollTop = outputPanel.scrollHeight;
+        }
+
+        // Update database statistics
+        async function updateDatabaseStats() {
+            if (!AppState.db) return;
+            
+            const transaction = AppState.db.transaction([STORES.DOCUMENTS, STORES.CHUNKS], 'readonly');
+            const documentStore = transaction.objectStore(STORES.DOCUMENTS);
+            const chunkStore = transaction.objectStore(STORES.CHUNKS);
+            
+            const docCount = await new Promise(resolve => {
+                const countRequest = documentStore.count();
+                countRequest.onsuccess = () => resolve(countRequest.result);
+            });
+            
+            const chunkCount = await new Promise(resolve => {
+                const countRequest = chunkStore.count();
+                countRequest.onsuccess = () => resolve(countRequest.result);
+            });
+            
+            document.getElementById('docCount').textContent = docCount;
+            document.getElementById('chunkCount').textContent = chunkCount;
+            
+            // Estimate storage usage
+            const estimate = await navigator.storage.estimate();
+            const usedMB = (estimate.usage / (1024 * 1024)).toFixed(2);
+            const quotaMB = (estimate.quota / (1024 * 1024)).toFixed(2);
+            document.getElementById('storageUsed').textContent = `${usedMB} MB / ${quotaMB} MB`;
+            
+            updateFileList();
+        }
+
+        // Update file list in sidebar
+        async function updateFileList() {
+            if (!AppState.db) return;
+            
+            const transaction = AppState.db.transaction([STORES.DOCUMENTS], 'readonly');
+            const store = transaction.objectStore(STORES.DOCUMENTS);
+            const request = store.getAll();
+            
+            request.onsuccess = function() {
+                const files = request.result;
+                const fileList = document.getElementById('fileList');
+                fileList.innerHTML = '';
+                
+                if (files.length === 0) {
+                    const li = document.createElement('li');
+                    li.className = 'file-item';
+                    li.textContent = 'No documents loaded';
+                    fileList.appendChild(li);
+                } else {
+                    files.forEach(file => {
+                        const li = document.createElement('li');
+                        li.className = 'file-item';
+                        li.textContent = `${file.name} (${file.type})`;
+                        li.dataset.id = file.id;
+                        fileList.appendChild(li);
+                    });
+                }
+            };
+        }
+
+        // Load settings from IndexedDB
+        async function loadSettings() {
+            if (!AppState.db) return;
+            
+            const transaction = AppState.db.transaction([STORES.SETTINGS], 'readonly');
+            const store = transaction.objectStore(STORES.SETTINGS);
+            const request = store.getAll();
+            
+            request.onsuccess = function() {
+                const settings = request.result;
+                settings.forEach(setting => {
+                    AppState.settings[setting.key] = setting.value;
+                });
+                
+                // Update UI elements
+                document.getElementById('chunkSize').value = AppState.settings.chunkSize || 500;
+                document.getElementById('retrieveK').value = AppState.settings.retrieveK || 5;
+                document.getElementById('embeddingModel').value = AppState.settings.embeddingModel || 'miniLM';
+                document.getElementById('llmModel').value = AppState.settings.llmModel || 'local';
+            };
+        }
+
+        // Save settings to IndexedDB
+        async function saveSettings() {
+            if (!AppState.db) return;
+            
+            const transaction = AppState.db.transaction([STORES.SETTINGS], 'readwrite');
+            const store = transaction.objectStore(STORES.SETTINGS);
+            
+            Object.entries(AppState.settings).forEach(([key, value]) => {
+                store.put({ key, value });
+            });
+        }
+
+        // Handle document upload
+        async function handleFileUpload(files) {
+            logOutput(`Processing ${files.length} file(s)...`, 'system');
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            progressBar.style.display = 'block';
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                progressFill.style.width = `${((i + 1) / files.length) * 100}%`;
+                
+                try {
+                    const text = await readFileAsText(file);
+                    await processDocument(file.name, file.type, text);
+                    logOutput(`Processed: ${file.name}`, 'success');
+                } catch (error) {
+                    logOutput(`Error processing ${file.name}: ${error.message}`, 'error');
+                }
+            }
+            
+            progressBar.style.display = 'none';
+            progressFill.style.width = '0%';
+            updateDatabaseStats();
+        }
+
+        // Read file as text
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('Failed to read file'));
+                reader.readAsText(file);
+            });
+        }
+
+        // Process document into chunks
+        async function processDocument(name, type, content) {
+            const chunkSize = parseInt(document.getElementById('chunkSize').value) || 500;
+            const chunks = chunkText(content, chunkSize);
+            
+            const documentId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+            
+            // Store document metadata
+            const transaction = AppState.db.transaction([STORES.DOCUMENTS], 'readwrite');
+            const store = transaction.objectStore(STORES.DOCUMENTS);
+            store.put({
+                id: documentId,
+                name,
+                type,
+                size: content.length,
+                chunkCount: chunks.length,
+                uploaded: new Date().toISOString()
+            });
+            
+            // Store chunks
+            const chunkTransaction = AppState.db.transaction([STORES.CHUNKS], 'readwrite');
+            const chunkStore = chunkTransaction.objectStore(STORES.CHUNKS);
+            
+            for (let i = 0; i < chunks.length; i++) {
+                const chunkId = `${documentId}_chunk_${i}`;
+                // In a real implementation, we would generate embeddings here
+                const placeholderEmbedding = new Array(384).fill(0).map(() => Math.random() - 0.5);
+                
+                chunkStore.put({
+                    id: chunkId,
+                    documentId,
+                    text: chunks[i],
+                    embedding: placeholderEmbedding,
+                    index: i,
+                    length: chunks[i].length
+                });
+            }
+            
+            return new Promise((resolve) => {
+                transaction.oncomplete = () => {
+                    chunkTransaction.oncomplete = () => resolve();
+                };
+            });
+        }
+
+        // Chunk text into smaller pieces
+        function chunkText(text, chunkSize) {
+            const chunks = [];
+            const words = text.split(/\s+/);
+            
+            let currentChunk = [];
+            let currentLength = 0;
+            
+            for (const word of words) {
+                if (currentLength + word.length + 1 > chunkSize && currentChunk.length > 0) {
+                    chunks.push(currentChunk.join(' '));
+                    currentChunk = [word];
+                    currentLength = word.length;
+                } else {
+                    currentChunk.push(word);
+                    currentLength += word.length + 1;
+                }
+            }
+            
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk.join(' '));
+            }
+            
+            return chunks;
+        }
+
+        // Perform vector search (simulated)
+        async function vectorSearch(query, k = 5) {
+            if (!AppState.db) return [];
+            
+            // In a real implementation, this would use actual vector similarity search
+            // For this demo, we'll return random chunks
+            const transaction = AppState.db.transaction([STORES.CHUNKS], 'readonly');
+            const store = transaction.objectStore(STORES.CHUNKS);
+            const request = store.getAll();
+            
+            return new Promise((resolve) => {
+                request.onsuccess = function() {
+                    const allChunks = request.result;
+                    // Simulate search by returning random chunks
+                    const results = [];
+                    for (let i = 0; i < Math.min(k, allChunks.length); i++) {
+                        const randomIndex = Math.floor(Math.random() * allChunks.length);
+                        results.push(allChunks[randomIndex]);
+                    }
+                    resolve(results);
+                };
+            });
+        }
+
+        // Generate response using RAG
+        async function generateResponse(query) {
+            logOutput(`Processing query: "${query}"`, 'user');
+            
+            // Show processing indicator
+            const sendBtn = document.getElementById('sendBtn');
+            const originalText = sendBtn.textContent;
+            sendBtn.textContent = 'PROCESSING...';
+            sendBtn.disabled = true;
+            
+            try {
+                // Retrieve relevant chunks
+                const k = parseInt(document.getElementById('retrieveK').value) || 5;
+                const relevantChunks = await vectorSearch(query, k);
+                
+                // Simulate LLM response (in real implementation, this would use WebLLM or API)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Generate mock response based on chunks
+                let response = `Based on the ${relevantChunks.length} relevant document chunks:\n\n`;
+                
+                relevantChunks.forEach((chunk, i) => {
+                    response += `[Chunk ${i + 1}]: ${chunk.text.substring(0, 150)}...\n`;
+                });
+                
+                response += `\nAnswer: This is a simulated response. In a full implementation, this would be generated by an LLM using the retrieved context above.`;
+                
+                logOutput(response, 'assistant');
+            } catch (error) {
+                logOutput(`Error generating response: ${error.message}`, 'error');
+            } finally {
+                // Restore button
+                sendBtn.textContent = originalText;
+                sendBtn.disabled = false;
+            }
+        }
+
+        // Handle commands
+        function handleCommand(command) {
+            const parts = command.trim().toLowerCase().split(' ');
+            const cmd = parts[0];
+            const args = parts.slice(1);
+            
+            switch (cmd) {
+                case 'help':
+                    logOutput('Available commands:', 'system');
+                    logOutput('  help - Show this help message', 'system');
+                    logOutput('  clear - Clear the terminal output', 'system');
+                    logOutput('  stats - Show database statistics', 'system');
+                    logOutput('  list - List all uploaded documents', 'system');
+                    logOutput('  export - Export database', 'system');
+                    logOutput('  reset - Reset application', 'system');
+                    break;
+                    
+                case 'clear':
+                    document.getElementById('outputPanel').innerHTML = '';
+                    logOutput('Terminal cleared.', 'system');
+                    break;
+                    
+                case 'stats':
+                    updateDatabaseStats();
+                    logOutput('Updated database statistics.', 'system');
+                    break;
+                    
+                case 'list':
+                    updateFileList();
+                    logOutput('Document list updated in sidebar.', 'system');
+                    break;
+                    
+                case 'export':
+                    exportDatabase();
+                    break;
+                    
+                case 'reset':
+                    if (confirm('Are you sure you want to reset the application? All data will be lost.')) {
+                        resetApplication();
+                    }
+                    break;
+                    
+                default:
+                    // If not a command, treat as a query
+                    generateResponse(command);
+                    break;
+            }
+        }
+
+        // Export database
+        async function exportDatabase() {
+            if (!AppState.db) return;
+            
+            const transaction = AppState.db.transaction([STORES.DOCUMENTS, STORES.CHUNKS], 'readonly');
+            const documentStore = transaction.objectStore(STORES.DOCUMENTS);
+            const chunkStore = transaction.objectStore(STORES.CHUNKS);
+            
+            const documents = await new Promise(resolve => {
+                const request = documentStore.getAll();
+                request.onsuccess = () => resolve(request.result);
+            });
+            
+            const chunks = await new Promise(resolve => {
+                const request = chunkStore.getAll();
+                request.onsuccess = () => resolve(request.result);
+            });
+            
+            const exportData = {
+                version: '1.0',
+                exported: new Date().toISOString(),
+                documents,
+                chunks: chunks.map(chunk => ({
+                    id: chunk.id,
+                    documentId: chunk.documentId,
+                    text: chunk.text.substring(0, 100) + '...',
+                    index: chunk.index
+                }))
+            };
+            
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `terminal-rag-export-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            logOutput('Database exported successfully.', 'success');
+        }
+
+        // Reset application
+        async function resetApplication() {
+            if (confirm('This will delete ALL data. Are you sure?')) {
+                indexedDB.deleteDatabase(DB_NAME);
+                localStorage.clear();
+                window.location.reload();
+            }
+        }
+
+        // Initialize application
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Initialize database
+            await initDatabase();
+            
+            // Setup event listeners
+            document.getElementById('sendBtn').addEventListener('click', () => {
+                const input = document.getElementById('commandInput');
+                if (input.value.trim()) {
+                    handleCommand(input.value);
+                    input.value = '';
+                }
+            });
+            
+            document.getElementById('commandInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('sendBtn').click();
+                }
+            });
+            
+            document.getElementById('fileUpload').addEventListener('change', (e) => {
+                handleFileUpload(e.target.files);
+                e.target.value = ''; // Reset input
+            });
+            
+            document.getElementById('clearDbBtn').addEventListener('click', () => {
+                if (confirm('Clear all documents and chunks?')) {
+                    const transaction = AppState.db.transaction([STORES.DOCUMENTS, STORES.CHUNKS], 'readwrite');
+                    transaction.objectStore(STORES.DOCUMENTS).clear();
+                    transaction.objectStore(STORES.CHUNKS).clear();
+                    
+                    transaction.oncomplete = () => {
+                        logOutput('Database cleared.', 'success');
+                        updateDatabaseStats();
+                    };
+                }
+            });
+            
+            document.getElementById('exportBtn').addEventListener('click', exportDatabase);
+            document.getElementById('resetBtn').addEventListener('click', resetApplication);
+            
+            document.getElementById('loadModelsBtn').addEventListener('click', () => {
+                logOutput('Loading models... (simulated)', 'system');
+                setTimeout(() => {
+                    updateStatus('embeddingStatus', 'ONLINE');
+                    updateStatus('llmStatus', 'ONLINE');
+                    logOutput('Models loaded successfully.', 'success');
+                }, 1500);
+            });
+            
+            // Tab switching
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    // In a full implementation, this would switch the view
+                    logOutput(`Switched to ${tab.dataset.tab.toUpperCase()} view`, 'system');
+                });
+            });
+            
+            // Settings changes
+            document.getElementById('chunkSize').addEventListener('change', (e) => {
+                AppState.settings.chunkSize = parseInt(e.target.value);
+                saveSettings();
+            });
+            
+            document.getElementById('retrieveK').addEventListener('change', (e) => {
+                AppState.settings.retrieveK = parseInt(e.target.value);
+                saveSettings();
+            });
+            
+            document.getElementById('embeddingModel').addEventListener('change', (e) => {
+                AppState.settings.embeddingModel = e.target.value;
+                saveSettings();
+            });
+            
+            document.getElementById('llmModel').addEventListener('change', (e) => {
+                AppState.settings.llmModel = e.target.value;
+                saveSettings();
+            });
+            
+            // Welcome message
+            setTimeout(() => {
+                logOutput('System ready. Type queries or upload documents to begin RAG processing.', 'success');
+            }, 1000);
+            
+            // Register Service Worker for PWA
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.register('sw.js');
+                    console.log('ServiceWorker registered:', registration);
+                } catch (error) {
+                    console.log('ServiceWorker registration failed:', error);
+                }
+            }
+            
+            // Request storage persistence
+            if (navigator.storage && navigator.storage.persist) {
+                navigator.storage.persist().then(persisted => {
+                    if (persisted) {
+                        console.log('Storage will not be cleared except by explicit user action');
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
