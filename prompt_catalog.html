@@ -21,6 +21,7 @@
             margin: 0 auto;
             padding: 20px;
             line-height: 1.4;
+            overflow-x: hidden;
         }
         
         .header {
@@ -192,6 +193,8 @@
             background: #111;
             border: 1px solid #333;
             padding: 15px;
+            max-height: 600px;
+            overflow-y: auto;
         }
         
         .log-header {
@@ -200,6 +203,10 @@
             margin-bottom: 15px;
             padding-bottom: 10px;
             border-bottom: 1px solid #333;
+            position: sticky;
+            top: 0;
+            background: #111;
+            z-index: 10;
         }
         
         .log-entry {
@@ -207,6 +214,9 @@
             padding: 10px;
             margin-bottom: 10px;
             background: #000;
+            max-height: 400px;
+            display: flex;
+            flex-direction: column;
         }
         
         .log-entry:hover {
@@ -219,6 +229,7 @@
             display: flex;
             justify-content: space-between;
             margin-bottom: 5px;
+            flex-shrink: 0;
         }
         
         .log-prompt {
@@ -229,12 +240,52 @@
             padding: 5px;
             background: #111;
             border: 1px solid #222;
+            overflow-y: auto;
+            max-height: 300px;
+            flex-grow: 1;
+        }
+        
+        /* Custom scrollbar for log prompt */
+        .log-prompt::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .log-prompt::-webkit-scrollbar-track {
+            background: #222;
+        }
+        
+        .log-prompt::-webkit-scrollbar-thumb {
+            background: #666;
+            border-radius: 4px;
+        }
+        
+        .log-prompt::-webkit-scrollbar-thumb:hover {
+            background: #888;
+        }
+        
+        /* Custom scrollbar for log area */
+        .log-area::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        .log-area::-webkit-scrollbar-track {
+            background: #222;
+        }
+        
+        .log-area::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 5px;
+        }
+        
+        .log-area::-webkit-scrollbar-thumb:hover {
+            background: #666;
         }
         
         .feedback-buttons {
             display: flex;
             gap: 5px;
             margin-top: 8px;
+            flex-shrink: 0;
         }
         
         .feedback-buttons button {
@@ -306,6 +357,16 @@
             text-overflow: ellipsis;
         }
         
+        .log-entry-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px solid #222;
+            flex-shrink: 0;
+        }
+        
         @media (max-width: 768px) {
             body {
                 padding: 10px;
@@ -324,6 +385,14 @@
             
             .export-btn {
                 align-self: flex-start;
+            }
+            
+            .log-area {
+                max-height: 500px;
+            }
+            
+            .log-prompt {
+                max-height: 250px;
             }
         }
     </style>
@@ -412,8 +481,10 @@
             }, 2000);
         }
         
-        // Calculate tokens
+        // Calculate tokens (simplified version)
         function calculateTokens(text) {
+            if (!text) return 0;
+            // Rough estimate: 1 token ≈ 4 characters for English text
             return Math.ceil(text.length / 4);
         }
         
@@ -424,6 +495,13 @@
             tokenCountDisplay.textContent = currentTokens;
         });
         
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         // Log prompt to active conversation
         logButton.addEventListener('click', function() {
             const prompt = promptInput.value.trim();
@@ -433,7 +511,7 @@
                 const timestamp = new Date();
                 
                 const logEntry = {
-                    id: Date.now(),
+                    id: Date.now() + Math.random(),
                     prompt: prompt,
                     tokens: tokens,
                     feedback: null,
@@ -475,6 +553,9 @@
             }
             
             let html = '';
+            // Use document fragment for better performance with many entries
+            const fragment = document.createDocumentFragment();
+            
             activeConvo.logEntries.forEach((entry, index) => {
                 const date = new Date(entry.timestamp);
                 const timeString = date.toLocaleTimeString([], { 
@@ -483,42 +564,76 @@
                 });
                 const dateString = date.toLocaleDateString();
                 
-                html += `
-                    <div class="log-entry" data-id="${entry.id}">
-                        <div class="log-meta">
-                            <span>#${String(index + 1).padStart(3, '0')} | ${entry.tokens} tokens</span>
-                            <span class="timestamp">${dateString} ${timeString}</span>
+                const logEntryDiv = document.createElement('div');
+                logEntryDiv.className = 'log-entry';
+                logEntryDiv.dataset.id = entry.id;
+                
+                logEntryDiv.innerHTML = `
+                    <div class="log-meta">
+                        <span>#${String(index + 1).padStart(3, '0')} | ${entry.tokens} tokens</span>
+                        <span class="timestamp">${dateString} ${timeString}</span>
+                    </div>
+                    <div class="log-prompt">${escapeHtml(entry.prompt)}</div>
+                    <div class="log-entry-actions">
+                        <div class="feedback-buttons">
+                            ${entry.feedback ? 
+                                `<span class="reaction">${entry.feedback}</span>` :
+                                `<button data-id="${entry.id}" data-feedback="👍">👍</button>
+                                 <button data-id="${entry.id}" data-feedback="👎">👎</button>`
+                            }
                         </div>
-                        <div class="log-prompt">${entry.prompt}</div>
-                        <div class="log-meta">
-                            <div class="feedback-buttons">
-                                ${entry.feedback ? 
-                                    `<span class="reaction">${entry.feedback}</span>` :
-                                    `<button data-id="${entry.id}" data-feedback="👍">👍</button>
-                                     <button data-id="${entry.id}" data-feedback="👎">👎</button>`
-                                }
-                            </div>
-                        </div>
+                        <button class="copy-prompt-btn" data-id="${entry.id}" title="Copy prompt">📋</button>
                     </div>
                 `;
+                
+                fragment.appendChild(logEntryDiv);
             });
             
-            promptLog.innerHTML = html;
+            promptLog.innerHTML = '';
+            promptLog.appendChild(fragment);
         }
         
         // Handle feedback button clicks
         promptLog.addEventListener('click', function(e) {
-            if (e.target.tagName === 'BUTTON' && e.target.dataset.feedback) {
-                const entryId = parseInt(e.target.dataset.id);
-                const feedback = e.target.dataset.feedback;
+            const target = e.target;
+            
+            // Feedback buttons
+            if (target.tagName === 'BUTTON' && target.dataset.feedback) {
+                const entryId = target.dataset.id;
+                const feedback = target.dataset.feedback;
                 const activeConvo = conversations[activeConversationId];
                 
-                const entry = activeConvo.logEntries.find(entry => entry.id === entryId);
+                const entry = activeConvo.logEntries.find(entry => entry.id.toString() === entryId);
                 if (entry) {
                     entry.feedback = feedback;
                     updateLogDisplay();
                     updateStatus(`Feedback recorded: ${feedback}`);
                 }
+                return;
+            }
+            
+            // Copy prompt button
+            if (target.classList.contains('copy-prompt-btn')) {
+                const entryId = target.dataset.id;
+                const activeConvo = conversations[activeConversationId];
+                const entry = activeConvo.logEntries.find(entry => entry.id.toString() === entryId);
+                
+                if (entry) {
+                    navigator.clipboard.writeText(entry.prompt)
+                        .then(() => {
+                            updateStatus('Prompt copied to clipboard');
+                            // Visual feedback
+                            target.textContent = '✓';
+                            setTimeout(() => {
+                                target.textContent = '📋';
+                            }, 1000);
+                        })
+                        .catch(err => {
+                            updateStatus('Failed to copy prompt');
+                            console.error('Copy failed:', err);
+                        });
+                }
+                return;
             }
         });
         
@@ -709,6 +824,13 @@
         // Initialize
         updateLogDisplay();
         updateStatus('Ready - Start logging prompts or create new conversations');
+        
+        // Performance optimization: Debounce resize events
+        let resizeTimeout;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(updateLogDisplay, 100);
+        });
     </script>
 </body>
 </html>
