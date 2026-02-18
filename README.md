@@ -41,15 +41,13 @@
 
 **webXOS** is an innovative software development company developing progressive web applications tailored for decentralized web3 environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. Our ecosystem, showcased at [webxos.netlify.app](https://webxos.netlify.app) and [huggingface.co/webxos](https://huggingface.co/webxos), encompasses eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser.
 
-Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness AI-driven tools to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, webXOS empowers developers to build the future. 
+Each webXOS modular APP (webxos.netlify.app/tools) is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness web worker driven tools to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, webXOS empowers developers to build the future. 
 
 *WEBXOS is pioneering frameworks and tools on a browser first philosophy, emphasizing modularity, efficiency, and environmental responsibility.*
 
-The leading innovator in bridging the gap between high-performance computing and minimalist hardware, redefining the potential of edge computing through intelligent, browser-native solutions. WebXOS is a software development company that specializes in delivering high-performance, modular, and browser-based applications by integrating cutting-edge AI engineering, prompting techniques, and advanced mathematics. Our core philosophy is to create sophisticated software that maximizes computational power on low resource systems. 
+Building the underlying architecture for connected devices, focusing on stability, efficiency, and real-time data processing. Utilizing bespoke web worker models and strategic prompting to streamline development, automate complex tasks, and create intelligent, responsive software.
 
-Building the underlying architecture for connected devices, focusing on stability, efficiency, and real-time data processing. Utilizing bespoke AI models and strategic prompting to streamline development, automate complex tasks, and create intelligent, responsive software.
-
-Developing applications that run natively in web browsers, ensuring cross-platform compatibility, easy deployment, and zero-installation user experiences. Tailoring software to run efficiently on low-power and applying sophisticated algorithms and computational logic to maximize processing power, ensuring minimal latency and maximum efficiency. We believe in the power of the open web and the potential of small form-factor hardware. By combining the accessibility of the browser with the power of modern AI and advanced mathematics, WebXOS delivers solutions that are not only innovative but also incredibly efficient and accessible to all. We turn embedded devices into powerful computing stations, delivering enterprise-grade performance at a fraction of the cost and energy consumption.
+Developing applications that run natively in web browsers, ensuring cross-platform compatibility, easy deployment, and zero-installation user experiences. Tailoring software to run efficiently on low-power and applying sophisticated algorithms and computational logic to maximize processing power, ensuring minimal latency and maximum efficiency. We believe in the power of the browser native software and the potential of small form-factor hardware. By combining the accessibility of the browser with the power of modern AI and advanced mathematics, WebXOS delivers solutions that are not only innovative but also incredibly efficient and accessible to all. We turn embedded devices into powerful computing stations, delivering enterprise-grade performance at a fraction of the cost and energy consumption.
 
 
 - **Front-end Architectures**: Single `.html` files encapsulate all code and assets, ensuring portability and ease of deployment.
@@ -68,7 +66,7 @@ Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.ap
   
 - **Retro Games**: HTML5 games using WebGL and Stuart rendering for high-performance, nostalgic experiences.
   
-- **AI Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
+- **Web Worker Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
   
 - **P2P Applications**: Decentralized tools for secure networking and data exchange, built for performance and scalability.
 
