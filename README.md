@@ -74,4 +74,4 @@ Instantaneous results without cloud uploads: WEBXOS offers web tools that proces
 
 # Medium
 
-Check out my page on Medium.com for the latest news and research: https://medium.com/@webxos2025 [![Follow on Medium]()](https://medium.com/@webxos2025)
+Check out my page on Medium.com for the latest news and research: [![webXOS on Medium.com]()](https://medium.com/@webxos2025)
