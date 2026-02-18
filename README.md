@@ -1,5 +1,3 @@
-# webXOS 2026:
-
 <div style="
     background: #00FF00;
     border-left: 4px solid #00FF00;
