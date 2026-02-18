@@ -50,35 +50,13 @@ The leading innovator in bridging the gap between high-performance computing and
 
 WebXOS is an Internet of Things (IoT) software development company that specializes in delivering high-performance, modular, and browser-based applications by integrating cutting-edge AI engineering, prompting techniques, and advanced mathematics. Our core philosophy is to create sophisticated software that maximizes computational power on embedded systems like the Raspberry Pi and Arduino, delivering unparalleled performance in 3D engineering, drone IDE development, and browser-based gaming.
 
-# Core Specializations
+# Core 
 
 IoT Software Development: Building the underlying architecture for connected devices, focusing on stability, efficiency, and real-time data processing.
 AI Engineering & Prompting: Utilizing bespoke AI models and strategic prompting to streamline development, automate complex tasks, and create intelligent, responsive software.
 Modular Browser-Based Software: Developing applications that run natively in web browsers, ensuring cross-platform compatibility, easy deployment, and zero-installation user experiences.
 Edge Computing Optimization: Tailoring software to run efficiently on low-power, single-board computers (SBCs) such as the Raspberry Pi and microcontrollers like the Arduino.
     Advanced Mathematics & Reasoning: Applying sophisticated algorithms and computational logic to maximize processing power, ensuring minimal latency and maximum efficiency.
-
-# Key Product Areas
-1. Three.js 3D Engineering Platform
-We provide the foundation for powerful, web-native 3D engineering environments.
-
-    AutoCAD Style Interface: Intuitive and feature-rich user interfaces that mimic industry-standard CAD software, entirely within the browser.
-    Real-Time Rendering: Utilizing Three.js for high-fidelity 3D visualization, optimized for real-time interaction on Raspberry Pi clients.
-    AI-Assisted Design: Integrating AI tools for feature recognition, predictive modeling, and automated design assistance, speeding up the engineering workflow.
-
-2. Drone Integrated Development Environment (IDE)
-Our browser-based IDE simplifies the programming and management of autonomous drones.
-
-    Modular Programming: Drag-and-drop interfaces and AI-assisted code generation for rapid development of flight plans and behaviors.
-    Real-time Telemetry: Browser-based dashboards that display live data from drones, processed and rendered on the client device.
-    Edge AI for Navigation: Utilizing onboard processing power for autonomous decision-making and navigation, minimizing reliance on cloud connectivity.
-
-3. Browser-Based Gaming Software
-We push the boundaries of what is possible in web gaming by "min-maxing" computational power.
-
-    Performance Optimization: Advanced algorithms and data structures to ensure smooth frame rates and complex game logic, even on resource-constrained hardware.
-    AI-Powered Game Logic: Intelligent NPCs, procedural content generation, and dynamic difficulty scaling driven by advanced AI and reasoning.
-    Cross-Platform Play: Develop once, deploy everywhere—our modular approach ensures games run on any device with a modern web browser, from smartphones to Raspberry Pi systems.
 
 # Our Technology Stack
 
@@ -105,10 +83,12 @@ Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.ap
 - **AI Agents**: Client-side tools, offering browser-based diagnostics and analytics with a focus on privacy.
 - **P2P Applications**: Decentralized tools for secure networking and data exchange, built for performance and scalability.
 
-# More info
+# 2026 and Beyond
+
 WEBXOS's approach to client-side processing fundamentally enhances user privacy by keeping data on the user's device and not on a server. This model avoids the privacy vulnerabilities of server-side systems, where user data can be vulnerable to breaches or surveillance. 
 Here are specific examples of how different WEBXOS tools and agents use client-side processing to protect privacy: 
-Secure Data Storage with Exoskeleton AI
+
+# Secure Data Storage with Exoskeleton AI
 
 Encrypted client-side databases: Exoskeleton AI functions as a "front-end data storage platform" that uses CSS grids and neural nodes to encode databases. The database is stored directly within the browser, and all data is encrypted.
 No central server: Since there is "zero backend server" usage for storing the data, WEBXOS, Netlify (which hosts webxos.netlify.app), or any other third party has no access to the user's private data.
