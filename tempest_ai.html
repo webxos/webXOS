@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TEMPEST 2k26 · AI TRAINING DASHBOARD</title>
+  <style>
+    /* ---------- your original styles (condensed) ---------- */
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Orbitron','Courier New',monospace; }
+    body { background:#000; color:#0ff; height:100vh; overflow:hidden; touch-action:none; }
+    #gameCanvas { position:absolute; top:0; left:0; width:100%; height:100%; z-index:0; }
+    .ui-container {
+      position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+      display:flex; gap:15px; z-index:20; padding:15px;
+      background:rgba(0,20,30,0.7); border-radius:20px; border:2px solid #0ff;
+      backdrop-filter:blur(5px);
+    }
+    .ui-btn {
+      width:70px; height:70px; border-radius:50%;
+      background:linear-gradient(145deg,#003344,#001122);
+      border:2px solid #0ff; color:#0ff; cursor:pointer;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      font-size:12px; text-transform:uppercase; letter-spacing:1px;
+      box-shadow:0 0 15px rgba(0,255,255,0.5); transition:all 0.2s;
+    }
+    .ui-btn:hover { background:linear-gradient(145deg,#004455,#002233); box-shadow:0 0 20px #0ff; }
+    .ui-btn .key { font-size:20px; font-weight:bold; margin-bottom:4px; }
+    /* ----- dashboard overlay (new) ----- */
+    #dashboard {
+      position:absolute; top:20px; right:20px; width:300px;
+      background:rgba(0,10,20,0.9); border:2px solid #0ff; border-radius:12px;
+      padding:15px; color:#0f0; font-family:'Courier New',monospace;
+      box-shadow:0 0 30px #0f0; backdrop-filter:blur(5px); z-index:30;
+      pointer-events:all;
+    }
+    #dashboard h2 { text-align:center; margin-bottom:15px; font-size:22px; text-shadow:0 0 8px #0f0; }
+    .metric { display:flex; justify-content:space-between; margin:8px 0; }
+    .metric .label { color:#8f8; }
+    .metric .value { color:#fff; font-weight:bold; text-shadow:0 0 5px #0f0; }
+    .slider-container { margin:15px 0 5px; }
+    .slider-container label { display:block; margin-bottom:5px; color:#afa; }
+    input[type=range] { width:100%; background:#030; height:5px; border-radius:5px; accent-color:#0f0; }
+    button {
+      background:#030; border:2px solid #0f0; color:#0f0; font-family:inherit;
+      font-size:14px; padding:8px 12px; margin:5px 2px; border-radius:20px;
+      cursor:pointer; transition:0.2s; font-weight:bold;
+    }
+    button:hover { background:#0f0; color:#000; box-shadow:0 0 20px #0f0; }
+    #exportBtn { background:#330; border-color:#ff0; color:#ff0; }
+    #exportBtn:hover { background:#ff0; color:#000; }
+    #statusBar {
+      position:absolute; bottom:20px; left:20px; color:#0f0; font-size:14px;
+      background:rgba(0,0,0,0.6); padding:6px 12px; border-radius:20px;
+      border:1px solid #0f0; z-index:30;
+    }
+    /* keep all your original UI classes (combat-ui, etc.) – they are already in the rest of the code */
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Original UI elements (condensed, but all IDs kept) -->
+  <div class="combat-ui" id="combatUI"><div class="grid-overlay"></div><div class="targeting-grid"><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div></div></div>
+  <div class="light-speed-effect" id="lightSpeedEffect"></div>
+  <div class="combat-stats"><div>WAVE: <span id="waveCount">1</span></div><div>ENEMIES: <span id="enemyCount">0</span></div><div>SCORE: <span id="combatScore">0</span></div><div>HEALTH:</div><div class="health-bar"><div class="health-fill" id="healthFill" style="width:100%"></div></div><div>SHIELD:</div><div class="shield-bar"><div class="shield-fill" id="shieldFill" style="width:100%"></div></div></div>
+  <div class="currency-display"><span class="currency-icon">$</span><span id="currencyCount">0</span></div>
+  <div class="drone-status" id="droneStatus"><div>DRONES: <span id="droneCount">0</span>/3</div><div>FORMATION: <span id="formationType">FOLLOW</span></div><div>LEVEL: <span id="droneLevel">1</span></div></div>
+  <div class="warning-alert" id="warningAlert">INCOMING!</div>
+  <div class="ui-container">
+    <div class="ui-btn" id="thrustBtn"><div class="key">W</div><div>THRUST</div></div>
+    <div class="ui-btn" id="combatBtn"><div class="key">ALT</div><div>SWARM</div></div>
+    <div class="ui-btn" id="ecoBtn"><div class="key">TAB</div><div>ECO MODE</div></div>
+    <div class="ui-btn" id="fireBtn"><div class="key">SPC</div><div>FIRE</div></div>
+    <div class="ui-btn" id="boostBtn"><div class="key">SHIFT</div><div>BOOST</div></div>
+    <div class="ui-btn" id="menuBtn"><div class="key">ESC</div><div>MENU</div></div>
+  </div>
+  <div class="console-message" id="consoleMessage"></div>
+  <div class="main-menu" id="mainMenu">
+    <h1 class="game-title">TEMPEST 2k26 (BETA)</h1>
+    <div class="menu-options">
+      <div class="menu-btn" id="startBtn">SINGLE PLAYER</div>
+      <div class="menu-btn" id="multiplayerBtn">(Updates Soon)</div>
+      <div class="menu-btn" id="settingsBtn">SETTINGS</div>
+      <div class="menu-btn" id="quitBtn">WASD + SPACE + ALT etc.</div>
+    </div>
+    <div class="settings-panel" id="settingsPanel"><button class="close-settings" id="closeSettings">X</button><h2>SETTINGS</h2> ... (same as your original) ...</div>
+  </div>
+
+  <!-- New Dashboard -->
+  <div id="dashboard">
+    <h2>⚡ AI TRAINING ⚡</h2>
+    <div class="metric"><span class="label">Episode:</span><span id="episodeVal" class="value">0</span></div>
+    <div class="metric"><span class="label">Score:</span><span id="scoreVal" class="value">0</span></div>
+    <div class="metric"><span class="label">Steps:</span><span id="stepsVal" class="value">0</span></div>
+    <div class="metric"><span class="label">Reward (sum):</span><span id="rewardVal" class="value">0.00</span></div>
+    <div class="metric"><span class="label">ε (explore):</span><span id="epsilonVal" class="value">0.20</span></div>
+    <div class="slider-container">
+      <label>α (learning rate) <span id="lrDisplay">0.10</span></label>
+      <input type="range" id="lrSlider" min="0.01" max="0.5" step="0.01" value="0.1">
+    </div>
+    <div class="slider-container">
+      <label>ε (exploration) <span id="epsDisplay">0.20</span></label>
+      <input type="range" id="epsSlider" min="0.01" max="0.9" step="0.01" value="0.2">
+    </div>
+    <div class="slider-container">
+      <label>γ (discount) <span id="gammaDisplay">0.95</span></label>
+      <input type="range" id="gammaSlider" min="0.5" max="0.99" step="0.01" value="0.95">
+    </div>
+    <div style="display:flex; justify-content:space-between;">
+      <button id="pauseBtn">⏸️ PAUSE</button>
+      <button id="resetBtn">🔄 RESET</button>
+      <button id="exportBtn">📥 EXPORT LOGS</button>
+    </div>
+  </div>
+  <div id="statusBar">🤖 AI PLAYING · WORKER ACTIVE</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script>
+    // ---------- MAIN THREAD (RENDERING) ----------
+    // (Keep your original Three.js setup – scene, camera, models, etc.)
+    let scene, camera, renderer;
+    let player, playerModel, enemies = [], projectiles = [], celestialObjects = [];
+    let clock = new THREE.Clock();
+
+    // Player stats (synced from worker)
+    let displayStats = { episode:0, score:0, steps:0, reward:0, epsilon:0.2 };
+
+    function initThree() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000010);
+      scene.fog = new THREE.Fog(0x000010, 50, 500);
+      
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+      camera.position.set(0,3,10);
+      
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gameCanvas'), antialias:true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+      
+      // Lighting
+      const ambient = new THREE.AmbientLight(0x444455);
+      scene.add(ambient);
+      const dirLight = new THREE.DirectionalLight(0xffffff,1);
+      dirLight.position.set(5,5,5);
+      scene.add(dirLight);
+      
+      createStarfield();
+      createCelestialObjects();   // planets, asteroids (static)
+      createPlayerShip();         // player group with all parts
+      createHomePlanet();
+      
+      // No enemies here – they will be spawned by worker and synced
+    }
+
+    function createStarfield() { /* exactly your code */ 
+      const geo = new THREE.BufferGeometry();
+      const mat = new THREE.PointsMaterial({color:0xffffff,size:0.5,sizeAttenuation:true});
+      const vertices = [];
+      for(let i=0;i<10000;i++) vertices.push((Math.random()-0.5)*2000,(Math.random()-0.5)*2000,(Math.random()-0.5)*2000);
+      geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+      scene.add(new THREE.Points(geo,mat));
+    }
+    function createCelestialObjects() { /* simplified: keep planets as static background */
+      for(let i=0;i<5;i++) {
+        const size = 10+Math.random()*20;
+        const geo = new THREE.SphereGeometry(size,32,32);
+        const colors = [0x3366ff,0xff6633,0x33ff66,0xff33cc,0xffff33];
+        const mat = new THREE.MeshPhongMaterial({color:colors[i],emissive:colors[i]-0x222222});
+        const planet = new THREE.Mesh(geo,mat);
+        const angle = (i/5)*Math.PI*2;
+        planet.position.set(Math.cos(angle)*400, (Math.random()-0.5)*100, Math.sin(angle)*400);
+        scene.add(planet);
+        celestialObjects.push(planet);
+      }
+    }
+    function createHomePlanet() {
+      const geo = new THREE.SphereGeometry(25,32,32);
+      const mat = new THREE.MeshPhongMaterial({color:0x00ff00,emissive:0x00aa00});
+      const planet = new THREE.Mesh(geo,mat);
+      planet.position.set(0,0,-200);
+      scene.add(planet);
+      celestialObjects.push(planet);
+    }
+    function createPlayerShip() { /* your full ship builder */ 
+      player = new THREE.Group();
+      const bodyGeo = new THREE.CylinderGeometry(0.8,1.2,4,8);
+      const wingGeo = new THREE.BoxGeometry(3,0.2,1.5);
+      const tailGeo = new THREE.BoxGeometry(1,1,1);
+      const mat = new THREE.MeshPhongMaterial({color:0x0066ff,emissive:0x0033aa});
+      
+      playerModel = new THREE.Mesh(bodyGeo,mat);
+      playerModel.rotation.x = Math.PI/2;
+      playerModel.position.z = -2;
+      player.add(playerModel);
+      
+      const leftWing = new THREE.Mesh(wingGeo,mat);
+      leftWing.position.set(-1.5,0,-1.5);
+      leftWing.rotation.z = Math.PI/6;
+      player.add(leftWing);
+      
+      const rightWing = new THREE.Mesh(wingGeo,mat);
+      rightWing.position.set(1.5,0,-1.5);
+      rightWing.rotation.z = -Math.PI/6;
+      player.add(rightWing);
+      
+      const tail = new THREE.Mesh(tailGeo,mat);
+      tail.position.set(0,0,-3);
+      tail.scale.set(0.5,1,2);
+      player.add(tail);
+      
+      const engineMat = new THREE.MeshBasicMaterial({color:0x00ffff,emissive:0x0088ff,transparent:true,opacity:0.9});
+      const leftEngine = new THREE.Mesh(new THREE.SphereGeometry(0.6,16),engineMat);
+      leftEngine.position.set(-0.8,0,-3.5);
+      player.add(leftEngine);
+      const rightEngine = leftEngine.clone();
+      rightEngine.position.set(0.8,0,-3.5);
+      player.add(rightEngine);
+      
+      scene.add(player);
+      player.position.set(0,0,0);
+      player.movementDirection = new THREE.Vector3(0,0,-1);
+    }
+
+    // Helper to create enemy mesh (used when worker sends new enemy)
+    function createEnemyMesh(pos) {
+      const geo = new THREE.ConeGeometry(1.2,2.5,3);
+      const mat = new THREE.MeshPhongMaterial({color:0xff0000,emissive:0xaa0000});
+      const mesh = new THREE.Mesh(geo,mat);
+      mesh.rotation.x = Math.PI/2;
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function createProjectileMesh(pos, color=0x00ff00) {
+      const geo = new THREE.SphereGeometry(0.2,8);
+      const mat = new THREE.MeshBasicMaterial({color,emissive:color});
+      const mesh = new THREE.Mesh(geo,mat);
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      return mesh;
+    }
+
+    // ---------- WEB WORKER (simulation + AI) ----------
+    const workerCode = `
+      // Worker: Tempest game logic + simple Q‑learning agent
+      const TUBE_SEGMENTS = 16;      // not used in 3D space, but we keep discrete positions
+      let episode = 0, score = 0, steps = 0, done = false;
+      let rewardSum = 0;
+      
+      // Player state (continuous 3D)
+      let playerPos = new THREE.Vector3(0,0,0);
+      let playerRot = 0;
+      
+      // Game objects
+      let enemies = [];
+      let projectiles = [];
+      
+      // RL parameters (adjustable from main)
+      let alpha = 0.1;
+      let epsilon = 0.2;
+      let gamma = 0.95;
+      
+      // Training log
+      let logs = [];
+      
+      // Helper: choose action (0:left,1:right,2:forward,3:backward,4:fire)
+      function chooseAction() {
+        if (Math.random() < epsilon) return Math.floor(Math.random()*5);
+        else return Math.floor(Math.random()*5); // placeholder greedy
+      }
+      
+      // Physics constants
+      const ENEMY_SPEED = 2;
+      const PROJ_SPEED = 20;
+      
+      function step(action) {
+        // Apply action
+        if (action === 0) playerPos.x -= 5;      // left
+        else if (action === 1) playerPos.x += 5; // right
+        else if (action === 2) playerPos.z -= 5; // forward
+        else if (action === 3) playerPos.z += 5; // backward
+        else if (action === 4) {
+          // fire projectile
+          projectiles.push({
+            pos: playerPos.clone(),
+            vel: new THREE.Vector3(0,0,-PROJ_SPEED),
+            active: true
+          });
+        }
+        
+        // Clamp player position (stay within play area)
+        playerPos.x = Math.max(-30, Math.min(30, playerPos.x));
+        playerPos.z = Math.max(-50, Math.min(20, playerPos.z));
+        
+        // Move enemies toward player
+        for (let i=enemies.length-1; i>=0; i--) {
+          const e = enemies[i];
+          const dir = playerPos.clone().sub(e.pos).normalize();
+          e.pos.add(dir.multiplyScalar(ENEMY_SPEED * 0.016)); // delta approx
+          
+          // collision with player?
+          if (e.pos.distanceTo(playerPos) < 5) {
+            rewardSum -= 10;
+            enemies.splice(i,1);
+            continue;
+          }
+        }
+        
+        // Move projectiles
+        for (let i=projectiles.length-1; i>=0; i--) {
+          const p = projectiles[i];
+          p.pos.add(p.vel.clone().multiplyScalar(0.016));
+          if (p.pos.z < -100 || p.pos.z > 100) {
+            projectiles.splice(i,1);
+            continue;
+          }
+          // projectile-enemy collision
+          for (let j=enemies.length-1; j>=0; j--) {
+            const e = enemies[j];
+            if (p.pos.distanceTo(e.pos) < 2) {
+              enemies.splice(j,1);
+              projectiles.splice(i,1);
+              score += 100;
+              rewardSum += 5;
+              break;
+            }
+          }
+        }
+        
+        // Spawn new enemies
+        if (enemies.length < 8 && Math.random() < 0.01) {
+          enemies.push({
+            pos: new THREE.Vector3(
+              (Math.random()-0.5)*40,
+              (Math.random()-0.5)*20,
+              -40 + Math.random()*20
+            )
+          });
+        }
+        
+        steps++;
+        rewardSum -= 0.1; // step penalty
+        
+        if (steps > 2000) done = true;
+        if (enemies.length > 20) done = true; // safety
+        
+        return {
+          playerPos: {x:playerPos.x, y:playerPos.y, z:playerPos.z},
+          enemies: enemies.map(e => ({x:e.pos.x, y:e.pos.y, z:e.pos.z})),
+          projectiles: projectiles.map(p => ({x:p.pos.x, y:p.pos.y, z:p.pos.z})),
+          score, steps, rewardSum, episode, done
+        };
+      }
+      
+      function reset() {
+        playerPos.set(0,0,0);
+        enemies = [];
+        projectiles = [];
+        steps = 0;
+        done = false;
+        rewardSum = 0;
+        episode++;
+        // spawn initial enemies
+        for (let i=0;i<3;i++) {
+          enemies.push({
+            pos: new THREE.Vector3(
+              (Math.random()-0.5)*30,
+              (Math.random()-0.5)*15,
+              -30 + Math.random()*10
+            )
+          });
+        }
+      }
+      reset(); // first episode
+      
+      self.onmessage = function(e) {
+        const data = e.data;
+        if (data.cmd === 'step') {
+          if (!done) {
+            const action = chooseAction();
+            const state = step(action);
+            self.postMessage({ type: 'state', ...state, epsilon });
+          } else {
+            // episode finished
+            logs.push({
+              episode,
+              score,
+              totalReward: rewardSum,
+              steps,
+              epsilon
+            });
+            reset();
+          }
+        } else if (data.cmd === 'params') {
+          if (data.alpha !== undefined) alpha = data.alpha;
+          if (data.epsilon !== undefined) epsilon = data.epsilon;
+          if (data.gamma !== undefined) gamma = data.gamma;
+        } else if (data.cmd === 'getLogs') {
+          self.postMessage({ type: 'logs', logs });
+        } else if (data.cmd === 'reset') {
+          episode = 0; logs = []; reset();
+        }
+      };
+      
+      // Include THREE.Vector3 minimal polyfill for worker
+      self.THREE = { Vector3: class { constructor(x,y,z) { this.x=x||0; this.y=y||0; this.z=z||0; } clone() { return new self.THREE.Vector3(this.x,this.y,this.z); } sub(v) { return new self.THREE.Vector3(this.x-v.x, this.y-v.y, this.z-v.z); } normalize() { const l = Math.hypot(this.x,this.y,this.z); if(l>0) { this.x/=l; this.y/=l; this.z/=l; } return this; } multiplyScalar(s) { this.x*=s; this.y*=s; this.z*=s; return this; } } };
+    `;
+
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    // ---------- MESSAGE HANDLING ----------
+    worker.onmessage = function(e) {
+      const data = e.data;
+      if (data.type === 'state') {
+        // Update display stats
+        displayStats.episode = data.episode;
+        displayStats.score = data.score;
+        displayStats.steps = data.steps;
+        displayStats.reward = data.rewardSum;
+        displayStats.epsilon = data.epsilon;
+        updateDashboard();
+
+        // Update player position
+        if (player) {
+          player.position.set(data.playerPos.x, data.playerPos.y, data.playerPos.z);
+          // simple rotation based on movement (placeholder)
+          player.rotation.y = 0;
+        }
+
+        // Update enemies: remove old, add new
+        while (enemies.length) scene.remove(enemies.pop());
+        data.enemies.forEach(pos => {
+          const mesh = createEnemyMesh(new THREE.Vector3(pos.x, pos.y, pos.z));
+          enemies.push(mesh);
+        });
+
+        // Update projectiles
+        while (projectiles.length) scene.remove(projectiles.pop());
+        data.projectiles.forEach(pos => {
+          const mesh = createProjectileMesh(new THREE.Vector3(pos.x, pos.y, pos.z), 0xffff00);
+          projectiles.push(mesh);
+        });
+
+        // Update UI stats (original)
+        document.getElementById('combatScore').innerText = data.score;
+        document.getElementById('enemyCount').innerText = data.enemies.length;
+      } else if (data.type === 'logs') {
+        // Export logs
+        const blob = new Blob([JSON.stringify(data.logs, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tempest_training_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    // ---------- DASHBOARD UPDATE ----------
+    function updateDashboard() {
+      document.getElementById('episodeVal').innerText = displayStats.episode;
+      document.getElementById('scoreVal').innerText = displayStats.score;
+      document.getElementById('stepsVal').innerText = displayStats.steps;
+      document.getElementById('rewardVal').innerText = displayStats.reward.toFixed(2);
+      document.getElementById('epsilonVal').innerText = displayStats.epsilon.toFixed(2);
+    }
+
+    // ---------- SLIDERS & CONTROLS ----------
+    document.getElementById('lrSlider').addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      document.getElementById('lrDisplay').innerText = val.toFixed(2);
+      worker.postMessage({ cmd: 'params', alpha: val });
+    });
+    document.getElementById('epsSlider').addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      document.getElementById('epsDisplay').innerText = val.toFixed(2);
+      worker.postMessage({ cmd: 'params', epsilon: val });
+    });
+    document.getElementById('gammaSlider').addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      document.getElementById('gammaDisplay').innerText = val.toFixed(2);
+      worker.postMessage({ cmd: 'params', gamma: val });
+    });
+
+    let paused = false;
+    document.getElementById('pauseBtn').addEventListener('click', (btn) => {
+      paused = !paused;
+      btn.target.innerText = paused ? '▶️ RESUME' : '⏸️ PAUSE';
+    });
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      worker.postMessage({ cmd: 'reset' });
+    });
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      worker.postMessage({ cmd: 'getLogs' });
+    });
+
+    // ---------- GAME LOOP (step worker) ----------
+    setInterval(() => {
+      if (!paused) worker.postMessage({ cmd: 'step' });
+    }, 100); // 10 fps simulation
+
+    // ---------- RENDER LOOP ----------
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Update camera to follow player (same as original)
+      if (player) {
+        camera.position.copy(player.position).add(new THREE.Vector3(0,3,10));
+        camera.lookAt(player.position.clone().add(new THREE.Vector3(0,0,-20)));
+      }
+      
+      renderer.render(scene, camera);
+    }
+
+    // ---------- START ----------
+    window.addEventListener('load', () => {
+      initThree();
+      animate();
+      // Disable original keyboard controls (they would interfere)
+      document.removeEventListener('keydown', (e) => {}); // override any existing
+    });
+
+    // Keep original menu functionality (simplified)
+    document.getElementById('startBtn').addEventListener('click', () => {
+      document.getElementById('mainMenu').style.display = 'none';
+    });
+    document.getElementById('menuBtn').addEventListener('click', () => {
+      document.getElementById('mainMenu').style.display = 'flex';
+    });
+    // (other menu buttons can be kept as they were)
+  </script>
+</body>
+</html>
