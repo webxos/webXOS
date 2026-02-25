@@ -37,7 +37,7 @@
 
 </div>
 
-**webXOS** is an innovative software development company developing progressive web applications tailored for decentralized local environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly to create modular and progressive web apps. Sustainable web apps that encompass eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser. Each webXOS modular APP is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness web worker driven tools to create advanced prompts that accelerate the development of high-performance, decentralized apps. From P2P networking tools to immersive WebGL games, webXOS empowers developers to build the future. 
+**webXOS** is an innovative software development company developing progressive web applications tailored for decentralized local environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly to create modular and progressive web apps. Sustainable web apps that encompass eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser. Each webXOS modular APP is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness web worker driven tools to create advanced scripts that accelerate the development of high-performance local web apps.
 
 *WEBXOS is pioneering frameworks and tools on a browser first philosophy, emphasizing modularity, efficiency, and environmental responsibility.*
 
@@ -52,7 +52,7 @@ Building the underlying architecture for connected devices, focusing on stabilit
 
 - **Eco-Friendly & PWA-Ready**: Optimized for low-end devices, offline functionality, and minimal resource consumption. Raspberry Pi, Arduino, IoT Devices +more.
 
-Explore our apps and AI agents at [webxos.netlify.app](https://webxos.netlify.app) and in the `apps/` directory of our [GitHub repository](https://github.com/webxos/webxos):
+Explore our apps at [webxos.netlify.app](https://webxos.netlify.app) and in the `apps/` directory of our [GitHub repository](https://github.com/webxos/webxos):
 
 - **Eco-Friendly Apps**: PWAs for file sharing, data visualization, and task management, optimized for mobile and offline use.
   
