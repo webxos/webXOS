@@ -1,12 +1,4 @@
 # ShadowClaw
-
-==================================================
-  ____  _               _                   _                
- / ___|| |__   __ _  __| | _____      _____| | __ ___      __
- \___ \| '_ \ / _` |/ _` |/ _ \ \ /\ / / __| |/ _` \ \ /\ / /
-  ___) | | | | (_| | (_| | (_) \ V  V / (__| | (_| |\ V  V / 
- |____/|_| |_|\__,_|\__,_|\___/ \_/\_/ \___|_|\__,_| \_/\_/ 
-==================================================
                                                   
 **ShadowClaw** is a minimal, single‑binary personal AI agent written in C.  
 It follows the *OpenClaw* philosophy: self‑hosted, tool‑using, persistent memory, and minimal dependencies.
