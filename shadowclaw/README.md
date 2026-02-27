@@ -1,4 +1,14 @@
 # ShadowClaw v1.0 (Testing)
+
+<div style="max-width: 100%; overflow-x: auto; background: #f6f8fa; padding: 16px; border-radius: 8px;">
+  <pre style="font-family: 'Courier New', monospace; font-size: clamp(12px, 2vw, 18px); line-height: 1.2; margin: 0;">
+  ____  _               _                   _
+ / ___|| |__   __ _  __| | _____      _____| | __ ___      __
+ \___ \| '_ \ / _` |/ _` |/ _ \ \ /\ / / __| |/ _` \ \ /\ / /
+  ___) | | | | (_| | (_| | (_) \ V  V / (__| | (_| |\ V  V /
+ |____/|_| |_|\__,_|\__,_|\___/ \_/\_/ \___|_|\__,_| \_/\_/
+  </pre>
+</div>
                                                   
 **ShadowClaw** is a minimal, single‑binary personal AI agent written in C. It follows the *OpenClaw* philosophy: self‑hosted, tool‑using, persistent memory, and minimal dependencies. The core memory management uses **Tsoding's "shadow header" trick** (like `stb_ds` but for a growable arena). All data (conversation history, tool definitions, results) lives inside a single `realloc`‑ed memory block with a hidden header. The agent communicates with a local LLM (Ollama) via curl, can execute shell commands, read/write files, perform HTTP GET, and evaluate simple math expressions. State is automatically saved to disk after every interaction.
 
