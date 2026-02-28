@@ -169,6 +169,7 @@ The agent parses the block, executes the tool, and appends the result as a new b
 - **cJSON** – Dave Gamble and contributors – the minimal JSON parser used.
 - **curl** – HTTP requests to Ollama.
 - **Vibe Code** - xAI Grok 4.20 and Deepseek AI
+- **Openclaw**
 ---
 
 ## License
