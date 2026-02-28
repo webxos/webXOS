@@ -174,5 +174,5 @@ The agent parses the block, executes the tool, and appends the result as a new b
 
 ## License
 
-This project is released under the MIT License.  
+This project is released under the open sourced MIT License.  
 cJSON is also MIT licensed.
