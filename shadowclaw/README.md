@@ -155,7 +155,7 @@ The agent parses the block, executes the tool, and appends the result as a new b
 - **Tsoding** – for the “insane shadow data trick” (the header‑before‑data arena idea).
 - **cJSON** – Dave Gamble and contributors – the minimal JSON parser used.
 - **curl** – for HTTP requests to Ollama.
-- **Vibe Code** - Deepseek AI
+- **Vibe Code** - xAI Grok 4.20 and Deepseek AI
 ---
 
 ## License
