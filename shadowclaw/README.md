@@ -15,6 +15,15 @@
                                                   
 **Shadowclaw** is a minimal, single‑binary personal AI agent written in C. It follows the *OpenClaw* philosophy: self‑hosted, tool‑using, persistent memory, and minimal dependencies. The core memory management uses **Tsoding's "shadow header" trick** (like `stb_ds` but for a growable arena). All data (conversation history, tool definitions, results) lives inside a single `realloc`‑ed memory block with a hidden header. The agent communicates with a local LLM (Ollama) via curl, can execute shell commands, read/write files, perform HTTP GET, and evaluate simple math expressions. State is automatically saved to disk after every interaction.
 
+Niche edge use cases:
+
+RPi Zero/IoT: offline sensor scripts (shell + persistent shadow.bin)
+Air-gapped systems: USB-stick local LLM agent (file/HTTP/math)
+Embedded routers: 100-200KB network automation (low-mem Linux)
+Low-power edge nodes: self-hosted persistent AI, no cloud.
+
+Shadowclaw is a lightweight, programmable bridge between you, your local LLM, and your computer's own capabilities.
+
 ---
 
 ## Repository Structure
