@@ -1153,7 +1153,7 @@ CJSON_PUBLIC(cJSON *) cJSON_ParseWithLengthOpts(const char *value, size_t buffer
         goto fail;
     }
 
-    /* if we require null-terminated JSON without appended garbage, skip and then check for a null terminator */
+    /* if we require null-terminated JSON without appended garbage, skip then and check for a null terminator */
     if (require_null_terminated)
     {
         buffer_skip_whitespace(&buffer);
@@ -2090,7 +2090,7 @@ static cJSON_bool add_item_to_object(cJSON * const object, const char * const st
     }
 
     item->string = new_key;
-    item->type = (cJSON_byte)new_type;
+    item->type = new_type;
 
     return add_item_to_array(object, item);
 }
