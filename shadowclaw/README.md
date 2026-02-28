@@ -18,8 +18,11 @@
 Niche edge use cases:
 
 RPi Zero/IoT: offline sensor scripts (shell + persistent shadow.bin)
+
 Air-gapped systems: USB-stick local LLM agent (file/HTTP/math)
+
 Embedded routers: 100-200KB network automation (low-mem Linux)
+
 Low-power edge nodes: self-hosted persistent AI, no cloud.
 
 Shadowclaw is a lightweight, programmable bridge between you, your local LLM, and your computer's own capabilities.
