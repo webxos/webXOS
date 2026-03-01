@@ -113,8 +113,6 @@ Optional:
 
 - **Change Ollama endpoint/model**: edit `ollama_endpoint` and `ollama_model` in `shadowclaw.c`.
 - **Add new tools**: extend the `tools` array in `shadowclaw.c` with a name and a function that takes a `const char*` argument and returns a `char*` (must be `malloc`ed, the caller will `free` it).
-- **Modify system prompt**: the first blob (kind 1) contains the system message. You can change it directly in the code or, after first run, edit the saved `shadowclaw.bin` (not recommended).
-
 ---
 
 ## How It Works
