@@ -109,7 +109,7 @@ To exit, press **Ctrl+D**.
 
 ---
 
-## Customisation
+Optional:
 
 - **Change Ollama endpoint/model**: edit `ollama_endpoint` and `ollama_model` in `shadowclaw.c`.
 - **Add new tools**: extend the `tools` array in `shadowclaw.c` with a name and a function that takes a `const char*` argument and returns a `char*` (must be `malloc`ed, the caller will `free` it).
