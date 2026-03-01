@@ -8,9 +8,9 @@
     border-radius: 0 8px 8px 0;
 ">
     <pre style="
-        font-size: 8px;
+        font-size: 6px;
         line-height: 1.2;
-        margin: 0;
+        margin: 6;
         overflow-x: auto;
         color: #00FF00;
     ">
