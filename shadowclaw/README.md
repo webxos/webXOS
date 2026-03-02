@@ -1,4 +1,4 @@
-# Shadowclaw v1.0 (Testing)
+# Shadowclaw v1.1 (Testing)
 
 
 ![[SHADOWCLAW](https://github.com/webxos/webXOS/blob/main/assets/shadowclaw.jpeg)](https://github.com/webxos/webXOS/blob/main/assets/shadowclaw.jpeg)
@@ -160,6 +160,64 @@ The LLM is instructed to output a tool call inside a fenced block:
 The agent parses the block, executes the tool, and appends the result as a new blob (kind 5). The result is then visible in the next prompt.
 
 ---
+
+Below is a concise README file that documents the new features added to Shadowclaw. Place it in `/home/kali/Downloads/shadowclaw/README.md`.
+
+
+# Updated 3/2/2026: Shadowclaw v1.1
+
+This version of Shadowclaw builds upon the original minimal AI agent, adding a set of convenient built‑in commands and an extra native tool. All changes are contained in `shadowclaw.c` – no external dependencies or scripts required.
+
+### Built‑in Slash Commands
+
+Type any of these commands directly at the `>` prompt – they are handled without invoking the LLM.
+
+| Command   | Description |
+|-----------|-------------|
+| `/help`   | Show this help message. |
+| `/tools`  | List all available tools (shell, file I/O, HTTP, math, `list_dir`). |
+| `/state`  | Display current arena memory statistics (capacity, used bytes, dirty flag). |
+| `/clear`  | Clear the conversation history while retaining the system prompt. |
+| `/chat`   | Remind you that you are already in chat mode (the default behaviour). |
+| `/exit`   | Quit Shadowclaw. |
+
+### New Tool: `list_dir`
+
+A lightweight native tool that lists the contents of a directory **without spawning a shell**.  
+Example usage (the LLM can produce this, or you can type it manually):
+
+````
+```tool
+{"tool":"list_dir","args":"."}
+```
+````
+
+### Persistent Memory
+
+All conversations and tool results are automatically saved to `shadowclaw.bin` and reloaded on restart.
+
+## Requirements
+
+- Linux with `gcc`, `make`, `libcurl`, and `bc`.
+- [Ollama](https://ollama.com/) (optional, for LLM features) with a model like `qwen2.5:0.5b`.
+
+## Build
+
+```bash
+make
+```
+
+## Run
+
+```bash
+./shadowclaw
+```
+
+Use the slash commands above to get started – even without Ollama running, you can explore the built‑in features.
+
+## Notes
+- The original LLM/tool functionality remains unchanged.
+- All warnings during compilation (from `cJSON.c`) are harmless and can be ignored.
 
 ## Credits
 
