@@ -182,9 +182,6 @@ The agent parses the block, executes the tool, and appends the result as a new b
 
 ---
 
-Below is a concise README file that documents the new features added to Shadowclaw. Place it in `/home/kali/Downloads/shadowclaw/README.md`.
-
-
 # Updated 3/2/2026: Shadowclaw v1.1
 
 This version of Shadowclaw builds upon the original minimal AI agent, adding a set of convenient built‑in commands and an extra native tool. All changes are contained in `shadowclaw.c` – no external dependencies or scripts required.
