@@ -112,7 +112,28 @@ To exit, press **Ctrl+D**.
 Optional:
 
 - **Change Ollama endpoint/model**: edit `ollama_endpoint` and `ollama_model` in `shadowclaw.c`.
+
+Find this line (474) in the shadowclaw.c file:
+
+  ```bash
+  // --------------------------------------------------------------------
+//  Main
+// --------------------------------------------------------------------
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
+
+    const char *state_file = "shadowclaw.bin";
+    const char *ollama_endpoint = "http://localhost:11434";
+    const char *ollama_model = getenv("OLLAMA_MODEL");
+    if (!ollama_model) {
+        ollama_model = "qwen2.5:0.5b";
+    }
+  ```
+
+Adjust the model endpoint in "ollama_model = "qwen2.5:0.5b";" to meet your model.
+
 - **Add new tools**: extend the `tools` array in `shadowclaw.c` with a name and a function that takes a `const char*` argument and returns a `char*` (must be `malloc`ed, the caller will `free` it).
+
 ---
 
 ## How It Works
