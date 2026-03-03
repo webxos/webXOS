@@ -213,7 +213,7 @@ cd /Home/User/Shadowclaw        # The folder you have the files located.
 ```
 
 ```bash
-make
+$ make clean && make
 ```
 
 ## Run
