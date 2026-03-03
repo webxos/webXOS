@@ -128,8 +128,6 @@ Each item (system prompt, user message, tool result, etc.) is stored as:
 
 # Updated 3/3/2026: Shadowclaw v1.3
 
-This version of Shadowclaw builds upon the original minimal AI agent, adding a set of convenient built‑in commands and an extra native tool.
-
 ### Built‑in Slash Commands
 
 Type any of these commands directly at the `>` prompt – they are handled without invoking the LLM.
