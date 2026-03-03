@@ -287,7 +287,7 @@ Its toolset is deliberately small but powerful enough to automate many tasks wit
 
 ---
 
-## Real‑World Niche Examples
+## Niche Use Case Examples:
 
 ### 1. Raspberry Pi Zero / IoT Sensor Node
 - **Tool used:** `shell` + `write_file`  
