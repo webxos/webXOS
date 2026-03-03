@@ -126,7 +126,7 @@ Each item (system prompt, user message, tool result, etc.) is stored as:
 
 ---
 
-# Updated 3/2/2026: Shadowclaw v1.1
+# Updated 3/3/2026: Shadowclaw v1.3
 
 This version of Shadowclaw builds upon the original minimal AI agent, adding a set of convenient built‑in commands and an extra native tool. All changes are contained in `shadowclaw.c` – no external dependencies or scripts required.
 
