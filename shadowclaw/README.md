@@ -236,7 +236,7 @@ Use the slash commands above to get started – even without Ollama running, you
 When your agent is running you should be able to use /help and see (example):
 
 ```bash
-┌──(kali㉿kali)-[~/Downloads/shadowclaw]
+┌──(kali㉿user)-[~/shadowclaw]
 └─$ ./shadowclaw
 > /help
 Shadowclaw commands:
