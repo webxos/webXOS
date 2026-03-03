@@ -264,6 +264,24 @@ Shadowclaw automatically **joins the array elements with spaces**, so the tool r
 - **Flexibility** – if a tool needs multiple pieces of information (like `write_file` needing a filename **and** content), we use a simple delimiter (newline). The LLM can learn this pattern from the system prompt.  
 - **Lightweight Design** – no complex argument schemas, no extra JSON nesting. The entire tool call is tiny.
 
+The agent can call multiple tools over several turns. For example:
+
+1. User: “What’s in my documents folder?”  
+2. LLM: calls `list_dir("~/Documents")` → sees a file `budget.xlsx`.  
+3. LLM: “I found a spreadsheet. Would you like me to read it?”  
+4. User: “Yes, show me the content.”  
+5. LLM: calls `read_file("~/Documents/budget.xlsx")` (but it’s binary – the tool returns raw data).  
+
+This shows that tools are just functions; you can extend them to handle binary data or more complex parsing as needed.
+
+---
+
+- **Args are always a single string** to keep things simple.  
+- **Multiple values are encoded with delimiters** (like newline) – the tool and LLM agree on the format.  
+- **Shadowclaw’s niche** is minimalism: a single binary with persistent memory, running anywhere, with just enough tools to be genuinely useful.  
+
+You can easily add new tools by editing the `tools` array – each new function opens up more automation possibilities for your unique environment.
+
 ---
 
 ## Niche Use Cases of Shadowclaw
@@ -305,26 +323,6 @@ Its toolset is deliberately small but powerful enough to automate many tasks wit
 - **Why Shadowclaw?** No database needed – just a binary and a single file (`shadowclaw.bin`) for persistence.
 
 ---
-
-## Chaining Tools
-
-The agent can call multiple tools over several turns. For example:
-
-1. User: “What’s in my documents folder?”  
-2. LLM: calls `list_dir("~/Documents")` → sees a file `budget.xlsx`.  
-3. LLM: “I found a spreadsheet. Would you like me to read it?”  
-4. User: “Yes, show me the content.”  
-5. LLM: calls `read_file("~/Documents/budget.xlsx")` (but it’s binary – the tool returns raw data).  
-
-This shows that tools are just functions; you can extend them to handle binary data or more complex parsing as needed.
-
----
-
-- **Args are always a single string** to keep things simple.  
-- **Multiple values are encoded with delimiters** (like newline) – the tool and LLM agree on the format.  
-- **Shadowclaw’s niche** is minimalism: a single binary with persistent memory, running anywhere, with just enough tools to be genuinely useful.  
-
-You can easily add new tools by editing the `tools` array – each new function opens up more automation possibilities for your unique environment.
 
 ## Credits
 
