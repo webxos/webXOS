@@ -271,7 +271,7 @@ You can easily add new tools by editing the `tools` array – each new function 
 
 ---
 
-## Niche Use Cases of Shadowclaw
+## Niche Use Cases
 
 Shadowclaw is designed for **minimal, self‑contained AI agents** running on resource‑constrained or air‑gapped systems.  
 Its toolset is deliberately small but powerful enough to automate many tasks without spawning heavy processes.
