@@ -229,7 +229,8 @@ When your agent is running you should be able to use /help and see (example):
 ```bash
 ┌──(kali㉿user)-[~/shadowclaw]
 └─$ ./shadowclaw
-> /help
+ShadowClaw ready. Type your message (Ctrl-D to exit)
+/help
 Shadowclaw commands:
   /help       Show this help
   /tools      List available tools
