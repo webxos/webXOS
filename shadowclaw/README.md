@@ -240,9 +240,9 @@ Shadowclaw commands:
 ```
 
 You don’t need the LLM – you can type a tool block yourself and see the result immediately. For example:
-text
 
-```
+
+```text
 
 > ```tool
 {"tool":"list_dir","args":"."}
