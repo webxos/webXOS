@@ -65,37 +65,6 @@ sudo apt install build-essential libcurl4-openssl-dev bc
 
 ---
 
-## Build
-
-Just run `make`:
-
-```bash
-make
-```
-Optionally strip the binary to make it even smaller:
-
-```bash
-make strip
-```
-
-The executable `shadowclaw` will appear in the current directory.
-
----
-
-## Usage
-
-1. Make sure Ollama is running and you have a model (change `ollama_model` in `shadowclaw.c` if needed).
-   
-2. Run the agent:
-   ```bash
-   ./shadowclaw
-   ```
-3. Type your input and press Enter. The agent will:
-   - Build a prompt from recent conversation and system message.
-   - Call Ollama.
-   - If the LLM outputs a tool call in the format ` ```tool {"tool":"name","args":"..."} ``` `, the tool is executed and the result is fed back in the next turn.
-   - The conversation and state are saved to `shadowclaw.bin` after each turn.
-
 Example tool invocation (the LLM must produce this):
 
 ```bash
