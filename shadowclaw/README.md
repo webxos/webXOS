@@ -315,7 +315,7 @@ Its toolset is deliberately small but powerful enough to automate many tasks wit
 
 - **Tsoding** – for the “insane shadow data trick” (the header‑before‑data arena idea).
 - **cJSON** – Dave Gamble and contributors – the minimal JSON parser used.
-- **curl** – HTTP requests to Ollama.
+- **Ollama** – HTTP requests via curl.
 - **Vibe Code** - xAI Grok 4.20 and Deepseek AI
 - **Openclaw**
 - **webXOS**
