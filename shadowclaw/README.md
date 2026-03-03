@@ -123,18 +123,11 @@ Each item (system prompt, user message, tool result, etc.) is stored as:
 
 ### Persistence
 
-The whole arena (header + payload) is written to `shadowclaw.bin` with `fwrite`.  
-On startup, if the file exists and has a valid magic number, it is loaded back.
+-The whole arena (header + payload) is written to `shadowclaw.bin` with `fwrite`. 
 
-### Tool Calling
+-On startup, if the file exists and has a valid magic number, it is loaded back.
 
-The LLM is instructed to output a tool call inside a fenced block:
-
-```tool
-{"tool":"name","args":"arguments"}
-```
-
-The agent parses the block, executes the tool, and appends the result as a new blob (kind 5). The result is then visible in the next prompt.
+-All conversations and tool results are automatically saved to `shadowclaw.bin` and reloaded on restart.
 
 ---
 
@@ -154,10 +147,6 @@ Type any of these commands directly at the `>` prompt – they are handled witho
 | `/clear`  | Clear the conversation history while retaining the system prompt. |
 | `/chat`   | Remind you that you are already in chat mode (the default behaviour). |
 | `/exit`   | Quit Shadowclaw. |
-
-### Persistent Memory
-
-All conversations and tool results are automatically saved to `shadowclaw.bin` and reloaded on restart.
 
 ## Build
 
@@ -207,7 +196,7 @@ To exit, press **Ctrl+D**.
 
 ## How Tool Arguments Work
 
-When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function. Shadowclaw also supports a fallback: the model outputs `args` as an array, e.g.:
+When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function. The agent parses the block, executes the tool, and appends the result as a new blob (kind 5). The result is then visible in the next prompt. Shadowclaw also supports a fallback: the model outputs `args` as an array, e.g.:
 
 ```json
 {"tool":"write_file","args":["notes.txt","Hello world"]}
