@@ -264,14 +264,13 @@ Shadowclaw will execute it and print the tool’s output.
 ## How Tool Arguments Work
 
 When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function.  
-But we also support a fallback: if the model (like some older ones) outputs `args` as an array, e.g.:
+Shadowclaw also supports a fallback: the model outputs `args` as an array, e.g.:
 
 ```json
 {"tool":"write_file","args":["notes.txt","Hello world"]}
 ```
 
-Shadowclaw automatically **joins the array elements with spaces**, so the tool receives a single string `"notes.txt Hello world"`.  
-This makes the agent robust to different model behaviours to ensure:
+Shadowclaw automatically **joins the array elements with spaces**, so the tool receives a single string `"notes.txt Hello world"`. This makes the agent robust to different model behaviours to ensure:
 
 - **Simplicity** – most tools only need a single string argument (a command, a filename, a URL).  
 - **Flexibility** – if a tool needs multiple pieces of information (like `write_file` needing a filename **and** content), we use a simple delimiter (newline). The LLM can learn this pattern from the system prompt.  
