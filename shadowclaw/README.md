@@ -1,4 +1,4 @@
-# Shadowclaw v1.1 (Testing)
+# Shadowclaw v1.3 (Testing)
 
 
 ![[SHADOWCLAW](https://github.com/webxos/webXOS/blob/main/assets/shadowclaw.jpeg)](https://github.com/webxos/webXOS/blob/main/assets/shadowclaw.jpeg)
