@@ -222,6 +222,10 @@ All conversations and tool results are automatically saved to `shadowclaw.bin` a
 ## Build
 
 ```bash
+cd /shadowclaw/       # The folder you have the files located.
+```
+
+```bash
 make
 ```
 
