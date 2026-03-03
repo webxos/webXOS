@@ -239,6 +239,25 @@ Shadowclaw commands:
   /exit       Exit Shadowclaw
 ```
 
+You don’t need the LLM – you can type a tool block yourself and see the result immediately. For example:
+text
+
+```
+
+> ```tool
+{"tool":"list_dir","args":"."}
+
+```
+
+Shadowclaw will execute it and print the tool’s output.
+Notes
+
+    If Ollama is not running, you’ll see LLM call failed.
+
+    Tool arguments can be a JSON array – they will be joined with spaces (useful if your model outputs "args":["arg1","arg2"]).
+
+    All conversations and tool results are saved in shadowclaw.bin and reloaded on restart.
+
 ## Credits
 
 - **Tsoding** – for the “insane shadow data trick” (the header‑before‑data arena idea).
@@ -246,6 +265,7 @@ Shadowclaw commands:
 - **curl** – HTTP requests to Ollama.
 - **Vibe Code** - xAI Grok 4.20 and Deepseek AI
 - **Openclaw**
+- 
 ---
 
 ## License
