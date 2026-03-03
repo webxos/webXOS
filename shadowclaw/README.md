@@ -233,7 +233,7 @@ make
 
 Use the slash commands above to get started – even without Ollama running, you can explore the built‑in features.
 
-WHen your agent is running you should be able to use /help and see (example):
+When your agent is running you should be able to use /help and see (example):
 
 ```bash
 ┌──(kali㉿kali)-[~/Downloads/shadowclaw]
