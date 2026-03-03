@@ -179,6 +179,11 @@ Shadowclaw commands:
 
 To exit, press **Ctrl+D**.
 
+For offline mode:
+```bash
+./shadowclaw --no-llm 
+```
+
 ## Notes
 
 -If Ollama is not running, you’ll see LLM call failed.
