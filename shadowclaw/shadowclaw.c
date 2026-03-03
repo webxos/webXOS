@@ -1,303 +1,302 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <curl/curl.h>
-#include <sys/stat.h>
 #include <stdint.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <time.h>
+#include <curl/curl.h>
 #include <dirent.h>
 #include "cJSON.h"
 
-// ------------------------------------------------------------------
-// Shadow arena: all persistent data lives in a single realloc'd block.
-// A header is stored immediately before the user pointer.
-// ------------------------------------------------------------------
-typedef struct ShadowHeader {
-    size_t capacity;
-    size_t used;
-    unsigned int magic;
-    int dirty;
+// --------------------------------------------------------------------
+//  Shadow Header + Arena (Tsoding/stb_ds style)
+// --------------------------------------------------------------------
+typedef struct {
+    size_t   capacity;     // bytes available AFTER header
+    size_t   length;       // bytes used AFTER header
+    uint64_t tag;          // magic: 0x534841444F57434C = "SHADOWCL"
+    uint32_t version;
+    uint32_t flags;        // bit 0 = dirty
 } ShadowHeader;
 
-#define SHADOW_MAGIC 0xDEADBEEF
-#define HEADER_SIZE (sizeof(ShadowHeader))
+#define SHADOW_MAGIC 0x534841444F57434CULL
+#define SHADOW_SIZE (sizeof(ShadowHeader))
+#define ALIGN_UP(x, a) (((x) + (a)-1) & ~((a)-1))
 
-static void* shadow_alloc(void* ptr, size_t old_size, size_t new_size) {
-    (void)old_size;
-    return realloc(ptr, new_size);
+static inline ShadowHeader* shadow_header(void *data) {
+    return (ShadowHeader*)((char*)data - SHADOW_SIZE);
 }
 
-static void* shadow_malloc(size_t size) {
-    return malloc(size);
+typedef struct {
+    void    *data;       // user‑facing payload pointer
+    size_t   reserved;   // total malloc size (header + capacity)
+} ShadowArena;
+
+ShadowArena shadow_arena_create(size_t initial_capacity) {
+    ShadowArena a = {0};
+    size_t total = SHADOW_SIZE + initial_capacity;
+    total = ALIGN_UP(total, 64);
+
+    ShadowHeader *h = malloc(total);
+    if (!h) abort();
+
+    *h = (ShadowHeader){
+        .capacity = initial_capacity,
+        .length   = 0,
+        .tag      = SHADOW_MAGIC,
+        .version  = 1,
+        .flags    = 0
+    };
+    a.data = (char*)h + SHADOW_SIZE;
+    a.reserved = total;
+    return a;
 }
 
-static void shadow_free(void* ptr) {
-    free(ptr);
-}
-
-// Growable arena functions
-static void* arena_grow(void* arena, size_t new_cap) {
-    if (!arena) {
-        size_t total = HEADER_SIZE + new_cap;
-        ShadowHeader* hdr = (ShadowHeader*)shadow_malloc(total);
-        if (!hdr) return NULL;
-        hdr->capacity = new_cap;
-        hdr->used = 0;
-        hdr->magic = SHADOW_MAGIC;
-        hdr->dirty = 0;
-        return (char*)hdr + HEADER_SIZE;
+void shadow_arena_destroy(ShadowArena *a) {
+    if (a->data) {
+        free(shadow_header(a->data));
+        a->data = NULL;
     }
-    ShadowHeader* hdr = (ShadowHeader*)((char*)arena - HEADER_SIZE);
-    if (hdr->magic != SHADOW_MAGIC) return NULL;
-    size_t total = HEADER_SIZE + new_cap;
-    ShadowHeader* new_hdr = (ShadowHeader*)shadow_alloc(hdr, HEADER_SIZE + hdr->capacity, total);
-    if (!new_hdr) return NULL;
-    new_hdr->capacity = new_cap;
-    return (char*)new_hdr + HEADER_SIZE;
 }
 
-static void* arena_alloc(void* arena, size_t size) {
-    if (!arena) return NULL;
-    ShadowHeader* hdr = (ShadowHeader*)((char*)arena - HEADER_SIZE);
-    if (hdr->used + size > hdr->capacity) return NULL;
-    void* ptr = (char*)arena + hdr->used;
-    hdr->used += size;
-    return ptr;
+void* shadow_arena_push(ShadowArena *a, const void *src, size_t bytes) {
+    ShadowHeader *h = shadow_header(a->data);
+
+    if (h->length + bytes > h->capacity) {
+        size_t new_cap = h->capacity ? h->capacity * 2 : 4096;
+        while (new_cap < h->length + bytes) new_cap *= 2;
+        size_t new_total = SHADOW_SIZE + new_cap;
+        new_total = ALIGN_UP(new_total, 64);
+
+        ShadowHeader *new_h = realloc(h, new_total);
+        if (!new_h) abort();
+
+        new_h->capacity = new_cap;
+        a->data = (char*)new_h + SHADOW_SIZE;
+        a->reserved = new_total;
+        h = new_h;
+    }
+
+    char *dst = (char*)a->data + h->length;
+    if (src) memcpy(dst, src, bytes);
+    else     memset(dst, 0, bytes);
+
+    h->length += bytes;
+    h->flags |= 1;  // dirty
+    return dst;
 }
 
-// ------------------------------------------------------------------
-// Blob kinds (stored in the arena)
-// ------------------------------------------------------------------
-typedef enum {
-    BLOB_KIND_SYSTEM = 0,
-    BLOB_KIND_USER,
-    BLOB_KIND_ASSISTANT,
-    BLOB_KIND_TOOL_CALL,
-    BLOB_KIND_TOOL_RESULT,
-    BLOB_KIND_COUNT
-} BlobKind;
+size_t shadow_arena_len(const ShadowArena *a) {
+    return shadow_header(a->data)->length;
+}
 
-typedef struct BlobHeader {
-    size_t size;
-    BlobKind kind;
-    uint64_t id;
+void shadow_arena_clear(ShadowArena *a) {
+    ShadowHeader *h = shadow_header(a->data);
+    h->length = 0;
+    h->flags &= ~1;
+}
+
+// --------------------------------------------------------------------
+//  Blob Format (tagged, length‑prefixed items)
+// --------------------------------------------------------------------
+typedef struct {
+    uint32_t size;       // payload size (excluding this header)
+    uint32_t kind;       // 1=system,2=user,3=assistant,4=tool_call,5=tool_result,6=memory
+    uint64_t id;         // unique id (timestamp or counter)
 } BlobHeader;
 
-#define BLOB_HEADER_SIZE (sizeof(BlobHeader))
+// Append a typed blob – returns offset from arena->data start
+ptrdiff_t blob_append(ShadowArena *a, uint32_t kind, uint64_t id,
+                      const void *payload, size_t payload_bytes)
+{
+    size_t total = sizeof(BlobHeader) + payload_bytes;
+    char *p = shadow_arena_push(a, NULL, total);
 
-static uint64_t next_id = 1;
-
-static void* blob_append(void** arena, BlobKind kind, const char* data) {
-    if (!arena || !*arena || !data) return NULL;
-    ShadowHeader* hdr = (ShadowHeader*)((char*)*arena - HEADER_SIZE);
-    size_t len = strlen(data) + 1;  // include null terminator
-    size_t total = BLOB_HEADER_SIZE + len;
-
-    if (hdr->used + total > hdr->capacity) {
-        size_t new_cap = hdr->capacity * 2;
-        if (new_cap < hdr->used + total) new_cap = hdr->used + total;
-        void* new_arena = arena_grow(*arena, new_cap);
-        if (!new_arena) return NULL;
-        *arena = new_arena;
-        hdr = (ShadowHeader*)((char*)*arena - HEADER_SIZE);
-    }
-
-    void* ptr = (char*)*arena + hdr->used;
-    BlobHeader* bh = (BlobHeader*)ptr;
-    bh->size = len;
-    bh->kind = kind;
-    bh->id = next_id++;
-    char* blob_data = (char*)ptr + BLOB_HEADER_SIZE;
-    memcpy(blob_data, data, len);
-    hdr->used += total;
-    return bh;
+    BlobHeader bh = {
+        .size = (uint32_t)payload_bytes,
+        .kind = kind,
+        .id   = id
+    };
+    memcpy(p, &bh, sizeof(bh));
+    if (payload_bytes) memcpy(p + sizeof(bh), payload, payload_bytes);
+    return p - (char*)a->data;
 }
 
-static BlobHeader* blob_iterate(void* arena, BlobHeader* prev) {
-    if (!arena) return NULL;
-    ShadowHeader* shadow = (ShadowHeader*)((char*)arena - HEADER_SIZE);
-    if (!prev) {
-        // first blob
-        if (shadow->used < BLOB_HEADER_SIZE) return NULL;
-        return (BlobHeader*)arena;
+// Iterate over all blobs: calls `f(blob_header, payload, userdata)`
+void blob_foreach(ShadowArena *a,
+                  void (*f)(const BlobHeader*, const char*, void*),
+                  void *userdata)
+{
+    char *start = a->data;
+    size_t len = shadow_header(a->data)->length;
+    char *end = start + len;
+    char *p = start;
+    while (p < end) {
+        BlobHeader *bh = (BlobHeader*)p;
+        char *payload = p + sizeof(BlobHeader);
+        f(bh, payload, userdata);
+        p += sizeof(BlobHeader) + bh->size;
     }
-    char* end = (char*)arena + shadow->used;
-    char* next = (char*)prev + BLOB_HEADER_SIZE + prev->size;
-    if (next + BLOB_HEADER_SIZE > end) return NULL;
-    return (BlobHeader*)next;
 }
 
-// ------------------------------------------------------------------
-// Persistence: save/load arena to/from file
-// ------------------------------------------------------------------
-static int save_state(void* arena, const char* filename) {
-    if (!arena) return -1;
-    ShadowHeader* hdr = (ShadowHeader*)((char*)arena - HEADER_SIZE);
-    FILE* f = fopen(filename, "wb");
-    if (!f) return -1;
-    size_t total = HEADER_SIZE + hdr->used;
-    if (fwrite(hdr, 1, total, f) != total) {
-        fclose(f);
-        return -1;
-    }
+// --------------------------------------------------------------------
+//  Persistence: save / load the whole arena to a file
+// --------------------------------------------------------------------
+bool arena_save(const ShadowArena *a, const char *filename) {
+    FILE *f = fopen(filename, "wb");
+    if (!f) return false;
+    size_t n = fwrite(shadow_header(a->data), 1, a->reserved, f);
     fclose(f);
-    return 0;
+    return n == a->reserved;
 }
 
-static void* load_state(const char* filename) {
-    FILE* f = fopen(filename, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long total = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (total < (long)HEADER_SIZE) {
-        fclose(f);
-        return NULL;
-    }
-    ShadowHeader* hdr = (ShadowHeader*)shadow_malloc(total);
-    if (!hdr) {
-        fclose(f);
-        return NULL;
-    }
-    if (fread(hdr, 1, total, f) != (size_t)total) {
-        shadow_free(hdr);
-        fclose(f);
-        return NULL;
-    }
-    fclose(f);
-    if (hdr->magic != SHADOW_MAGIC || hdr->used > hdr->capacity) {
-        shadow_free(hdr);
-        return NULL;
-    }
-    return (char*)hdr + HEADER_SIZE;
-}
+bool arena_load(ShadowArena *a, const char *filename) {
+    FILE *f = fopen(filename, "rb");
+    if (!f) return false;
 
-// ------------------------------------------------------------------
-// Tool system: functions the LLM can call
-// ------------------------------------------------------------------
-typedef struct Tool {
-    const char* name;
-    char* (*fn)(const char*);
-} Tool;
-
-// Write callback for curl (used by both http_get and call_llm)
-static size_t write_callback(void* ptr, size_t size, size_t nmemb, void* userdata) {
-    size_t total = size * nmemb;
-    char** response_ptr = (char**)userdata;
-    size_t current_len = *response_ptr ? strlen(*response_ptr) : 0;
-    char* new = realloc(*response_ptr, current_len + total + 1);
-    if (!new) return 0;
-    *response_ptr = new;
-    memcpy(*response_ptr + current_len, ptr, total);
-    (*response_ptr)[current_len + total] = '\0';
-    return total;
-}
-
-// Tool implementations
-static char* tool_shell(const char* args) {
-    FILE* fp = popen(args, "r");
-    if (!fp) return strdup("Failed to execute command");
-    char* result = NULL;
-    size_t total = 0;
-    char buf[256];
-    while (fgets(buf, sizeof(buf), fp)) {
-        size_t len = strlen(buf);
-        char* new_result = realloc(result, total + len + 1);
-        if (!new_result) {
-            free(result);
-            pclose(fp);
-            return strdup("Memory error");
-        }
-        result = new_result;
-        memcpy(result + total, buf, len + 1);
-        total += len;
-    }
-    pclose(fp);
-    if (!result) result = strdup("");
-    return result;
-}
-
-static char* tool_file_read(const char* args) {
-    FILE* f = fopen(args, "rb");
-    if (!f) return strdup("File not found");
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char* content = malloc(size + 1);
-    if (!content) {
+    if (size < (long)SHADOW_SIZE) {
         fclose(f);
-        return strdup("Memory error");
+        return false;
     }
-    fread(content, 1, size, f);
-    content[size] = '\0';
+
+    void *block = malloc(size);
+    if (!block) { fclose(f); return false; }
+    if (fread(block, 1, size, f) != (size_t)size) {
+        free(block);
+        fclose(f);
+        return false;
+    }
     fclose(f);
-    return content;
+
+    ShadowHeader *h = (ShadowHeader*)block;
+    if (h->tag != SHADOW_MAGIC || h->version != 1) {
+        free(block);
+        return false;
+    }
+
+    shadow_arena_destroy(a);
+    a->data = (char*)block + SHADOW_SIZE;
+    a->reserved = size;
+    return true;
 }
 
-static char* tool_file_write(const char* args) {
-    // simplistic: args = "filename content"
-    char* copy = strdup(args);
-    char* space = strchr(copy, ' ');
-    if (!space) {
-        free(copy);
-        return strdup("Invalid format: need 'filename content'");
-    }
-    *space = '\0';
-    const char* filename = copy;
-    const char* content = space + 1;
-    FILE* f = fopen(filename, "w");
-    if (!f) {
-        free(copy);
-        return strdup("Cannot write file");
-    }
-    fprintf(f, "%s", content);
-    fclose(f);
-    free(copy);
-    return strdup("File written");
+// --------------------------------------------------------------------
+//  Tools
+// --------------------------------------------------------------------
+typedef struct {
+    char *name;
+    char *(*func)(const char *args);   // returns newly allocated string
+} Tool;
+
+// tool: shell command execution
+char* tool_shell(const char *args) {
+    FILE *fp = popen(args, "r");
+    if (!fp) return strdup("error: popen failed");
+    char *result = NULL;
+    size_t len = 0;
+    FILE *out = open_memstream(&result, &len);
+    char buf[256];
+    while (fgets(buf, sizeof(buf), fp)) fputs(buf, out);
+    pclose(fp);
+    fclose(out);
+    return result ? result : strdup("");
 }
 
-static char* tool_http_get(const char* args) {
-    CURL* curl = curl_easy_init();
-    if (!curl) return strdup("curl init failed");
-    char* response = NULL;
+// tool: read file
+char* tool_read_file(const char *args) {
+    FILE *fp = fopen(args, "rb");
+    if (!fp) return strdup("error: cannot open file");
+    char *content = NULL;
+    size_t len = 0;
+    FILE *out = open_memstream(&content, &len);
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
+        fwrite(buf, 1, n, out);
+    fclose(fp);
+    fclose(out);
+    return content ? content : strdup("");
+}
+
+// tool: write file (args: "filename\ncontent")
+char* tool_write_file(const char *args) {
+    char *filename = strdup(args);
+    char *newline = strchr(filename, '\n');
+    if (!newline) {
+        free(filename);
+        return strdup("error: missing newline separator");
+    }
+    *newline = '\0';
+    char *content = newline + 1;
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        free(filename);
+        return strdup("error: cannot write file");
+    }
+    fwrite(content, 1, strlen(content), fp);
+    fclose(fp);
+    free(filename);
+    return strdup("ok");
+}
+
+// tool: HTTP GET (args = URL)
+size_t write_cb(void *ptr, size_t size, size_t nmemb, void *stream) {
+    size_t total = size * nmemb;
+    fwrite(ptr, 1, total, (FILE*)stream);
+    return total;
+}
+char* tool_http_get(const char *args) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return strdup("error: curl init failed");
+
+    char *response = NULL;
+    size_t len = 0;
+    FILE *out = open_memstream(&response, &len);
+
     curl_easy_setopt(curl, CURLOPT_URL, args);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
     CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
     if (res != CURLE_OK) {
-        free(response);
-        return strdup("HTTP request failed");
+        fclose(out);
+        curl_easy_cleanup(curl);
+        return strdup("error: curl failed");
     }
+    fclose(out);
+    curl_easy_cleanup(curl);
     return response ? response : strdup("");
 }
 
-static char* tool_math(const char* args) {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "echo '%s' | bc", args);
-    FILE* fp = popen(cmd, "r");
-    if (!fp) return strdup("bc failed");
+// tool: math expression (using bc)
+char* tool_math(const char *args) {
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd), "echo '%s' | bc 2>/dev/null", args);
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return strdup("error: bc failed");
+    char *result = NULL;
+    size_t len = 0;
+    FILE *out = open_memstream(&result, &len);
     char buf[256];
-    if (fgets(buf, sizeof(buf), fp) == NULL) {
-        pclose(fp);
-        return strdup("");
-    }
+    while (fgets(buf, sizeof(buf), fp)) fputs(buf, out);
     pclose(fp);
-    return strdup(buf);
+    fclose(out);
+    return result ? result : strdup("");
 }
 
-static char* tool_list_dir(const char* args) {
-    DIR* d = opendir(args);
-    if (!d) return strdup("Error: cannot open directory");
-    char* result = NULL;
+// tool: list directory
+char* tool_list_dir(const char *args) {
+    DIR *d = opendir(args);
+    if (!d) return strdup("error: cannot open directory");
+    char *result = NULL;
     size_t len = 0;
-    FILE* out = open_memstream(&result, &len);
-    if (!out) {
-        closedir(d);
-        return strdup("Memory error");
-    }
-    struct dirent* entry;
+    FILE *out = open_memstream(&result, &len);
+    struct dirent *entry;
     while ((entry = readdir(d)) != NULL) {
         fprintf(out, "%s\n", entry->d_name);
     }
@@ -306,145 +305,240 @@ static char* tool_list_dir(const char* args) {
     return result ? result : strdup("");
 }
 
-static Tool tools[] = {
+// tool registry
+Tool tools[] = {
     {"shell", tool_shell},
-    {"file_read", tool_file_read},
-    {"file_write", tool_file_write},
+    {"read_file", tool_read_file},
+    {"write_file", tool_write_file},
     {"http_get", tool_http_get},
     {"math", tool_math},
     {"list_dir", tool_list_dir},
     {NULL, NULL}
 };
 
-// ------------------------------------------------------------------
-// LLM communication (Ollama)
-// ------------------------------------------------------------------
-static const char* ollama_endpoint = "http://localhost:11434/api/generate";
-static const char* ollama_model = "qwen2.5:0.5b";  // change to your model
+char* execute_tool(const char *name, const char *args) {
+    for (Tool *t = tools; t->name; t++) {
+        if (strcmp(t->name, name) == 0) {
+            return t->func(args);
+        }
+    }
+    return strdup("error: unknown tool");
+}
 
-static char* call_llm(const char* prompt) {
-    CURL* curl = curl_easy_init();
+// --------------------------------------------------------------------
+//  LLM interaction (Ollama)
+// --------------------------------------------------------------------
+typedef struct {
+    char *data;
+    size_t len;
+} ResponseBuffer;
+
+size_t write_response(void *ptr, size_t size, size_t nmemb, void *stream) {
+    ResponseBuffer *buf = (ResponseBuffer*)stream;
+    size_t total = size * nmemb;
+    buf->data = realloc(buf->data, buf->len + total + 1);
+    if (!buf->data) return 0;
+    memcpy(buf->data + buf->len, ptr, total);
+    buf->len += total;
+    buf->data[buf->len] = '\0';
+    return total;
+}
+
+// call Ollama generate endpoint, return JSON string (malloced)
+char* ollama_generate(const char *prompt, const char *model, const char *endpoint) {
+    CURL *curl = curl_easy_init();
     if (!curl) return NULL;
 
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "model", ollama_model);
-    cJSON_AddStringToObject(root, "prompt", prompt);
-    cJSON_AddBoolToObject(root, "stream", 0);
-    char* json_str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/generate", endpoint);
 
-    struct curl_slist* headers = NULL;
+    cJSON *req_json = cJSON_CreateObject();
+    cJSON_AddStringToObject(req_json, "model", model);
+    cJSON_AddStringToObject(req_json, "prompt", prompt);
+    cJSON_AddBoolToObject(req_json, "stream", false);
+    char *req_str = cJSON_PrintUnformatted(req_json);
+    cJSON_Delete(req_json);
+
+    struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    char* response = NULL;
-    curl_easy_setopt(curl, CURLOPT_URL, ollama_endpoint);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str);
+    ResponseBuffer resp = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req_str);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_response);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
 
     CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    free(req_str);
     curl_slist_free_all(headers);
-    free(json_str);
+    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        free(response);
+        free(resp.data);
+        return NULL;
+    }
+    return resp.data; // caller must free
+}
+
+// --------------------------------------------------------------------
+//  Prompt builder (exactly as in beta10)
+// --------------------------------------------------------------------
+typedef struct {
+    char *text;
+    size_t cap;
+    size_t len;
+} StringBuilder;
+
+void sb_append(StringBuilder *sb, const char *s) {
+    size_t add = strlen(s);
+    if (sb->len + add + 1 > sb->cap) {
+        sb->cap = sb->cap ? sb->cap * 2 : 1024;
+        while (sb->len + add + 1 > sb->cap) sb->cap *= 2;
+        sb->text = realloc(sb->text, sb->cap);
+    }
+    memcpy(sb->text + sb->len, s, add);
+    sb->len += add;
+    sb->text[sb->len] = '\0';
+}
+
+void collect_blob(const BlobHeader *bh, const char *payload, void *user) {
+    StringBuilder *sb = (StringBuilder*)user;
+    static int count = 0;
+    // keep only system (kind 1) and last 10 user/assistant/tool messages
+    if (bh->kind == 1) {
+        sb_append(sb, "[System]\n");
+        sb_append(sb, payload);
+        sb_append(sb, "\n\n");
+    } else if (bh->kind == 2 || bh->kind == 3 || bh->kind == 5) {
+        if (count < 10) {
+            const char *role = bh->kind==2 ? "User" : (bh->kind==3 ? "Assistant" : "Tool");
+            sb_append(sb, "[");
+            sb_append(sb, role);
+            sb_append(sb, "]\n");
+            sb_append(sb, payload);
+            sb_append(sb, "\n\n");
+            count++;
+        }
+    }
+}
+
+char* build_prompt(ShadowArena *arena) {
+    StringBuilder sb = {0};
+    // include system prompt and recent conversation
+    blob_foreach(arena, collect_blob, &sb);
+    // add instructions for tool use (exactly as beta10)
+    sb_append(&sb,
+        "[Instruction]\n"
+        "You are ShadowClaw, a tiny AI agent. You can use tools by outputting a JSON block like:\n"
+        "```tool\n{\"tool\":\"name\",\"args\":\"arguments\"}\n```\n"
+        "Available tools: shell, read_file, write_file, http_get, math, list_dir.\n"
+        "After using a tool, you'll see its result. Continue the conversation.\n\n"
+        "[User]\n");
+    return sb.text; // caller must free
+}
+
+// --------------------------------------------------------------------
+//  Parse tool call from assistant text (look for ```tool ... ```)
+//  Enhanced to handle both string and array args
+// --------------------------------------------------------------------
+char* parse_tool_call(const char *text, char **tool_name, char **tool_args) {
+    const char *start = strstr(text, "```tool");
+    if (!start) return NULL;
+    start += 7; // skip ```tool
+    while (*start == ' ' || *start == '\n') start++;
+    const char *end = strstr(start, "```");
+    if (!end) return NULL;
+
+    size_t len = end - start;
+    char *json_str = malloc(len + 1);
+    memcpy(json_str, start, len);
+    json_str[len] = '\0';
+
+    cJSON *root = cJSON_Parse(json_str);
+    free(json_str);
+    if (!root) return NULL;
+
+    cJSON *name = cJSON_GetObjectItem(root, "tool");
+    if (!cJSON_IsString(name)) {
+        cJSON_Delete(root);
         return NULL;
     }
 
-    // Parse JSON response
-    cJSON* resp = cJSON_Parse(response);
-    free(response);
-    if (!resp) return NULL;
-    cJSON* text = cJSON_GetObjectItem(resp, "response");
-    char* result = text && cJSON_IsString(text) ? strdup(text->valuestring) : NULL;
-    cJSON_Delete(resp);
-    return result;
-}
-
-// ------------------------------------------------------------------
-// Helper: build a conversation prompt from all blobs
-// ------------------------------------------------------------------
-static char* build_prompt(void* shadow) {
-    // Start with a large buffer (dynamically grow if needed)
-    size_t cap = 8192;
-    char* prompt = malloc(cap);
-    if (!prompt) return NULL;
-    prompt[0] = '\0';
-    size_t used = 0;
-
-    BlobHeader* blob = NULL;
-    while ((blob = blob_iterate(shadow, blob)) != NULL) {
-        const char* data = (const char*)blob + BLOB_HEADER_SIZE;
-        const char* role = NULL;
-        switch (blob->kind) {
-            case BLOB_KIND_SYSTEM:    role = "System: "; break;
-            case BLOB_KIND_USER:       role = "User: "; break;
-            case BLOB_KIND_ASSISTANT:  role = "Assistant: "; break;
-            case BLOB_KIND_TOOL_RESULT:role = "Tool result: "; break;
-            default: continue;  // skip tool calls (they are not part of conversation directly)
-        }
-        size_t needed = strlen(role) + blob->size;  // blob->size includes null terminator
-        if (used + needed + 1 > cap) {
-            cap = (used + needed + 1) * 2;
-            char* new_prompt = realloc(prompt, cap);
-            if (!new_prompt) {
-                free(prompt);
-                return NULL;
+    cJSON *args = cJSON_GetObjectItem(root, "args");
+    char *args_str = NULL;
+    if (cJSON_IsString(args)) {
+        args_str = strdup(args->valuestring);
+    } else if (cJSON_IsArray(args)) {
+        int count = cJSON_GetArraySize(args);
+        size_t total_len = 0;
+        for (int i = 0; i < count; i++) {
+            cJSON *elem = cJSON_GetArrayItem(args, i);
+            if (cJSON_IsString(elem)) {
+                if (i > 0) total_len++; // space
+                total_len += strlen(elem->valuestring);
             }
-            prompt = new_prompt;
         }
-        strcat(prompt, role);
-        strcat(prompt, data);
-        strcat(prompt, "\n");
-        used = strlen(prompt);
+        args_str = malloc(total_len + 1);
+        if (args_str) {
+            args_str[0] = '\0';
+            for (int i = 0; i < count; i++) {
+                cJSON *elem = cJSON_GetArrayItem(args, i);
+                if (cJSON_IsString(elem)) {
+                    if (i > 0) strcat(args_str, " ");
+                    strcat(args_str, elem->valuestring);
+                }
+            }
+        } else {
+            args_str = strdup("");
+        }
+    } else {
+        args_str = strdup("");
     }
-    // Add final "Assistant: " to prompt the model
-    strcat(prompt, "Assistant: ");
-    return prompt;
+
+    *tool_name = strdup(name->valuestring);
+    *tool_args = args_str;
+    cJSON_Delete(root);
+    return (char*)end + 3; // pointer after the closing ```
 }
 
-// ------------------------------------------------------------------
-// Main
-// ------------------------------------------------------------------
-int main(int argc, char** argv) {
-    // Check for no-LLM mode flag
-    int no_llm_mode = 0;
-    if (argc > 1 && strcmp(argv[1], "--no-llm") == 0) {
-        no_llm_mode = 1;
-    }
+// --------------------------------------------------------------------
+//  Main (with slash commands from v1.2.2)
+// --------------------------------------------------------------------
+int main(int argc, char **argv) {
+    const char *state_file = "shadowclaw.bin";
+    const char *ollama_endpoint = "http://localhost:11434";
+    const char *ollama_model = "qwen2.5:0.5b";  // change as needed
 
-    // Load persistent state
-    void* shadow = load_state("shadowclaw.bin");
-    if (!shadow) {
-        // Create a fresh arena (initial capacity 64KB)
-        shadow = arena_grow(NULL, 64 * 1024);
-        if (!shadow) {
-            fprintf(stderr, "Failed to allocate arena\n");
-            return 1;
+    ShadowArena arena = shadow_arena_create(128 * 1024); // 128KB start
+
+    // load previous state if exists
+    if (access(state_file, F_OK) == 0) {
+        if (arena_load(&arena, state_file)) {
+            printf("[ShadowClaw] loaded state from %s\n", state_file);
+        } else {
+            printf("[ShadowClaw] failed to load %s, starting fresh\n", state_file);
         }
-        // Add system prompt (IMPROVED VERSION)
-        const char* system_prompt = 
-            "You are Shadowclaw, a helpful AI assistant with access to tools. "
-            "When you need to use a tool, you MUST output exactly:\n"
-            "```tool\n{\"tool\":\"name\",\"args\":\"arguments\"}\n```\n"
-            "For example, to fetch a webpage:\n"
-            "```tool\n{\"tool\":\"http_get\",\"args\":\"https://example.com\"}\n```\n"
-            "Then wait for the result before giving your final answer.\n"
-            "Available tools: shell, file_read, file_write, http_get, math, list_dir.";
-        blob_append(&shadow, BLOB_KIND_SYSTEM, system_prompt);
+    } else {
+        // bootstrap system prompt (includes list_dir)
+        const char *sys = "You are ShadowClaw – tiny, shadowy, Unix‑punk AI agent. Use tools when helpful. Stay minimal.\n"
+                          "Available tools: shell, read_file, write_file, http_get, math, list_dir.";
+        blob_append(&arena, 1, 1, sys, strlen(sys)+1);
     }
 
-    char buf[4096];
-    while (1) {
-        printf("> ");
-        if (!fgets(buf, sizeof(buf), stdin)) break;
-        buf[strcspn(buf, "\n")] = 0;  // remove trailing newline
+    uint64_t msg_id = time(NULL); // simple id
+
+    printf("ShadowClaw ready. Type your message (Ctrl-D to exit)\n");
+    char line[4096];
+    while (fgets(line, sizeof(line), stdin)) {
+        // remove trailing newline
+        line[strcspn(line, "\n")] = 0;
+        if (strlen(line) == 0) continue;
 
         // ----- Slash commands (always available) -----
-        if (buf[0] == '/') {
-            if (strcmp(buf, "/help") == 0) {
+        if (line[0] == '/') {
+            if (strcmp(line, "/help") == 0) {
                 printf("Shadowclaw commands:\n"
                        "  /help       Show this help\n"
                        "  /tools      List available tools\n"
@@ -452,34 +546,27 @@ int main(int argc, char** argv) {
                        "  /clear      Clear conversation history (keeps system prompt)\n"
                        "  /chat       Remind you that chat mode is active\n"
                        "  /exit       Exit Shadowclaw\n");
-            } else if (strcmp(buf, "/tools") == 0) {
+            } else if (strcmp(line, "/tools") == 0) {
                 printf("Available tools:\n");
-                for (Tool* t = tools; t->name; t++) {
+                for (Tool *t = tools; t->name; t++) {
                     printf("  %s\n", t->name);
                 }
-            } else if (strcmp(buf, "/state") == 0) {
-                ShadowHeader* hdr = (ShadowHeader*)((char*)shadow - HEADER_SIZE);
-                printf("Arena capacity: %zu bytes\n", hdr->capacity);
-                printf("Arena used: %zu bytes\n", hdr->used);
-                printf("Dirty flag: %d\n", hdr->dirty);
-            } else if (strcmp(buf, "/clear") == 0) {
-                ShadowHeader* hdr = (ShadowHeader*)((char*)shadow - HEADER_SIZE);
-                hdr->used = 0;
-                next_id = 1; // reset ID counter
+            } else if (strcmp(line, "/state") == 0) {
+                ShadowHeader *h = shadow_header(arena.data);
+                printf("Arena capacity: %zu bytes\n", h->capacity);
+                printf("Arena used: %zu bytes\n", h->length);
+                printf("Reserved total: %zu bytes\n", arena.reserved);
+                printf("Dirty flag: %d\n", h->flags & 1);
+            } else if (strcmp(line, "/clear") == 0) {
+                shadow_arena_clear(&arena);
                 // Re-add system prompt
-                const char* system_prompt = 
-                    "You are Shadowclaw, a helpful AI assistant with access to tools. "
-                    "When you need to use a tool, you MUST output exactly:\n"
-                    "```tool\n{\"tool\":\"name\",\"args\":\"arguments\"}\n```\n"
-                    "For example, to fetch a webpage:\n"
-                    "```tool\n{\"tool\":\"http_get\",\"args\":\"https://example.com\"}\n```\n"
-                    "Then wait for the result before giving your final answer.\n"
-                    "Available tools: shell, file_read, file_write, http_get, math, list_dir.";
-                blob_append(&shadow, BLOB_KIND_SYSTEM, system_prompt);
+                const char *sys = "You are ShadowClaw – tiny, shadowy, Unix‑punk AI agent. Use tools when helpful. Stay minimal.\n"
+                                  "Available tools: shell, read_file, write_file, http_get, math, list_dir.";
+                blob_append(&arena, 1, 1, sys, strlen(sys)+1);
                 printf("Conversation cleared.\n");
-            } else if (strcmp(buf, "/chat") == 0) {
+            } else if (strcmp(line, "/chat") == 0) {
                 printf("You are already in chat mode. Type your message.\n");
-            } else if (strcmp(buf, "/exit") == 0) {
+            } else if (strcmp(line, "/exit") == 0) {
                 break;
             } else {
                 printf("Unknown command. Try /help\n");
@@ -487,106 +574,80 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // ----- no‑LLM mode using tiny interpreter (just echo) -----
-        if (no_llm_mode) {
-            printf("(no‑llm) %s\n", buf);
+        // ----- Normal LLM mode (exactly like beta10) -----
+        // store user message
+        blob_append(&arena, 2, msg_id++, line, strlen(line)+1);
+
+        // build prompt from arena
+        char *prompt = build_prompt(&arena);
+        if (!prompt) {
+            fprintf(stderr, "error building prompt\n");
+            break;
+        }
+
+        // call ollama
+        char *response_json = ollama_generate(prompt, ollama_model, ollama_endpoint);
+        free(prompt);
+        if (!response_json) {
+            fprintf(stderr, "LLM call failed\n");
             continue;
         }
 
-        // ----- Normal LLM mode -----
-        // Append user input
-        blob_append(&shadow, BLOB_KIND_USER, buf);
-
-        // Inner loop to handle tool calls
-        int tool_loop = 1;
-        int max_turns = 5;  // prevent infinite loops
-        while (tool_loop && max_turns-- > 0) {
-            char* prompt = build_prompt(shadow);
-            if (!prompt) {
-                fprintf(stderr, "Failed to build prompt\n");
-                break;
-            }
-
-            char* llm_response = call_llm(prompt);
-            free(prompt);
-            if (!llm_response) {
-                fprintf(stderr, "LLM call failed\n");
-                break;
-            }
-
-            // Check for tool call in response
-            char* tool_start = strstr(llm_response, "```tool");
-            if (tool_start) {
-                // Extract the JSON part (between newline after ```tool and closing ```)
-                char* json_start = tool_start + strlen("```tool");
-                while (*json_start == ' ' || *json_start == '\n') json_start++;
-                char* json_end = strstr(json_start, "```");
-                if (!json_end) {
-                    // malformed, treat as normal response
-                    printf("Assistant: %s\n", llm_response);
-                    blob_append(&shadow, BLOB_KIND_ASSISTANT, llm_response);
-                    free(llm_response);
-                    break;
-                }
-                *json_end = '\0';  // temporarily terminate
-
-                // Parse JSON
-                cJSON* tool_json = cJSON_Parse(json_start);
-                *json_end = '`';  // restore (not strictly needed)
-                if (!tool_json) {
-                    fprintf(stderr, "Failed to parse tool JSON\n");
-                    printf("Assistant: %s\n", llm_response);
-                    blob_append(&shadow, BLOB_KIND_ASSISTANT, llm_response);
-                    free(llm_response);
-                    break;
-                }
-
-                cJSON* tool_name = cJSON_GetObjectItem(tool_json, "tool");
-                cJSON* tool_args = cJSON_GetObjectItem(tool_json, "args");
-                if (!cJSON_IsString(tool_name) || !cJSON_IsString(tool_args)) {
-                    cJSON_Delete(tool_json);
-                    fprintf(stderr, "Tool JSON missing 'tool' or 'args' string\n");
-                    printf("Assistant: %s\n", llm_response);
-                    blob_append(&shadow, BLOB_KIND_ASSISTANT, llm_response);
-                    free(llm_response);
-                    break;
-                }
-
-                // Find and execute tool
-                char* result = NULL;
-                for (Tool* t = tools; t->name; t++) {
-                    if (strcmp(t->name, tool_name->valuestring) == 0) {
-                        result = t->fn(tool_args->valuestring);
-                        break;
-                    }
-                }
-                if (!result) {
-                    result = strdup("Unknown tool");
-                }
-
-                // Store tool call and result
-                blob_append(&shadow, BLOB_KIND_TOOL_CALL, llm_response);
-                blob_append(&shadow, BLOB_KIND_TOOL_RESULT, result);
-                free(result);
-                cJSON_Delete(tool_json);
-                free(llm_response);
-
-                // Loop again to let LLM respond with final answer
-                // (tool_loop remains 1)
-            } else {
-                // Normal response, no tool call
-                printf("Assistant: %s\n", llm_response);
-                blob_append(&shadow, BLOB_KIND_ASSISTANT, llm_response);
-                free(llm_response);
-                tool_loop = 0;  // exit inner loop
-            }
+        // parse response
+        cJSON *root = cJSON_Parse(response_json);
+        if (!root) {
+            fprintf(stderr, "JSON parse error. Raw response: %s\n", response_json);
+            free(response_json);
+            continue;
         }
 
-        // Save state after each user turn (including tool interactions)
-        save_state(shadow, "shadowclaw.bin");
+        // Check for error field (Ollama error response)
+        cJSON *err = cJSON_GetObjectItem(root, "error");
+        if (err && cJSON_IsString(err)) {
+            fprintf(stderr, "Ollama error: %s\n", err->valuestring);
+            cJSON_Delete(root);
+            free(response_json);
+            continue;
+        }
+
+        cJSON *resp_text = cJSON_GetObjectItem(root, "response");
+        if (!cJSON_IsString(resp_text)) {
+            fprintf(stderr, "no 'response' field in LLM output. Full JSON: %s\n", response_json);
+            cJSON_Delete(root);
+            free(response_json);
+            continue;
+        }
+        const char *assistant_msg = resp_text->valuestring;
+
+        // check for tool call
+        char *tool_name = NULL, *tool_args = NULL;
+        char *after_tool = parse_tool_call(assistant_msg, &tool_name, &tool_args);
+        if (tool_name && tool_args) {
+            // execute tool
+            char *tool_result = execute_tool(tool_name, tool_args);
+            // store tool call and result
+            blob_append(&arena, 4, msg_id++, assistant_msg, after_tool - assistant_msg);
+            blob_append(&arena, 5, msg_id++, tool_result, strlen(tool_result)+1);
+            // print result and continue (LLM will see it in next round)
+            printf("\n[Tool %s] → %s\n", tool_name, tool_result);
+            free(tool_result);
+            free(tool_name);
+            free(tool_args);
+        } else {
+            // normal assistant response
+            printf("\n[ShadowClaw] %s\n", assistant_msg);
+            blob_append(&arena, 3, msg_id++, assistant_msg, strlen(assistant_msg)+1);
+        }
+
+        cJSON_Delete(root);
+        free(response_json);
+
+        // save arena after each interaction
+        if (!arena_save(&arena, state_file)) {
+            fprintf(stderr, "warning: could not save state\n");
+        }
     }
 
-    // Final save on exit
-    save_state(shadow, "shadowclaw.bin");
+    shadow_arena_destroy(&arena);
     return 0;
 }
