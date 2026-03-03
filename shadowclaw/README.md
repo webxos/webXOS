@@ -240,18 +240,6 @@ Shadowclaw commands:
   /exit       Exit Shadowclaw
 ```
 
-You don’t need the LLM – you can type a tool block yourself and see the result immediately. For example:
-
-
-```text
-
-> ```tool
-{"tool":"list_dir","args":"."}
-
-```
-
-Shadowclaw will execute it and print the tool’s output.
-
 ## Notes
 
 -If Ollama is not running, you’ll see LLM call failed.
