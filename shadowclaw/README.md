@@ -246,7 +246,6 @@ Shadowclaw commands:
   /clear      Clear conversation history (keeps system prompt)
   /chat       Remind you that chat mode is active
   /exit       Exit Shadowclaw
-> /chat
 ```
 
 ## Notes
