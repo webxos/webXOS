@@ -331,7 +331,7 @@ This shows that tools are just functions; you can extend them to handle binary d
 
 ---
 
-- **Args are always a single string** to keep things dead simple.  
+- **Args are always a single string** to keep things simple.  
 - **Multiple values are encoded with delimiters** (like newline) – the tool and LLM agree on the format.  
 - **Shadowclaw’s niche** is minimalism: a single binary with persistent memory, running anywhere, with just enough tools to be genuinely useful.  
 
