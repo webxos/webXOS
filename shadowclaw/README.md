@@ -69,7 +69,7 @@ sudo apt install build-essential libcurl4-openssl-dev bc
 
 - **Change Ollama endpoint/model**: edit `ollama_endpoint` and `ollama_model` in `shadowclaw.c`.
 
-Find this line (474) in the shadowclaw.c file:
+Find this line (587) in the shadowclaw.c file:
 
   ```bash
   // --------------------------------------------------------------------
