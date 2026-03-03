@@ -159,11 +159,6 @@ Type any of these commands directly at the `>` prompt – they are handled witho
 
 All conversations and tool results are automatically saved to `shadowclaw.bin` and reloaded on restart.
 
-## Requirements
-
-- Linux with `gcc`, `make`, `libcurl`, and `bc`.
-- [Ollama](https://ollama.com/) (optional, for LLM features) with a model like `qwen2.5:0.5b`.
-
 ## Build
 
 ```bash
