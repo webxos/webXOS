@@ -198,10 +198,13 @@ To exit, press **Ctrl+D**.
 
 Shadowclaw processes tool calls by parsing JSON, where the args value is passed as a string to the function, executing it, and appending the result as a kind 5 blob for the next prompt. It supports a fallback where the model outputs args as an array (e.g., [arg1, arg2]), allowing for flexible input handling when standard JSON encoding fails. 
 
-  -Tool Call Flow: The agent parses the JSON block, executes the tool, and appends the result.
-  -Result Visibility: The tool output is visible to the model in the next prompt.
-  -Fallback Mechanism: If JSON parsing fails, Shadowclaw interprets args as an array.
-  -Alternative Tooling: In some scenarios, tool calls can be handled as a single string to avoid parsing errors. 
+-Tool Call Flow: The agent parses the JSON block, executes the tool, and appends the result.
+
+-Result Visibility: The tool output is visible to the model in the next prompt.
+
+-Fallback Mechanism: If JSON parsing fails, Shadowclaw interprets args as an array.
+
+-Alternative Tooling: In some scenarios, tool calls can be handled as a single string to avoid parsing errors. 
 
 This system helps in handling malformed JSON, which occasionally occurs with certain LLM providers, ensuring the tool call succeeds.
 
