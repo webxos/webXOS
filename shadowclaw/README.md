@@ -233,6 +233,22 @@ make
 
 Use the slash commands above to get started – even without Ollama running, you can explore the built‑in features.
 
+WHen your agent is running you should be able to use /help and see (example):
+
+```bash
+┌──(kali㉿kali)-[~/Downloads/shadowclaw]
+└─$ ./shadowclaw
+> /help
+Shadowclaw commands:
+  /help       Show this help
+  /tools      List available tools
+  /state      Show arena memory stats
+  /clear      Clear conversation history (keeps system prompt)
+  /chat       Remind you that chat mode is active
+  /exit       Exit Shadowclaw
+> /chat
+```
+
 ## Notes
 - The original LLM/tool functionality remains unchanged.
 - All warnings during compilation (from `cJSON.c`) are harmless and can be ignored.
