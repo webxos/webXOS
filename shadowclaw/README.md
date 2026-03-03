@@ -259,6 +259,86 @@ Shadowclaw will execute it and print the tool’s output.
 
 -All conversations and tool results are saved in shadowclaw.bin and reloaded on restart.
 
+---
+
+## How Tool Arguments Work
+
+When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function.  
+But we also support a fallback: if the model (like some older ones) outputs `args` as an array, e.g.:
+
+```json
+{"tool":"write_file","args":["notes.txt","Hello world"]}
+```
+
+Shadowclaw automatically **joins the array elements with spaces**, so the tool receives a single string `"notes.txt Hello world"`.  
+This makes the agent robust to different model behaviours to ensure:
+
+- **Simplicity** – most tools only need a single string argument (a command, a filename, a URL).  
+- **Flexibility** – if a tool needs multiple pieces of information (like `write_file` needing a filename **and** content), we use a simple delimiter (newline). The LLM can learn this pattern from the system prompt.  
+- **Lightweight Design** – no complex argument schemas, no extra JSON nesting. The entire tool call is tiny.
+
+---
+
+## Niche Use Cases of Shadowclaw
+
+Shadowclaw is designed for **minimal, self‑contained AI agents** running on resource‑constrained or air‑gapped systems.  
+Its toolset is deliberately small but powerful enough to automate many tasks without spawning heavy processes.
+
+| Tool | What it does | Example args | Unique Niche Use |
+|------|--------------|--------------|------------------|
+| `shell` | Executes any shell command | `"ls -la /home"` | Automate system maintenance, run scripts, control services on a headless Raspberry Pi or embedded Linux device. |
+| `read_file` | Reads a file from disk | `"/etc/passwd"` | Inspect configuration files, read logs, retrieve data for the LLM to analyse – all without a web interface. |
+| `write_file` | Writes content to a file (args: `filename\ncontent`) | `"notes.txt\nBuy milk"` | Create notes, write configuration files, save results – perfect for offline data logging. |
+| `http_get` | Fetches a URL (via libcurl) | `"https://api.example.com/data"` | Retrieve weather, fetch RSS feeds, call local REST APIs – even on devices with no browser, just a network stack. |
+| `math` | Evaluates an expression using `bc` | `"2 + 2 * 5"` | Let the LLM do arithmetic, unit conversions, or simple calculations without relying on external tools. |
+| `list_dir` | Lists directory contents | `"/home/user"` | Explore filesystem, find documents, check available storage – all natively, without forking a shell. |
+
+---
+
+## Real‑World Niche Examples
+
+### 1. Raspberry Pi Zero / IoT Sensor Node
+- **Tool used:** `shell` + `write_file`  
+- **Flow:** LLM asks to read a temperature sensor via a shell script, then logs the value to a file.  
+- **Why Shadowclaw?** Runs in <200KB RAM, no Python, no bloat. Persistent memory keeps the last readings.
+
+### 2. Air‑Gapped Engineering Workstation
+- **Tool used:** `http_get` + `math` + `read_file`  
+- **Flow:** Engineer asks for a component value calculation; LLM fetches a local datasheet via HTTP, reads a config file, does the math, and writes a report.  
+- **Why Shadowclaw?** No cloud, no internet required. All data stays on the machine.
+
+### 3. Embedded Router Automation
+- **Tool used:** `shell` + `list_dir`  
+- **Flow:** Network admin asks for a list of active interfaces; LLM runs `ifconfig` and parses the output, then suggests a config change.  
+- **Why Shadowclaw?** Tiny binary fits in router storage (often just a few MB). Uses curl for local API calls.
+
+### 4. Low‑Power Field Logger
+- **Tool used:** `write_file` + `math`  
+- **Flow:** A solar‑powered device collects environmental data; Shadowclaw can process and store it locally, then answer queries about trends.  
+- **Why Shadowclaw?** No database needed – just a binary and a single file (`shadowclaw.bin`) for persistence.
+
+---
+
+## Chaining Tools
+
+The agent can call multiple tools over several turns. For example:
+
+1. User: “What’s in my documents folder?”  
+2. LLM: calls `list_dir("~/Documents")` → sees a file `budget.xlsx`.  
+3. LLM: “I found a spreadsheet. Would you like me to read it?”  
+4. User: “Yes, show me the content.”  
+5. LLM: calls `read_file("~/Documents/budget.xlsx")` (but it’s binary – the tool returns raw data).  
+
+This shows that tools are just functions; you can extend them to handle binary data or more complex parsing as needed.
+
+---
+
+- **Args are always a single string** to keep things dead simple.  
+- **Multiple values are encoded with delimiters** (like newline) – the tool and LLM agree on the format.  
+- **Shadowclaw’s niche** is minimalism: a single binary with persistent memory, running anywhere, with just enough tools to be genuinely useful.  
+
+You can easily add new tools by editing the `tools` array – each new function opens up more automation possibilities for your unique environment.
+
 ## Credits
 
 - **Tsoding** – for the “insane shadow data trick” (the header‑before‑data arena idea).
