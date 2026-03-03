@@ -263,8 +263,7 @@ Shadowclaw will execute it and print the tool’s output.
 
 ## How Tool Arguments Work
 
-When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function.  
-Shadowclaw also supports a fallback: the model outputs `args` as an array, e.g.:
+When the LLM (or you) issues a tool call the JSON is parsed and the `args` value is passed **as a single string** to the corresponding tool function. Shadowclaw also supports a fallback: the model outputs `args` as an array, e.g.:
 
 ```json
 {"tool":"write_file","args":["notes.txt","Hello world"]}
