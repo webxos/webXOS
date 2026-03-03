@@ -318,7 +318,7 @@ Its toolset is deliberately small but powerful enough to automate many tasks wit
 - **curl** – HTTP requests to Ollama.
 - **Vibe Code** - xAI Grok 4.20 and Deepseek AI
 - **Openclaw**
-- 
+- **webXOS**
 ---
 
 ## License
