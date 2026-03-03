@@ -197,17 +197,6 @@ Type any of these commands directly at the `>` prompt – they are handled witho
 | `/chat`   | Remind you that you are already in chat mode (the default behaviour). |
 | `/exit`   | Quit Shadowclaw. |
 
-### New Tool: `list_dir`
-
-A lightweight native tool that lists the contents of a directory **without spawning a shell**.  
-Example usage (the LLM can produce this, or you can type it manually):
-
-````
-```tool
-{"tool":"list_dir","args":"."}
-```
-````
-
 ### Persistent Memory
 
 All conversations and tool results are automatically saved to `shadowclaw.bin` and reloaded on restart.
