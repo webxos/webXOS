@@ -65,17 +65,6 @@ sudo apt install build-essential libcurl4-openssl-dev bc
 
 ---
 
-Example tool invocation (the LLM must produce this):
-
-```bash
-tool
-{"tool":"shell","args":"ls -la"}
-```
-
-To exit, press **Ctrl+D**.
-
----
-
 Optional:
 
 - **Change Ollama endpoint/model**: edit `ollama_endpoint` and `ollama_model` in `shadowclaw.c`.
@@ -208,6 +197,8 @@ Shadowclaw commands:
   /chat       Remind you that chat mode is active
   /exit       Exit Shadowclaw
 ```
+
+To exit, press **Ctrl+D**.
 
 ## Notes
 
