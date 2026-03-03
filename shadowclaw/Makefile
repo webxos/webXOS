@@ -1,14 +1,22 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=gnu99 -fno-strict-aliasing -I.
-LIBS = -lcurl -lm
+CFLAGS = -O2 -Wall -Wextra -std=gnu99
+LDFLAGS = -lcurl -lm
 
-all: shadowclaw
+TARGET = shadowclaw
+OBJS = shadowclaw.o cJSON.o
 
-shadowclaw: shadowclaw.c cJSON.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+all: $(TARGET)
 
-strip: shadowclaw
-	strip shadowclaw
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f shadowclaw
+	rm -f $(OBJS) $(TARGET)
+
+strip: $(TARGET)
+	strip $(TARGET)
+
+.PHONY: all clean strip
