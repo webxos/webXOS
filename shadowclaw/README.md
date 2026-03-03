@@ -98,12 +98,10 @@ The executable `shadowclaw` will appear in the current directory.
 
 Example tool invocation (the LLM must produce this):
 
-````
-I need to list the current directory.
-```tool
+```bash
+tool
 {"tool":"shell","args":"ls -la"}
 ```
-````
 
 To exit, press **Ctrl+D**.
 
