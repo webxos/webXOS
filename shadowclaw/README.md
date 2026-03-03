@@ -250,13 +250,14 @@ text
 ```
 
 Shadowclaw will execute it and print the tool’s output.
-Notes
 
-    If Ollama is not running, you’ll see LLM call failed.
+## Notes
 
-    Tool arguments can be a JSON array – they will be joined with spaces (useful if your model outputs "args":["arg1","arg2"]).
+-If Ollama is not running, you’ll see LLM call failed.
 
-    All conversations and tool results are saved in shadowclaw.bin and reloaded on restart.
+-Tool arguments can be a JSON array – they will be joined with spaces (useful if your model outputs "args":["arg1","arg2"]).
+
+-All conversations and tool results are saved in shadowclaw.bin and reloaded on restart.
 
 ## Credits
 
