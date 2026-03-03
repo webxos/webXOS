@@ -252,11 +252,6 @@ Shadowclaw commands:
   /exit       Exit Shadowclaw
 ```
 
-## Notes
-- The original LLM/tool functionality remains unchanged.
-- All warnings during compilation (from `cJSON.c`) are harmless and can be ignored.
-- Locally you can still use Shadowclaw's built‑in commands and manually invoke tools via the ```tool syntax – those work without Ollama. The LLM features require a working Ollama connection.
-
 ## Credits
 
 - **Tsoding** – for the “insane shadow data trick” (the header‑before‑data arena idea).
