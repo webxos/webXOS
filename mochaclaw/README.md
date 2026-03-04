@@ -25,7 +25,7 @@ Mochaclaw is a single‑file CLI agent that runs entirely on your local machine.
 
 ---
 
-## ✨ Features
+## Features
 
 - **Truly local** – no data ever leaves your Debian box.
 - **Dual inference backends**:
@@ -193,6 +193,6 @@ Action: run_command({ "command": "ls -la ~" })
 | Agent never calls tools | Check the persona in `MOCHASOUL.md` – it must include the instruction to output `Action: ...`. |
 | Tool parsing fails | The regex expects exact format `Action: toolName({ "arg": "value" })`. If the model output differs, you may need to tweak the prompt. |
 
-## 📜 License
+## License
 
 MIT 
