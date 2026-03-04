@@ -47,6 +47,7 @@ Mochaclaw is a single‑file CLI agent that runs entirely on your local machine.
 ### Build
 
 ```bash
+cd ~/mochaclaw/ -The Folder you have the files located.
 npm install
 ```
 
