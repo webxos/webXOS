@@ -27,7 +27,6 @@ Mochaclaw is a single‑file CLI agent that runs entirely on your local machine.
 
 ## Features
 
-- **Truly local** – no data ever leaves your Debian box.
 - **Dual inference backends**:
   - `ollama` – use any Ollama model (default: `qwen2.5:0.5b`).
   - `transformers` – pure WASM execution via Transformers.js (no GPU needed).
