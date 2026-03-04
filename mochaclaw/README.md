@@ -1,0 +1,186 @@
+# MochaClaw ☕
+
+**Lightweight, local‑first AI agent for Debian**  
+*Privacy‑first automation with OpenClaw tactics, powered by Ollama or Transformers.js (WASM).*
+
+```
+                    ▖  ▖    ▌     ▜      
+                    ▛▖▞▌▛▌▛▘▛▌▀▌▛▘▐ ▀▌▌▌▌
+                    ▌▝ ▌▙▌▙▖▌▌█▌▙▖▐▖█▌▚▚▘
+                          M O C H A C L A W
+              Privacy-first Local AI Agent for Debian
+```
+
+MochaClaw is a single‑file CLI agent that runs entirely on your local machine. It uses **Ollama** (default) or **Transformers.js** (WASM) to execute AI workflows without any cloud dependencies. All state (persona, memory, journal) is stored in a single `MOCHASOUL.md` file – a unified soul that grows with every interaction.
+
+## ✨ Features
+
+- **Truly local** – no data ever leaves your Debian box.
+- **Dual inference backends**:
+  - `ollama` – use any Ollama model (default: `qwen2.5:0.5b`).
+  - `transformers` – pure WASM execution via Transformers.js (no GPU needed).
+- **OpenClaw‑style agent loop** – `Thought → Action → Observation` logged in `MOCHASOUL.md`.
+- **Built‑in tools** – execute shell commands, read/write files, update long‑term memory.
+- **Interactive & one‑shot modes** – chat with the agent or use it in scripts.
+- **Rich CLI** – color‑coded output, command menu, memory/journal viewers.
+- **Tiny footprint** – just 4 files: `mochaclaw`, `package.json`, `.env` (optional), and `MOCHASOUL.md`.
+
+### Prerequisites
+
+- **Node.js** v18+ (v22 recommended)
+- **Ollama** (if using the default backend) – [install from ollama.com](https://ollama.com/download/linux)
+- **Build tools** (only needed for native dependencies if you encounter errors)
+  ```bash
+  sudo apt update
+  sudo apt install build-essential python3 python3-pip -y
+  ```
+
+### Build
+
+```bash
+git clone https://github.com/yourusername/mochaclaw.git
+cd mochaclaw
+```
+
+Or simply create the files manually in a new directory:
+```bash
+mkdir -p ~/mochaclaw && cd ~/mochaclaw
+# ... copy mochaclaw, package.json, .env (optional) from the repository
+```
+
+### Install dependencies
+
+```bash
+npm install
+```
+
+Make the main script executable:
+
+```bash
+chmod +x mochaclaw
+```
+
+### Prepare Ollama
+
+```bash
+ollama serve          # run in a separate terminal or as a service
+ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
+```
+
+## Usage
+
+Just run `./mochaclaw`. You’ll see the banner and the prompt `mocha>`.
+
+```bash
+./mochaclaw
+```
+
+Type your requests normally. The agent will either answer directly or decide to use a tool.  
+Use the built‑in commands (starting with `/`) to control the session.
+
+### One‑shot mode
+
+Pass your query as an argument. The agent processes it, prints the result, and exits.
+
+```bash
+./mochaclaw "What files are in my home directory?"
+```
+
+## Commands
+
+| Command        | Aliases | Description |
+|----------------|---------|-------------|
+| `/help`        | `/h`    | Show this help menu. |
+| `/guide`       | `/g`    | Display detailed usage guide. |
+| `/memory`      | `/m`    | Show the current memory section of `MOCHASOUL.md`. |
+| `/journal`     | `/j`    | Show the most recent journal entries (Thought/Action/Observation). |
+| `/tools`       | `/t`    | List all available tools with example syntax. |
+| `/exit`        | `/quit` | Exit the interactive session. |
+
+## Tools
+
+The agent can invoke these tools by outputting `Action: toolName({ "arg": "value" })`.  
+The tool result is then fed back into the loop (and also logged in the journal).
+
+| Tool            | Description | Example |
+|-----------------|-------------|---------|
+| `run_command`   | Execute a shell command (5 sec timeout). | `Action: run_command({ "command": "ls -la ~" })` |
+| `read_file`     | Read a file from disk. | `Action: read_file({ "path": "/home/kali/.bashrc" })` |
+| `write_file`    | Write content to a file (creates/overwrites). | `Action: write_file({ "path": "./note.txt", "content": "Hello Mocha" })` |
+| `update_memory` | Add a fact to long‑term memory (appended to `# Memory`). | `Action: update_memory({ "content": "User likes dark mode" })` |
+
+## Configuration (`.env`)
+
+Create a `.env` file in the same directory to override defaults:
+
+```bash
+# Inference backend: "ollama" (default) or "transformers"
+INFERENCE_BACKEND=ollama
+
+# Ollama settings (only used if backend = ollama)
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:0.5b
+
+# Transformers.js model (only used if backend = transformers)
+TRANSFORMERS_MODEL=Xenova/phi-3-mini-4k-instruct
+```
+
+## The Soul File: `MOCHASOUL.md`
+
+This single Markdown file holds the agent’s entire persistent state. It is automatically created on first run with default content, but you can edit it anytime.
+
+```
+# Persona
+You are MochaClaw, a privacy-first AI assistant running locally on Debian.
+You have access to these tools: run_command, read_file, write_file, update_memory.
+When you need to perform an action, output exactly:
+
+Action: toolName({ "arg": "value" })
+
+Then wait for the observation. Otherwise, you may answer directly.
+
+# Memory
+- User likes dark mode.
+- The home directory contains Documents, Downloads, etc.
+
+# Journal
+
+## Thought
+User: What's in my home directory?
+I should use run_command to list files.
+Action: run_command({ "command": "ls -la ~" })
+
+**Action:** run_command
+
+**Observation:** {"success":true,"output":"total 48\ndrwxr-xr-x ..."}
+---
+```
+
+- **Persona** – the system prompt that defines the agent’s behaviour and tool‑calling format.
+- **Memory** – long‑term facts accumulated via `update_memory`.
+- **Journal** – chronological log of every `Thought → Action → Observation`.
+
+## Use Cases
+
+-Run MochaClaw offline to scan sensitive directories. Ask it to redact PII from documents using a local NER model (switch to `transformers` backend with a small BERT model). No data ever leaves your machine.
+
+-Set up a pre‑commit hook that calls MochaClaw to analyse your code diff and generate a `journal.md` entry documenting your changes. Keep a persistent memory of your project evolution.
+
+-Use the `update_memory` tool to store facts extracted from your browser history or markdown notes. Later, query your personal knowledge base without ever connecting to the cloud.
+
+-Combine MochaClaw with a simple WebSocket server (not included) to feed hardware metrics (CPU temp, disk usage) into the agent. Ask it to predict failures using a lightweight regression model.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `Cannot connect to Ollama` | Run `ollama serve` and ensure Ollama is listening on `http://localhost:11434`. |
+| `SyntaxError: Unexpected token` | Your Node.js version is too old. Upgrade to v18+. |
+| `Error: Cannot find module '...'` | Run `npm install` again. |
+| Native module build fails | Install build tools: `sudo apt install build-essential python3`. |
+| Agent never calls tools | Check the persona in `MOCHASOUL.md` – it must include the instruction to output `Action: ...`. |
+| Tool parsing fails | The regex expects exact format `Action: toolName({ "arg": "value" })`. If the model output differs, you may need to tweak the prompt. |
+
+## 📜 License
+
+MIT 
