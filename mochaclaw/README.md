@@ -43,6 +43,13 @@ Mochaclaw is a single‑file CLI agent that runs entirely on your local machine.
   sudo apt update
   sudo apt install build-essential python3 python3-pip -y
   ```
+  
+### Prepare Ollama
+
+```bash
+ollama serve          # run in a separate terminal or as a service
+ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
+```
 
 ### Build
 
@@ -55,13 +62,6 @@ Make the main script executable:
 
 ```bash
 chmod +x mochaclaw
-```
-
-### Prepare Ollama
-
-```bash
-ollama serve          # run in a separate terminal or as a service
-ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
 ```
 
 ## Usage
