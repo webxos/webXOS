@@ -33,8 +33,6 @@ Mochaclaw is a single‑file CLI agent that runs entirely on your local machine.
 - **OpenClaw‑style agent loop** – `Thought → Action → Observation` logged in `MOCHASOUL.md`.
 - **Built‑in tools** – execute shell commands, read/write files, update long‑term memory.
 - **Interactive & one‑shot modes** – chat with the agent or use it in scripts.
-- **Rich CLI** – color‑coded output, command menu, memory/journal viewers.
-- **Tiny footprint** – just 4 files: `mochaclaw`, `package.json`, `.env` (optional), and `MOCHASOUL.md`.
 
 ### Prerequisites
 
