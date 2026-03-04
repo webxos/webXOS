@@ -1,4 +1,4 @@
-# MochaClaw ☕
+# Mochaclaw ☕
 
 **Lightweight, local‑first AI agent for Debian**  
 *Privacy‑first automation with OpenClaw tactics, powered by Ollama or Transformers.js (WASM).*
@@ -11,7 +11,7 @@
               Privacy-first Local AI Agent for Debian
 ```
 
-MochaClaw is a single‑file CLI agent that runs entirely on your local machine. It uses **Ollama** (default) or **Transformers.js** (WASM) to execute AI workflows without any cloud dependencies. All state (persona, memory, journal) is stored in a single `MOCHASOUL.md` file – a unified soul that grows with every interaction.
+Mochaclaw is a single‑file CLI agent that runs entirely on your local machine. It uses **Ollama** (default) or **Transformers.js** (WASM) to execute AI workflows without any cloud dependencies. All state (persona, memory, journal) is stored in a single `MOCHASOUL.md` file – a unified soul that grows with every interaction.
 
 ## ✨ Features
 
