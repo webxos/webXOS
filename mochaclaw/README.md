@@ -128,7 +128,7 @@ INFERENCE_BACKEND=ollama
 
 # Ollama settings (only used if backend = ollama)
 OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:0.5b
+OLLAMA_MODEL=qwen2.5:0.5b (adjust to your own custom model)
 
 # Transformers.js model (only used if backend = transformers)
 TRANSFORMERS_MODEL=Xenova/phi-3-mini-4k-instruct
