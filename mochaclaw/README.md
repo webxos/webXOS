@@ -51,7 +51,7 @@ ollama serve          # run in a separate terminal or as a service
 ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
 ```
 
-## Model Setup:
+## Custom Model Setup:
 
 Line 13 of the mochaclaw file:
 
