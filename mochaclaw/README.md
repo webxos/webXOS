@@ -53,6 +53,8 @@ ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
 
 ## Model Setup:
 
+Line 13 of the mochaclaw file:
+
 ```
 // ----------------------------------------------------------------------
 // 1. Configuration
