@@ -1,5 +1,5 @@
 
-# PygmyClaw v1.0 (Testing)
+# 🐍 PygmyClaw v1.0 (Testing)
 ---
 
 ```
@@ -22,6 +22,14 @@
 - **Tool‑calling Architecture** – Tools run in a separate subprocess (`pygmyclaw_multitool.py`) for isolation.
 - **Interactive REPL** – Chat with the agent and let it decide when to use tools.
 - **Command‑line Interface** – Manage instances, queue, and generation with simple subcommands.
+
+pygmyclaw/
+├── pygmyclaw.py                # Main agent with speculative decoding and queue
+├── pygmyclaw_multitool.py      # Tool implementations (echo, sys_info, log_error, etc.)
+├── config.json                 # Configuration file (model, ports, queue settings)
+├── README.md                    # Documentation (this file)
+├── error_log.json               # Created at runtime when errors occur (optional)
+└── task_queue.json              # Created when using file-based queue (optional)
 
 ---
 
@@ -165,5 +173,4 @@ The tool runs in a separate process, so it is isolated from the main agent.
 
 ## License
 
-This project is open source under the MIT License. See the [LICENSE](LICENSE) file for details.
-```
+This project is open source under the MIT License.
