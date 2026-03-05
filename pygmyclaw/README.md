@@ -3,12 +3,10 @@
 ---
 
 ```
-__________                                   .__                 
-\______   \___.__. ____   _____ ___.__. ____ |  | _____ __  _  __
- |     ___<   |  |/ ___\ /     <   |  |/ ___\|  | \__  \\ \/ \/ /
- |    |    \___  / /_/  >  Y Y  \___  \  \___|  |__/ __ \\     / 
- |____|    / ____\___  /|__|_|  / ____|\___  >____(____  /\/\_/  
-           \/   /_____/       \/\/         \/          \/        
+▄▖           ▜      
+▙▌▌▌▛▌▛▛▌▌▌▛▘▐ ▀▌▌▌▌
+▌ ▙▌▙▌▌▌▌▙▌▙▖▐▖█▌▚▚▘
+  ▄▌▄▌   ▄▌ 
 ```
 
 **PygmyClaw** is a lightweight AI assistant that leverages **speculative decoding** via multiple Ollama instances to accelerate text generation. It features a persistent task queue (Redis or file‑based) and a modular tool system implemented in a separate Python script.
