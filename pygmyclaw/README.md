@@ -23,6 +23,7 @@
 - **Interactive REPL** – Chat with the agent and let it decide when to use tools.
 - **Command‑line Interface** – Manage instances, queue, and generation with simple subcommands.
 
+```
 pygmyclaw/
 ├── pygmyclaw.py                # Main agent with speculative decoding and queue
 ├── pygmyclaw_multitool.py      # Tool implementations (echo, sys_info, log_error, etc.)
@@ -30,6 +31,7 @@ pygmyclaw/
 ├── README.md                    # Documentation (this file)
 ├── error_log.json               # Created at runtime when errors occur (optional)
 └── task_queue.json              # Created when using file-based queue (optional)
+```
 
 ---
 
