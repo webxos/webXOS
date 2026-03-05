@@ -3,29 +3,13 @@
 ---
 <div style="font-size:6pt; line-height:1.2;">
 
-PPPPPPPPPPPPPPPPP                                                                                                             lllllll                                                         
-P::::::::::::::::P                                                                                                            l:::::l                                                         
-P::::::PPPPPP:::::P                                                                                                           l:::::l                                                         
-PP:::::P     P:::::P                                                                                                          l:::::l                                                         
-  P::::P     P:::::Pyyyyyyy           yyyyyyyggggggggg   ggggg   mmmmmmm    mmmmmmm yyyyyyy           yyyyyyy cccccccccccccccc l::::l   aaaaaaaaaaaaawwwwwww           wwwww           wwwwwww
-  P::::P     P:::::P y:::::y         y:::::yg:::::::::ggg::::g mm:::::::m  m:::::::mmy:::::y         y:::::ycc:::::::::::::::c l::::l   a::::::::::::aw:::::w         w:::::w         w:::::w 
-  P::::PPPPPP:::::P   y:::::y       y:::::yg:::::::::::::::::gm::::::::::mm::::::::::my:::::y       y:::::yc:::::::::::::::::c l::::l   aaaaaaaaa:::::aw:::::w       w:::::::w       w:::::w  
-  P:::::::::::::PP     y:::::y     y:::::yg::::::ggggg::::::ggm::::::::::::::::::::::m y:::::y     y:::::yc:::::::cccccc:::::c l::::l            a::::a w:::::w     w:::::::::w     w:::::w   
-  P::::PPPPPPPPP        y:::::y   y:::::y g:::::g     g:::::g m:::::mmm::::::mmm:::::m  y:::::y   y:::::y c::::::c     ccccccc l::::l     aaaaaaa:::::a  w:::::w   w:::::w:::::w   w:::::w    
-  P::::P                 y:::::y y:::::y  g:::::g     g:::::g m::::m   m::::m   m::::m   y:::::y y:::::y  c:::::c              l::::l   aa::::::::::::a   w:::::w w:::::w w:::::w w:::::w     
-  P::::P                  y:::::y:::::y   g:::::g     g:::::g m::::m   m::::m   m::::m    y:::::y:::::y   c:::::c              l::::l  a::::aaaa::::::a    w:::::w:::::w   w:::::w:::::w      
-  P::::P                   y:::::::::y    g::::::g    g:::::g m::::m   m::::m   m::::m     y:::::::::y    c::::::c     ccccccc l::::l a::::a    a:::::a     w:::::::::w     w:::::::::w       
-PP::::::PP                  y:::::::y     g:::::::ggggg:::::g m::::m   m::::m   m::::m      y:::::::y     c:::::::cccccc:::::cl::::::la::::a    a:::::a      w:::::::w       w:::::::w        
-P::::::::P                   y:::::y       g::::::::::::::::g m::::m   m::::m   m::::m       y:::::y       c:::::::::::::::::cl::::::la:::::aaaa::::::a       w:::::w         w:::::w         
-P::::::::P                  y:::::y         gg::::::::::::::g m::::m   m::::m   m::::m      y:::::y         cc:::::::::::::::cl::::::l a::::::::::aa:::a       w:::w           w:::w          
-PPPPPPPPPP                 y:::::y            gggggggg::::::g mmmmmm   mmmmmm   mmmmmm     y:::::y            ccccccccccccccccllllllll  aaaaaaaaaa  aaaa        www             www           
-                          y:::::y                     g:::::g                             y:::::y                                                                                             
-                         y:::::y          gggggg      g:::::g                            y:::::y                                                                                              
-                        y:::::y           g:::::gg   gg:::::g                           y:::::y                                                                                               
-                       y:::::y             g::::::ggg:::::::g                          y:::::y                                                                                                
-                      yyyyyyy               gg:::::::::::::g                          yyyyyyy                                                                                                 
-                                              ggg::::::ggg                                                                                                                                    
-                                                 gggggg                                                                                                                                       
+__________                                   .__                 
+\______   \___.__. ____   _____ ___.__. ____ |  | _____ __  _  __
+ |     ___<   |  |/ ___\ /     <   |  |/ ___\|  | \__  \\ \/ \/ /
+ |    |    \___  / /_/  >  Y Y  \___  \  \___|  |__/ __ \\     / 
+ |____|    / ____\___  /|__|_|  / ____|\___  >____(____  /\/\_/  
+           \/   /_____/       \/\/         \/          \/        
+                                                
 </div>
 
 **PygmyClaw** is a lightweight AI assistant that leverages **speculative decoding** via multiple Ollama instances to accelerate text generation. It features a persistent task queue (Redis or file‑based) and a modular tool system implemented in a separate Python script.
