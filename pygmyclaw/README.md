@@ -11,7 +11,7 @@
       /____//____/          /____/                                                
 ```
 
-**PygmyClaw** is a lightweight Py based AI assistant that leverages **speculative decoding** via multiple Ollama instances to accelerate text generation. It features a persistent task queue (Redis or file‑based) and a modular tool system implemented in a separate Python script.
+**PygmyClaw** is a lightweight Py based openclaw clone assistant that leverages **speculative decoding** via multiple Ollama instances to accelerate text generation. It features a persistent task queue (Redis or file‑based) and a modular tool system implemented in a separate Python script.
 
 ---
 
