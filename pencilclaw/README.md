@@ -47,7 +47,6 @@ All necessary files for PENCILCLAW are contained within the `/home/kali/pencilcl
 
 ## Requirements
 
-- **C++17** compiler (g++ recommended)
 - **libcurl** development libraries
 - **cJSON** library
 - **Ollama** installed and running
