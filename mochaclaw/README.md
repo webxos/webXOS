@@ -51,6 +51,17 @@ ollama serve          # run in a separate terminal or as a service
 ollama pull qwen2.5:0.5b   # or any Ollama model you prefer
 ```
 
+## Model Setup:
+
+```
+// ----------------------------------------------------------------------
+// 1. Configuration
+const SOUL_FILE = path.join(process.cwd(), 'MOCHASOUL.md');
+const BACKEND = process.env.INFERENCE_BACKEND || 'ollama';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:0.5b';
+```
+
 ### Build
 
 ```bash
