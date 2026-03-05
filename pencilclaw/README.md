@@ -82,6 +82,15 @@ ollama serve &   # start the service
 ollama pull qwen2.5:0.5b   # or another model of your choice
 ```
 
+## Custom Models
+
+Edit line 36 of the pencilclaw.cpp file:
+
+```
+    // Model name – change this to match your installed model (e.g., "llama3", "qwen2.5", "mistral")
+    const std::string MODEL_NAME = "qwen2.5:0.5b";
+```
+
 ### 4. Compile PENCILCLAW
 Place the source files in the same directory and compile:
 ```bash
