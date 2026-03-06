@@ -11,7 +11,7 @@
       /____//____/          /____/                                                
 ```
 
-**PygmyClaw** is a compact Py based openclaw clone that features a persistent task queue and a modular tool system.
+**PygmyClaw** is a compact Py based agent harness that features a persistent task queue and a modular tool system.
 
 ---
 
