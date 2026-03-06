@@ -9,7 +9,7 @@
 ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝╚══════╝ ╚═════╝╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ 
 ```
 
-**PENCILCLAW** is a C++ command-line agent harness that turns your local [Ollama](https://ollama.com/) instance into a creative writing partner with the ability to execute generated C++ code. It follows a simple ADA-style command interface - perfect for writers, tinkerers, and AI enthusiasts who want to keep their data private and their workflows offline.
+**PENCILCLAW** is a C++ based agent harness that turns your local [Ollama](https://ollama.com/) instance into a creative writing partner with the ability to execute generated C++ code. It follows a simple ADA-style command interface - perfect for writers, tinkerers, and AI enthusiasts who want to keep their data private and their workflows offline.
 
 ---
 
