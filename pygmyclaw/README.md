@@ -139,6 +139,12 @@ Edit `config.json` to suit your environment:
 
 ## Running PygmyClaw
 
+### cd
+
+```bash
+cd ~/pygmyclaw/  -The folder you have the files located
+```
+
 ### REPL Mode
 
 The default mode is an interactive REPL (read‑eval‑print loop). Simply run:
