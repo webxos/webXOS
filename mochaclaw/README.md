@@ -1,4 +1,4 @@
-# Mochaclaw v1.0 (Testing) ☕
+# ☕ Mochaclaw v1.0 (Testing) 
 
 **Lightweight, local‑first AI agent for Debian**  
 *Privacy‑first automation with OpenClaw tactics, powered by Ollama or Transformers.js (WASM).*
