@@ -2,12 +2,12 @@
 # 🐍 PygmyClaw v1.3 (Testing)
 ---
 
-```
+
 ▄▖           ▜      
 ▙▌▌▌▛▌▛▛▌▌▌▛▘▐ ▀▌▌▌▌
 ▌ ▙▌▙▌▌▌▌▙▌▙▖▐▖█▌▚▚▘
   ▄▌▄▌   ▄▌                                 
-```
+
 
 **PygmyClaw** is a compact Py based agent harness that features a persistent task queue and a modular tool system.
 
