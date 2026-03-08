@@ -28,9 +28,6 @@ pygmyclaw/
 ├── pygmyclaw.py                # Main agent with speculative decoding and queue
 ├── pygmyclaw_multitool.py      # Tool implementations (echo, sys_info, log_error, etc.)
 ├── config.json                 # Configuration file (model, ports, queue settings)
-├── README.md                    # Documentation (this file)
-├── error_log.json               # Created at runtime when errors occur (optional)
-└── task_queue.json              # Created when using file-based queue (optional)
 ```
 
 ---
