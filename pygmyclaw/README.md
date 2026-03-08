@@ -139,16 +139,9 @@ Edit `config.json` to suit your environment:
 
 ## Running PygmyClaw
 
-### Run
-
 ```bash
 cd /home/kali/pygmyclaw 
 make clean && make
-python3 pygmyclaw.py
-```
-then
-
-```bash
 python3 pygmyclaw.py
 ```
 
