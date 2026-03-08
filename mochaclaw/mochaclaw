@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // MochaClaw – Lightweight Local AI Agent (CommonJS, custom ASCII banner)
-// All state in MOCHASOUL.md | Enhanced CLI with help & error handling
+// Fixed tool parsing, ReAct prompt, and argument validation
 
 const fs = require('fs');
 const path = require('path');
@@ -28,7 +28,6 @@ const colors = {
   blue: '\x1b[34m',
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
-  // Custom brown/coffee colors (ANSI 256)
   mocha: '\x1b[38;5;94m',      // rich mocha brown
   latte: '\x1b[38;5;130m',     // lighter coffee
   espresso: '\x1b[38;5;52m',   // dark espresso
@@ -53,12 +52,7 @@ function readSoul() {
   if (!fs.existsSync(SOUL_FILE)) {
     const defaultSoul = `# Persona
 You are MochaClaw, a privacy-first AI assistant running locally on Debian.
-You have access to these tools: run_command, read_file, write_file, update_memory.
-When you need to perform an action, output exactly:
-
-Action: toolName({ "arg": "value" })
-
-Then wait for the observation. Otherwise, you may answer directly.
+You have access to tools that let you interact with the system.
 
 # Memory
 - Initialized on first run.
@@ -105,7 +99,34 @@ function appendToJournal(thought, action, observation) {
 }
 
 // ----------------------------------------------------------------------
-// 4. Tool Registry
+// 4. Tool Registry with argument normalization & validation
+const REQUIRED_ARGS = {
+  run_command: ['command'],
+  read_file: ['path'],      // we also accept 'file' as alias
+  write_file: ['path', 'content'],
+  update_memory: ['content']
+};
+
+function normalizeArgs(toolName, args) {
+  // Aliases: if 'file' is provided but 'path' is not, copy it over
+  if (toolName === 'read_file' || toolName === 'write_file') {
+    if (args.file !== undefined && args.path === undefined) {
+      args.path = args.file;
+    }
+  }
+  return args;
+}
+
+function validateArgs(toolName, args) {
+  const required = REQUIRED_ARGS[toolName];
+  if (!required) return { valid: true, args }; // tool exists, no required list
+  const missing = required.filter(key => args[key] === undefined);
+  if (missing.length > 0) {
+    return { valid: false, error: `Missing required argument(s): ${missing.join(', ')}` };
+  }
+  return { valid: true, args };
+}
+
 const tools = {
   run_command: ({ command }) => {
     try {
@@ -170,28 +191,84 @@ async function generate(prompt, options = {}) {
     const pipe = await pipeline('text-generation', process.env.TRANSFORMERS_MODEL || 'Xenova/phi-3-mini-4k-instruct');
     const result = await pipe(prompt, {
       max_new_tokens: options.max_new_tokens || 256,
-      // stop_sequence is not supported; use eos_token_id if needed
     });
     return result[0].generated_text;
   }
 }
 
 // ----------------------------------------------------------------------
-// 6. Agent Loop (with fixed regex)
+// 6. Action parsing (robust)
+function parseAction(text) {
+  const match = text.match(/Action:\s*(\w+)\s*\(\s*(\{.*?\})\s*\)/s);
+  if (!match) return null;
+  const [_, toolName, argsStr] = match;
+  try {
+    const args = JSON.parse(argsStr);
+    return { toolName, args };
+  } catch (e) {
+    return null; // malformed JSON
+  }
+}
+
+// ----------------------------------------------------------------------
+// 7. Build ReAct prompt
+function buildPrompt(persona, memory, userInput) {
+  const toolDescriptions = `
+You have access to the following tools:
+- run_command({ "command": "string" }) – Execute a shell command.
+- read_file({ "path": "string" }) – Read a file's contents. (You may also use "file" as the key.)
+- write_file({ "path": "string", "content": "string" }) – Write content to a file.
+- update_memory({ "content": "string" }) – Store a fact in long-term memory.
+
+When you need to use a tool, output exactly:
+Action: toolName({ "arg": "value" })
+
+Otherwise, answer directly.
+
+Here is an example:
+User: What's in my current directory?
+Thought: I need to list files. I can use the run_command tool.
+Action: run_command({ "command": "ls -la" })
+Observation: {"success":true,"output":"total 32\\ndrwxr-xr-x 2 user user 4096 ..."}
+Answer: The directory contains ...
+
+Now continue the conversation.
+`;
+
+  const system = `${persona}\n\n${toolDescriptions}\nRecent memory:\n${memory.slice(-500)}`;
+  return `${system}\n\nUser: ${userInput}\nThought:`;
+}
+
+// ----------------------------------------------------------------------
+// 8. Agent Step
 async function runAgentStep(userInput) {
   const soul = readSoul();
-  const context = `${soul.persona}\n\nRecent memory:\n${soul.memory.slice(-500)}\n\nUser: ${userInput}\nThought:`;
+  const prompt = buildPrompt(soul.persona, soul.memory, userInput);
 
-  const response = await generate(context, { max_new_tokens: 256, stop_sequence: 'Observation:' });
+  const response = await generate(prompt, { max_new_tokens: 256, stop_sequence: 'Observation:' });
 
-  // Fixed regex: capture only up to first closing parenthesis of the JSON object
-  const actionMatch = response.match(/Action:\s*(\w+)\s*\(\s*({[^}]*})\s*\)/s);
-  if (actionMatch) {
-    const [_, toolName, argsJson] = actionMatch;
+  // Try to parse action
+  const parsed = parseAction(response);
+  if (parsed) {
+    let { toolName, args } = parsed;
+    // Normalize argument names (e.g., accept 'file' as alias for 'path')
+    args = normalizeArgs(toolName, args);
+    // Validate required arguments
+    const validation = validateArgs(toolName, args);
+    if (!validation.valid) {
+      const errorObs = { error: `Tool call validation failed: ${validation.error}` };
+      appendToJournal(response, toolName, JSON.stringify(errorObs));
+      return { thought: response, action: toolName, observation: errorObs };
+    }
+
+    const tool = tools[toolName];
+    if (!tool) {
+      const errorObs = { error: `Tool "${toolName}" not found` };
+      appendToJournal(response, toolName, JSON.stringify(errorObs));
+      return { thought: response, action: toolName, observation: errorObs };
+    }
+
     try {
-      const args = JSON.parse(argsJson);
-      const tool = tools[toolName];
-      if (!tool) throw new Error(`Tool ${toolName} not found`);
       const observation = tool(args);
       const obsStr = JSON.stringify(observation);
       appendToJournal(response, toolName, obsStr);
@@ -203,12 +280,13 @@ async function runAgentStep(userInput) {
     }
   }
 
+  // No action – treat as direct answer
   appendToJournal(response, 'none', '');
   return { answer: response };
 }
 
 // ----------------------------------------------------------------------
-// 7. Interactive Commands
+// 9. Interactive Commands (unchanged, but kept for completeness)
 function showHelp() {
   console.log(`
 ${colors.bright}Available commands:${colors.reset}
@@ -263,11 +341,11 @@ ${colors.latte}run_command${colors.reset}
   Example: Action: run_command({ "command": "ls -la ~" })
 
 ${colors.latte}read_file${colors.reset}
-  Read a file from disk.
+  Read a file from disk. You can use "path" or "file" as the key.
   Example: Action: read_file({ "path": "/home/kali/.bashrc" })
 
 ${colors.latte}write_file${colors.reset}
-  Write content to a file (creates/overwrites).
+  Write content to a file (creates/overwrites). Use "path" (or "file") and "content".
   Example: Action: write_file({ "path": "./note.txt", "content": "Hello Mocha" })
 
 ${colors.latte}update_memory${colors.reset}
@@ -277,11 +355,10 @@ ${colors.latte}update_memory${colors.reset}
 }
 
 // ----------------------------------------------------------------------
-// 8. Main – wrapped in async function
+// 10. Main
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
-    // Interactive mode
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -291,7 +368,6 @@ async function main() {
     showBanner();
     console.log(`${colors.green}Type /help for available commands.${colors.reset}\n`);
 
-    // Check Ollama connectivity at start
     if (BACKEND === 'ollama') {
       try {
         await axios.get(`${OLLAMA_URL}/api/tags`);
@@ -355,7 +431,6 @@ async function main() {
       process.exit(0);
     });
   } else {
-    // One-shot mode
     const query = args.join(' ');
     try {
       const result = await runAgentStep(query);
@@ -371,5 +446,4 @@ async function main() {
   }
 }
 
-// Start the app
 main().catch(console.error);
