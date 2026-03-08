@@ -50,7 +50,7 @@ All communication is via JSON. The agent builds a system prompt describing the a
 
 - **Python 3.8+**
 - **Ollama** installed and running (with at least one model pulled).  
-  - Recommended model: `qwen2.5:0.5b` (small and fast) or any model you prefer.
+  - Recommended smaller model: `qwen2.5:0.5b` (small and fast) or any model you prefer.
 - Optional but recommended:
   - `psutil` – for detailed heartbeat stats.
   - `dateparser` – for flexible time specifications in scheduler.
