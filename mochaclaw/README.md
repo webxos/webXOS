@@ -191,22 +191,7 @@ Action: run_command({ "command": "ls -la ~" })
 | Agent never calls tools | Check the persona in `MOCHASOUL.md` – it must include the instruction to output `Action: ...`. |
 | Tool parsing fails | The regex expects exact format `Action: toolName({ "arg": "value" })`. If the model output differs, you may need to tweak the prompt. |
 
-## Talking to the Agent
-
-You can ask MochaClaw anything in natural language. The agent will:
-
-    Answer directly if no tool is needed.
-
-    Invoke a tool by outputting a line in the exact format:
-    text
-
-Action: toolName({ "arg": "value" })
-
-    Wait for the observation (the tool result) and then continue.
-
-The agent’s “thought process” and tool calls are recorded in the Journal section of MOCHASOUL.md. You can review them at any time with /journal.
-
-Available Tools
+## Available Tools
 
 ### run_command
 
