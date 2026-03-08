@@ -191,6 +191,90 @@ Action: run_command({ "command": "ls -la ~" })
 | Agent never calls tools | Check the persona in `MOCHASOUL.md` – it must include the instruction to output `Action: ...`. |
 | Tool parsing fails | The regex expects exact format `Action: toolName({ "arg": "value" })`. If the model output differs, you may need to tweak the prompt. |
 
+## Talking to the Agent
+
+You can ask MochaClaw anything in natural language. The agent will:
+
+    Answer directly if no tool is needed.
+
+    Invoke a tool by outputting a line in the exact format:
+    text
+
+Action: toolName({ "arg": "value" })
+
+    Wait for the observation (the tool result) and then continue.
+
+The agent’s “thought process” and tool calls are recorded in the Journal section of MOCHASOUL.md. You can review them at any time with /journal.
+
+Available Tools
+
+### run_command
+
+Executes a shell command (with a 5‑second timeout).
+Arguments: command (string)
+
+### read_file
+
+Reads the contents of a file.
+Arguments: path or file (string)
+
+### update_memory
+
+Adds a fact to the long‑term memory section of MOCHASOUL.md.
+Arguments: content (string)
+
+## Example Conversations
+
+### Using a tool – list directory contents
+text
+
+mocha> Show me what's in my current folder.
+MochaClaw thinking...
+Agent: I'll list the files for you.
+Action: run_command({ "command": "ls -la" })
+Observation: {"success":true,"output":"total 48\ndrwxr-xr-x 3 user user 4096 ..."}
+Answer: The directory contains mochaclaw, package.json, .env, and MOCHASOUL.md.
+
+### Read a file
+text
+
+mocha> Can you read the file datetime.sh for me?
+MochaClaw thinking...
+Action: read_file({ "file": "datetime.sh" })
+Observation: {"success":true,"data":"#!/bin/bash\necho \"Current date: $(date)\"\n"}
+Answer: Here's the content of datetime.sh:
+#!/bin/bash
+echo "Current date: $(date)"
+
+### Write a file and then verify
+text
+
+mocha> Create a file called test.txt with the text "Hello from MochaClaw".
+MochaClaw thinking...
+Action: write_file({ "path": "test.txt", "content": "Hello from MochaClaw" })
+Observation: {"success":true}
+Answer: File test.txt has been created.
+
+mocha> Now read test.txt.
+MochaClaw thinking...
+Action: read_file({ "file": "test.txt" })
+Observation: {"success":true,"data":"Hello from MochaClaw"}
+Answer: The file contains: Hello from MochaClaw
+
+### Update memory
+text
+
+mocha> Remember that I like coffee.
+MochaClaw thinking...
+Action: update_memory({ "content": "User likes coffee" })
+Observation: {"success":true,"status":"Memory updated"}
+Answer: I've stored that in my memory.
+
+mocha> /memory
+Current Memory:
+- User likes coffee
+
+
 ## License
 
-MIT 
+MIT
