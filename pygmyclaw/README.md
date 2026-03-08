@@ -37,7 +37,7 @@ pygmyclaw/
 
 # PygmyClaw v1.3 Update:
 
-PygmyClaw is a compact AI agent that combines a local language model (via Ollama) with a set of powerful Python tools. It supports **multi‑instance speculative decoding** for faster generation, a **persistent task queue** (Redis or file‑based), and an integrated **scheduler** for cron‑like jobs. This guide will help you set up and use all the enhanced features.
+The v1.3 update combines the local language model with a set of powerful Python tools. It supports **multi‑instance speculative decoding** for faster generation, a **persistent task queue** (Redis or file‑based), and an integrated **scheduler** for cron‑like jobs. This guide will help you set up and use all the enhanced features.
 
 - **`pygmyclaw.py`** – the main agent that interacts with Ollama, manages instances, queues, and the scheduler.
 - **`pygmyclaw_multitool.py`** – a separate process that executes actual tool functions (heartbeat, file I/O, scheduling, etc.). The agent calls it via `subprocess`.
