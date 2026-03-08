@@ -144,6 +144,11 @@ Edit `config.json` to suit your environment:
 ```bash
 cd ~/pygmyclaw/  -The folder you have the files located
 ```
+then
+
+```bash
+python3 pygmyclaw.py
+```
 
 ### REPL Mode
 
