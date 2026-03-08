@@ -139,10 +139,12 @@ Edit `config.json` to suit your environment:
 
 ## Running PygmyClaw
 
-### cd
+### Run
 
 ```bash
-cd ~/pygmyclaw/  -The folder you have the files located
+cd /home/kali/pygmyclaw 
+make clean && make
+python3 pygmyclaw.py
 ```
 then
 
