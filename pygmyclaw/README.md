@@ -140,7 +140,7 @@ Edit `config.json` to suit your environment:
 ## Running PygmyClaw
 
 ```bash
-cd /home/kali/pygmyclaw 
+cd ~/pygmyclaw    -The folder you have the files located
 make clean && make
 python3 pygmyclaw.py
 ```
