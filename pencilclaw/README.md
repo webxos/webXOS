@@ -1,5 +1,5 @@
-# ✏️ Pencilclaw v1.0 (Testing) 
----
+# ✏️ PENCILCLAW – Autonomous C++ Coding Agent
+
 ```
 ██████╗ ███████╗███╗   ██╗ ██████╗██╗██╗     ██████╗██╗      █████╗ ██╗    ██╗
 ██╔══██╗██╔════╝████╗  ██║██╔════╝██║██║    ██╔════╝██║     ██╔══██╗██║    ██║
@@ -9,48 +9,53 @@
 ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝╚══════╝ ╚═════╝╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ 
 ```
 
-**PENCILCLAW** is a C++ based agent harness that turns your local [Ollama](https://ollama.com/) instance into a creative writing partner with the ability to execute generated C++ code. It follows a simple ADA-style command interface - perfect for writers, tinkerers, and AI enthusiasts who want to keep their data private and their workflows offline.
+**PENCILCLAW** is a C++‑based autonomous coding agent that harnesses your local [Ollama](https://ollama.com/) instance to generate, manage, and execute C++ code. It features a persistent task system, Git integration, and a secure execution environment – all running offline with complete privacy.
 
 ---
 
 ## Features
 
-- **Story & Poem Generation** - Use `/STORY` or `/POEM` with a title/subject to get creative text from your local LLM.
-- **Book Continuation** - The `/BOOK` command appends new chapters to a running `book.txt`, maintaining context from previous content.
-- **Code Execution** - If the AI responds with a C++ code block (triple backticks), `/EXECUTE` compiles and runs it - ideal for prototyping or exploring AI-generated algorithms.
-- **Session Logging** - All interactions are saved in `pencil_data/session.log` for later reference.
-- **Workspace Isolation** - Everything lives in the `./pencil_data/` folder; temporary files are cleaned up after execution.
-- **Security Awareness** - Includes filename sanitisation and a confirmation prompt before running any AI-generated code.
+- **Code Generation (`/CODE`)** – Generate C++ code for any idea, automatically saved as a `.txt` file.
+- **Autonomous Tasks (`/TASK`)** – Start a long‑running coding goal; the agent continues working on it in the background via heartbeat.
+- **Task Management** – View status (`/TASK_STATUS`) and stop tasks (`/STOP_TASK`).
+- **Code Execution (`/EXECUTE`)** – Compile and run the last generated code block (with safety confirmation).
+- **Git Integration** – Every saved file is automatically committed to a local Git repository inside `pencil_data/`.
+- **Heartbeat & Keep‑Alive** – Keeps the Ollama model loaded and continues active tasks periodically.
+- **Secure by Design** – Command injection prevented, path sanitisation, explicit confirmation before running AI‑generated code.
+- **Natural Language Interface** – Commands like *"write code for a fibonacci function"* are understood.
 
 ---
 
 ## Project Structure
 
-All necessary files for PENCILCLAW are contained within the `/home/kali/pencilclaw/` directory. Below is the complete tree:
-
 ```
 /home/kali/pencilclaw/
 ├── pencilclaw.cpp          # Main program source
-├── pencil_utils.hpp        # Workspace and template helpers
-├── pencilclaw              # Compiled executable (after build)
-└── pencil_data/            # **Created automatically on first run**
+├── pencil_utils.hpp        # Workspace utilities
+├── pencilclaw              # Compiled executable
+**└── pencil_data/            # Created automatically on first run**
     ├── session.log         # Full interaction log
-    ├── book.txt            # Accumulated book chapters
-    ├── temp_code.cpp       # Temporary source file (deleted after execution)
-    ├── temp_code           # Temporary executable (deleted after execution)
-    └── [story/poem files]  # Individual .txt files for each /STORY or /POEM
+    ├── .git/               # Local Git repository (if initialised)
+    ├── tasks/              # Autonomous task folders
+    │   └── 20260309_123456_build_calculator/
+    │       ├── description.txt
+    │       ├── log.txt
+    │       ├── iteration_1.txt
+    │       └── ...
+    └── [code files].txt    # Files saved via /CODE or natural language
 ```
-
-**The `pencil_data` directory is created automatically when you run the program. All generated content and logs reside there.**
 
 ---
 
 ## Requirements
 
+- **Compiler** with C++17 support (g++ 7+ or clang 5+)
 - **libcurl** development libraries
-- **cJSON** library
+- **nlohmann/json** (header‑only JSON library)
 - **Ollama** installed and running
-- A model pulled in Ollama (default: `qwen2.5:0.5b` - change in source if desired)
+- A model pulled in Ollama (default: `qwen2.5:0.5b` – configurable via environment variable `OLLAMA_MODEL`)
+
+*Note: PENCILCLAW uses POSIX system calls (`fork`, `pipe`, `execvp`). It runs on Linux, macOS, and Windows Subsystem for Linux (WSL).*
 
 ---
 
@@ -62,44 +67,35 @@ sudo apt update
 sudo apt install -y build-essential libcurl4-openssl-dev
 ```
 
-### 2. Install cJSON
-If your distribution does not provide a package, build from source:
+### 2. Install nlohmann/json
+The library is header‑only; simply download `json.hpp` and place it in your include path, or install via package manager:
 ```bash
-git clone https://github.com/DaveGamble/cJSON.git
-cd cJSON
-mkdir build && cd build
-cmake ..
-make
-sudo make install
-sudo ldconfig
-cd ../..
+sudo apt install -y nlohmann-json3-dev
 ```
 
 ### 3. Install Ollama
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &   # start the service
-ollama pull qwen2.5:0.5b   # or another model of your choice
+ollama pull qwen2.5:0.5b   # or your preferred model
 ```
 
-## Custom Models
+Set Model (Optional)
 
-Edit line 36 of the pencilclaw.cpp file:
-
-```
-    // Model name – change this to match your installed model (e.g., "llama3", "qwen2.5", "mistral")
-    const std::string MODEL_NAME = "qwen2.5:0.5b";
-```
-
-### 4. Compile PENCILCLAW
-Place the source files in the same directory and compile:
+Override the default model by setting the environment variable:
 ```bash
-g++ -std=c++17 -o pencilclaw pencilclaw.cpp -lcurl -lcjson
+export OLLAMA_MODEL="llama3.2:latest"
 ```
-If cJSON headers are in a non-standard location (e.g., `/usr/local/include/cjson`), add the appropriate `-I` flag:
+### 4. cd
 ```bash
-g++ -std=c++17 -o pencilclaw pencilclaw.cpp -lcurl -lcjson -I/usr/local/include/cjson
+cd ~/pencilclaw/      -The folder you have the files installed
 ```
+
+### 5. Compile PENCILCLAW
+```bash
+g++ -std=c++17 -o pencilclaw pencilclaw.cpp -lcurl
+```
+If `json.hpp` is in a non‑standard location, add the appropriate `-I` flag.
 
 ---
 
@@ -110,36 +106,54 @@ Start the program:
 ./pencilclaw
 ```
 
-You will see the `>` prompt. Commands are case-sensitive and start with `/`.
+You will see the `>` prompt. Commands are case‑sensitive and start with `/`. Any line not starting with `/` is treated as natural language and passed to Ollama.
 
 ### Available Commands
-| Command           | Description                                                                 |
-|-------------------|-----------------------------------------------------------------------------|
-| `/HELP`           | Show this help message.                                                     |
-| `/STORY <title>`  | Generate a short story with the given title. Saved as `<title>.txt`.       |
-| `/POEM <subject>` | Compose a poem about the subject. Saved as `<subject>.txt`.                 |
-| `/BOOK <chapter>` | Append a new chapter to `book.txt` (creates file if it doesn't exist).     |
-| `/EXECUTE`        | Compile and run the first C++ code block from the last AI response.        |
-| `/DEBUG`          | Toggle verbose debug output (shows JSON requests/responses).               |
-| `/EXIT`           | Quit the program.                                                           |
 
-Any line not starting with `/` is sent directly to Ollama as a free prompt; the response is displayed and logged.
+| Command               | Description                                                                 |
+|-----------------------|-----------------------------------------------------------------------------|
+| `/HELP`               | Show this help message.                                                     |
+| `/CODE <idea>`        | Generate C++ code for the given idea; saved as `<sanitized_idea>.txt`.      |
+| `/TASK <description>` | Start a new autonomous coding task (creates a timestamped folder).         |
+| `/TASK_STATUS`        | Show the current active task, its folder, and iteration count.             |
+| `/STOP_TASK`          | Clear the active task (does not delete existing task files).               |
+| `/EXECUTE`            | Compile and run the first C++ code block from the last AI output.          |
+| `/FILES`              | List all saved `.txt` files and task folders.                              |
+| `/DEBUG`              | Toggle verbose debug output (shows JSON requests/responses).               |
+| `/EXIT`               | Quit the program.                                                           |
+
+### Natural Language Examples
+
+- `write code for a fibonacci function`
+- `start a task to build a calculator`
+- `save it as mycode.txt` (after code generation)
+
+---
+
+## Git Integration
+
+PENCILCLAW automatically initialises a Git repository inside `pencil_data/` on first run. Every file saved via `/CODE` or task iteration is committed with a descriptive message. The repository is configured with a local identity (`pencilclaw@local` / `PencilClaw`) so commits work even without global Git configuration.
+
+If you prefer not to use Git, simply remove the `.git` folder from `pencil_data/` – PENCILCLAW will detect its absence and skip all Git operations.
 
 ---
 
 ## Security Notes
 
-- **Code execution is a powerful feature.** PENCILCLAW asks for confirmation before running any AI-generated code. Always review the code if you are unsure.
-- **Filename sanitisation** prevents path traversal attacks (e.g., `../../etc/passwd` becomes `____etc_passwd`).
-- All operations are confined to the `pencil_data` subdirectory; no system-wide changes are made.
+- **Code execution is potentially dangerous.** PENCILCLAW always shows the code and requires you to type `yes` before running it.
+- **Path traversal is prevented** – filenames are sanitised, and all writes are confined to `pencil_data/`.
+- **No shell commands are used** – all external commands (`git`, `g++`) are invoked via `fork`+`execvp` with argument vectors, eliminating command injection risks.
 
 ---
 
-## Customisation
+## Configuration
 
-- **Model**: Change the `MODEL_NAME` constant in `pencilclaw.cpp` to use a different Ollama model.
-- **Prompts**: Edit the templates in `pencil_utils.hpp` (`get_template` function) to adjust the AI's behaviour.
-- **Timeout**: The default HTTP timeout is 60 seconds. Adjust `CURLOPT_TIMEOUT` in the source if needed.
+| Setting                | Method                                                                 |
+|------------------------|------------------------------------------------------------------------|
+| Ollama model           | Environment variable `OLLAMA_MODEL` (default: `qwen2.5:0.5b`)         |
+| Workspace directory    | Environment variable `PENCIL_DATA` (default: `./pencil_data/`)        |
+| Heartbeat interval     | Edit `HEARTBEAT_INTERVAL` in source (default 120 seconds)             |
+| Keep‑alive interval    | Edit `KEEP_ALIVE_INTERVAL` in source (default 120 seconds)            |
 
 ---
 
@@ -147,10 +161,11 @@ Any line not starting with `/` is sent directly to Ollama as a free prompt; the 
 
 | Problem                          | Solution                                                       |
 |----------------------------------|----------------------------------------------------------------|
-| `cJSON.h: No such file or directory` | Install cJSON or add the correct `-I` flag during compilation. |
-| `curl failed: Timeout was reached`   | Ensure Ollama is running (`ollama serve`) and the model is pulled. |
-| Model not found                  | Run `ollama pull <model_name>` (e.g., `qwen2.5:0.5b`).         |
-| Compilation errors (C++17)       | Use a compiler that supports `-std=c++17` (g++ 7+ or clang 5+).|
+| `json.hpp: No such file or directory` | Install nlohmann/json or add the correct `-I` flag.          |
+| `curl failed: Couldn't connect to server` | Ensure Ollama is running (`ollama serve`) and the URL `http://localhost:11434` is accessible. |
+| Model not found                  | Run `ollama pull <model_name>` (e.g., `qwen2.5:0.5b`).        |
+| Git commit fails                 | The repository already has a local identity; this should not happen. If it does, run `git config` manually in `pencil_data/`. |
+| Compilation errors (C++17)       | Use a compiler that supports `-std=c++17` (g++ 7+ or clang 5+). |
 
 ---
 
