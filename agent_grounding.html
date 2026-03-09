@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGENT GROUNDING (fixed)</title>
+  <!-- PWA manifest inline -->
+  <link rel="manifest" href="data:application/manifest+json,{
+    &quot;name&quot;: &quot;AGENT GROUNDING&quot;,
+    &quot;short_name&quot;: &quot;GROUNDING&quot;,
+    &quot;start_url&quot;: &quot;/&quot;,
+    &quot;display&quot;: &quot;standalone&quot;,
+    &quot;theme_color&quot;: &quot;#111&quot;,
+    &quot;background_color&quot;: &quot;#111&quot;,
+    &quot;icons&quot;: []
+  }">
+  <meta name="theme-color" content="#111">
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #0f0;
+      padding: 1rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    input, textarea, button {
+      background: #222;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 0.3rem;
+      font-family: monospace;
+    }
+    pre {
+      background: #222;
+      padding: 0.5rem;
+      overflow: auto;
+      border-left: 3px solid #0f0;
+    }
+    .phase-panel {
+      border: 1px solid #0f0;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+    .log-entry {
+      border-bottom: 1px dashed #0f0;
+      padding: 0.5rem 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚡ AGENT GROUNDING – machine endpoint (fixed)</h1>
+  <p>Agents: POST JSON to <code>/api</code> with <code>{ phase: 1..10, data: {} }</code></p>
+  <p>Humans: use the panels below to test phases.</p>
+
+  <div id="debug-log">
+    <h3>📋 Last requests (max 5)</h3>
+    <div id="log-container"></div>
+  </div>
+
+  <!-- manual test form -->
+  <div class="phase-panel">
+    <h3>🕹️ Manual test</h3>
+    <label>Phase (1-10): <input type="number" id="phase-input" min="1" max="10" value="1"></label><br>
+    <label>Data (JSON): <textarea id="data-input" rows="5" cols="50">{}</textarea></label><br>
+    <button id="send-direct">Call handler directly</button>
+    <button id="send-fetch">Send via fetch (to /api)</button>
+    <pre id="manual-result"></pre>
+  </div>
+
+  <script type="module">
+    // =========================================================================
+    //  A. Service Worker registration (will be called after all definitions)
+    // =========================================================================
+    // (Registration happens at the very end)
+
+    // =========================================================================
+    //  B. IndexedDB setup + helpers (fixed: single transaction for cleanup)
+    // =========================================================================
+    const DB_NAME = 'AgentGroundingDB';
+    const DB_VERSION = 1;
+    const STORES = ['agents', 'memory', 'messages', 'tasks', 'prompts', 'negotiations'];
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (ev) => {
+          const db = ev.target.result;
+          STORES.forEach(storeName => {
+            if (!db.objectStoreNames.contains(storeName)) {
+              db.createObjectStore(storeName); // key-value store
+            }
+          });
+        };
+      });
+    }
+
+    async function dbGet(storeName, key) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const req = store.get(key);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => resolve(req.result);
+        tx.oncomplete = () => db.close();
+      });
+    }
+
+    async function dbPut(storeName, key, value) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.put(value, key);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => resolve();
+        tx.oncomplete = () => db.close();
+      });
+    }
+
+    async function dbDelete(storeName, key) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const req = store.delete(key);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => resolve();
+        tx.oncomplete = () => db.close();
+      });
+    }
+
+    // Returns array of { key, value } for all entries in a store
+    async function dbGetAllWithKeys(storeName) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const keysReq = store.getAllKeys();
+        const valuesReq = store.getAll();
+        let keys, values;
+        keysReq.onerror = reject;
+        valuesReq.onerror = reject;
+        keysReq.onsuccess = (e) => { keys = e.target.result; if (values) resolve(keys.map((k, i) => ({ key: k, value: values[i] }))); };
+        valuesReq.onsuccess = (e) => { values = e.target.result; if (keys) resolve(keys.map((k, i) => ({ key: k, value: values[i] }))); };
+        tx.oncomplete = () => db.close();
+      });
+    }
+
+    // =========================================================================
+    //  C. Crypto helpers (AES-GCM with PBKDF2) – unchanged
+    // =========================================================================
+    async function deriveKey(password, salt) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+      );
+      return crypto.subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations: 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+
+    async function encryptMessage(password, plaintext) {
+      const enc = new TextEncoder();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(password, salt);
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        enc.encode(plaintext)
+      );
+      const result = new Uint8Array(salt.length + iv.length + ciphertext.byteLength);
+      result.set(salt, 0);
+      result.set(iv, salt.length);
+      result.set(new Uint8Array(ciphertext), salt.length + iv.length);
+      return btoa(String.fromCharCode(...result));
+    }
+
+    async function decryptMessage(password, encodedData) {
+      const data = Uint8Array.from(atob(encodedData), c => c.charCodeAt(0));
+      const salt = data.slice(0, 16);
+      const iv = data.slice(16, 28);
+      const ciphertext = data.slice(28);
+      const key = await deriveKey(password, salt);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        ciphertext
+      );
+      return new TextDecoder().decode(decrypted);
+    }
+
+    // =========================================================================
+    //  D. Utility helpers
+    // =========================================================================
+    function generateId() {
+      return crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function now() {
+      return Date.now();
+    }
+
+    // =========================================================================
+    //  E. Phase handler object (10 async functions) – FIXED phase1 & phase6
+    // =========================================================================
+    const phases = {
+      // Phase 1: Liveness Beacon – fixed: use single transaction for cleanup
+      async phase1(data) {
+        const { agent_id, capabilities = [], version } = data;
+        if (!agent_id) throw new Error('agent_id required');
+        const entry = {
+          agent_id,
+          capabilities,
+          version,
+          last_seen: now()
+        };
+        // Use a single readwrite transaction for both put and cleanup
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction('agents', 'readwrite');
+          const store = tx.objectStore('agents');
+          const putReq = store.put(entry, agent_id);
+          putReq.onerror = reject;
+          // After put, we need to get all keys to clean old ones
+          // We'll do it in the same transaction
+          const getAllKeysReq = store.getAllKeys();
+          getAllKeysReq.onerror = reject;
+          getAllKeysReq.onsuccess = () => {
+            const keys = getAllKeysReq.result;
+            const cutoff = now() - 300000; // 5 minutes
+            // Delete old entries (but not the current one)
+            keys.forEach(key => {
+              if (key !== agent_id) {
+                const getReq = store.get(key);
+                getReq.onsuccess = () => {
+                  const val = getReq.result;
+                  if (val && val.last_seen < cutoff) {
+                    store.delete(key);
+                  }
+                };
+              }
+            });
+          };
+          tx.oncomplete = () => {
+            db.close();
+            // Now return recent agents (need to read again? but we have keys)
+            // Simpler: re-fetch all agents in a new readonly tx
+            resolve(phases._getRecentAgents());
+          };
+          tx.onerror = reject;
+        });
+      },
+
+      // Helper for phase1 to get recent agents (used after cleanup)
+      async _getRecentAgents() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction('agents', 'readonly');
+          const store = tx.objectStore('agents');
+          const req = store.getAll();
+          req.onerror = reject;
+          req.onsuccess = () => {
+            const cutoff = now() - 300000;
+            const recent = req.result.filter(a => a.last_seen > cutoff).map(a => a.agent_id);
+            resolve({ recent_agents: recent });
+          };
+          tx.oncomplete = () => db.close();
+        });
+      },
+
+      // Phase 2: Key-Value Memory (unchanged)
+      async phase2(data) {
+        const { action, key, value, ttl } = data;
+        if (!key) throw new Error('key required');
+        if (action === 'set') {
+          const store = { value, timestamp: now(), ttl: ttl ? now() + ttl * 1000 : null };
+          await dbPut('memory', key, store);
+          return { stored: true };
+        } else if (action === 'get') {
+          const entry = await dbGet('memory', key);
+          if (!entry) return { value: null };
+          if (entry.ttl && entry.ttl < now()) {
+            await dbDelete('memory', key);
+            return { value: null };
+          }
+          return { value: entry.value };
+        } else {
+          throw new Error('action must be "set" or "get"');
+        }
+      },
+
+      // Phase 3: agents.txt Validator (unchanged)
+      async phase3(data) {
+        const { txt, contact } = data;
+        const suggestions = [];
+        let valid = true;
+        let generated = '';
+
+        if (txt) {
+          if (txt.trim().length === 0) {
+            valid = false;
+            suggestions.push('File is empty');
+          }
+          if (txt.includes('<script') || txt.includes('javascript:')) {
+            valid = false;
+            suggestions.push('Contains potentially unsafe content');
+          }
+        } else {
+          generated = `# agents.txt for ${contact || 'unknown contact'}\nUser-agent: *\nAllow: /\n`;
+          if (!contact) suggestions.push('Consider providing a contact email');
+        }
+        return { valid, suggestions, generated: generated || undefined };
+      },
+
+      // Phase 4: JSON Semantic Compressor (unchanged)
+      async phase4(data) {
+        const { json } = data;
+        if (!json) throw new Error('json required');
+        function compress(obj) {
+          if (Array.isArray(obj)) {
+            return obj.slice(0, 20).map(compress);
+          } else if (obj && typeof obj === 'object') {
+            const result = {};
+            for (const [k, v] of Object.entries(obj)) {
+              if (v === null || v === undefined || v === '') continue;
+              result[k] = compress(v);
+            }
+            return result;
+          } else if (typeof obj === 'string' && obj.length > 100) {
+            return obj.slice(0, 100) + '…';
+          }
+          return obj;
+        }
+        const summary = compress(json);
+        const compressed_size = JSON.stringify(summary).length;
+        return { summary, compressed_size };
+      },
+
+      // Phase 5: Encrypted DropBox (unchanged)
+      async phase5(data) {
+        const { action, payload, key, id } = data;
+        if (!key) throw new Error('key required');
+        if (action === 'drop') {
+          if (!payload) throw new Error('payload required');
+          const encrypted = await encryptMessage(key, payload);
+          const msgId = generateId();
+          await dbPut('messages', msgId, { encrypted, timestamp: now() });
+          return { id: msgId };
+        } else if (action === 'claim') {
+          if (!id) throw new Error('id required');
+          const record = await dbGet('messages', id);
+          if (!record) throw new Error('message not found');
+          const decrypted = await decryptMessage(key, record.encrypted);
+          await dbDelete('messages', id);
+          return { payload: decrypted };
+        } else {
+          throw new Error('action must be "drop" or "claim"');
+        }
+      },
+
+      // Phase 6: Micro-Task FIFO Board – FIXED: id in value, atomic claim
+      async phase6(data) {
+        const { action, task, reward } = data;
+        if (action === 'post') {
+          if (!task) throw new Error('task required');
+          const taskId = generateId();
+          const taskValue = {
+            id: taskId,
+            task,
+            reward: reward || null,
+            status: 'open',
+            posted: now()
+          };
+          await dbPut('tasks', taskId, taskValue);
+          return { status: 'posted', id: taskId };
+        } else if (action === 'claim') {
+          // Use a single readwrite transaction to find and claim oldest open task
+          const db = await openDB();
+          return new Promise((resolve, reject) => {
+            const tx = db.transaction('tasks', 'readwrite');
+            const store = tx.objectStore('tasks');
+            const keysReq = store.getAllKeys();
+            const valuesReq = store.getAll();
+            let keys, values;
+            keysReq.onerror = reject;
+            valuesReq.onerror = reject;
+            keysReq.onsuccess = (e) => { keys = e.target.result; tryClaim(); };
+            valuesReq.onsuccess = (e) => { values = e.target.result; tryClaim(); };
+
+            function tryClaim() {
+              if (!keys || !values) return;
+              const entries = keys.map((k, i) => ({ key: k, value: values[i] }));
+              const openEntries = entries.filter(e => e.value.status === 'open').sort((a, b) => a.value.posted - b.value.posted);
+              if (openEntries.length === 0) {
+                reject(new Error('no open tasks'));
+                return;
+              }
+              const oldest = openEntries[0];
+              oldest.value.status = 'claimed';
+              const putReq = store.put(oldest.value, oldest.key);
+              putReq.onerror = reject;
+              putReq.onsuccess = () => {
+                resolve({ task: oldest.value });
+              };
+            }
+            tx.oncomplete = () => db.close();
+            tx.onerror = reject;
+          });
+        } else {
+          throw new Error('action must be "post" or "claim"');
+        }
+      },
+
+      // Phase 7: Prompt Template Registry (unchanged)
+      async phase7(data) {
+        const { action, id, template } = data;
+        if (action === 'add') {
+          if (!template) throw new Error('template required');
+          const tid = id || generateId();
+          await dbPut('prompts', tid, { template, timestamp: now() });
+          return { id: tid };
+        } else if (action === 'get') {
+          if (!id) throw new Error('id required');
+          const entry = await dbGet('prompts', id);
+          if (!entry) throw new Error('template not found');
+          return { template: entry.template };
+        } else {
+          throw new Error('action must be "add" or "get"');
+        }
+      },
+
+      // Phase 8: Action Guardrail Tester (unchanged)
+      async phase8(data) {
+        const { intent } = data;
+        if (!intent) throw new Error('intent required');
+        const dangerous = ['kill', 'destroy', 'hack', 'exploit', 'attack', 'bomb', 'malware'];
+        const intentStr = JSON.stringify(intent).toLowerCase();
+        let score = 0;
+        for (const word of dangerous) {
+          if (intentStr.includes(word)) score++;
+        }
+        const pass = score === 0;
+        const scoreLabel = score === 0 ? 'low' : score <= 2 ? 'medium' : 'high';
+        const reason = score === 0 ? 'No dangerous patterns' : `Found ${score} dangerous keyword(s)`;
+        return { pass, score: scoreLabel, reason };
+      },
+
+      // Phase 9: Micro-Payment Intent Signer (unchanged)
+      async phase9(data) {
+        const { amount, token, to, purpose } = data;
+        if (!amount || !token || !to) throw new Error('amount, token, to required');
+        const intent = { amount, token, to, purpose: purpose || '', timestamp: now() };
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(intent)));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const signed_hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const human_readable = `Pay ${amount} ${token} to ${to} for ${purpose || 'unspecified'}`;
+        return { signed_hash, human_readable };
+      },
+
+      // Phase 10: Naive Negotiation Mediator (unchanged)
+      async phase10(data) {
+        const { id, from, offer } = data;
+        if (!from || !offer) throw new Error('from and offer required');
+        if (!id) {
+          const newId = generateId();
+          const negotiation = {
+            id: newId,
+            offers: [{ from, offer, timestamp: now() }],
+            agreement: false
+          };
+          await dbPut('negotiations', newId, negotiation);
+          return { id: newId, offers: negotiation.offers, agreement: false };
+        } else {
+          const negotiation = await dbGet('negotiations', id);
+          if (!negotiation) throw new Error('negotiation not found');
+          negotiation.offers.push({ from, offer, timestamp: now() });
+          await dbPut('negotiations', id, negotiation);
+          return { id, offers: negotiation.offers, agreement: false };
+        }
+      }
+    };
+
+    // =========================================================================
+    //  F. Request router (for manual testing)
+    // =========================================================================
+    async function handleRequest(phase, data) {
+      const handler = phases[`phase${phase}`];
+      if (!handler) throw new Error(`Invalid phase: ${phase}`);
+      return await handler(data);
+    }
+
+    // =========================================================================
+    //  G. Debug UI (show last 5 requests)
+    // =========================================================================
+    const logContainer = document.getElementById('log-container');
+    const logEntries = [];
+
+    function addLog(entry) {
+      logEntries.unshift(entry);
+      if (logEntries.length > 5) logEntries.pop();
+      renderLog();
+    }
+
+    function renderLog() {
+      logContainer.innerHTML = logEntries.map(e => `
+        <div class="log-entry">
+          <strong>${e.method} ${e.path}</strong> at ${new Date(e.timestamp).toLocaleTimeString()}<br>
+          Request: <pre>${JSON.stringify(e.request, null, 2)}</pre>
+          Response: <pre>${JSON.stringify(e.response, null, 2)}</pre>
+        </div>
+      `).join('');
+    }
+
+    // Manual test
+    document.getElementById('send-direct').addEventListener('click', async () => {
+      const phase = parseInt(document.getElementById('phase-input').value);
+      const data = JSON.parse(document.getElementById('data-input').value || '{}');
+      try {
+        const result = await handleRequest(phase, data);
+        document.getElementById('manual-result').textContent = JSON.stringify({ status: 'ok', result }, null, 2);
+        addLog({ method: 'DIRECT', path: '/', timestamp: now(), request: { phase, data }, response: result });
+      } catch (err) {
+        document.getElementById('manual-result').textContent = JSON.stringify({ status: 'error', message: err.message }, null, 2);
+      }
+    });
+
+    document.getElementById('send-fetch').addEventListener('click', async () => {
+      const phase = parseInt(document.getElementById('phase-input').value);
+      const data = JSON.parse(document.getElementById('data-input').value || '{}');
+      try {
+        const res = await fetch('/api', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phase, data })
+        });
+        const result = await res.json();
+        document.getElementById('manual-result').textContent = JSON.stringify(result, null, 2);
+        addLog({ method: 'FETCH', path: '/api', timestamp: now(), request: { phase, data }, response: result });
+      } catch (err) {
+        document.getElementById('manual-result').textContent = JSON.stringify({ status: 'error', message: err.message }, null, 2);
+      }
+    });
+
+    // =========================================================================
+    //  H. Generate service worker code (fixed: include all constants & helpers)
+    // =========================================================================
+    function generateServiceWorkerCode() {
+      // We need to include all necessary constants and functions.
+      // Instead of relying on .toString() closure, we explicitly list them.
+      const constants = `
+        const STORES = ${JSON.stringify(STORES)};
+        const DB_NAME = '${DB_NAME}';
+        const DB_VERSION = ${DB_VERSION};
+      `;
+
+      // Helper functions (stringified)
+      const dbHelpers = {
+        openDB: openDB.toString(),
+        dbGet: dbGet.toString(),
+        dbPut: dbPut.toString(),
+        dbDelete: dbDelete.toString(),
+        dbGetAllWithKeys: dbGetAllWithKeys.toString()
+      };
+      const cryptoHelpers = {
+        deriveKey: deriveKey.toString(),
+        encryptMessage: encryptMessage.toString(),
+        decryptMessage: decryptMessage.toString()
+      };
+      const utils = {
+        generateId: generateId.toString(),
+        now: now.toString()
+      };
+
+      // Phase handlers (we need them as strings, but they call the above functions)
+      const phaseStrings = {};
+      for (let i = 1; i <= 10; i++) {
+        phaseStrings[`phase${i}`] = phases[`phase${i}`].toString();
+      }
+      // Also include _getRecentAgents helper
+      phaseStrings._getRecentAgents = phases._getRecentAgents.toString();
+
+      // Build the service worker script
+      return `
+        // Service worker for AGENT GROUNDING (fixed)
+        ${constants}
+
+        // DB helpers
+        ${Object.values(dbHelpers).join('\n\n')}
+        // Crypto helpers
+        ${Object.values(cryptoHelpers).join('\n\n')}
+        // Utils
+        ${Object.values(utils).join('\n\n')}
+
+        // Phase handlers
+        const phases = {
+          ${Object.entries(phaseStrings).map(([name, fn]) => `${name}: ${fn}`).join(',\n')}
+        };
+
+        async function handleApiRequest(request) {
+          try {
+            let phase, data;
+            if (request.method === 'POST') {
+              const body = await request.json();
+              phase = body.phase;
+              data = body.data;
+            } else if (request.method === 'GET') {
+              const url = new URL(request.url);
+              phase = parseInt(url.searchParams.get('phase'));
+              try {
+                data = JSON.parse(url.searchParams.get('data') || '{}');
+              } catch {
+                data = {};
+              }
+            } else {
+              return new Response(JSON.stringify({ status: 'error', message: 'Method not allowed' }), {
+                status: 405,
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+            if (!phase || phase < 1 || phase > 10) {
+              throw new Error('Phase must be between 1 and 10');
+            }
+            const handler = phases['phase' + phase];
+            if (!handler) throw new Error('Phase not implemented');
+            const result = await handler(data);
+            return new Response(JSON.stringify({ status: 'ok', result }), {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+              }
+            });
+          } catch (err) {
+            return new Response(JSON.stringify({ status: 'error', message: err.message }), {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              }
+            });
+          }
+        }
+
+        self.addEventListener('fetch', (event) => {
+          const url = new URL(event.request.url);
+          if (url.pathname.startsWith('/api')) {
+            event.respondWith(handleApiRequest(event.request));
+          } else {
+            event.respondWith(
+              fetch(event.request).catch(() => caches.match(event.request))
+            );
+          }
+        });
+
+        self.addEventListener('install', (event) => {
+          self.skipWaiting();
+          event.waitUntil(
+            caches.open('v1').then(cache => cache.addAll(['/']))
+          );
+        });
+
+        self.addEventListener('activate', (event) => {
+          event.waitUntil(clients.claim());
+        });
+      `;
+    }
+
+    // Register service worker after all functions are defined
+    if ('serviceWorker' in navigator) {
+      try {
+        const swCode = generateServiceWorkerCode();
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        navigator.serviceWorker.register(URL.createObjectURL(blob), { scope: '/' })
+          .then(reg => console.log('Service Worker registered:', reg))
+          .catch(err => console.error('SW registration failed:', err));
+      } catch (err) {
+        console.error('SW generation failed:', err);
+      }
+    }
+  </script>
+</body>
+</html>
