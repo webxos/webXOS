@@ -1,4 +1,4 @@
-# ✏️ PENCILCLAW – Autonomous C++ Coding Agent
+# ✏️ PENCILCLAW – Autonomous C++ Coding Agent (v1.0 Testing)
 
 ```
 ██████╗ ███████╗███╗   ██╗ ██████╗██╗██╗     ██████╗██╗      █████╗ ██╗    ██╗
