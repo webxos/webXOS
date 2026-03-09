@@ -9,7 +9,7 @@
 ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝╚══════╝ ╚═════╝╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ 
 ```
 
-**PENCILCLAW** is a C++‑based autonomous coding agent that harnesses your local [Ollama](https://ollama.com/) instance to generate, manage, and execute C++ code. It features a persistent task system, Git integration, and a secure execution environment – all running offline with complete privacy.
+**PENCILCLAW** is a C++‑based autonomous coding agent harness for your local [Ollama](https://ollama.com/) instance to generate, manage, and execute C++ code. It features a persistent task system, Git integration, and a secure execution environment – all running offline with complete privacy.
 
 ---
 
