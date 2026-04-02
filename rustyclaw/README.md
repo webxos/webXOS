@@ -1,12 +1,13 @@
 # 🦞 RustyClaw – Local AI Agent with Persistent Memory & Git
 
 <div align="center">
-  <pre style="color: #CD7F32; font-size: 2em; font-weight: bold; line-height: 1.2; margin: 0;">
+  <pre style="color: #CD7F32; font-size: 3em; font-weight: bold; line-height: 1.2; margin: 0;">
     
 ▄▖    ▗     ▜      
 ▙▘▌▌▛▘▜▘▌▌▛▘▐ ▀▌▌▌▌
 ▌▌▙▌▄▌▐▖▙▌▙▖▐▖█▌▚▚▘
         ▄▌
+
     
   </pre>
 </div>
