@@ -249,8 +249,3 @@ You can adjust colours, add more status lines, or change key bindings.
 ## 📜 License
 
 MIT License
-
-
-
-You can copy this text into a file named `README.md` and place it in your repository root.  
-If you want to include a screenshot, create a `docs/` folder and add `screenshot.png`. The badge links are placeholders – adjust the GitHub URL when you push the repo.
