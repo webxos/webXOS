@@ -11,12 +11,12 @@
   </pre>
 </div>
 
-# 🦞 RustyClaw – Local AI Agent with Persistent Memory & Git
+# 🦞 RustyClaw – Local Agent Harness with Persistent Memory & Git
 
 [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**RustyClaw** is a terminal‑based, local‑only AI assistant powered by [Ollama](https://ollama.com/).
+**RustyClaw** is a terminal‑based, minimal barebones and OEM local‑only agent harness powered by [Ollama](https://ollama.com/).
 
 It combines a TUI chat interface, file system operations, Git versioning, memory consolidation, and a REST API – all inside a single Rust binary.
 
