@@ -20,11 +20,6 @@
 
 It combines a TUI chat interface, file system operations, Git versioning, memory consolidation, and a REST API – all inside a single Rust binary.
 
-
-<p align="center">
-  <img src="docs/screenshot.png" alt="RustyClaw TUI" width="800">
-</p>
-
 ---
 
 ## ✨ Features
