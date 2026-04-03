@@ -61,10 +61,11 @@ rustyclaw/
 
 ## 🛠️ Installation
 
-### 1. Install Rust (if not already)
+### 1. Once you have the files downloaded run this bash command: 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
+cd ~/rustyclaw              (The folder you have the files installed)
+cargo build --release
+./start.sh --rebuild
 ```
 
 ### 2. Install Ollama
@@ -80,15 +81,7 @@ sudo apt install git          # Debian/Ubuntu
 # or brew install git on macOS
 ```
 
-### 4. Clone and build
-```bash
-git clone https://github.com/yourusername/rustyclaw.git
-cd rustyclaw
-chmod +x start.sh
-./start.sh
-```
-
-The first build may take a few minutes. Subsequent runs will reuse the cached binary.
+Warning: The first build may take a few minutes. Subsequent runs will reuse the cached binary.
 
 ---
 
