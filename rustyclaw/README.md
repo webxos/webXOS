@@ -46,12 +46,8 @@ rustyclaw/
 ├── Cargo.toml                  # dependencies
 ├── start.sh                    # launcher script (build + run)
 ├── config.yaml                 # optional – auto‑created on first run
-├── data/                       # sandboxed file storage (Git repo)
-│   └── logs/
-│       └── app.log             # JSON log (tracing)
-└── ~/.rustyclaw/               # user data directory
-    ├── bio.md                  # living agent identity (persistent memory)
-    └── data/                   # symlink or actual copy of sandbox
+├── data/                       # sandboxed file storage (Git repo) - auto -created on first run
+
 ```
 
 > **Note:** `~/.rustyclaw/` is created automatically on first launch.  
