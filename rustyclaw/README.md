@@ -46,7 +46,7 @@ rustyclaw/
 ├── Cargo.toml                  # dependencies
 ├── start.sh                    # launcher script (build + run)
 ├── config.yaml                 # optional – auto‑created on first run
-├── data/                       # sandboxed file storage (Git repo) - auto -created on first run
+├── data/                       # sandboxed file storage (Git repo) - auto-created on first run
 
 ```
 
