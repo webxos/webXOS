@@ -217,24 +217,6 @@ All file operations are **sandboxed** – the `sanitize_path` function ensures n
 
 ---
 
-## Development
-
-To hack on RustyClaw:
-
-The project is a single Rust file (`src/main.rs`). No modules – easy to experiment.
-
-### Adding a new command
-1. Add a variant to `enum AppCommand`.
-2. Add a branch in `handle_command` (inside `AppState`).
-3. Add a matching branch in `run_command` (the dispatcher).
-4. Send the command to the worker via `cmd_tx`.
-
-### Changing the UI
-The `ui()` function controls layout. The logo is drawn at the top as a `Paragraph`.  
-You can adjust colours, add more status lines, or change key bindings.
-
----
-
 ## 📜 License
 
 MIT License
