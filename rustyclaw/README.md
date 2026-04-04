@@ -11,7 +11,7 @@
   </pre>
 </div>
 
-# 🦞 RustyClaw – Local Agent Harness
+# 🦞 RustyClaw 0.6.0 – Local Agent Harness
 
 [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
