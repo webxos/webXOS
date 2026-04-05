@@ -1,33 +1,3 @@
-<div style="
-    background: #00FF00;
-    border-left: 4px solid #00FF00;
-    padding: 1.5rem;
-    margin: 2rem 0;
-    font-family: 'Fira Code', 'Courier New', monospace;
-    color: #00FF00;
-    border-radius: 0 8px 8px 0;
-">
-    <pre style="
-        font-size: 6px;
-        line-height: 1.2;
-        margin: 6;
-        overflow-x: auto;
-        color: #00FF00;
-    ">
-      ___           ___                         ___            ___           ___     
-     /\  \         /\__\         _____         /|  |          /\  \         /\__\    
-    _\:\  \       /:/ _/_       /::\  \       |:|  |         /::\  \       /:/ _/_   
-   /\ \:\  \     /:/ /\__\     /:/\:\  \      |:|  |        /:/\:\  \     /:/ /\  \  
-  _\:\ \:\  \   /:/ /:/ _/_   /:/ /::\__\   __|:|__|       /:/  \:\  \   /:/ /::\  \ 
- /\ \:\ \:\__\ /:/_/:/ /\__\ /:/_/:/\:|__| /::::\__\_____ /:/__/ \:\__\ /:/_/:/\:\__\
- \:\ \:\/:/  / \:\/:/ /:/  / \:\/:/ /:/  / ~~~~\::::/___/ \:\  \ /:/  / \:\/:/ /:/  /
-  \:\ \::/  /   \::/_/:/  /   \::/_/:/  /      |:|~~|      \:\  /:/  /   \::/ /:/  / 
-   \:\/:/  /     \:\/:/  /     \:\/:/  /       |:|  |       \:\/:/  /     \/_/:/  /  
-    \::/  /       \::/  /       \::/  /        |:|__|        \::/  /        /:/  /   
-     \/__/         \/__/         \/__/         |/__/          \/__/         \/__/    
-    </pre>
-</div>
-    
 <div align="center">
 
 [![Website](https://img.shields.io/badge/webXOS.netlify.app-Explore_Apps-00d4aa?style=for-the-badge&logo=netlify&logoColor=white)](https://webxos.netlify.app)
@@ -40,8 +10,6 @@
 **webXOS** is an innovative software development company developing progressive web applications tailored for decentralized local environments. Leveraging native JavaScript, WebGL, Three.js, and WebAssembly to create modular and progressive web apps. Sustainable web apps that encompass eco-friendly apps, retro games, and client-side AI agents, all designed to operate seamlessly in the browser. Each webXOS modular APP is a self-contained `.html` file, embedding all HTML, CSS, JavaScript, and assets for maximum portability and modularity. We harness web worker driven tools to create advanced scripts that accelerate the development of high-performance local web apps.
 
 *WEBXOS is pioneering frameworks and tools on a browser first philosophy, emphasizing modularity, efficiency, and environmental responsibility.*
-
-Utilizing web worker models to automate complex tasks and create intelligent responsive software. Developing applications that run natively in web browsers, ensuring cross-platform compatibility, easy deployment and zero-installation user experiences. Tailoring software to run efficiently on low-power and applying sophisticated algorithms and computational logic to maximize processing power ensuring minimal latency and maximum efficiency. We believe in the power of the browser native software and the potential of small form-factor hardware. By combining the accessibility of the browser with the power of modern frameworks and advanced mathematics, WebXOS delivers solutions that are not only innovative but also incredibly efficient and accessible to all. We turn embedded devices into powerful computing stations, delivering enterprise-grade performance at a fraction of the cost and energy consumption.
 
 
 - **Front-end Architectures**: Single `.html` files encapsulate all code and assets, ensuring portability and ease of deployment.
