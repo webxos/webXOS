@@ -1,0 +1,519 @@
+#!/usr/bin/env node
+
+// MochaClaw – Lightweight Local AI Agent with Markdown Knowledge Base
+// Fixed tool parsing, ReAct prompt, and argument validation
+
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline/promises');
+const { execSync } = require('child_process');
+const axios = require('axios');
+require('dotenv').config();
+
+// ----------------------------------------------------------------------
+// 1. Configuration
+const SOUL_FILE = path.join(process.cwd(), 'MOCHASOUL.md');
+const BACKEND = process.env.INFERENCE_BACKEND || 'ollama';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:1.5b';
+const KB_DIR = process.env.MARKDOWN_KB_DIR || path.join(process.cwd(), 'knowledge');
+
+// Color helpers – rich coffee shades
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  mocha: '\x1b[38;5;94m',
+  latte: '\x1b[38;5;130m',
+  espresso: '\x1b[38;5;52m',
+  cream: '\x1b[38;5;223m',
+};
+
+// ----------------------------------------------------------------------
+// 2. Banner
+function showBanner() {
+  console.log(`
+${colors.mocha}    ▖  ▖    ▌     ▜      
+    ▛▖▞▌▛▌▛▘▛▌▀▌▛▘▐ ▀▌▌▌▌
+    ▌▝ ▌▙▌▙▖▌▌█▌▙▖▐▖█▌▚▚▘${colors.reset}
+${colors.latte}${colors.bright}              M O C H A C L A W${colors.reset}
+${colors.mocha}       Privacy‑first Local AI Agent with Markdown KB${colors.reset}
+  `);
+}
+
+// ----------------------------------------------------------------------
+// 3. Soul File Management (unchanged)
+function readSoul() {
+  if (!fs.existsSync(SOUL_FILE)) {
+    const defaultSoul = `# Persona
+You are MochaClaw, a privacy‑first AI assistant running locally on Debian.
+You have access to tools that let you interact with the system.
+
+# Memory
+- Initialized on first run.
+
+# Journal
+`;
+    fs.writeFileSync(SOUL_FILE, defaultSoul);
+    return { persona: defaultSoul.split('# Memory')[0].trim(), memory: '', journal: '' };
+  }
+
+  const content = fs.readFileSync(SOUL_FILE, 'utf-8');
+  const personaMatch = content.match(/# Persona\n([\s\S]*?)(?=\n# Memory|$)/);
+  const memoryMatch = content.match(/# Memory\n([\s\S]*?)(?=\n# Journal|$)/);
+  const journalMatch = content.match(/# Journal\n([\s\S]*?)$/);
+
+  return {
+    persona: personaMatch ? personaMatch[1].trim() : '',
+    memory: memoryMatch ? memoryMatch[1].trim() : '',
+    journal: journalMatch ? journalMatch[1].trim() : ''
+  };
+}
+
+function updateMemory(newEntry) {
+  const content = fs.readFileSync(SOUL_FILE, 'utf-8');
+  const memorySection = content.match(/# Memory\n([\s\S]*?)(?=\n# Journal|$)/);
+  if (memorySection) {
+    const updatedMemory = memorySection[1] + `\n- ${newEntry}`;
+    const newContent = content.replace(/# Memory\n([\s\S]*?)(?=\n# Journal|$)/, `# Memory\n${updatedMemory}`);
+    fs.writeFileSync(SOUL_FILE, newContent);
+  } else {
+    fs.appendFileSync(SOUL_FILE, `\n# Memory\n- ${newEntry}\n`);
+  }
+}
+
+function appendToJournal(thought, action, observation) {
+  const entry = `\n## Thought\n${thought}\n\n**Action:** ${action}\n\n**Observation:** ${observation}\n---\n`;
+  const content = fs.readFileSync(SOUL_FILE, 'utf-8');
+  if (content.includes('# Journal')) {
+    const newContent = content.replace(/(# Journal\n)/, `$1${entry}`);
+    fs.writeFileSync(SOUL_FILE, newContent);
+  } else {
+    fs.appendFileSync(SOUL_FILE, `\n# Journal\n${entry}`);
+  }
+}
+
+// ----------------------------------------------------------------------
+// 4. Tool Registry with argument normalization & validation
+const REQUIRED_ARGS = {
+  run_command: ['command'],
+  read_file: ['path'],
+  write_file: ['path', 'content'],
+  update_memory: ['content'],
+  markdown_kb: ['action']   // 'action' is always required
+};
+
+function normalizeArgs(toolName, args) {
+  if ((toolName === 'read_file' || toolName === 'write_file') && args.file !== undefined && args.path === undefined) {
+    args.path = args.file;
+  }
+  return args;
+}
+
+function validateArgs(toolName, args) {
+  const required = REQUIRED_ARGS[toolName];
+  if (!required) return { valid: true, args };
+  const missing = required.filter(key => args[key] === undefined);
+  if (missing.length > 0) {
+    return { valid: false, error: `Missing required argument(s): ${missing.join(', ')}` };
+  }
+  return { valid: true, args };
+}
+
+// Import the KB module (will be loaded when the tool is first used)
+let kb = null;
+function getKB() {
+  if (!kb) {
+    kb = require('./tools/markdown_kb');
+  }
+  return kb;
+}
+
+const tools = {
+  run_command: ({ command }) => {
+    try {
+      const output = execSync(command, { encoding: 'utf-8', timeout: 5000 });
+      return { success: true, output };
+    } catch (error) {
+      return { success: false, output: error.message };
+    }
+  },
+  read_file: ({ path: filePath }) => {
+    try {
+      const data = fs.readFileSync(filePath, 'utf-8');
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+  write_file: ({ path: filePath, content }) => {
+    try {
+      fs.writeFileSync(filePath, content);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+  update_memory: ({ content }) => {
+    updateMemory(content);
+    return { success: true, status: 'Memory updated' };
+  },
+  markdown_kb: (args) => {
+    const { action, ...params } = args;
+    const kbMod = getKB();
+    try {
+      let result;
+      switch (action) {
+        case 'search':
+          result = kbMod.search(params.query, params.limit || 5);
+          break;
+        case 'write':
+          if (!params.title || !params.content) throw new Error('Missing title or content for write action');
+          result = kbMod.writeNote(params.title, params.content);
+          break;
+        case 'read':
+          if (params.path) {
+            result = kbMod.readNoteByPath(params.path);
+          } else if (params.title) {
+            result = kbMod.readNoteByTitle(params.title);
+          } else {
+            throw new Error('Either path or title required for read action');
+          }
+          break;
+        case 'reindex':
+          result = kbMod.rebuildIndex();
+          break;
+        case 'list':
+          result = kbMod.listNotes();
+          break;
+        default:
+          throw new Error(`Unknown action: ${action}. Use search, write, read, reindex, or list.`);
+      }
+      return { success: true, result };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+};
+
+// ----------------------------------------------------------------------
+// 5. Inference Backend (unchanged)
+async function generateOllama(prompt, options = {}) {
+  try {
+    const response = await axios.post(`${OLLAMA_URL}/api/generate`, {
+      model: OLLAMA_MODEL,
+      prompt,
+      stream: false,
+      options: {
+        num_predict: options.max_new_tokens || 256,
+        stop: options.stop_sequence ? [options.stop_sequence] : undefined,
+      }
+    });
+    return response.data.response;
+  } catch (error) {
+    if (error.code === 'ECONNREFUSED') {
+      throw new Error(`Cannot connect to Ollama at ${OLLAMA_URL}. Is Ollama running? (Try 'ollama serve')`);
+    }
+    throw error;
+  }
+}
+
+async function generate(prompt, options = {}) {
+  if (BACKEND === 'ollama') {
+    return generateOllama(prompt, options);
+  } else {
+    const { pipeline, env } = require('@xenova/transformers');
+    env.allowRemoteModels = true;
+    console.error(`${colors.yellow}Loading Transformers.js model (first time may take a while)...${colors.reset}`);
+    const pipe = await pipeline('text-generation', process.env.TRANSFORMERS_MODEL || 'Xenova/phi-3-mini-4k-instruct');
+    const result = await pipe(prompt, {
+      max_new_tokens: options.max_new_tokens || 256,
+    });
+    return result[0].generated_text;
+  }
+}
+
+// ----------------------------------------------------------------------
+// 6. Action parsing (robust)
+function parseAction(text) {
+  const match = text.match(/Action:\s*(\w+)\s*\(\s*(\{.*?\})\s*\)/s);
+  if (!match) return null;
+  const [_, toolName, argsStr] = match;
+  try {
+    const args = JSON.parse(argsStr);
+    return { toolName, args };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ----------------------------------------------------------------------
+// 7. Build ReAct prompt (include KB tool description)
+function buildPrompt(persona, memory, userInput) {
+  const toolDescriptions = `
+You have access to the following tools:
+- run_command({ "command": "string" }) – Execute a shell command.
+- read_file({ "path": "string" }) – Read a file's contents. (You may also use "file" as the key.)
+- write_file({ "path": "string", "content": "string" }) – Write content to a file.
+- update_memory({ "content": "string" }) – Store a fact in long-term memory.
+- markdown_kb({ "action": "search", "query": "search terms", "limit": 5 }) – Search your Markdown knowledge base.
+- markdown_kb({ "action": "write", "title": "Note title", "content": "Markdown content" }) – Create or update a note.
+- markdown_kb({ "action": "read", "title": "Note title" }) – Read a note by its title.
+- markdown_kb({ "action": "read", "path": "knowledge/some.md" }) – Read a note by file path.
+- markdown_kb({ "action": "reindex" }) – Rebuild the search index.
+- markdown_kb({ "action": "list" }) – List all notes in the knowledge base.
+
+When you need to use a tool, output exactly:
+Action: toolName({ "arg": "value" })
+
+Otherwise, answer directly.
+
+Example:
+User: What notes do I have about AI?
+Thought: I should search my knowledge base for "AI".
+Action: markdown_kb({ "action": "search", "query": "AI" })
+Observation: {"success":true,"result":[{"title":"AI ideas","snippet":"..."}]}
+Answer: You have a note titled "AI ideas" that mentions...
+
+Now continue the conversation.
+`;
+
+  const system = `${persona}\n\n${toolDescriptions}\nRecent memory:\n${memory.slice(-500)}`;
+  return `${system}\n\nUser: ${userInput}\nThought:`;
+}
+
+// ----------------------------------------------------------------------
+// 8. Agent Step
+async function runAgentStep(userInput) {
+  const soul = readSoul();
+  const prompt = buildPrompt(soul.persona, soul.memory, userInput);
+
+  const response = await generate(prompt, { max_new_tokens: 256, stop_sequence: 'Observation:' });
+
+  const parsed = parseAction(response);
+  if (parsed) {
+    let { toolName, args } = parsed;
+    args = normalizeArgs(toolName, args);
+    const validation = validateArgs(toolName, args);
+    if (!validation.valid) {
+      const errorObs = { error: `Tool call validation failed: ${validation.error}` };
+      appendToJournal(response, toolName, JSON.stringify(errorObs));
+      return { thought: response, action: toolName, observation: errorObs };
+    }
+
+    const tool = tools[toolName];
+    if (!tool) {
+      const errorObs = { error: `Tool "${toolName}" not found` };
+      appendToJournal(response, toolName, JSON.stringify(errorObs));
+      return { thought: response, action: toolName, observation: errorObs };
+    }
+
+    try {
+      const observation = tool(args);
+      const obsStr = JSON.stringify(observation);
+      appendToJournal(response, toolName, obsStr);
+      return { thought: response, action: toolName, observation };
+    } catch (e) {
+      const errorObs = { error: e.message };
+      appendToJournal(response, toolName, JSON.stringify(errorObs));
+      return { thought: response, action: toolName, observation: errorObs };
+    }
+  }
+
+  appendToJournal(response, 'none', '');
+  return { answer: response };
+}
+
+// ----------------------------------------------------------------------
+// 9. Interactive Commands (unchanged)
+function showHelp() {
+  console.log(`
+${colors.bright}Available commands:${colors.reset}
+  ${colors.latte}/help, /h${colors.reset}       Show this help menu
+  ${colors.latte}/guide, /g${colors.reset}      Show detailed guide on how to use MochaClaw
+  ${colors.latte}/memory, /m${colors.reset}     Display current memory contents
+  ${colors.latte}/journal, /j${colors.reset}    Display recent journal entries
+  ${colors.latte}/tools, /t${colors.reset}      List available tools and their usage
+  ${colors.latte}/kb, /k${colors.reset}         Show knowledge base summary (list notes)
+  ${colors.latte}/exit, /quit${colors.reset}    Exit MochaClaw
+
+Any other input is sent to the AI agent.
+`);
+}
+
+function showGuide() {
+  console.log(`
+${colors.bright}MochaClaw Guide${colors.reset}
+
+${colors.latte}What is MochaClaw?${colors.reset}
+  A privacy-first AI agent that runs entirely on your local machine.
+  It uses Ollama (default) or Transformers.js to generate responses,
+  and can execute local tools to interact with your system.
+
+${colors.latte}Knowledge Base (Markdown KB)${colors.reset}
+  All notes are stored as plain Markdown files in the "knowledge/" folder.
+  The agent can search, read, write, and reindex this folder.
+  Great for long-term memory, project notes, and personal wikis.
+
+${colors.latte}How to talk to the agent:${colors.reset}
+  Simply type your question or request. The agent will decide whether
+  to answer directly or use a tool. Tool calls are formatted as:
+  Action: toolName({ "arg": "value" })
+
+${colors.latte}Available Tools:${colors.reset}
+  • run_command(...)     - Execute a shell command
+  • read_file(...)       - Read a file's contents
+  • write_file(...)      - Write to a file
+  • update_memory(...)   - Add a fact to long-term memory
+  • markdown_kb(...)     - Search, read, write your Markdown knowledge base
+
+${colors.latte}Memory & Journal:${colors.reset}
+  All interactions are stored in MOCHASOUL.md in the current directory.
+  You can view memory with /memory and journal with /journal.
+
+${colors.latte}Tips:${colors.reset}
+  • Be explicit in your requests.
+  • Use the knowledge base for important information you want the agent to remember across sessions.
+  • Check that Ollama is running if you see connection errors.
+`);
+}
+
+function showTools() {
+  console.log(`
+${colors.bright}Available Tools & Example Usage:${colors.reset}
+
+${colors.latte}run_command${colors.reset}
+  Example: Action: run_command({ "command": "ls -la ~" })
+
+${colors.latte}read_file${colors.reset}
+  Example: Action: read_file({ "path": "/home/kali/.bashrc" })
+
+${colors.latte}write_file${colors.reset}
+  Example: Action: write_file({ "path": "./note.txt", "content": "Hello Mocha" })
+
+${colors.latte}update_memory${colors.reset}
+  Example: Action: update_memory({ "content": "User likes dark mode" })
+
+${colors.latte}markdown_kb${colors.reset}
+  Search:   Action: markdown_kb({ "action": "search", "query": "project ideas" })
+  Write:    Action: markdown_kb({ "action": "write", "title": "My Note", "content": "# Heading\\n\\nContent here" })
+  Read:     Action: markdown_kb({ "action": "read", "title": "My Note" })
+  Reindex:  Action: markdown_kb({ "action": "reindex" })
+  List:     Action: markdown_kb({ "action": "list" })
+`);
+}
+
+async function showKBSummary() {
+  try {
+    const kbMod = require('./tools/markdown_kb');
+    const notes = kbMod.listNotes();
+    console.log(`${colors.cyan}Knowledge Base (${notes.length} notes):${colors.reset}`);
+    notes.forEach(note => {
+      console.log(`  📄 ${note.title} (${note.file_path})`);
+    });
+  } catch (e) {
+    console.log(`${colors.yellow}Knowledge base not yet initialized. Create notes using the markdown_kb tool.${colors.reset}`);
+  }
+}
+
+// ----------------------------------------------------------------------
+// 10. Main
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: `${colors.latte}mocha>${colors.reset} `
+    });
+
+    showBanner();
+    console.log(`${colors.green}Type /help for available commands.${colors.reset}\n`);
+
+    if (BACKEND === 'ollama') {
+      try {
+        await axios.get(`${OLLAMA_URL}/api/tags`);
+      } catch (error) {
+        console.error(`${colors.red}⚠ Warning: Cannot connect to Ollama.${colors.reset}`);
+        console.error(`${colors.yellow}Make sure Ollama is running: 'ollama serve'${colors.reset}`);
+        console.error(`${colors.yellow}You can also switch to Transformers.js backend by setting INFERENCE_BACKEND=transformers in .env${colors.reset}\n`);
+      }
+    }
+
+    rl.prompt();
+
+    rl.on('line', async (line) => {
+      const input = line.trim();
+      if (!input) {
+        rl.prompt();
+        return;
+      }
+
+      if (input.startsWith('/')) {
+        const cmd = input.slice(1).toLowerCase();
+        if (cmd === 'help' || cmd === 'h') {
+          showHelp();
+        } else if (cmd === 'guide' || cmd === 'g') {
+          showGuide();
+        } else if (cmd === 'memory' || cmd === 'm') {
+          const soul = readSoul();
+          console.log(`${colors.cyan}Current Memory:${colors.reset}\n${soul.memory || '(empty)'}`);
+        } else if (cmd === 'journal' || cmd === 'j') {
+          const soul = readSoul();
+          const lastEntries = soul.journal.split('---').slice(-3).join('---');
+          console.log(`${colors.cyan}Recent Journal:${colors.reset}\n${lastEntries || '(empty)'}`);
+        } else if (cmd === 'tools' || cmd === 't') {
+          showTools();
+        } else if (cmd === 'kb' || cmd === 'k') {
+          await showKBSummary();
+        } else if (cmd === 'exit' || cmd === 'quit') {
+          console.log(`${colors.green}Goodbye!${colors.reset}`);
+          rl.close();
+          return;
+        } else {
+          console.log(`${colors.red}Unknown command. Type /help for available commands.${colors.reset}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      console.log(`${colors.yellow}MochaClaw thinking...${colors.reset}`);
+      try {
+        const result = await runAgentStep(input);
+        if (result.answer) {
+          console.log(`\n${colors.green}Agent:${colors.reset} ${result.answer}\n`);
+        } else if (result.observation) {
+          console.log(`\n${colors.green}Tool Result:${colors.reset} ${JSON.stringify(result.observation, null, 2)}\n`);
+        }
+      } catch (error) {
+        console.error(`${colors.red}Error:${colors.reset} ${error.message}`);
+      }
+      rl.prompt();
+    });
+
+    rl.on('close', () => {
+      process.exit(0);
+    });
+  } else {
+    const query = args.join(' ');
+    try {
+      const result = await runAgentStep(query);
+      if (result.answer) {
+        console.log(result.answer);
+      } else if (result.observation) {
+        console.log(JSON.stringify(result.observation, null, 2));
+      }
+    } catch (error) {
+      console.error(`${colors.red}Error:${colors.reset} ${error.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+main().catch(console.error);
