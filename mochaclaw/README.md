@@ -1,4 +1,4 @@
-# ☕ Mochaclaw v1.1 (Testing) 
+# ☕ Mochaclaw v1.2 (Testing) 
 
 **Lightweight, local‑first AI agent for Debian**  
 *Privacy‑first automation with OpenClaw tactics, powered by Ollama or Transformers.js (WASM).*
@@ -10,6 +10,15 @@
                           M O C H A C L A W
               Privacy-first Local AI Agent for Debian
 ```
+
+**UPDATE v1.2:**
+- **New tool:** `markdown_kb` – search, write, read, reindex, and list notes.
+- **Automatic indexing** – uses SQLite + FlexSearch for fast full‑text search.
+- **Clean Markdown** – every note includes YAML front matter with title, stored in the `./knowledge/` folder.
+- **Agent‑aware persona** – Mochaclaw knows how to use the KB without extra instructions.
+- **Interactive command** – `/kb` (or `/k`) lists all notes in your knowledge base.
+
+---
 
 Mochaclaw is a single‑file CLI agent harness that runs entirely on your local machine. It uses **Ollama** (default) or **Transformers.js** (WASM) to execute AI workflows without any cloud dependencies. All state (persona, memory, journal) is stored in a single `MOCHASOUL.md` file – a unified soul that grows with every interaction.
 
