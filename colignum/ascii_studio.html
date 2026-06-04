@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLIGNUM · ASCII STUDIO</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        /* ----- PURE BLACK & WHITE STYLING (original ascii studio) ----- */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #000; color: #fff; font-family: 'Courier New', Courier, monospace;
+            font-size: 14px; line-height: 1.2; height: 100vh; display: flex; flex-direction: column;
+            padding: 8px; border: 2px solid #fff; transition: 0.2s;
+        }
+        body.ui-invert { background: #fff; color: #000; border-color: #000; }
+        body.ui-invert .top-bar, body.ui-invert .left-panel, body.ui-invert .right-panel,
+        body.ui-invert .preview-container, body.ui-invert select, body.ui-invert button,
+        body.ui-invert textarea, body.ui-invert .shader-editor label {
+            background: #fff; color: #000; border-color: #000;
+        }
+        body.ui-invert .slider-item input { accent-color: #000; }
+        .app { display: flex; flex-direction: column; height: 100%; gap: 6px; }
+        .top-bar {
+            display: flex; align-items: center; justify-content: space-between; background: #000;
+            padding: 6px 12px; border: 1px solid #fff; font-weight: bold; text-transform: uppercase;
+        }
+        .logo { font-size: 1.2rem; }
+        .top-buttons { display: flex; gap: 10px; }
+        .top-buttons button {
+            background: #000; border: 1px solid #fff; color: #fff; font-family: 'Courier New', monospace;
+            font-size: 12px; padding: 4px 10px; cursor: pointer; text-transform: uppercase;
+        }
+        .top-buttons button:hover { background: #333; }
+        .main-area {
+            display: grid; grid-template-columns: 350px 1fr 350px; gap: 6px; flex: 1; min-height: 0;
+        }
+        .left-panel, .right-panel {
+            background: #000; border: 1px solid #fff; padding: 12px; display: flex; flex-direction: column;
+            gap: 12px; overflow-y: auto;
+        }
+        .panel-section { border-bottom: 1px solid #fff; padding-bottom: 10px; }
+        .panel-section h3 { margin-bottom: 8px; font-size: 1.1rem; text-decoration: underline overline; }
+        .slider-item {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+        }
+        .slider-item label { width: 100px; }
+        .slider-item input { width: 160px; background: #000; border: 1px solid #fff; accent-color: #fff; }
+        .slider-item span { width: 45px; text-align: right; }
+        select, button {
+            background: #000; border: 1px solid #fff; color: #fff; font-family: 'Courier New', monospace;
+            font-size: 13px; padding: 6px 8px; cursor: pointer; text-transform: uppercase;
+        }
+        .button-group { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+        .ascii-editor textarea {
+            width: 100%; height: 120px; background: #000; color: #fff; border: 1px solid #fff;
+            font-family: 'Courier New', monospace; font-size: 12px; padding: 8px; resize: vertical;
+            white-space: pre; overflow: auto;
+        }
+        .preview-container {
+            background: #000; border: 1px solid #fff; display: flex; justify-content: center;
+            align-items: center; overflow: auto; padding: 8px; position: relative;
+        }
+        #ascii-output {
+            font-family: 'Courier New', monospace; font-size: 18px; line-height: 1.2;
+            white-space: pre; color: #fff; background: #000; margin: auto; width: fit-content;
+            transform-origin: center center;
+            transition: transform 0.1s ease;
+        }
+        .overlay-toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+        .overlay-toggle input { width: 20px; height: 20px; accent-color: #fff; }
+        .file-input { margin: 8px 0; }
+        .file-input input { background: #000; color: #fff; border: 1px solid #fff; padding: 6px; width: 100%; }
+        .mode-buttons { display: flex; gap: 6px; margin-bottom: 12px; }
+        .mode-btn { flex: 1; text-align: center; background: #000; border: 1px solid #fff; }
+        .mode-btn.active { background: #333; border-color: #fff; color: #fff; }
+
+        /* ZOOM CONTROLS */
+        .zoom-controls {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            display: flex;
+            gap: 4px;
+            z-index: 10;
+        }
+        .zoom-controls button {
+            width: 36px;
+            height: 36px;
+            font-size: 18px;
+            font-weight: bold;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .zoom-reset {
+            font-size: 11px !important;
+            width: 50px !important;
+        }
+
+        @media (max-width: 900px) { .main-area { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="top-bar">
+        <div class="logo">COLIGNUM · ASCII STUDIO</div>
+        <div class="top-buttons">
+            <button id="fullscreen-btn">FULLSCREEN</button>
+            <button id="ui-invert-btn">UI INVERT</button>
+            <button id="export-png">PNG (ASCII)</button>
+            <button id="export-mp4">MP4 (10s DEMO)</button>
+        </div>
+    </div>
+
+    <div class="main-area">
+        <!-- LEFT PANEL: MODE + DYNAMIC CONTROLS -->
+        <div class="left-panel">
+            <div class="panel-section">
+                <h3>MODE</h3>
+                <div class="mode-buttons" id="mode-selector">
+                    <button data-mode="shape" class="mode-btn active">3D SHAPE</button>
+                    <button data-mode="pattern" class="mode-btn">40+ PATTERNS</button>
+                    <button data-mode="image" class="mode-btn">JPEG / PNG</button>
+                </div>
+            </div>
+
+            <!-- 3D SHAPE CONTROLS -->
+            <div id="shape-controls">
+                <div class="panel-section">
+                    <h3>GEOMETRY & WAVE</h3>
+                    <div class="slider-item"><label>TYPE</label><select id="geom-type"><option value="sphere">SPHERE</option><option value="cube">CUBE</option><option value="torus">TORUS</option><option value="icosahedron">ICOSAHEDRON</option></select></div>
+                    <div class="slider-item"><label>SIZE</label><input type="range" id="shape-size" min="0.4" max="1.8" step="0.01" value="1.0"><span id="size-val">1.00</span></div>
+                    <div class="slider-item"><label>WAVE AMP</label><input type="range" id="wave-amp" min="0" max="1.2" step="0.01" value="0.3"><span id="wave-val">0.30</span></div>
+                    <div class="slider-item"><label>SPEED</label><input type="range" id="shape-speed" min="0" max="1.5" step="0.01" value="0.8"><span id="speed-val">0.80</span></div>
+                    <div class="slider-item"><label>GLITCH</label><input type="range" id="shape-glitch" min="0" max="0.6" step="0.01" value="0.1"><span id="glitch-val">0.10</span></div>
+                </div>
+            </div>
+
+            <!-- 40+ PATTERN CONTROLS (optical illusions) -->
+            <div id="pattern-controls" style="display: none;">
+                <div class="panel-section">
+                    <h3>PATTERN LIBRARY</h3>
+                    <select id="pattern-select"></select>
+                    <div class="slider-item"><label>SCALE</label><input type="range" id="pat-scale" min="0.3" max="2.5" step="0.02" value="1.0"><span id="pat-scale-val">1.00</span></div>
+                    <div class="slider-item"><label>ROTATION</label><input type="range" id="pat-rot" min="-3.14" max="3.14" step="0.03" value="0.0"><span id="pat-rot-val">0.00</span></div>
+                    <div class="slider-item"><label>TWIST/WARP</label><input type="range" id="pat-twist" min="0" max="1.5" step="0.01" value="0.0"><span id="pat-twist-val">0.00</span></div>
+                    <div class="slider-item"><label>ANIM SPEED</label><input type="range" id="pat-anim" min="0" max="1.8" step="0.02" value="0.5"><span id="pat-anim-val">0.50</span></div>
+                    <div class="slider-item"><label>PARAM A</label><input type="range" id="paramA" min="0" max="20" step="1" value="8"><span id="paramA-val">8</span></div>
+                    <div class="slider-item"><label>PARAM B</label><input type="range" id="paramB" min="0" max="12" step="1" value="4"><span id="paramB-val">4</span></div>
+                </div>
+            </div>
+
+            <!-- IMAGE UPLOAD CONTROLS -->
+            <div id="image-controls" style="display: none;">
+                <div class="panel-section">
+                    <h3>UPLOAD IMAGE</h3>
+                    <div class="file-input"><input type="file" id="image-upload" accept="image/jpeg,image/png,image/jpg"></div>
+                    <button id="refresh-image" style="width:100%; margin-top:5px;">UPDATE ASCII</button>
+                    <p style="font-size:11px; margin-top:6px;" id="image-info">no image loaded</p>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h3>CUSTOM OVERLAY</h3>
+                <textarea id="overlay-text" rows="3" placeholder="Type ASCII overlay... lines replace characters"></textarea>
+                <div class="overlay-toggle"><input type="checkbox" id="overlay-enable"><label>ENABLE OVERLAY</label></div>
+                <button id="apply-overlay" style="width:100%;">APPLY OVERLAY</button>
+            </div>
+        </div>
+
+        <!-- CENTER: ASCII PREVIEW (90x40) -->
+        <div class="preview-container">
+            <pre id="ascii-output">INITIALIZING TOTAL ASCII STUDIO 90x40</pre>
+            <div class="zoom-controls">
+                <button id="zoom-out">−</button>
+                <button id="zoom-reset" class="zoom-reset">100%</button>
+                <button id="zoom-in">+</button>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: ASCII RENDERING + EXPORT -->
+        <div class="right-panel">
+            <div class="panel-section">
+                <h3>ASCII GENERATION</h3>
+                <div class="slider-item"><label>CONTRAST</label><input type="range" id="ascii-contrast" min="0.5" max="2.5" step="0.02" value="1.2"><span id="contrast-val">1.20</span></div>
+                <div class="slider-item"><label>BRIGHTNESS</label><input type="range" id="ascii-bright" min="-0.6" max="0.6" step="0.01" value="0.0"><span id="bright-val">0.00</span></div>
+                <div class="slider-item"><label>DENSITY</label><input type="range" id="ascii-density" min="2" max="18" step="1" value="10"><span id="density-val">10</span></div>
+                <div class="slider-item"><label>CHARSET</label><select id="charset-select"><option value="std">STANDARD .:-=+*#%@</option><option value="block">BLOCKY ░▒▓█</option><option value="detailed">DETAILED (70+ chars)</option></select></div>
+                <button id="invert-ascii" style="width:100%; margin-top:6px;">INVERT ASCII</button>
+            </div>
+            <div class="panel-section">
+                <h3>EXPORT</h3>
+                <button id="export-png-btn" style="width:100%;">PNG (ASCII)</button>
+                <button id="export-mp4-btn" style="width:100%; margin-top:6px;">MP4 (10s DEMO)</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        // ---------- CONSTANTS ----------
+        const COLS = 90;
+        const ROWS = 40;
+        let currentMode = "shape";   // shape, pattern, image
+        let animationTime = 0;
+        let lastTimestamp = 0;
+        let playing = true;
+        let invertAsciiFlag = false;
+        let asciiContrast = 1.2, asciiBright = 0.0, asciiDensity = 10;
+        let currentRamp = " .:-=+*#%@";
+        let overlayEnabled = false;
+        let overlayTextContent = "";
+
+        // ZOOM STATE
+        let zoomLevel = 1.0;
+        const ZOOM_MIN = 0.3;
+        const ZOOM_MAX = 4.0;
+        const ZOOM_STEP = 0.15;
+
+        // pattern state
+        let currentPatternIdx = 0;
+        let patternParams = { scale:1.0, rotation:0.0, twist:0.0, animSpeed:0.5, paramA:8, paramB:4 };
+
+        // image state
+        let uploadedImage = null;
+
+        // ---------- 3D SHAPE (Three.js) ----------
+        let scene, camera, lowResRenderer, shapeMaterial, shapeMesh, clock;
+        let shapeUniforms = { uTime:{value:0}, uSize:{value:1.0}, uWave:{value:0.3}, uSpeed:{value:0.8}, uGlitch:{value:0.1} };
+
+        // ---------- PATTERN LIBRARY (40+ illusions) ----------
+        const PATTERN_NAMES = [
+            "Hermann Grid", "Cafe Wall", "Zollner Illusion", "Hering Illusion", "Ponzo", "Ebbinghaus", "Poggendorff", "Moire Flux",
+            "Checker Warp", "Spiral Twist", "Zigzag Star", "Hypnotic Spiral", "Breathing Rings", "Rotating Snakes", "Star Rosette",
+            "Extruded Girih", "Muqarnas Vault", "Interlaced Ribs", "Kufic Mirror", "NURBS Warp", "Isometric Grid", "8-Point Tunnel",
+            "Escher Tiles", "Wave Interference", "Hexagon Kaleido", "Penrose Rhombus", "Concentric Moire", "Ripple Pulse", "Crosshatch Illusion",
+            "Twisted Checker", "Glitch Grid", "Magnetic Field", "Orbital Rings", "Cubic Lattice", "Menger Sponge", "Sierpinski Carpet",
+            "Fibonacci Swirl", "Voronoi Noise", "Warped Plaid", "Optical Flow", "Spoked Wheel", "Fresnel Zones"
+        ];
+
+        function buildPatternSelect() {
+            let sel = document.getElementById('pattern-select');
+            sel.innerHTML = '';
+            PATTERN_NAMES.forEach((name, idx) => {
+                let opt = document.createElement('option');
+                opt.value = idx;
+                opt.innerText = name;
+                sel.appendChild(opt);
+            });
+        }
+
+        // draw pattern to 90x40 canvas (luminance array)
+        function renderPatternToLuminance() {
+            const canvas = document.createElement('canvas');
+            canvas.width = COLS;
+            canvas.height = ROWS;
+            const ctx = canvas.getContext('2d');
+            const w = COLS, h = ROWS;
+            const t = animationTime * patternParams.animSpeed;
+            const scale = patternParams.scale;
+            const rot = patternParams.rotation;
+            const twist = patternParams.twist;
+            const A = patternParams.paramA;
+            const B = patternParams.paramB;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, w, h);
+            ctx.save();
+            ctx.translate(w/2, h/2);
+            ctx.rotate(rot);
+            ctx.scale(scale, scale);
+            ctx.translate(-w/2, -h/2);
+            ctx.strokeStyle = "#000000";
+            ctx.fillStyle = "#000000";
+            ctx.lineWidth = 1.5;
+
+            const patternIdx = currentPatternIdx;
+
+            if (patternIdx === 0) { // Hermann Grid
+                for(let i=0;i<w*0.1;i++) for(let j=0;j<h*0.1;j++) ctx.fillRect(i*9, j*9, 2,2); 
+            }
+            else if (patternIdx === 1) { // Cafe Wall
+                for(let r=0;r<8;r++){ let off=(r%2)*4; for(let c=0;c<12;c++) ctx.fillRect(c*9+off, r*5, 6,3); } 
+            }
+            else if (patternIdx === 2) { // Zollner
+                for(let i=-5;i<12;i++){ ctx.beginPath(); ctx.moveTo(i*12,0); ctx.lineTo(i*12+twist*12, h); ctx.stroke(); } 
+            }
+            else if (patternIdx === 3) { // Hering
+                for(let a=0;a<12;a++){ let ang=a*Math.PI*2/12+t; let dx=Math.cos(ang)*w*0.7,dy=Math.sin(ang)*h*0.7; ctx.beginPath(); ctx.moveTo(w/2,h/2); ctx.lineTo(w/2+dx,h/2+dy); ctx.stroke(); } 
+            }
+            else if (patternIdx === 4) { // Ponzo
+                ctx.beginPath(); ctx.moveTo(10,10); ctx.lineTo(50,50); ctx.moveTo(w-10,10); ctx.lineTo(w-50,50); ctx.stroke(); ctx.fillRect(30,70,30,10); ctx.fillRect(30,90,30,10); 
+            }
+            else if (patternIdx === 5) { // Ebbinghaus
+                ctx.arc(w*0.3, h*0.5, 8,0,2*Math.PI); ctx.stroke(); ctx.arc(w*0.7, h*0.5, 12,0,2*Math.PI); ctx.stroke(); for(let i=0;i<6;i++){ let ang=i*Math.PI*2/6; ctx.beginPath(); ctx.arc(w*0.3+Math.cos(ang)*15, h*0.5+Math.sin(ang)*15, 4,0,2*Math.PI); ctx.stroke(); } 
+            }
+            else if (patternIdx === 6) { // Poggendorff
+                ctx.fillRect(w*0.45, 0, w*0.1, h); ctx.beginPath(); ctx.moveTo(10,20); ctx.lineTo(40, h-20); ctx.stroke(); ctx.beginPath(); ctx.moveTo(w-10,20); ctx.lineTo(w-40, h-20); ctx.stroke(); 
+            }
+            else if (patternIdx === 7) { // Moire Flux
+                for(let i=0;i<w;i+=4) for(let j=0;j<h;j+=4) if(Math.sin(i*0.3+t*5)*Math.cos(j*0.3-t*3)>0.2) ctx.fillRect(i,j,2,2); 
+            }
+            else if (patternIdx === 8) { // Checker Warp
+                for(let x=0;x<w;x+=8) for(let y=0;y<h;y+=8){ let dx=Math.sin(y*0.2+t)*twist*4; if(((Math.floor((x+dx)/8)+Math.floor(y/8))%2)===0) ctx.fillRect(x,y,7,7); } 
+            }
+            else if (patternIdx === 9) { // Spiral Twist
+                for(let r=0;r<Math.min(w,h);r+=5){ let ang=r*0.2+t*4+twist*3; let x=w/2+Math.cos(ang)*r, y=h/2+Math.sin(ang)*r; ctx.beginPath(); ctx.arc(x,y,2,0,2*Math.PI); ctx.fill(); } 
+            }
+            else if (patternIdx === 10) { // Zigzag Star
+                for(let i=0;i<A;i++){ let ang=i*2*Math.PI/A+t; let r1=12,r2=28; let x1=w/2+Math.cos(ang)*r1,y1=h/2+Math.sin(ang)*r1; let x2=w/2+Math.cos(ang+0.5)*r2,y2=h/2+Math.sin(ang+0.5)*r2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); } 
+            }
+            else if (patternIdx === 11) { // Hypnotic Spiral
+                for(let r=0;r<50;r+=3){ let ang=r*0.4-t*3; let x=w/2+Math.cos(ang)*r, y=h/2+Math.sin(ang)*r; ctx.fillRect(x,y,2,2); } 
+            }
+            else if (patternIdx === 12) { // Breathing Rings
+                let rad=12+Math.sin(t*3)*6; for(let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(w/2, h/2, rad+i*8,0,2*Math.PI); ctx.stroke(); } 
+            }
+            else if (patternIdx === 13) { // Rotating Snakes
+                for(let i=0;i<8;i++){ let ang=i*Math.PI/4+t; let offX=Math.cos(ang)*15, offY=Math.sin(ang)*10; ctx.fillRect(w/2+offX-5, h/2+offY-3,10,6); } 
+            }
+            else if (patternIdx === 14) { // Star Rosette
+                for(let i=0;i<16;i++){ let ang=i*Math.PI*2/16; let x=w/2+Math.cos(ang)*20, y=h/2+Math.sin(ang)*20; ctx.beginPath(); ctx.moveTo(w/2,h/2); ctx.lineTo(x,y); ctx.stroke(); } 
+            }
+            else if (patternIdx === 15) { // Extruded Girih
+                for(let i=0;i<w;i+=12) for(let j=0;j<h;j+=12) ctx.fillRect(i+Math.sin(i*0.2+t)*2, j+Math.cos(j*0.2)*2,5,5); 
+            }
+            else if (patternIdx === 16) { // Muqarnas Vault
+                for(let i=0;i<8;i++){ let y=i*5; ctx.fillRect(20, y+Math.sin(y*0.5+t)*4, w-40,2); } 
+            }
+            else if (patternIdx === 17) { // Interlaced Ribs
+                for(let i=0;i<w;i+=12){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i+10,h); ctx.stroke(); ctx.beginPath(); ctx.moveTo(i+5,0); ctx.lineTo(i-5,h); ctx.stroke(); } 
+            }
+            else if (patternIdx === 18) { // Kufic Mirror
+                ctx.fillRect(w*0.3, h*0.2, w*0.4, h*0.6); for(let i=0;i<4;i++) ctx.fillRect(w*0.3+i*8, h*0.3, 4, h*0.4); 
+            }
+            else if (patternIdx === 19) { // NURBS Warp
+                for(let x=0;x<w;x+=6) for(let y=0;y<h;y+=6){ let off=Math.sin(x*0.1+t*2)*twist*3+Math.cos(y*0.12)*twist; ctx.fillRect(x+off, y,2,2); } 
+            }
+            else if (patternIdx === 20) { // Isometric Grid
+                for(let i=0;i<12;i++){
+                    let y=i*4;
+                    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(i*8,0); ctx.lineTo(i*8+w*0.3,h); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(w-i*8,0); ctx.lineTo(w-i*8-w*0.3,h); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 21) { // 8-Point Tunnel
+                for(let i=0;i<20;i++){
+                    let r=i*3+t*10;
+                    let x=w/2+Math.cos(r)*r*0.5, y=h/2+Math.sin(r)*r*0.5;
+                    ctx.fillRect(x,y,3,3);
+                }
+            }
+            else if (patternIdx === 22) { // Escher Tiles
+                for(let x=0;x<w;x+=10) for(let y=0;y<h;y+=10){
+                    ctx.strokeRect(x,y,8,8);
+                    ctx.fillRect(x+2,y+2,4,4);
+                }
+            }
+            else if (patternIdx === 23) { // Wave Interference
+                for(let x=0;x<w;x+=2) for(let y=0;y<h;y+=2){
+                    let v = Math.sin(x*0.2+t)*Math.cos(y*0.2-t)*0.5+0.5;
+                    if(v>0.5) ctx.fillRect(x,y,2,2);
+                }
+            }
+            else if (patternIdx === 24) { // Hexagon Kaleido
+                for(let r=0;r<15;r+=3){
+                    for(let a=0;a<6;a++){
+                        let ang=a*Math.PI/3+t;
+                        let x=w/2+Math.cos(ang)*r, y=h/2+Math.sin(ang)*r;
+                        ctx.beginPath(); ctx.arc(x,y,2,0,2*Math.PI); ctx.fill();
+                    }
+                }
+            }
+            else if (patternIdx === 25) { // Penrose Rhombus
+                for(let i=0;i<8;i++){
+                    let ang=i*Math.PI*2/8;
+                    ctx.beginPath(); ctx.moveTo(w/2,h/2); ctx.lineTo(w/2+Math.cos(ang)*20, h/2+Math.sin(ang)*20); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 26) { // Concentric Moire
+                for(let r=0;r<40;r+=3){
+                    ctx.beginPath(); ctx.arc(w/2,h/2,r+t*5,0,2*Math.PI); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 27) { // Ripple Pulse
+                for(let x=0;x<w;x+=3) for(let y=0;y<h;y+=3){
+                    let d=Math.sqrt((x-w/2)**2+(y-h/2)**2);
+                    let v=Math.sin(d*0.3-t*4);
+                    if(v>0) ctx.fillRect(x,y,2,2);
+                }
+            }
+            else if (patternIdx === 28) { // Crosshatch Illusion
+                for(let i=0;i<w;i+=6){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
+                for(let j=0;j<h;j+=6){ ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(w,j); ctx.stroke(); }
+            }
+            else if (patternIdx === 29) { // Twisted Checker
+                for(let x=0;x<w;x+=8) for(let y=0;y<h;y+=8){
+                    let off=Math.sin(x*0.1+y*0.1+t)*twist*3;
+                    if(((x+y)%16)<8) ctx.fillRect(x+off,y,6,6);
+                }
+            }
+            else if (patternIdx === 30) { // Glitch Grid
+                for(let x=0;x<w;x+=8) for(let y=0;y<h;y+=8){
+                    let off=Math.random()*twist*6;
+                    ctx.fillRect(x+off,y,4,4);
+                }
+            }
+            else if (patternIdx === 31) { // Magnetic Field
+                for(let x=0;x<w;x+=4) for(let y=0;y<h;y+=4){
+                    let ang=Math.atan2(y-h/2,x-w/2)+t;
+                    let dx=Math.cos(ang)*3, dy=Math.sin(ang)*3;
+                    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+dx,y+dy); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 32) { // Orbital Rings
+                for(let i=0;i<6;i++){
+                    let ang=i*Math.PI*2/6+t;
+                    let cx=w/2+Math.cos(ang)*15, cy=h/2+Math.sin(ang)*15;
+                    ctx.beginPath(); ctx.arc(cx,cy,6,0,2*Math.PI); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 33) { // Cubic Lattice
+                for(let x=0;x<w;x+=12) for(let y=0;y<h;y+=12){
+                    ctx.strokeRect(x,y,8,8);
+                    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+4,y-4); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(x+8,y); ctx.lineTo(x+12,y-4); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 34) { // Menger Sponge
+                function drawMenger(x,y,s,depth){
+                    if(depth<=0){ ctx.fillRect(x,y,s,s); return; }
+                    let ns=s/3;
+                    for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+                        if(i===1 && j===1) continue;
+                        drawMenger(x+i*ns,y+j*ns,ns,depth-1);
+                    }
+                }
+                drawMenger(10,5,70,3);
+            }
+            else if (patternIdx === 35) { // Sierpinski Carpet
+                function drawSierpinski(x,y,s,depth){
+                    if(depth<=0){ ctx.fillRect(x,y,s,s); return; }
+                    let ns=s/3;
+                    for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+                        if(i===1 && j===1) continue;
+                        drawSierpinski(x+i*ns,y+j*ns,ns,depth-1);
+                    }
+                }
+                drawSierpinski(10,5,70,3);
+            }
+            else if (patternIdx === 36) { // Fibonacci Swirl
+                for(let i=0;i<100;i++){
+                    let r=i*0.5;
+                    let ang=i*0.3+t;
+                    let x=w/2+Math.cos(ang)*r, y=h/2+Math.sin(ang)*r;
+                    ctx.fillRect(x,y,2,2);
+                }
+            }
+            else if (patternIdx === 37) { // Voronoi Noise
+                const pts=[];
+                for(let i=0;i<A;i++){
+                    let ang=i*Math.PI*2/A+t;
+                    pts.push({x:w/2+Math.cos(ang)*15, y:h/2+Math.sin(ang)*10});
+                }
+                for(let x=0;x<w;x+=3) for(let y=0;y<h;y+=3){
+                    let minD=999;
+                    for(let p of pts) minD=Math.min(minD, Math.sqrt((x-p.x)**2+(y-p.y)**2));
+                    if(minD<5) ctx.fillRect(x,y,2,2);
+                }
+            }
+            else if (patternIdx === 38) { // Warped Plaid
+                for(let i=0;i<w;i+=8){
+                    let off=Math.sin(i*0.1+t)*twist*4;
+                    ctx.beginPath(); ctx.moveTo(i+off,0); ctx.lineTo(i+off,h); ctx.stroke();
+                }
+                for(let j=0;j<h;j+=6){
+                    let off=Math.cos(j*0.1+t)*twist*4;
+                    ctx.beginPath(); ctx.moveTo(0,j+off); ctx.lineTo(w,j+off); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 39) { // Optical Flow
+                for(let x=0;x<w;x+=4) for(let y=0;y<h;y+=4){
+                    let v=Math.sin(x*0.1+t)*Math.cos(y*0.1-t);
+                    let dx=Math.cos(v*Math.PI)*3, dy=Math.sin(v*Math.PI)*3;
+                    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+dx,y+dy); ctx.stroke();
+                }
+            }
+            else if (patternIdx === 40) { // Spoked Wheel
+                for(let i=0;i<A;i++){
+                    let ang=i*2*Math.PI/A+t;
+                    ctx.beginPath(); ctx.moveTo(w/2,h/2); ctx.lineTo(w/2+Math.cos(ang)*25, h/2+Math.sin(ang)*25); ctx.stroke();
+                }
+                ctx.beginPath(); ctx.arc(w/2,h/2,8,0,2*Math.PI); ctx.stroke();
+            }
+            else if (patternIdx === 41) { // Fresnel Zones
+                for(let r=0;r<40;r+=2){
+                    let v=Math.sin(r*0.3-t*3);
+                    if(v>0) ctx.beginPath(); ctx.arc(w/2,h/2,r,0,2*Math.PI); ctx.stroke();
+                }
+            }
+            else { // fallback generative for other patterns
+                for(let i=0;i<w;i+=8) for(let j=0;j<h;j+=8){ if((i+j+Math.sin(t)*10)%16<8) ctx.fillRect(i,j,4,4); }
+            }
+            ctx.restore();
+
+            const imgData = ctx.getImageData(0,0,w,h).data;
+            let lum = new Array(w*h);
+            for(let i=0;i<w*h;i++){
+                let r=imgData[i*4], g=imgData[i*4+1], b=imgData[i*4+2];
+                lum[i] = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+            }
+            return lum;
+        }
+
+        // ---------- 3D SHAPE SETUP ----------
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, COLS/ROWS, 0.1, 10);
+            camera.position.set(0,0,2.5);
+            lowResRenderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
+            lowResRenderer.setSize(COLS, ROWS);
+            lowResRenderer.setPixelRatio(1);
+
+            const vs = `uniform float uTime; uniform float uSize; uniform float uWave; uniform float uSpeed; uniform float uGlitch; varying float vBright; void main(){ vec3 pos = position * uSize; float t = uTime * uSpeed; pos.y += sin(pos.x*2.0 + t)*uWave*0.4; pos.x += cos(pos.z*1.8 + t*1.2)*uWave*0.3; if(uGlitch>0.1){ pos.x += sin(pos.y*8.0+uTime*12.0)*uGlitch; } vBright = 0.6+0.4*sin(pos.x*2.0+pos.y*1.5+uTime*3.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(pos,1.0);}`;
+            const fs = `varying float vBright; void main(){ gl_FragColor = vec4(vec3(vBright),1.0);}`;
+            shapeUniforms = { uTime:{value:0}, uSize:{value:1.0}, uWave:{value:0.3}, uSpeed:{value:0.8}, uGlitch:{value:0.1} };
+            shapeMaterial = new THREE.ShaderMaterial({ vertexShader:vs, fragmentShader:fs, uniforms:shapeUniforms });
+            clock = new THREE.Clock();
+            updateShapeMesh();
+        }
+
+        function updateShapeMesh() {
+            if(shapeMesh) scene.remove(shapeMesh);
+            let geom;
+            const type = document.getElementById('geom-type').value;
+            if(type==='sphere') geom = new THREE.SphereGeometry(1, 48, 48);
+            else if(type==='cube') geom = new THREE.BoxGeometry(1.2,1.2,1.2);
+            else if(type==='torus') geom = new THREE.TorusGeometry(0.7,0.25,48,64);
+            else geom = new THREE.IcosahedronGeometry(0.9,0);
+            shapeMesh = new THREE.Mesh(geom, shapeMaterial);
+            scene.add(shapeMesh);
+        }
+
+        function getShapeLuminance() {
+            if(!lowResRenderer) return new Array(COLS*ROWS).fill(0.5);
+            shapeUniforms.uTime.value += clock.getDelta();
+            shapeUniforms.uSize.value = parseFloat(document.getElementById('shape-size').value);
+            shapeUniforms.uWave.value = parseFloat(document.getElementById('wave-amp').value);
+            shapeUniforms.uSpeed.value = parseFloat(document.getElementById('shape-speed').value);
+            shapeUniforms.uGlitch.value = parseFloat(document.getElementById('shape-glitch').value);
+            lowResRenderer.render(scene, camera);
+            const gl = lowResRenderer.getContext();
+            const pixels = new Uint8Array(COLS*ROWS*4);
+            gl.readPixels(0,0,COLS,ROWS,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+            let lum = [];
+            for(let i=0;i<COLS*ROWS;i++) lum.push(pixels[i*4]/255);
+            return lum;
+        }
+
+        // ---------- IMAGE PROCESSING ----------
+        function getImageLuminance() {
+            if(!uploadedImage) return new Array(COLS*ROWS).fill(0.5);
+            const canvas = document.createElement('canvas');
+            canvas.width = COLS; canvas.height = ROWS;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(uploadedImage, 0, 0, COLS, ROWS);
+            const imgData = ctx.getImageData(0,0,COLS,ROWS).data;
+            let lum = [];
+            for(let i=0;i<COLS*ROWS;i++){
+                let r=imgData[i*4]/255, g=imgData[i*4+1]/255, b=imgData[i*4+2]/255;
+                lum.push(0.2126*r+0.7152*g+0.0722*b);
+            }
+            return lum;
+        }
+
+        // ---------- ASCII CONVERSION + CENTERED OVERLAY ----------
+        function getRamp() {
+            let ramp = currentRamp;
+            if(invertAsciiFlag) ramp = ramp.split('').reverse().join('');
+            let dens = Math.min(ramp.length, Math.max(2, asciiDensity));
+            if(dens < ramp.length){ let step=ramp.length/dens, r=''; for(let i=0;i<dens;i++) r+=ramp[Math.floor(i*step)]; return r; }
+            return ramp;
+        }
+
+        function lumToAscii(lumArray) {
+            const ramp = getRamp();
+            let out = '';
+            for(let row=0; row<ROWS; row++){
+                for(let col=0; col<COLS; col++){
+                    let L = lumArray[row*COLS+col];
+                    L = (L - 0.5) * asciiContrast + 0.5 + asciiBright;
+                    L = Math.min(1, Math.max(0, L));
+                    out += ramp[Math.floor(L * (ramp.length-1))];
+                }
+                out += '\n';
+            }
+            return out;
+        }
+
+        // CENTERED OVERLAY: places overlay text in the center of the canvas
+        function applyOverlay(baseAscii) {
+            if(!overlayEnabled || !overlayTextContent.trim()) return baseAscii;
+            let lines = baseAscii.split('\n');
+            let overlayLines = overlayTextContent.split('\n');
+
+            // Calculate center position
+            let overlayHeight = overlayLines.length;
+            let overlayWidth = 0;
+            for(let line of overlayLines) overlayWidth = Math.max(overlayWidth, line.length);
+
+            let startRow = Math.floor((ROWS - overlayHeight) / 2);
+            let startCol = Math.floor((COLS - overlayWidth) / 2);
+
+            for(let r=0; r<overlayHeight; r++){
+                let targetRow = startRow + r;
+                if(targetRow < 0 || targetRow >= ROWS) continue;
+                let ov = overlayLines[r];
+                let newLine = '';
+                for(let c=0; c<COLS; c++){
+                    let overlayCol = c - startCol;
+                    let ovChar = (overlayCol >= 0 && overlayCol < ov.length) ? ov[overlayCol] : ' ';
+                    newLine += (ovChar !== ' ' ? ovChar : (lines[targetRow][c] || ' '));
+                }
+                lines[targetRow] = newLine;
+            }
+            return lines.join('\n');
+        }
+
+        function refreshDisplay() {
+            let lum;
+            if(currentMode === 'shape') lum = getShapeLuminance();
+            else if(currentMode === 'pattern') lum = renderPatternToLuminance();
+            else lum = getImageLuminance();
+            let ascii = lumToAscii(lum);
+            ascii = applyOverlay(ascii);
+            document.getElementById('ascii-output').textContent = ascii;
+        }
+
+        // ---------- ZOOM FUNCTIONS ----------
+        function updateZoom() {
+            const output = document.getElementById('ascii-output');
+            output.style.transform = `scale(${zoomLevel})`;
+            document.getElementById('zoom-reset').innerText = Math.round(zoomLevel * 100) + '%';
+        }
+
+        function zoomIn() {
+            zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP);
+            updateZoom();
+        }
+
+        function zoomOut() {
+            zoomLevel = Math.max(ZOOM_MIN, zoomLevel - ZOOM_STEP);
+            updateZoom();
+        }
+
+        function zoomReset() {
+            zoomLevel = 1.0;
+            updateZoom();
+        }
+
+        // ---------- UI BINDINGS & ANIMATION LOOP ----------
+        function updateUIvalues() {
+            document.getElementById('size-val').innerText = document.getElementById('shape-size').value;
+            document.getElementById('wave-val').innerText = document.getElementById('wave-amp').value;
+            document.getElementById('speed-val').innerText = document.getElementById('shape-speed').value;
+            document.getElementById('glitch-val').innerText = document.getElementById('shape-glitch').value;
+            document.getElementById('contrast-val').innerText = asciiContrast.toFixed(2);
+            document.getElementById('bright-val').innerText = asciiBright.toFixed(2);
+            document.getElementById('density-val').innerText = asciiDensity;
+        }
+
+        let animFrame;
+        function animate(now) {
+            if(playing && (currentMode === 'pattern' || currentMode === 'shape')){
+                let delta = Math.min(0.033, (now - lastTimestamp)/1000);
+                if(delta>0) animationTime += delta * (currentMode==='pattern'?patternParams.animSpeed:1.0);
+                lastTimestamp = now;
+            } else { lastTimestamp = now; }
+            refreshDisplay();
+            animFrame = requestAnimationFrame(animate);
+        }
+
+        function attachEvents() {
+            // mode switching
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    currentMode = btn.dataset.mode;
+                    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById('shape-controls').style.display = currentMode==='shape' ? 'block' : 'none';
+                    document.getElementById('pattern-controls').style.display = currentMode==='pattern' ? 'block' : 'none';
+                    document.getElementById('image-controls').style.display = currentMode==='image' ? 'block' : 'none';
+                    refreshDisplay();
+                });
+            });
+            document.getElementById('geom-type').addEventListener('change', () => updateShapeMesh());
+            document.getElementById('shape-size').addEventListener('input', () => { updateUIvalues(); refreshDisplay(); });
+            document.getElementById('wave-amp').addEventListener('input', () => { updateUIvalues(); refreshDisplay(); });
+            document.getElementById('shape-speed').addEventListener('input', () => { updateUIvalues(); refreshDisplay(); });
+            document.getElementById('shape-glitch').addEventListener('input', () => { updateUIvalues(); refreshDisplay(); });
+
+            // pattern sliders
+            const patScale = document.getElementById('pat-scale');
+            patScale.addEventListener('input',()=>{ patternParams.scale=parseFloat(patScale.value); document.getElementById('pat-scale-val').innerText=patternParams.scale.toFixed(2); refreshDisplay(); });
+            document.getElementById('pat-rot').addEventListener('input',(e)=>{ patternParams.rotation=parseFloat(e.target.value); document.getElementById('pat-rot-val').innerText=patternParams.rotation.toFixed(2); refreshDisplay(); });
+            document.getElementById('pat-twist').addEventListener('input',(e)=>{ patternParams.twist=parseFloat(e.target.value); document.getElementById('pat-twist-val').innerText=patternParams.twist.toFixed(2); refreshDisplay(); });
+            document.getElementById('pat-anim').addEventListener('input',(e)=>{ patternParams.animSpeed=parseFloat(e.target.value); document.getElementById('pat-anim-val').innerText=patternParams.animSpeed.toFixed(2); });
+            document.getElementById('paramA').addEventListener('input',(e)=>{ patternParams.paramA=parseInt(e.target.value); document.getElementById('paramA-val').innerText=patternParams.paramA; refreshDisplay(); });
+            document.getElementById('paramB').addEventListener('input',(e)=>{ patternParams.paramB=parseInt(e.target.value); document.getElementById('paramB-val').innerText=patternParams.paramB; refreshDisplay(); });
+            document.getElementById('pattern-select').addEventListener('change',(e)=>{ currentPatternIdx=parseInt(e.target.value); refreshDisplay(); });
+
+            // ascii controls
+            document.getElementById('ascii-contrast').addEventListener('input',(e)=>{ asciiContrast=parseFloat(e.target.value); document.getElementById('contrast-val').innerText=asciiContrast.toFixed(2); refreshDisplay(); });
+            document.getElementById('ascii-bright').addEventListener('input',(e)=>{ asciiBright=parseFloat(e.target.value); document.getElementById('bright-val').innerText=asciiBright.toFixed(2); refreshDisplay(); });
+            document.getElementById('ascii-density').addEventListener('input',(e)=>{ asciiDensity=parseInt(e.target.value); document.getElementById('density-val').innerText=asciiDensity; refreshDisplay(); });
+            document.getElementById('charset-select').addEventListener('change',(e)=>{ let maps={std:" .:-=+*#%@", block:" ░▒▓█", detailed:" .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$"}; currentRamp=maps[e.target.value]; refreshDisplay(); });
+            document.getElementById('invert-ascii').addEventListener('click',()=>{ invertAsciiFlag=!invertAsciiFlag; refreshDisplay(); });
+
+            // overlay
+            document.getElementById('overlay-enable').addEventListener('change',(e)=>{ overlayEnabled=e.target.checked; refreshDisplay(); });
+            document.getElementById('apply-overlay').addEventListener('click',()=>{ overlayTextContent=document.getElementById('overlay-text').value; refreshDisplay(); });
+
+            // image upload
+            const imgUp = document.getElementById('image-upload');
+            imgUp.addEventListener('change',(e)=>{
+                let file=e.target.files[0]; if(!file)return;
+                let reader=new FileReader();
+                reader.onload=ev=>{ let img=new Image(); img.onload=()=>{ uploadedImage=img; document.getElementById('image-info').innerText=img.width+'x'+img.height; if(currentMode==='image') refreshDisplay(); }; img.src=ev.target.result; };
+                reader.readAsDataURL(file);
+            });
+            document.getElementById('refresh-image').addEventListener('click',()=>{ if(uploadedImage) refreshDisplay(); });
+
+            // zoom controls
+            document.getElementById('zoom-in').addEventListener('click', zoomIn);
+            document.getElementById('zoom-out').addEventListener('click', zoomOut);
+            document.getElementById('zoom-reset').addEventListener('click', zoomReset);
+
+            // export
+            document.getElementById('export-png').addEventListener('click',()=>{ exportAsPNG(); });
+            document.getElementById('export-mp4').addEventListener('click',()=>alert('MP4 export demo: recording not active in this build. Use screen capture.'));
+            document.getElementById('export-png-btn').addEventListener('click',()=>{ exportAsPNG(); });
+            document.getElementById('export-mp4-btn').addEventListener('click',()=>alert('MP4 export placeholder. For 10s video, use external recorder.'));
+            document.getElementById('fullscreen-btn').addEventListener('click',()=>document.querySelector('.app').requestFullscreen());
+            document.getElementById('ui-invert-btn').addEventListener('click',()=>document.body.classList.toggle('ui-invert'));
+        }
+
+        function exportAsPNG() {
+            const canvas = document.createElement('canvas');
+            canvas.width = COLS * 12;
+            canvas.height = ROWS * 18;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.font = '18px "Courier New", monospace';
+            ctx.fillStyle = '#fff';
+            const lines = document.getElementById('ascii-output').textContent.split('\n');
+            lines.forEach((line,i)=>ctx.fillText(line, 10, (i+1)*18));
+            const a = document.createElement('a');
+            a.download = `colignum_ascii_${Date.now()}.png`;
+            a.href = canvas.toDataURL();
+            a.click();
+        }
+
+        function start() {
+            initThree();
+            buildPatternSelect();
+            attachEvents();
+            updateUIvalues();
+            updateZoom();
+            lastTimestamp = performance.now();
+            animFrame = requestAnimationFrame(animate);
+        }
+        start();
+    })();
+</script>
+</body>
+</html>
