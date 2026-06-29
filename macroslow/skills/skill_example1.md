@@ -177,8 +177,10 @@ def verify_installation(base_dir):
 - 2026-06-29: [INSTALL] Global MAML system bootstrap skill created for OpenClaw/Hermes agents.
 
 ---
-**Use at your own risk**
-**How an Agent Uses This Skill**
+
+*Use at your own risk*
+
+**For Human: How an Agent Uses This Skill**
 
 1. Read this `skill.md` file.
 2. Execute the Python installation block.
