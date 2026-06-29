@@ -6,7 +6,7 @@
 **Skill Name:** `maml-system-installer`  
 **Version:** 1.1.0  
 **Type:** `workflow` / `skill`  
-**Target Harnesses:** OpenClaw, Hermes, any MCP-compatible agent  
+**Target Harnesses:** One-shot self-installation  
 **Purpose:** One-shot self-installation of a full MAML (Markdown as Medium Language) system into an agentic harness.
 
 ---
