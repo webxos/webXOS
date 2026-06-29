@@ -1,4 +1,4 @@
-**skill.md** (Designed for OpenClaw / Hermes / MCP Agents)
+**skill.md** (Designed for Agents)
 
 ```markdown
 # MAML System Installer Skill
