@@ -174,7 +174,7 @@ def verify_installation(base_dir):
 
 ## History
 
-- 2026-06-29: [INSTALL] Global MAML system bootstrap skill created for OpenClaw/Hermes agents.
+- 2026-06-29
 
 ---
 
