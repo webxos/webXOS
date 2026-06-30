@@ -6,7 +6,7 @@
 **Skill Name:** `adaptive-memory-skill`  
 **Version:** 1.0.0  
 **Type:** `skill`  
-**Target Harnesses:** Hermes (primary - memory & reflection), OpenClaw (secondary)  
+**Target Harnesses:** Local Harness or Agent
 **Purpose:** Improve performance over time by reading past execution history and adapting parameters dynamically.
 
 ---
