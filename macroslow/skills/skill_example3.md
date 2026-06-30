@@ -6,7 +6,7 @@
 **Skill Name:** `multi-step-research-workflow`  
 **Version:** 1.0.0  
 **Type:** `workflow`  
-**Target Harnesses:** Hermes (memory & reflection) + OpenClaw (orchestration & delegation)  
+**Target Harnesses:** Local Harness or Agent 
 **Purpose:** Execute a complete end-to-end research pipeline: query → literature search → data analysis → final report generation.
 
 ---
