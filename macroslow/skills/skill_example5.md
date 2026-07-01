@@ -124,6 +124,7 @@ def finalize_delegation(aggregated_data):
 ```
 
 ---
+*Use at your own risk*
 
 ## History
 
