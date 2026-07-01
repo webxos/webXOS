@@ -116,6 +116,7 @@ def calculate_base_score(data: Any):
 ```
 
 ---
+*Use at your own risk*
 
 ## History
 
