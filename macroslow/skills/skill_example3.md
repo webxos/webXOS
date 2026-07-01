@@ -118,6 +118,7 @@ def generate_final_report(query: str, insights: dict):
 ```
 
 ---
+*Use at your own risk*
 
 ## History
 
