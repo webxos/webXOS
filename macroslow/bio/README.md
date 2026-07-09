@@ -50,14 +50,6 @@ This 10-page guide provides a complete blueprint: from fundamentals (Page 1) to 
 
 Subsequent pages detail YAML schemas, full code examples for heartbeat/DP engines, harness integration, and more.
 
-## 1. MAML-Enhanced bio.md Fundamentals
-
-### Core File Anatomy
-Every `bio.maml.md` follows a dual-layer structure optimized for human readability, LLM prompting, and automated harness processing:
-
-1. **YAML Front Matter** (`---` delimited): Metadata, DP scores, version, permissions.
-2. **Markdown Body**: Semantic sections (`## SOUL`, `## SKILLS`, etc.) with embedded code blocks and JSON.
-
 ### License
 MIT
 
