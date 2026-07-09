@@ -1,6 +1,6 @@
 *THE MACROSLOW INTRODUCTION TO:*
 
-# Bio.md: The Perfect Living Agent Memory System Using Markdown as Medium Language (MAML.md)
+# Bio.md: The Perfect Living Agent Memory System
 
 **Universal Guide for Persistent Agentic Intelligence**  
 **Prepared for Local Ollama & MCP-Style Harnesses**  
