@@ -55,12 +55,3 @@ Every `bio.maml.md` follows a dual-layer structure optimized for human readabili
 MIT
 
 **This guide was made by webXOS (webxos.netlify.app) and is open source.**
-**Agent Role:** Persistent Local Ollama Assistant
-
-## SOUL
-...
-
-## SKILLS
-...
-```
-
