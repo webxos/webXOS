@@ -5,7 +5,6 @@
 ▐▌ ▐▌  █  ▐▌ ▐▌▐▛▚▞▜▌▐▌  █
 ▐▛▀▚▖  █  ▐▌ ▐▌▐▌  ▐▌▐▌  █
 ▐▙▄▞▘▗▄█▄▖▝▚▄▞▘▐▌  ▐▌▐▙▄▄▀
-
 ```
 
 # Bio.md: The Perfect Living Agent Memory System
