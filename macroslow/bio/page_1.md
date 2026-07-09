@@ -92,7 +92,7 @@ Every `bio.maml.md` follows a dual-layer structure optimized for human readabili
 **Markdown Body**: Semantic sections (`## SOUL`, `## SKILLS`, etc.) with embedded code blocks and JSON.
 
 
-### The Core File Anatomy (Expanded)
+### The Core File Anatomy
 A complete `bio.maml.md` is both a **living document** and a **computational object**.
 
 **YAML Front Matter** (Machine Layer):
