@@ -86,6 +86,12 @@ This 10-page guide delivers a production-ready blueprint. **Page 1** covers fund
 
 ## 1. MAML-Enhanced bio.md Fundamentals – Deep Dive
 
+Every `bio.maml.md` follows a dual-layer structure optimized for human readability, LLM prompting, and automated harness processing:
+
+**YAML Front Matter** (`---` delimited): Metadata, DP scores, version, permissions.
+**Markdown Body**: Semantic sections (`## SOUL`, `## SKILLS`, etc.) with embedded code blocks and JSON.
+
+
 ### The Core File Anatomy (Expanded)
 A complete `bio.maml.md` is both a **living document** and a **computational object**.
 
