@@ -1,4 +1,10 @@
 *THE MACROSLOW INTRODUCTION TO:* 
+```
+▗▖  ▗▖ ▗▄▖ ▗▖  ▗▖▗▖   
+▐▛▚▞▜▌▐▌ ▐▌▐▛▚▞▜▌▐▌   
+▐▌  ▐▌▐▛▀▜▌▐▌  ▐▌▐▌   
+▐▌  ▐▌▐▌ ▐▌▐▌  ▐▌▐▙▄▄▖
+```
 
 # MAML (Markdown as Medium Language): A Practical Communication Syntax for Modern MCP-Based Agentic Harnesses
 
