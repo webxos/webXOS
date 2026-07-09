@@ -1,5 +1,13 @@
 *THE MACROSLOW INTRODUCTION TO:*
 
+```
+ _____ _               _ 
+| __  |_|___   _____ _| |
+| __ -| | . |_|     | . |
+|_____|_|___|_|_|_|_|___|
+
+```
+
 # Bio.md: The Perfect Living Agent Memory System
 
 **Universal Guide for Persistent Agentic Intelligence**  
