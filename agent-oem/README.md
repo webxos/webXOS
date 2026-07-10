@@ -19,20 +19,20 @@ Agent-OEM is a backend scaffolding tool for developing local-first, privacy-focu
 ### Tree Structure
 ```markdown 
 agent-oem/
-├── index.html                 # (full, with console.error fallback)
-├── README.md                  # (unchanged – provided earlier)
-├── LICENSE                    # MIT
-├── .gitignore                 # (unchanged)
-├── docker-compose.yml         # (unchanged)
-├── Dockerfile                 # (unchanged)
-├── requirements.txt           # (updated earlier)
-├── config.yaml                # (unchanged)
-├── main.py                    # (as above)
+├── index.html                
+├── README.md                  
+├── LICENSE                    
+├── .gitignore                 
+├── docker-compose.yml        
+├── Dockerfile            
+├── requirements.txt          
+├── config.yaml               
+├── main.py                    
 ├── core/
 │   ├── __init__.py
 │   ├── base_agent.py
-│   ├── crypto.py              # (sync, fixed earlier)
-│   └── orchestra.py           # (as above, with time & hashlib imports)
+│   ├── crypto.py            
+│   └── orchestra.py           
 └── plugins/
     ├── __init__.py
     ├── customer_support.py
