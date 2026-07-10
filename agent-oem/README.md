@@ -27,7 +27,7 @@ The index.html internal handlers have calls to the backend. The backend implemen
    cd agent-oem
 
 ### Tree Structure
-
+```markdown 
 agent-oem/
 ├── index.html                 # Modified Agent Grounding UI (calls backend API)
 ├── README.md                  # Full documentation & deployment guide
@@ -49,6 +49,7 @@ agent-oem/
     ├── doc_analyst.py         # Use Case 3
     ├── fintech_auditor.py     # Use Case 4
     └── omni_onboarder.py      # Use Case 5
+```
 
   ### Plugin Development
 
