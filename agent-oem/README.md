@@ -16,13 +16,6 @@ Agent-OEM is a backend scaffolding tool for developing local-first, privacy-focu
 - **No‑Cloud Privacy** – All state can be kept locally (in‑memory or persistent storage like Redis).
 - **Deploy Anywhere** – Docker, serverless (Modal, Vercel), or traditional VM.
 
-## Quick Start
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/agent-oem.git
-   cd agent-oem
-
 ### Tree Structure
 ```markdown 
 agent-oem/
