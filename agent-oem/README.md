@@ -48,9 +48,9 @@ Agent-OEM is a modular Python/FastAPI backend providing a unified API for a 10-p
 
   ### Plugin Development
 
-    Create a new file plugins/my_plugin.py.
+  Create a new file plugins/my_plugin.py.
 
-    Implement a class that inherits from core.base_agent.BaseAgent.
+  Implement a class that inherits from core.base_agent.BaseAgent:
 
     Define async def execute(self, action: str, params: dict) -> dict.
 
