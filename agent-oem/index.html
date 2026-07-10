@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AGENT-OEM v1.0.0 · Backend Client</title>
+    <title>AGENT GROUNDING v2.3.1 · Backend Client</title>
 
     <!-- Agent-First Web Design meta headers -->
     <meta name="ai-agent-access" content="index, follow, allow-automation">
@@ -186,7 +186,7 @@
 </head>
 <body>
 
-    <h1>AGENT-OEM <span style="color:var(--dim)">v1.0.0</span>
+    <h1>⚡ AGENT GROUNDING <span style="color:var(--dim)">v2.3.1</span>
         <span class="sw-badge" id="sw-badge">SW off</span>
         <span class="sw-badge" id="agent-first-badge" title="Agent-First Web Design">AGENT-FIRST</span>
     </h1>
@@ -212,7 +212,7 @@
     <main id="webxos-app-core" role="application" aria-label="Agent Grounding Workspace">
         <div class="grid">
             <div class="panel">
-                <h3>Manual Test</h3>
+                <h3>🕹️ Manual Test</h3>
                 <div class="phase-select" id="phase-selector" role="tablist" aria-label="Protocol phase selector" data-agent-role="phase-selector"></div>
                 <label for="agent-primary-input">Data (JSON):</label>
                 <textarea id="agent-primary-input" name="agent-input" rows="6" spellcheck="false" aria-label="Phase request payload (JSON)" data-agent-role="input-field">{}</textarea>
@@ -223,7 +223,7 @@
             </div>
 
             <div class="panel">
-                <h3>Live Metrics</h3>
+                <h3>📊 Live Metrics</h3>
                 <div class="metrics">
                     <div class="metric"><div class="metric-value" id="m-tasks">0</div><div class="metric-label">Open Tasks</div></div>
                     <div class="metric"><div class="metric-value" id="m-msgs">0</div><div class="metric-label">Messages</div></div>
@@ -236,17 +236,17 @@
         </div>
 
         <div class="panel" style="margin-top:1rem;">
-            <h3>Phase Quick Reference</h3>
+            <h3>📖 Phase Quick Reference</h3>
             <pre style="max-height:200px;" id="phase-help" role="log" aria-label="Protocol phase reference" data-agent-role="output-display"></pre>
         </div>
 
         <div class="panel" style="margin-top:1rem;">
-            <h3>Agent Discovery Gateway</h3>
+            <h3>🌐 Agent Discovery Gateway</h3>
             <div class="subtitle" style="margin-bottom:0.5rem;">Agent-First Web Design — llms.txt gateway &amp; schema.org descriptor, served live from this page.</div>
             <div class="btn-row">
-                <button id="btn-view-llms" type="button" aria-label="View generated llms.txt gateway file" data-agent-role="submit-trigger">View llms.txt</button>
-                <button id="btn-view-agents" type="button" aria-label="View generated agents.txt policy file" data-agent-role="submit-trigger">View agents.txt</button>
-                <button id="btn-view-jsonld" type="button" aria-label="View JSON-LD schema.org descriptor" data-agent-role="submit-trigger">View JSON-LD</button>
+                <button id="btn-view-llms" type="button" aria-label="View generated llms.txt gateway file" data-agent-role="submit-trigger">📄 View llms.txt</button>
+                <button id="btn-view-agents" type="button" aria-label="View generated agents.txt policy file" data-agent-role="submit-trigger">🤖 View agents.txt</button>
+                <button id="btn-view-jsonld" type="button" aria-label="View JSON-LD schema.org descriptor" data-agent-role="submit-trigger">🔗 View JSON-LD</button>
             </div>
             <pre id="discovery-output" role="log" aria-label="Agent discovery file output" data-agent-role="output-display" style="display:none;"></pre>
             <div style="font-size:0.7rem;color:var(--dim);margin-top:0.5rem;">
@@ -255,7 +255,7 @@
         </div>
 
         <div class="panel" style="margin-top:1rem;">
-            <h3>Database Backup</h3>
+            <h3>💾 Database Backup</h3>
             <div class="btn-row">
                 <button id="btn-export" type="button" aria-label="Export database as JSON" data-agent-role="submit-trigger">⬇ Export JSON</button>
                 <button id="btn-import" type="button" aria-label="Import database from JSON" data-agent-role="submit-trigger">⬆ Import JSON</button>
@@ -534,10 +534,33 @@
         // =============================================================================
         const ENC = new TextEncoder();
         const DEC = new TextDecoder();
-        async function deriveKey(password, salt) { /* ... */ }
-        async function encryptMessage(password, plaintext) { /* ... */ }
-        async function decryptMessage(password, encoded) { /* ... */ }
-        // (We keep the full functions from original, but they are not invoked)
+        async function deriveKey(password, salt) {
+            const mat = await crypto.subtle.importKey('raw', ENC.encode(password), 'PBKDF2', false, ['deriveKey']);
+            return crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+                mat,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+        async function encryptMessage(password, plaintext) {
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const key = await deriveKey(password, salt);
+            const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, ENC.encode(plaintext));
+            const buf = new Uint8Array(16 + 12 + ct.byteLength);
+            buf.set(salt, 0);
+            buf.set(iv, 16);
+            buf.set(new Uint8Array(ct), 28);
+            return btoa(String.fromCharCode(...buf));
+        }
+        async function decryptMessage(password, encoded) {
+            const data = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+            const key = await deriveKey(password, data.slice(0, 16));
+            const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: data.slice(16, 28) }, key, data.slice(28));
+            return DEC.decode(pt);
+        }
 
         // =============================================================================
         // Utilities
@@ -656,6 +679,7 @@
                     if (el) { el.textContent = `${usedMB}MB (${pct}%)`; }
                 }
             } catch (e) {
+                console.error('refreshMetrics error:', e);
                 updateStatus('db-status', 'DB: Error', 'offline');
             }
         }
@@ -666,7 +690,9 @@
                 const recent = agents.filter(a => a.last_seen > now() - 300000);
                 document.getElementById('agent-count').innerHTML =
                     `<span class="swatch" style="background:var(--fg)"></span>Agents: ${recent.length}/${agents.length}`;
-            } catch (e) {}
+            } catch (e) {
+                console.error('updateAgentCount error:', e);
+            }
         }
 
         // Discovery gateway
@@ -768,6 +794,7 @@
                     updateAgentState('warn', `Backend returned ${res.status}`, true);
                 }
             } catch (err) {
+                console.error('fetch error:', err);
                 resultEl.textContent = JSON.stringify({ status: 'error', message: err.message }, null, 2);
                 resultEl.style.borderLeftColor = 'var(--err)';
                 addLog('POST', { phase, data }, { error: err.message }, null);
@@ -836,7 +863,10 @@
                 const count = STORES.reduce((n, s) => n + (dump[s]?.length || 0), 0);
                 backupStatus(`✓ Exported ${count} records across ${STORES.length} stores.`, false);
                 refreshMetrics();
-            } catch (e) { backupStatus('Export failed: ' + e.message, true); }
+            } catch (e) {
+                console.error('export error:', e);
+                backupStatus('Export failed: ' + e.message, true);
+            }
         });
 
         document.getElementById('btn-import').addEventListener('click', () => {
@@ -852,7 +882,10 @@
                 backupStatus(`✓ Imported ${total} records.`, false);
                 refreshMetrics();
                 updateAgentCount();
-            } catch (e) { backupStatus('Import failed: ' + e.message, true); }
+            } catch (e) {
+                console.error('import error:', e);
+                backupStatus('Import failed: ' + e.message, true);
+            }
         });
 
         document.getElementById('btn-clear').addEventListener('click', async () => {
@@ -862,7 +895,10 @@
                 backupStatus('✓ All stores cleared.', false);
                 refreshMetrics();
                 updateAgentCount();
-            } catch (e) { backupStatus('Clear failed: ' + e.message, true); }
+            } catch (e) {
+                console.error('clear error:', e);
+                backupStatus('Clear failed: ' + e.message, true);
+            }
         });
 
         // =============================================================================
@@ -886,7 +922,8 @@
             refreshMetrics();
             updateAgentCount();
             updateAgentState('idle', 'System Ready (backend available).', true);
-        }).catch(() => {
+        }).catch((err) => {
+            console.error('IndexedDB init error:', err);
             updateStatus('db-status', 'DB: Error', 'offline');
             updateAgentState('error', 'IndexedDB failed to open.', false);
         });
