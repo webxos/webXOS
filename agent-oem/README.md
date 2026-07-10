@@ -90,15 +90,15 @@ The backend automatically loads only the enabled plugins.
 
 ### Use Cases
 
-- **Customer Support Chat**: Integrate Agent-OEM's customer_support plugin as the backend for your website's live chat. Users click a "Talk to AI Assistant" button that triggers the 10-phase protocol for natural conversation, ticket creation, and escalation, with plugins handling order lookups or refunds autonomously.
+- **Autonomous Support Agent**: Embed Agent-OEM backend in your website's API layer so external customer agents or chatbots can call its unified 10-phase endpoint. Other agents negotiate refunds, check orders, or escalate issues via protocol phases like memory, guardrails, and payments without exposing any frontend.
 
-- **Content & Repo Maintenance**: For developer or documentation-heavy sites, add an "AI Maintenance" link/button in the admin dashboard. It activates the repo_maintainer plugin to scan GitHub repos linked to the site, suggest updates, fix docs, or analyze user feedback from site comments.
+- **Content Sync Agent**: Integrate the repo_maintainer and doc_analyst plugins server-side. Your website's internal agent or third-party automation agents query the backend API to analyze site content, update docs, or maintain linked repositories autonomously through task queue and negotiation phases.
 
-- **Document Analysis Tool**: On knowledge-base or SaaS websites, provide a "Upload & Analyze" button for PDFs/contracts. The doc_analyst plugin processes files server-side via the backend, returning summaries, insights, or compliance checks while keeping data local for privacy.
+- **Fintech Transaction Agent**: For payment-heavy websites, expose secure Agent-OEM endpoints so partner financial agents can initiate audited transactions, KYC flows, or negotiations. The backend handles encryption, guardrails, and payments plugin logic purely agent-to-agent.
 
-- **Fintech/Payments Onboarding**: E-commerce or fintech sites can embed an "AI Financial Advisor" or "Secure Onboard" button. Agent-OEM's fintech_auditor and omni_onboarder plugins handle guided KYC flows, payment negotiation, guardrails, and encryption across the full agent protocol.
+- **Omni-Onboarding Agent**: Embed the omni_onboarder plugin for website user flows where external identity or CRM agents call the backend to complete multi-step onboarding. It manages liveness checks, memory persistence, and negotiation across distributed agent systems.
 
-- **Personalized Omni-Experience**: Add a prominent floating "AI Companion" button for any site. It loads the full modular backend, letting users switch between plugins (e.g., support + doc analysis) in one session, with memory and task queue for ongoing personalized recommendations or multi-step website automation.
+- **Multi-Agent Orchestration Hub**: Use the core orchestra and all plugins as a central backend service. Your website acts as host for swarms of specialized agents (internal or from partners) that interact via the 10-phase protocol for complex tasks like coordinated support + analysis + maintenance sessions.
 
 ### License
 
