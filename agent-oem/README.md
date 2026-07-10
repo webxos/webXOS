@@ -88,6 +88,18 @@ Edit config.yaml:
 The backend automatically loads only the enabled plugins.
 
 
+### Use Cases
+
+- **Customer Support Chat**: Integrate Agent-OEM's customer_support plugin as the backend for your website's live chat. Users click a "Talk to AI Assistant" button that triggers the 10-phase protocol for natural conversation, ticket creation, and escalation, with plugins handling order lookups or refunds autonomously.
+
+- **Content & Repo Maintenance**: For developer or documentation-heavy sites, add an "AI Maintenance" link/button in the admin dashboard. It activates the repo_maintainer plugin to scan GitHub repos linked to the site, suggest updates, fix docs, or analyze user feedback from site comments.
+
+- **Document Analysis Tool**: On knowledge-base or SaaS websites, provide a "Upload & Analyze" button for PDFs/contracts. The doc_analyst plugin processes files server-side via the backend, returning summaries, insights, or compliance checks while keeping data local for privacy.
+
+- **Fintech/Payments Onboarding**: E-commerce or fintech sites can embed an "AI Financial Advisor" or "Secure Onboard" button. Agent-OEM's fintech_auditor and omni_onboarder plugins handle guided KYC flows, payment negotiation, guardrails, and encryption across the full agent protocol.
+
+- **Personalized Omni-Experience**: Add a prominent floating "AI Companion" button for any site. It loads the full modular backend, letting users switch between plugins (e.g., support + doc analysis) in one session, with memory and task queue for ongoing personalized recommendations or multi-step website automation.
+
 ### License
 
 MIT
