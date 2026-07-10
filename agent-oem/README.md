@@ -50,6 +50,10 @@ agent-oem/
     ├── fintech_auditor.py     # Use Case 4
     └── omni_onboarder.py      # Use Case 5
 ```
+### Overview
+
+Agent-OEM is a modular Python/FastAPI backend providing a unified API for a 10-phase agent-to-agent protocol, with hot-swappable plugins for use cases like customer support, repo maintenance, document analysis, fintech auditing, and omni-onboarding. The system emphasizes no-cloud privacy via local or Redis storage, configurable plugins through config.yaml, and includes a bundled Agent Grounding frontend for testing all phases, deployable via Docker or serverless.
+
 
   ### Plugin Development
 
