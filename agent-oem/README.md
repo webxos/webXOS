@@ -59,7 +59,7 @@ Agent-OEM is a modular Python/FastAPI backend providing a unified API for a 10-p
 
 ### Deployment
 
-    GitHub Pages: For static hosting of the UI only (no backend). But to use the full backend, deploy the Docker container on any cloud.
+    Deploy the Docker container on any cloud:
 
     Modal / Vercel: The backend is a standard FastAPI app – deploy it as a serverless function.
 
