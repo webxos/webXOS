@@ -19,26 +19,27 @@ Agent-OEM is a backend scaffolding tool for developing local-first, privacy-focu
 ### Tree Structure
 ```markdown 
 agent-oem/
-├── index.html                 # Modified Agent Grounding UI (calls backend API)
-├── README.md                  # Full documentation & deployment guide
-├── LICENSE                    # MIT License
-├── .gitignore                 # Standard Python/git ignores
-├── docker-compose.yml         # Easy local dev with Docker
-├── Dockerfile                 # Multi‑stage build for backend
-├── requirements.txt           # Python dependencies
-├── config.yaml                # OEM master switchboard (toggle plugins, LLM keys)
-├── main.py                    # FastAPI application – serves UI + /api routes
+├── index.html                 # (full, with console.error fallback)
+├── README.md                  # (unchanged – provided earlier)
+├── LICENSE                    # MIT
+├── .gitignore                 # (unchanged)
+├── docker-compose.yml         # (unchanged)
+├── Dockerfile                 # (unchanged)
+├── requirements.txt           # (updated earlier)
+├── config.yaml                # (unchanged)
+├── main.py                    # (as above)
 ├── core/
 │   ├── __init__.py
-│   ├── base_agent.py          # Standard agent interface
-│   └── orchestra.py           # Orchestrator that loads plugins from config
+│   ├── base_agent.py
+│   ├── crypto.py              # (sync, fixed earlier)
+│   └── orchestra.py           # (as above, with time & hashlib imports)
 └── plugins/
     ├── __init__.py
-    ├── customer_support.py    # Use Case 1
-    ├── repo_maintainer.py     # Use Case 2
-    ├── doc_analyst.py         # Use Case 3
-    ├── fintech_auditor.py     # Use Case 4
-    └── omni_onboarder.py      # Use Case 5
+    ├── customer_support.py
+    ├── repo_maintainer.py
+    ├── doc_analyst.py
+    ├── fintech_auditor.py
+    └── omni_onboarder.py
 ```
 ### Overview
 
