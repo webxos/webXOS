@@ -14,9 +14,7 @@
 
 ---
 
-STACK is a **single‑file Python CLI** that builds, templates, and version‑controls projects using **vector embeddings**.  
-It uses the **nomic‑embed‑text** model (running locally via [Ollama](https://ollama.com)) to semantically match natural language descriptions with pre‑built code templates.  
-Everything happens **offline**, **no API keys**, **no cloud** — your code never leaves your machine.
+STACK is a **single‑file Python CLI** that builds, templates, and version‑controls projects using **vector embeddings**. It uses the **nomic‑embed‑text** model (running locally via [Ollama](https://ollama.com)) to semantically match natural language descriptions with pre‑built code templates. Everything happens **offline**, **no API keys**, **no cloud** — your code never leaves your machine.
 
 ### Features
 
