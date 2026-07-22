@@ -1,5 +1,16 @@
 # Webxos Whitepaper: Web Based Operating System
 
+```
+                                       ▓▓▓                    
+                                       ▓▓▓                    
+             ▓▓░ ░▓▓  ░▓▓   ▓▓▓▓▓▓▓▓   ▓▓▓ ▓▓▓▓▓▓  ▒▓▓░      ▓▓▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓▓▓▓              
+             ▓▓░ ░▓▓  ░▓▓ ▓▓▓       ▓▓ ▓▓▓▓▒    ░▓▓   ▓▓▓  ▓▓▓  ▓▓▓       ▓▓░▓▓▓                 
+             ▓▓  ░▓▓  ░▓▓ ▓▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓       ▓▓     ▓▓▓▓    ▓▓▓       ▓▓▒   ▓▓▓▓▓▓▓         
+            ░▓▓  ░▓▓  ░▓▓ ▓▓▓          ▓▓▓       ▓▓   ▓▓▓  ▓▓▓  ▓▓▓       ▓▓▒          ▓▓░          
+               ▓▓▓  ▓▓▓     ▓▓▓▓▓▓▓▓▓▓░  ░▓▓▓▓▓▓▓  ▒▓▓░      ░▓▓   ▓▓▓▓▓▓▓   ▒▓▓▓▓▓▓▓▓▓           
+
+```
+
 ## Abstract
 
 Webxos is a groundbreaking framework for developing standalone, single-page HTML applications optimized for decentralized web environments. Built on native JavaScript, WebGL, Three.js, and WebAssembly (WASM), Webxos delivers lightweight, modular progressive web apps (PWAs) that prioritize performance, privacy, and sustainability. This whitepaper explores Webxos’s architecture, its ecosystem of eco-friendly apps, retro games, and AI agents, and its vision for a decentralized, sustainable web.
