@@ -6,6 +6,12 @@
 
 This is the official multi-page guide for the MSPYB format. It is designed for developers, LLM users, and agent builders who want a **singular source of truth** that both humans and language models can reason about end-to-end.
 
+
+## MSPYB
+
+MSPYB's bootstrap algorithm uses a single Python script with a strict canonical structure: a shebang, rich docstring with LLM instructions, a write_file helper that creates directories, and grouped write_file calls embedding all project files as triple-quoted strings. Execution simply runs the script, which regenerates the full multi-file project directory from the embedded definitions, overwriting existing files for clean iteration while maintaining a singular source of truth. The workflow emphasizes editing the megalith script (with versioned headers and LLM guidance), bootstrapping, configuring, running, and iterating—enabling seamless human/LLM/agent collaboration for project evolution without scattered file management.
+
+
 ---
 
 ## Pages
