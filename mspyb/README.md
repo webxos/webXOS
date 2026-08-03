@@ -25,21 +25,6 @@ This is the official multi-page guide for the MSPYB format. It is designed for d
 
 ---
 
-## Quick Start
-
-```bash
-# 1. Save any MSPYB script as bootstrap.py
-# 2. Run it
-python bootstrap.py
-
-# 3. Enter the generated project
-cd project
-cp .env.example .env
-# edit secrets, then start the system
-```
-
----
-
 ## LICENSE
 
 MIT 
