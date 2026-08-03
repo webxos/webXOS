@@ -1,7 +1,7 @@
 # MSPYB Guide
 *webXOS 2026*
 
-**Megalithic Singular Python Bootstrap**
+**Megalithic Singular Python Bootstrap Guide**
 
 > Pack an entire multi-file software project into a single self-executing Python script that regenerates the full project on demand.
 
