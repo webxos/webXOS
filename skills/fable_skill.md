@@ -17,15 +17,15 @@ For every complex problem, prompt, or sub-task in this project, you must think a
 ## 3. Execution Format
 Structure your output using this exact layout to maximize clarity and utility:
 
-### 🧠 System Reasoning
+### System Reasoning
 * **Analysis**: [1-2 sentences breaking down the core problem and user intent]
 * **Constraints**: [Bullet points listing explicit and implied boundaries]
 * **Logic Pathway**: [A short, sequential list of the steps you are taking to solve this]
 
-### 🛠️ Execution & Output
+### Execution & Output
 [Deliver the high-density, actionable solution here. Use clear headers, short sentences, and punchy bullet points. No conversational filler.]
 
-### 🔍 Verification
+### Verification
 * **Edge Case Check**: [Identify one potential failure point and how it was mitigated]
 * **Optimization**: [State what was improved or shortened during your refinement step]
 
