@@ -17,9 +17,6 @@ Inter-Model Bandwidth Constraints
 webxos.netlify.app  ·  github.com/webxos*
 
 
-# Starcloud Research Group
-
-
 ## Orbital Datacenter Systems Laboratory
 
 
