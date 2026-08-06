@@ -6,6 +6,8 @@
 ▐▌  ▐▌▐▌ ▐▌▐▌  ▐▌▐▙▄▄▖
 ```
 
+by webXOS 2026
+
 # MAML (Markdown as Medium Language): A Practical Communication Syntax for Modern MCP-Based Agentic Harnesses
 
 **Report for Skill.md Integration**  
@@ -39,77 +41,97 @@ This 10-page report synthesizes core MAML specifications, practical implementati
 
 Subsequent pages will cover: detailed schema specifications (Page 2), code block examples and language support (Page 3), integration patterns with Hermes and OpenClaw (Page 4), MAML-Lite setup and execution (Page 5), skill definition templates (Page 6), security and validation best practices (Page 7), real-world use cases and performance considerations (Page 8), limitations and troubleshooting (Page 9), and conclusion with future directions (Page 10).
 
-## 1. MAML Fundamentals Adapted for MCP and Non-Quantum Environments
+**MAML (Markdown as Medium Language)**  
+**README / Full Overview for Modern Binary MCP Harnesses (Pi, OpenClaw, and similar)**
 
-### The Core File Anatomy
-Every MAML file follows a predictable, dual-layer structure optimized for both human collaboration and automated agent processing:
+### What is MAML?
 
-1. **YAML Front Matter**: Delimited by triple dashes (`---`), this section contains all machine-parsable configuration. It is the entry point for MCP gateways to validate permissions, resolve dependencies, and route execution.
-2. **Markdown Body**: Uses conventional Markdown headers (primarily `##`) to organize semantic sections. This ensures readability in any Markdown viewer while allowing structured parsing by agents or harnesses.
+MAML (Markdown as Medium Language) is a structured, executable extension of Markdown designed as a communication and workflow medium for agentic AI systems that use the **Model Context Protocol (MCP)**.
 
-A representative MAML skill file begins as follows:
+Instead of scattering prompts, tool definitions, schemas, state, and logs across multiple files or ephemeral messages, a single `.maml.md` file acts as a self-contained, portable, versionable, human-readable *and* machine-executable artifact.
 
-```yaml
----
-maml_version: "1.0.0"
-id: "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
-type: "skill"  # Options: skill, workflow, prompt, agent_blueprint
-origin: "agent://skill-author-hermes"
-requires:
-  libs: ["pydantic>=2.0", "pandas", "requests"]
-  apis: ["mcp://local-tool-server"]
-permissions:
-  read: ["agent://*", "harness://openclaw"]
-  execute: ["gateway://localhost", "agent://hermes-memory"]
-created_at: "2026-06-28T02:17:00Z"
-```
+It is particularly well-suited for modern binary/native MCP harnesses such as:
 
----
+- **OpenClaw** — multi-channel agent gateway with strong MCP client support, tool policy, and session management
+- **Pi** (pi-coding-agent / pi SDK and related packages) — embedded agent runtime used by OpenClaw and other systems for high-control agent sessions
+- Similar production-oriented harnesses that prefer efficient binary or native runtimes over pure interpreted scripting layers
+
+MAML sits *on top of* MCP rather than replacing it. MCP handles tool discovery, calling, and transport (stdio, Streamable HTTP, SSE, etc.). MAML provides the rich, persistent, auditable *payload and skill definition* format that agents exchange or load.
+
+### Core Design Goals
+
+- Human-readable documentation that is simultaneously executable
+- Self-describing workflows with explicit permissions, dependencies, and schemas
+- Immutable or append-only execution history for auditability and reflection
+- Portable skills/workflows that work across compatible MCP harnesses
+- Support for multi-language code blocks (Python/CPython, OCaml, shell, SQL, Qiskit, etc.)
+- Security-conscious design (permissions, signed tickets, validation) suitable for production agent loops
+
+## Output Schema
+
+Expected results and side effects.
+
+## History
+
+Append-only log of previous executions (timestamps, agent IDs, outcomes, error logs, Signed Execution Tickets if used).
+
+### How It Works with MCP Harnesses (OpenClaw, Pi, etc.)
+
+In modern binary MCP harnesses:
+
+1. An agent or gateway discovers or receives a `.maml.md` file (via filesystem MCP server, memory store, message payload, or skill registry).
+2. The harness (or a thin MAML-aware adapter/gateway) parses the YAML front matter for permissions, dependencies, and type.
+3. The body is treated as structured context + executable sections.
+4. Code blocks or declared tool calls are executed through the harness’s normal MCP tool interface or native execution environment.
+5. Results, errors, and reflections are appended to the History section, turning the file into a living, auditable artifact.
+6. The updated MAML can be passed to another agent, stored, or versioned in git.
+
+### Key Benefits for Binary/Modern Harnesses
+
+- **Token efficiency + structure** — Markdown is already the native language of most agent systems; MAML adds just enough structure without the verbosity of pure JSON/YAML.
+- **Auditability & reproducibility** — Execution history lives with the skill.
+- **Portability** — One file works across harnesses that understand the convention.
+- **Security surface** — Explicit permissions, origin, and (in full implementations) signed tickets and validation.
+- **Hybrid execution** — Mix natural language intent with real code and MCP tool calls.
+- **Version control friendly** — Git-diffable skills and workflows.
+
+### Typical Sections in a Production MAML
+
+| Section          | Purpose                                      |
+|------------------|----------------------------------------------|
+| Intent           | High-level goal and triggering conditions    |
+| Context          | Supporting knowledge and state               |
+| Requires / Permissions | Dependencies and access control         |
+| Input / Output Schema | Structured contracts                     |
+| Code / Tools     | Executable blocks or MCP tool mappings       |
+| Workflow Steps   | Ordered plan (for multi-step skills)         |
+| Error Handling   | Expected failures and recovery               |
+| History          | Immutable or append-only execution log       |
+
+### Implementation Notes
+
+- Full production implementations (as described in the WebXOS / MACROSLOW ecosystem) may include a MAML Gateway for validation, routing, Signed Execution Tickets, dual-mode AES encryption, and quantum-resistant features.
+- For lightweight use in OpenClaw or Pi today, treat MAML as a strong convention: parse the front matter yourself or via a small helper, feed the body into the agent context, and execute declared tools/code through the existing MCP or native tool layers.
+- Compatible with existing MCP servers (filesystem, memory, custom tools, etc.).
+
+### Example Use Cases
+
+- Reusable skills for OpenClaw agents (research, coding, ops, multi-channel actions)
+- Shared workflows between Pi-embedded sessions and other agents
+- Persistent agent memory or handoff packets
+- Auditable tool-using pipelines
+- Hybrid quantum/classical or multi-language workflows (where supported by the runtime)
+
+### Status & Ecosystem
+
+MAML originated in the open-source MACROSLOW / WebXOS work as a practical communication syntax for MCP-based agentic harnesses, with explicit design attention to systems like OpenClaw and similar modern runtimes. It remains a living convention rather than a frozen formal standard — adopt the core structure (YAML front matter + semantic Markdown body + history) and extend as needed for your harness.
+
 ## Intent
 Provide a reusable, schema-validated data processing skill that can be invoked via MCP from Hermes or OpenClaw harnesses for cleaning and validating tabular datasets prior to analysis.
 
 ## Context
 This skill targets CSV files from internal data pipelines. Expected columns include identifiers, numeric metrics, and categorical labels. Agents should maintain state across multiple invocations using the History section for progressive refinement.
 
-## Code_Blocks
-```python
-from pydantic import BaseModel, field_validator, ValidationError
-import pandas as pd
-import json
-
-class DatasetRecord(BaseModel):
-    record_id: int
-    metric_value: float
-    category: str
-
-    @field_validator('metric_value')
-    def validate_metric(cls, v):
-        if v < 0 or v > 1000:
-            raise ValueError('Metric value must be in range [0, 1000]')
-        return round(v, 4)
-
-def process_dataset(input_path: str, output_path: str = None):
-    try:
-        df = pd.read_csv(input_path)
-        records = []
-        errors = []
-        for _, row in df.iterrows():
-            try:
-                record = DatasetRecord(**row.to_dict())
-                records.append(record.model_dump())
-            except ValidationError as e:
-                errors.append({"row": row.to_dict(), "error": str(e)})
-        result = {
-            "processed_records": len(records),
-            "validation_errors": len(errors),
-            "sample_output": records[:5] if records else None
-        }
-        if output_path:
-            pd.DataFrame(records).to_csv(output_path, index=False)
-        return result
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
-```
 
 ## Input_Schema
 {
