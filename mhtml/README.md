@@ -1,6 +1,6 @@
 ## MHTML: 
 
-```*Megalithic HTML Specification & Engine## The Production-Ready, Single-File PWA Architecture for Greenfield Apps, Demos, and Air-Gapped Systems.*```
+```*Megalithic HTML Specification & Engine. Production-Ready, A Single-File PWA Architecture for Greenfield Apps, Demos, and Air-Gapped Systems.*```
 
 ------------------------------
 
