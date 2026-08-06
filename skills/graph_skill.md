@@ -62,15 +62,10 @@ Always emit the graph in **both** of these forms before any execution:
   "exit": "final_step"
 }
 ```
-
-2. **Mermaid flowchart** (human-readable)
-
-```mermaid
 flowchart TD
-  step_1["step_1: goal"] --> step_2["step_2: goal"]
-  step_2 -->|on_error| fallback_2["fallback"]
-```
-
+  id["short label"] --> next_id["short label"]
+  next_id -->|on_error| recovery["fallback"]
+  ```
 ## Execution Protocol
 
 1. Emit the full JSON + Mermaid graph.
