@@ -1,6 +1,6 @@
-## MHTML: MHTML_Technical_Specification_Volume1.pdf
+## MHTML_Technical_Specification_Volume1.pdf
 
-```*Megalithic HTML Specification & Engine. Production-Ready, A Single-File PWA Architecture for Greenfield Apps, Demos, and Air-Gapped Systems.*```
+```*Megalithic HTML Specification PDF. Production-Ready, A Single-File PWA Architecture for Greenfield Apps, Demos, and Air-Gapped Systems.*```
 
 ------------------------------
 
