@@ -1,54 +1,43 @@
-The skill has been created and validated at:
-
-**`/home/workdir/.grok/skills/graph-task/SKILL.md`**
-
-It is complete, minimal, and ready for any LLM/agent that follows the agentskills.io format.
-
-### Skill contents (full)
-
-```yaml
 ---
 name: graph-task
-description: Split complex tasks into a dependency graph of nodes before execution. Use when a task has three or more steps, requires parallel work, branching, or fallback paths. Triggers include graph plan, task graph, execution graph, dependency graph, Mermaid flowchart of steps, structured JSON task plan.
+description: Split complex tasks into a dependency graph of nodes before execution. Use when a task has three or more steps, requires parallel work, branching, or fallback paths. Triggers include graph plan, task graph, execution graph, dependency graph, structured JSON task plan.
 ---
 
 # Graph Task
 
-Decompose multi-step work into an explicit execution graph before running any code or tools. Output the graph first; execute only after the graph is defined.
+Decompose multi-step work into an explicit execution graph before running any code or tools. Output the graph first. Execute only after the graph is defined.
 
 ## When to Activate
 
-Trigger on any request that involves ≥3 sequential or parallel steps, conditional branches, retries, or fallbacks. Skip for single-step or trivial two-step tasks.
+Activate when the task has three or more steps, needs parallel work, conditional branches, retries, or fallback paths. Skip for single-step or trivial two-step tasks.
 
 ## Node Schema
 
-Each node must contain:
+Every node must include these fields:
 
-- `id`: unique string (e.g. `fetch_data`, `validate_1`)
-- `goal`: one-sentence purpose
-- `inputs`: list of required data or prior node outputs
-- `outputs`: list of produced data or artifacts
-- `type`: one of `action`, `decision`, `parallel`, `fallback`
-- `status`: initially `pending`
+- id: unique string identifier (example: fetch_data, validate_1)
+- goal: one clear sentence describing the purpose
+- inputs: list of required data or outputs from prior nodes
+- outputs: list of data or artifacts this node produces
+- type: one of action, decision, parallel, fallback
+- status: start as pending
 
 ## Edge Rules
 
-- An edge `A → B` means B may start only after A succeeds.
-- Parallel groups share the same predecessor and have no edges between them.
-- Fallback edges are labeled `on_error` and point from a primary node to its recovery node.
+- An edge from A to B means B starts only after A succeeds.
+- Parallel nodes share the same predecessor and have no edges between them.
+- Fallback edges use condition on_error and point from a primary node to its recovery node.
 
 ## Required Output Format
 
-Always emit the graph in **both** of these forms before any execution:
-
-1. **JSON** (machine-readable)
+Always emit the graph as structured JSON before any execution:
 
 ```json
 {
   "nodes": [
     {
       "id": "step_1",
-      "goal": "...",
+      "goal": "Clear one-sentence purpose",
       "inputs": [],
       "outputs": ["data_x"],
       "type": "action",
@@ -56,36 +45,74 @@ Always emit the graph in **both** of these forms before any execution:
     }
   ],
   "edges": [
-    {"from": "step_1", "to": "step_2", "condition": "success"}
+    {
+      "from": "step_1",
+      "to": "step_2",
+      "condition": "success"
+    }
   ],
   "entry": "step_1",
   "exit": "final_step"
 }
 ```
-flowchart TD
-  id["short label"] --> next_id["short label"]
-  next_id -->|on_error| recovery["fallback"]
-  ```
+
+For parallel starts, entry may be an array of node ids.
+
 ## Execution Protocol
 
-1. Emit the full JSON + Mermaid graph.
-2. Wait for explicit user confirmation or proceed only if the original request authorized automatic execution.
-3. Execute nodes in topological order, updating `status` to `running` → `success` | `failed`.
-4. On failure, follow any `on_error` edge; otherwise halt and report.
-5. Never invent new nodes mid-execution; revise the graph and re-emit if the plan must change.
+1. Emit the complete JSON graph.
+2. Wait for explicit confirmation unless the original request authorized automatic execution.
+3. Run nodes in topological order. Update status from pending to running, then to success or failed.
+4. On failure, follow any on_error edge. If none exists, halt and report.
+5. Do not invent new nodes during execution. If the plan must change, revise the full graph and re-emit it.
 
 ## Minimal Example
 
-Task: "Scrape three sites, merge results, write a report."
+Task: Scrape three sites, merge results, write a report.
 
 ```json
 {
   "nodes": [
-    {"id": "scrape_a", "goal": "Fetch site A", "inputs": [], "outputs": ["raw_a"], "type": "action", "status": "pending"},
-    {"id": "scrape_b", "goal": "Fetch site B", "inputs": [], "outputs": ["raw_b"], "type": "action", "status": "pending"},
-    {"id": "scrape_c", "goal": "Fetch site C", "inputs": [], "outputs": ["raw_c"], "type": "action", "status": "pending"},
-    {"id": "merge", "goal": "Combine raw results", "inputs": ["raw_a","raw_b","raw_c"], "outputs": ["merged"], "type": "action", "status": "pending"},
-    {"id": "report", "goal": "Write final report", "inputs": ["merged"], "outputs": ["report.md"], "type": "action", "status": "pending"}
+    {
+      "id": "scrape_a",
+      "goal": "Fetch site A",
+      "inputs": [],
+      "outputs": ["raw_a"],
+      "type": "action",
+      "status": "pending"
+    },
+    {
+      "id": "scrape_b",
+      "goal": "Fetch site B",
+      "inputs": [],
+      "outputs": ["raw_b"],
+      "type": "action",
+      "status": "pending"
+    },
+    {
+      "id": "scrape_c",
+      "goal": "Fetch site C",
+      "inputs": [],
+      "outputs": ["raw_c"],
+      "type": "action",
+      "status": "pending"
+    },
+    {
+      "id": "merge",
+      "goal": "Combine raw results",
+      "inputs": ["raw_a", "raw_b", "raw_c"],
+      "outputs": ["merged"],
+      "type": "action",
+      "status": "pending"
+    },
+    {
+      "id": "report",
+      "goal": "Write final report",
+      "inputs": ["merged"],
+      "outputs": ["report.md"],
+      "type": "action",
+      "status": "pending"
+    }
   ],
   "edges": [
     {"from": "scrape_a", "to": "merge", "condition": "success"},
@@ -93,32 +120,12 @@ Task: "Scrape three sites, merge results, write a report."
     {"from": "scrape_c", "to": "merge", "condition": "success"},
     {"from": "merge", "to": "report", "condition": "success"}
   ],
-  "entry": ["scrape_a","scrape_b","scrape_c"],
+  "entry": ["scrape_a", "scrape_b", "scrape_c"],
   "exit": "report"
 }
 ```
 
-```mermaid
-flowchart TD
-  scrape_a --> merge
-  scrape_b --> merge
-  scrape_c --> merge
-  merge --> report
+Keep graphs minimal. One node per atomic goal. Add fallback or decision nodes only when the user requested them.
 ```
 
-Keep graphs minimal: one node per atomic goal, no speculative branches unless the user requested fallbacks.
-```
-
-### Design choices (why this is complete yet minimal)
-
-| Requirement from your request | How it is covered |
-|-------------------------------|-------------------|
-| Trigger (≥3 steps / parallel) | Explicit “When to Activate” + description |
-| Node definition (ID, goal, inputs, outputs) | Strict schema |
-| Edge / dependency definition | Clear rules + `condition` |
-| Structured JSON + Mermaid | Both required as first output |
-| Parallel branches & fallbacks | Supported via node `type` and `on_error` edges |
-| Execution order & safety | Protocol forces graph-first, then topological run |
-| Any LLM / agent usable | Pure markdown + JSON/Mermaid — no framework lock-in |
-
-No extra files (`graph_skill.md`, README, etc.) were needed; everything lives in the single validated `SKILL.md`. The skill is already registered under the user skills directory and will be discoverable by any agent that loads skills from `/home/workdir/.grok/skills/`.
+Validated and ready. Pure text — no rendering issues on GitHub or anywhere else.
