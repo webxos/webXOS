@@ -4,8 +4,7 @@
 
 ------------------------------
 
-MHTML (Megalithic HTML) is an alternative architectural pattern designed to collapse the entire application lifecycle—structure, styling, reactivity, client-side data state, version history, compilation logs, and Progressive Web App configuration—into a single, deployable, human-readable .html file exceeding 5,000 to 50,000 lines of code.
-This repository contains the comprehensive 10-page technical specification and reference implementation blueprint for building zero-dependency, ultra-high-density web applications.
+This PDF File Explains MHTML (Megalithic HTML) - an alternative architectural pattern designed to collapse the entire application lifecycle—structure, styling, reactivity, client-side data state, version history, compilation logs, and Progressive Web App configuration—into a single, deployable, human-readable .html file exceeding 5,000 to 50,000 lines of code. This repository contains the comprehensive 10-page technical specification and reference implementation blueprint for building zero-dependency, ultra-high-density web applications. Download the PDF and learn about the format.
 
 ------------------------------
 
