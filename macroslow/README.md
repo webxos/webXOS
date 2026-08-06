@@ -124,35 +124,14 @@ In modern binary MCP harnesses:
 
 ### Status & Ecosystem
 
-MAML originated in the open-source MACROSLOW / WebXOS work as a practical communication syntax for MCP-based agentic harnesses, with explicit design attention to systems like OpenClaw and similar modern runtimes. It remains a living convention rather than a frozen formal standard — adopt the core structure (YAML front matter + semantic Markdown body + history) and extend as needed for your harness.
+MAML originated in the open-source MACROSLOW / WebXOS (August 2025) works as a practical communication syntax for MCP-based agentic harnesses, with explicit design attention to systems like OpenClaw and similar modern runtimes. It remains a living convention rather than a frozen formal standard — adopt the core structure (YAML front matter + semantic Markdown body + history) and extend as needed for your harness.
 
 ## Intent
-Provide a reusable, schema-validated data processing skill that can be invoked via MCP from Hermes or OpenClaw harnesses for cleaning and validating tabular datasets prior to analysis.
+Provides a reusable, schema-validated data processing skill that can be invoked via MCP from Hermes or OpenClaw harnesses for cleaning and validating tabular datasets prior to analysis.
 
 ## Context
-This skill targets CSV files from internal data pipelines. Expected columns include identifiers, numeric metrics, and categorical labels. Agents should maintain state across multiple invocations using the History section for progressive refinement.
+This skills target CSV files from internal data pipelines. Expected columns include identifiers, numeric metrics, and categorical labels. Agents should maintain state across multiple invocations using the History section for progressive refinement.
 
-
-## Input_Schema
-{
-  "type": "object",
-  "properties": {
-    "input_path": {"type": "string", "description": "Path to input CSV file"},
-    "output_path": {"type": "string", "description": "Optional path for cleaned output"}
-  },
-  "required": ["input_path"]
-}
-
-## Output_Schema
-{
-  "type": "object",
-  "properties": {
-    "processed_records": {"type": "integer"},
-    "validation_errors": {"type": "integer"},
-    "sample_output": {"type": "array"},
-    "status": {"type": "string"}
-  }
-}
 
 ## History
 - 2026-06-28T02:17:00Z: [CREATE] Initial skill definition authored for MCP integration testing.
