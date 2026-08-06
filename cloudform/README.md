@@ -1,8 +1,7 @@
 # Cloudform Binary Research  ·  Page 1 (README.md)
 
 
-## Cloudform Binary: A Progressive
-Bit-Plane Artifact Format
+## Cloudform Binary: A Progressive Bit-Plane Artifact Format
 
 
 *for LLM-to-LLM and
