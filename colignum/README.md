@@ -46,9 +46,5 @@ Designed with simplicity and low latency in mind.
 - IndexedDB for local persistence (Trashdoctor)
 - No build step required
 
-## More Info
-
-**maximum creativity with minimum friction**. Tools are designed to feel like html instruments — immediate and lightweight solutions for GFX design. Perfect for artists, designers, tinkerers...
-
 
 
