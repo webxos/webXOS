@@ -1,39 +1,94 @@
-Cloudform Binary Research  ·  Page 4
+================================================================================
+  CLOUDFORM BINARY RESEARCH  ·  CONSOLIDATED SPECIFICATION  ·  PAGE 04 / 10
+================================================================================
+
+6. CLOUDFORM HEADER CHUNK
 
 
-3. Formal Specification of the Cloudform Binary Format
+Immediately following the 16-byte magic header is a length-prefixed binary
+header chunk. The first 4 bytes are a uint32 little-endian length of the
+remaining header payload. The payload itself is a compact, key-value binary
+structure that is intentionally model-readable (an LLM can emit or parse it).
 
 
-A Cloudform file is a contiguous byte stream consisting of four ordered regions: (1) a fixed 16-byte
-magic-and-version header, (2) a length-prefixed binary header chunk, (3) one or more 16-byte-aligned data
-buffers that may themselves be decomposed into progressive bit-planes, and (4) an integrity footer.
+Required and recommended fields include:
 
 
-3.1 Magic Header
+  • artifact_id          unique identifier (UUID or content-addressed string)
+
+  • content_hash         SHA-256 (or stronger) of the entire data section
+
+  • megalith_type        knowledge_graph | weight_tensor_set |
+                         sensor_archive | hybrid | custom
+
+  • quantization         1bit | 4bit | 8bit | fp16 | fp32 | mixed
+
+  • packing              bitplane | sparse | dense | hybrid
+
+  • alignment            preferred alignment in bytes (16 / 32 / 64 / 128)
+
+  • mode                 progressive | atomic
+
+  • gpu_dispatch_tags    optional list of preferred accelerator targets
+
+  • streaming_map        offsets and sizes of progressive planes / slices
+
+  • route                source (orbital / earth), destination, priority class
+
+  • llm_seed             short natural-language description enabling
+                         regeneration or continuation
+
+  • constellation_meta   optional orbital plane, preferred ground stations,
+                         latency class
 
 
-Bytes 0–3 contain the ASCII signature “CFB1”. Bytes 4–5 encode a little-endian version number. Bytes 6–7
-encode a bit field whose low-order bits declare progressive mode, GPU alignment guarantee, presence of
-signatures, primary 1-bit quantization, and erasure-coding hints. Bytes 8–15 contain the total file length as a
-little-endian uint64, enabling a receiver to allocate or reject the artifact before any further parsing.
+The header is deliberately kept compact so that edge LLMs and radiation-
+hardened processors can parse it with minimal memory. Vendor extension
+blocks may follow the standard fields; they must be length-prefixed and
+ignorable by implementations that do not understand them.
 
 
-3.2 Header Chunk
+--------------------------------------------------------------------------------
+7. BINARY DATA CHUNKS & ALIGNMENT
+--------------------------------------------------------------------------------
+
+One or more tightly packed buffers follow the header. Each buffer is preceded
+by a mini-header containing type, quantization level, sparsity map offset
+(if any), and length. All buffers are required to be 16-byte aligned (higher
+powers of two are preferred when the GPU_ALIGNED flag is set).
 
 
-The header chunk begins with a uint32 length followed by a compact key-value binary encoding of artifact
-identity, content hash, megalith type, quantization and packing mode, alignment preference, progressive
-streaming map (offsets and sizes of each plane), optional constellation routing metadata, GPU dispatch tags,
-and an LLM seed string. The seed string is deliberately retained so that an upstream or downstream language
-model can regenerate, continue, or validate the artifact without external documentation.
+Supported buffer types include:
+
+  • tensors (dense or sparse)
+  • knowledge-graph adjacency / edge lists
+  • key-value stores
+  • raw opaque blobs
 
 
-3.3 Progressive Bit-Plane Data Region
+Sparse and 1-bit modes store a compact index plus bit-packed planes so that
+memory footprint collapses dramatically while still allowing direct mapping
+into GPU memory (CUDA, Vulkan, Metal, or rad-hard TPU equivalents).
 
 
-When progressive mode is active, each quantizable buffer is emitted as an ordered sequence of bit-planes.
-Plane 0 contains the most significant bit of every element (or an equivalent significance ordering for sparse or
-graph structures). Subsequent planes add successive lower-significance bits. Each plane is preceded by a
-mini-header that records the plane index, parent buffer identifier, byte length, and a running cryptographic hash
-of all preceding planes of that buffer. This hash chain provides immediate detection of missing or corrupted
-planes and enables selective retransmission requests.
+Because the layout is sequential and deterministic, a runtime can mmap the
+file (or a progressive window) and obtain usable pointers with essentially
+zero transformation cost. Prefetch and streaming maps living in the main
+header allow a receiver to pull only the next needed slice under tight
+downlink windows.
+
+
+Implementation Requirements for Buffers
+---------------------------------------
+  • 16-byte (or higher) aligned packing for dense tensors.
+  • Deterministic emission order so that identical source data always
+    produces identical binary (enables differential and content-addressed
+    caching).
+  • Optional transpose flags for GPU-preferred layout.
+  • Mini-header before every buffer so that a partial stream can still
+    identify what has arrived.
+
+
+================================================================================
+  by webXOS 2026  ·  webxos.netlify.app  ·  github.com/webxos
+================================================================================
