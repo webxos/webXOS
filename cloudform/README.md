@@ -39,9 +39,6 @@ LLM pipelines.
 
 ## Introduction:
 
-**remake this guide include: Implement progressive bit-plane streaming**
-
-
 **Cloudform** (file extension `.cfb` / Cloudform Binary) is a novel, GLB-derived binary artifact format designed for ultra-efficient transfer of “megalith” datasets—large hierarchical knowledge, model weights, sensor archives, and inference packages—between orbital Starcloud/Starmind-style satellite datacenters and terrestrial nodes.
 
 It treats every payload as a self-describing, GPU/CPU/memory/hard-drive-aligned binary artifact that can flow through extremely constrained 1-bit-class pipelines (highly quantized, bit-packed, or decision-tree-style streams) while remaining LLM-native for vibe coding, constellation orchestration, and cloud-bottleneck mitigation. The design prioritizes the exact constraints SpaceX/Starlink-style links impose: intermittent high-latency windows, power-limited transmitters, radiation tolerance via simple structures, and end-to-end binary determinism for inference engineering.
