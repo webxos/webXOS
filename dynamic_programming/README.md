@@ -4,18 +4,6 @@
 
 This package contains a complete 10-page arXiv-style technical report and supporting materials that reframe classic Bellman-style dynamic programming as a design principle for large, self-contained “megalith” scripts and documents. These megaliths — single-file HTML (MHTML-style), Python bootstraps (MSPYB), Bash agents (UNIXAI-style), and PowerShell modules — serve as living specifications that an LLM or autonomous agent can generate, mutate, and execute end-to-end.
 
-## Contents
-
-| Path | Description |
-|------|-------------|
-| `Dynamic_Programming_with_LLMs_2026.pdf` | Full arXiv-format technical report (~10 pages) |
-| `README.md` | This overview |
-| `guides/MHTML_Orchestration.md` | Self-contained HTML prototype skill summary |
-| `guides/MSPYB_Python_Bootstrap.md` | Singular Python bootstrap pattern (v3 Auto-Start) |
-| `guides/UNIXAI_Bash_Megalith.md` | Anatomy of a production Bash AI agent |
-| `guides/PowerShell_Megalith_Guide.md` | Equivalent patterns for Windows / cross-platform PS1 |
-| `examples/` | Minimal working skeletons for each format |
-| `src/bootstrap_example.py` | Tiny MSPYB-style generator (illustrative) |
 
 ## Core Thesis
 
