@@ -10,7 +10,6 @@ COLIGNUM is an experimental collection of high-fidelity, standalone web tools fo
 
 ### Core Experiences
 
-- **`colignum.html`** — Main landing / showcase page with 3D generator, procedural objects, and studio overview.
 - **`ascii_studio.html`** — Advanced ASCII art studio  
   - Real-time 3D shape → ASCII conversion  
   - 40+ optical illusion patterns  
