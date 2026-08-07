@@ -1,5 +1,4 @@
-**Cloudform Binary (.cfb) — Technical Reference Artifact**  
-*Shareable summary for engineers / X posts*  
+**Cloudform Binary (.cfb) — Technical Reference Artifact**   
 webXOS · August 2026  
 Sources: official guide + GitHub (webxos/webXOS/cloudform)
 
