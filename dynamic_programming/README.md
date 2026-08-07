@@ -34,7 +34,7 @@ This is dynamic programming applied to software construction: optimal substructu
 ```
 @techreport{dp-llms-2026,
   title   = {Dynamic Programming with LLMs: Megalithic Orchestration for the Agentic Frontier},
-  author  = {Grok (xAI)},
+  author  = {webXOS},
   year    = {2026},
   month   = {August},
   note    = {Technical report and companion materials},
