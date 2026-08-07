@@ -1,20 +1,88 @@
-Cloudform Binary Research  ·  Page 3
+================================================================================
+  CLOUDFORM BINARY RESEARCH  ·  CONSOLIDATED SPECIFICATION  ·  PAGE 03 / 10
+================================================================================
+
+4. HIGH-LEVEL FILE LAYOUT
 
 
-2. Related Work and Design Context
+A Cloudform file is a single contiguous binary stream, deliberately similar
+to the glTF Binary (GLB) container (magic + length-prefixed chunks) but
+extended for megalith data and orbital constraints. The overall structure is:
 
 
-Binary container formats for machine-learning artifacts have proliferated in recent years. Safetensors
-emphasizes zero-copy safety and simple tensor maps; GGML/GGUF target quantized inference on commodity
-hardware; ONNX and TorchScript focus on computational graphs. None of these formats natively support
-ordered progressive refinement or constellation-aware routing. Progressive image and video codecs (JPEG
-progressive, progressive mesh transmission, scalable video coding) demonstrate the value of layered delivery,
-yet they operate on continuous media rather than discrete knowledge or weight structures.
+  Offset / Section          Size              Description
+  ------------------------------------------------------------------------
+  0x00  Magic & Version     16 bytes fixed    ASCII “CFB1”, version,
+                                              bit-packed flags, total length
+
+  0x10  Header Chunk        variable          Length-prefixed binary
+                                              metadata, hashes, quant level,
+                                              LLM seed, routing, streaming map
+
+  …     Binary Data Chunk(s) variable,        Tightly packed buffers
+                            16-byte aligned   (tensors, graphs, sparse maps)
+                                              optionally decomposed into
+                                              ordered bit-planes
+
+  EOF   Integrity Footer    variable          Full content hash, progressive
+                                              checkpoint hashes, optional
+                                              parity & signature, end marker
 
 
-In the space domain, CCSDS packet telemetry and File Delivery Protocol (CFDP) provide reliable transfer over
-deep-space links but treat payloads as opaque byte streams. Cloudform sits at a higher semantic layer: it
-assumes an underlying reliable or erasure-coded transport and concentrates on making the payload itself
-progressively useful and GPU-ready. The closest conceptual relatives are progressive mesh streaming in
-computer graphics and bit-plane coding in successive-approximation A/D conversion; Cloudform adapts these
-ideas to the specific needs of quantized neural and knowledge artifacts.
+Table 1. High-level Cloudform Binary layout.
+
+
+The entire file can be treated as a pure binary stream. Under progressive
+mode a receiver can reconstruct a usable low-fidelity version after the first
+few packets and refine as more bit-planes arrive. All multi-byte integers are
+little-endian unless otherwise noted.
+
+
+--------------------------------------------------------------------------------
+5. MAGIC & VERSION HEADER (16 BYTES)
+--------------------------------------------------------------------------------
+
+The file begins with a fixed 16-byte header that allows instant identification
+and basic capability detection without parsing the full metadata chunk.
+
+
+  Bytes   Field          Description
+  ------------------------------------------------------------------------
+  0–3     magic          ASCII “CFB1” (0x43 0x46 0x42 0x31)
+  4–5     version        uint16 LE major.minor (e.g. 0x0001 = 1.0)
+  6–7     flags          uint16 bit-packed feature flags (see below)
+  8–15    total_length   uint64 LE total file size in bytes
+                         (including this header)
+
+
+Table 2. Fixed 16-byte magic & version header.
+
+
+Feature Flags (bytes 6–7)
+-------------------------
+  Bit 0 : PROGRESSIVE     (1 = progressive bit-plane mode enabled)
+  Bit 1 : GPU_ALIGNED     (1 = all buffers guaranteed ≥16-byte aligned)
+  Bit 2 : SIGNED          (1 = cryptographic signature present in footer)
+  Bit 3 : ONE_BIT_MODE    (1 = primary quant level is 1-bit)
+  Bit 4 : ERASURE_HINTS   (1 = erasure-coding parity blocks present)
+  Bits 5–15 : reserved for future use (must be zero on write)
+
+
+A receiver that reads only the first 16 bytes already knows:
+
+  • whether the file is a Cloudform artifact,
+  • the major/minor version,
+  • whether progressive reconstruction is expected,
+  • whether GPU-direct mapping is contractually guaranteed,
+  • the total size (so it can allocate or reject early),
+  • and whether signatures or erasure parity will appear in the footer.
+
+
+This fixed header is intentionally trivial so that radiation-hardened flight
+software and edge LLMs can parse it with minimal memory and no dynamic
+allocation.
+
+
+================================================================================
+  by webXOS 2026  ·  webxos.netlify.app  ·  github.com/webxos
+================================================================================
