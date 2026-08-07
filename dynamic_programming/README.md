@@ -29,19 +29,6 @@ Treat every large deliverable as a **single source of truth** that:
 
 This is dynamic programming applied to software construction: optimal substructure appears as reusable templates and shared logging; overlapping subproblems appear as the repeated generation–launch–observe cycle that an LLM performs.
 
-## Quick Start
-
-```bash
-# Read the report
-open Dynamic_Programming_with_LLMs_2026.pdf   # or any PDF viewer
-
-# Explore the guides
-cat guides/*.md
-
-# Run the tiny Python bootstrap example
-python3 src/bootstrap_example.py --no-launch
-```
-
 ## Citation
 
 ```
