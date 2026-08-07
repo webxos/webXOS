@@ -24,6 +24,7 @@ COLIGNUM is an experimental collection of high-fidelity, standalone web tools fo
 - **`trashdoctor.html`** — Universal document compiler & IndexedDB archive  
   - Drag & drop *anything* (images, PDFs, scripts, spreadsheets...)  
   - Local storage, ZIP export, metadata tracking
+- **`plain_page.html`** — A lightweight and minimal HTML editor (beta)
 
 ## Features
 
