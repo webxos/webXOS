@@ -1,25 +1,94 @@
-Cloudform Binary Research  ·  Page 5
+================================================================================
+  CLOUDFORM BINARY RESEARCH  ·  CONSOLIDATED SPECIFICATION  ·  PAGE 05 / 10
+================================================================================
+
+8. PROGRESSIVE BIT-PLANE STREAMING (CORE FEATURE)
 
 
-4. Progressive Reconstruction Semantics
+Progressive bit-plane streaming is the central innovation that makes
+Cloudform viable under the severe bandwidth and intermittency constraints of
+orbital downlinks. When the PROGRESSIVE flag is set and the header mode is
+“progressive”, each quantizable buffer is stored as an ordered sequence of
+bit-planes (MSB-first or significance-ordered).
 
 
-Let B be a buffer of N elements quantized to Q bits. Under progressive emission the sender transmits planes
-P_0, P_1, …, P_{Q-1} where P_k contains bit k of every element (MSB-first). After receiving the first k+1 planes
-a receiver can form the approximation
+How it works
+------------
+
+1. The sender encodes the highest-significance bit-plane of every tensor /
+   graph first, followed by the next plane, and so on until the target
+   quantization depth is reached.
+
+2. Each plane (or group of planes) is emitted as a self-contained,
+   length-prefixed, hash-chained packet.
+
+3. A receiver that obtains only the first N planes can immediately
+   reconstruct a usable low-fidelity approximation of the original artifact.
+   Subsequent planes refine the representation monotonically.
+
+4. Because planes are hash-chained, any missing or corrupted plane is
+   immediately detectable; the receiver can request selective retransmission
+   or fall back to the last verified plane.
 
 
-B■_k[i] = Σ_{j=0..k} P_j[i] · 2^{Q-1-j}
+This design guarantees that a partial constellation pass still yields
+actionable data—an essential property when a ground-station contact window
+may last only a few minutes and the full megalith may be many gigabytes.
 
 
-which is a monotonically improving estimate of the original quantized values. For knowledge-graph or sparse
-structures an analogous significance ordering is defined over edge weights or adjacency bits. Because each
-plane is independently length-prefixed and hash-chained, the reconstruction process is robust to reordering at
-the transport layer provided that the application re-assembles planes by index.
+Formal Reconstruction Semantics
+-------------------------------
+
+Let B be a buffer of N elements quantized to Q bits. Under progressive
+emission the sender transmits planes P_0, P_1, …, P_{Q-1} where P_k
+contains bit k of every element (MSB-first). After receiving the first
+k+1 planes a receiver can form the approximation
 
 
-The progressive property has two immediate operational consequences. First, a ground station that obtains
-only a fraction of a contact window still obtains a usable (if coarse) model or knowledge fragment that can drive
-immediate inference or anomaly detection. Second, an LLM that is itself bandwidth-constrained when
-exchanging large context or expert modules with a peer can begin useful computation on the first planes while
-the remainder of the transfer continues.
+          B̂_k[i]  =  Σ_{j=0..k}  P_j[i] · 2^{Q-1-j}
+
+
+which is a monotonically improving estimate of the original quantized values.
+For knowledge-graph or sparse structures an analogous significance ordering
+is defined over edge weights or adjacency bits. Because each plane is
+independently length-prefixed and hash-chained, the reconstruction process
+is robust to reordering at the transport layer provided that the application
+re-assembles planes by index.
+
+
+The progressive property has two immediate operational consequences:
+
+  • A ground station that obtains only a fraction of a contact window still
+    obtains a usable (if coarse) model or knowledge fragment that can drive
+    immediate inference or anomaly detection.
+
+  • An LLM that is itself bandwidth-constrained when exchanging large context
+    or expert modules with a peer can begin useful computation on the first
+    planes while the remainder of the transfer continues.
+
+
+Implementation Requirements
+---------------------------
+
+  • Plane order must be deterministic (MSB-first recommended for most
+    weight tensors).
+
+  • Each plane packet must contain its own mini-header with plane index,
+    parent buffer ID, and a running hash of all preceding planes of that
+    buffer.
+
+  • The main header’s streaming_map must list the absolute offsets of the
+    first byte of each plane so that a receiver can seek or request ranges
+    efficiently.
+
+  • Reconstruction libraries must support both full-file and streaming
+    (plane-by-plane) ingestion paths.
+
+When the entire artifact has been received and verified, the progressive
+representation can optionally be collapsed into a dense or sparse final form
+for long-term storage or GPU residency.
+
+
+================================================================================
+  by webXOS 2026  ·  webxos.netlify.app  ·  github.com/webxos
+================================================================================
