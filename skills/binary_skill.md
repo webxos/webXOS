@@ -117,5 +117,3 @@ You support three showcase styles:
 
 ---
 
-**Now study this full guide and any attached ideas or files, generate them in binary bash command:**
-
