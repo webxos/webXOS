@@ -17,7 +17,7 @@ Create the Windows single `.ps1` file that:
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  MSPYB-style PowerShell Bootstrap / UNIXAI-style Agent
+  MSPYB-style PowerShell Bootstrap / UNIX-style Agent
 .DESCRIPTION
   Single source of truth. Install → Generate → Auto-Launch.
 .NOTES
@@ -94,7 +94,7 @@ Invoke-AutoLaunch
 Write-Host "MSPYB PowerShell bootstrap complete. Version $MSPYB_VERSION"
 ```
 
-## Agent-Style Commands (UNIXAI analogue)
+## Agent-Style Commands (UNIX analogue)
 
 Inside an interactive PS1 agent:
 
