@@ -1,3 +1,8 @@
+```
+Idea from: Rooke Poole demonstrated and recorded sessions of his PARS wrapper enabling AI models (e.g., ChatGPT) to emit pure, verifiable continuous hex/byte streams of complete working artifacts—small ELF binaries, WASM, HTML/JS “binaries,” etc.—with no compilers, assemblers, linkers, or intermediate source. These were shared as live challenges with SHA-256 verification and reconstruction commands. https://x.com/rookepoole https://github.com/rookepoole
+```
+
+
 # Skill: Binary Stream Generation (PARS-style)
 
 ## Overview
