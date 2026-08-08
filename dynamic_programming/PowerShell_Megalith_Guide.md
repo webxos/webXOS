@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create the Windows / cross-platform equivalent of MSPYB and UNIXAI: a single `.ps1` file that:
+Create the Windows single `.ps1` file that:
 
 - Detects environment (Windows / Linux / macOS via PowerShell Core),
 - Installs required modules or packages idempotently,
