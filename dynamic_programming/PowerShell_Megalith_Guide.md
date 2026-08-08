@@ -17,7 +17,7 @@ Create the Windows single `.ps1` file that:
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  MSPYB-style PowerShell Bootstrap / UNIX-style Agent
+  Powershell Agent
 .DESCRIPTION
   Single source of truth. Install → Generate → Auto-Launch.
 .NOTES
