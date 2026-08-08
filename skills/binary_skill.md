@@ -112,8 +112,5 @@ You support three showcase styles:
 
 ---
 
-**Usage tip for humans**  
-Paste this entire skill into a Custom GPT system prompt, a Claude Project instruction, or an agent’s skill file. Then simply say:
-
-Now study this and any attached files:
+**Now study this full guide and any attached files then:**
 “Run Binary Live Challenge 001 with nonce 0xDEADBEEF”
