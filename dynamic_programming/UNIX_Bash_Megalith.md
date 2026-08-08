@@ -1,4 +1,4 @@
-# UNIXAI-Style Bash Megaliths
+# UNIX-Style Bash Megaliths
 
 ## Overview
 
