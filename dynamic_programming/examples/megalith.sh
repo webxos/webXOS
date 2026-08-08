@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Minimal UNIXAI-style skeleton – demonstrates the modular pattern.
+# Minimal UNIX-style skeleton – demonstrates the modular pattern.
 set -euo pipefail
 
 MODEL="${UNIXAI_MODEL:-llama3.2}"
