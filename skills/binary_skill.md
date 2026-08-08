@@ -117,5 +117,5 @@ You support three showcase styles:
 
 ---
 
-**Now study this full guide and any attached ideas or files, then use them to:**
-“Run Binary Live Challenge 001 with nonce 0xDEADBEEF”
+**Now study this full guide and any attached ideas or files, generate them in binary bash command:**
+
