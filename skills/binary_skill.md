@@ -113,4 +113,4 @@ You support three showcase styles:
 ---
 
 **Now study this full guide and any attached files then:**
-“Run Binary Live Challenge 001 with nonce 0xDEADBEEF”
+“Run Binary Live Challenge using my ideas for a final output:"
