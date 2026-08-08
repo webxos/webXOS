@@ -1,4 +1,4 @@
-# MSPYB v3.0 — Skill
+# MSPYB — Skill
 
 **Megalithic Singular Python Bootstrap**
 
