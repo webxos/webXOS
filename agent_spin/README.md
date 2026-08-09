@@ -90,7 +90,7 @@ Each `Build_N` is a self‑contained project. The script never overwrites previo
 
 ---
 
-## ⚙️ How the Cycle Spins
+## ⚙️ Automation Pipeline
 
 1. **Prompt** – The LLM chooses a runtime (`python`, `nodejs`, or `bash`) based on your goal.
 2. **Build** – The LLM generates the application and a corresponding test file.
