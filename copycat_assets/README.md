@@ -1,5 +1,7 @@
 # COPY CAT · SHADOW RACE - Game Assets
 
+https://webxos.itch.io/copycats
+
 Extracted and generated pixel-art assets from the original HTML5 canvas game.
 
 ## Style
