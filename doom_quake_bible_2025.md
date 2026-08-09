@@ -45,8 +45,10 @@ To recreate the style of these games, you would focus on specific implementation
     Materials & Textures: Use THREE.MeshBasicMaterial for unlit/flat-shaded effects to mimic early software renderers, or THREE.MeshStandardMaterial with lightmaps or simple point lights to emulate Quake's lighting model.
 
     Workflow: Instead of building a custom software renderer like id Software did for Doom, Three.js handles the complex rasterization and projection, allowing you to focus on game logic and visual style. You can find extensive tutorials and documentation on the Three.js official website and MDN Web Docs. 
-
+    
+---------------------------
 ## FROM ID TECH TO WEBGL
+---------------------------
 
 Doom Bible (Tom Hall, 1992): Story-heavy sci-fi horror on Tei Tenga moon base. 4 playable marines (BJ Blazkowicz, etc.), cinematics, hubs, Unmaker weapon. Scrapped for pure action by Carmack/Romero.
 
@@ -75,7 +77,9 @@ function animate() {
 animate();
 ```
 
-### DOOM ENGINE
+---------------------------
+# DOOM ENGINE
+---------------------------
 
 ## World Structure: Sectors + BSP Tree
 
@@ -209,9 +213,11 @@ material.uniforms.fogDensity = { value: 0.1 };
 ## Demoscene
 Export to Three.js editor JSON. Load E1M1 WAD → BSP → render.
 
+---------------------------
 # QUAKE ENGINE 
+---------------------------
 
-### World Structure
+## World Structure
 
 Quake: Full 3D BSP (nodes split space). Brushes → convex polys. PVS for vis.
 
@@ -320,6 +326,10 @@ Similar to Q1K3 by Dominic Szablewski (phoboslab), a masterful 13KB JS homage to
 The Three.js frames per second can benefit from these ideas: for better performance, smaller bundle size (great for web sharing), retro Quake aesthetics, and smoother gameplay. Focus on **efficiency** while leveraging Three.js strengths (WebGL rendering, built-in materials, etc.).
 
 *Start by implementing procedural textures and AABB-based levels/collision in your existing project — you'll see immediate gains in size and retro authenticity. This hybrid approach (Three.js rendering + Q1K3-style data) gives great visuals without bloat.*
+
+---------------------------
+# IN FINAL:
+---------------------------
 
 ### 1. Core Architecture & Rendering Optimizations
 - **Use a Custom or Simplified Renderer for Retro Feel**: Q1K3 uses a software-style rasterizer in JS/WebGL. In Three.js, stick with `WebGLRenderer` but simplify:
