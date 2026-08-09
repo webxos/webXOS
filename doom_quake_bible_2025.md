@@ -1,3 +1,5 @@
+*I generated this guide in 2025 to give to LLMs to code in three js to remake doom/quake fps games as much as possible*
+
 ### THE DOOM AND QUAKE BIBLE FOR THREE.JS 2025
 
 **Edition: November 25, 2025** 
