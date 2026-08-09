@@ -1,8 +1,7 @@
 # 🌀 AGENT SPIN – Autonomous Code Factory  
 **Infinite Loop • No Timeouts • Git Auto‑Commit • Local LLM Driven**
 
-AGENT SPIN is a **self‑running, continuously building code generator** that uses a local Ollama model to autonomously write, test, fix, and version‑control complete software projects.  
-Just set your preferred model once, give it a goal, and watch it create a new project every cycle – **forever**.
+AGENT SPIN is a **self‑running, continuously building code generator** that uses a local Ollama model to autonomously write, test, fix, and version‑control complete software projects. Just set your preferred model once, give it a goal, and watch it create a new project every cycle – **forever**.
 
 ---
 
