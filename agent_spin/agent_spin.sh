@@ -1,11 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# AGENT SPIN – Autonomous Code Factory with Git auto‑commit & push
+# AGENT SPIN – Autonomous Code Factory (No Timeout, Infinite Loop)
 # ==============================================================================
 
 # --- CONFIGURATION ------------------------------------------------------------
 OLLAMA_URL="http://localhost:11434/api/generate"
-MODEL_NAME="qwen2.5:0.5b"          # <-- Change this to your preferred model
+MODEL_NAME="qwen2.5:0.5b"          # <-- Change to your preferred model
 MAX_TEST_RETRIES=3
 CYCLE_COUNT=0
 USER_GOAL=""
@@ -21,6 +21,7 @@ trap cleanup SIGINT SIGTERM
 
 # --- Check Ollama -------------------------------------------------------------
 check_ollama() {
+    # Quick connection test – short timeout just to see if Ollama is alive
     if ! curl -s --connect-timeout 2 "$OLLAMA_URL" > /dev/null; then
         echo "❌ ERROR: Cannot reach Ollama at $OLLAMA_URL"
         echo "   Make sure Ollama is running (e.g., 'ollama serve')"
@@ -100,7 +101,7 @@ git_commit() {
     cd - > /dev/null || return
 }
 
-# --- Query Ollama -------------------------------------------------------------
+# --- Query Ollama – INFINITE TIMEOUT (waits as long as model needs) ----------
 ask_ollama() {
     local sys_prompt="$1"
     local user_prompt="$2"
@@ -108,11 +109,12 @@ ask_ollama() {
     local escaped
     escaped=$(echo "$full" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
     local response
-    response=$(curl -s -X POST "$OLLAMA_URL" \
+    # --max-time 0 = no timeout, --connect-timeout 60 = give 60s to establish connection
+    response=$(curl -s --max-time 0 --connect-timeout 60 -X POST "$OLLAMA_URL" \
         -d "{\"model\": \"$MODEL_NAME\", \"prompt\": \"$escaped\", \"stream\": false}" \
         2>/dev/null)
     if [ -z "$response" ]; then
-        echo "⚠️  Ollama request failed." >&2
+        echo "⚠️  Ollama request failed (possibly connection issue)." >&2
         return 1
     fi
     echo "$response" | grep -o '"response":"[^"]*"' | sed 's/"response":"//;s/"$//' \
@@ -147,7 +149,7 @@ ideate() {
 }
 
 build() {
-    echo "🤖 Generating code..."
+    echo "🤖 Generating code (this may take a while for slow models) ..."
     local app_file test_file
     case "$PROJ_LANG" in
         python)
@@ -197,8 +199,8 @@ test_and_fix() {
             echo "[$(date)] Cycle $CYCLE_COUNT passed" >> "$LOG_FILE"
             break
         elif [ $attempts -lt $MAX_TEST_RETRIES ]; then
-            echo "🔧 Fixing..."
-            local errors logs code
+            echo "🔧 Fixing (may take time) ..."
+            local errors code
             errors=$(cat test_output.log 2>/dev/null)
             code=$(cat "$target_file" 2>/dev/null)
             ask_ollama \
@@ -213,7 +215,7 @@ test_and_fix() {
         echo "[$(date)] Cycle $CYCLE_COUNT failed" >> "$LOG_FILE"
     fi
     cd - > /dev/null || return 1
-    return $status   # return test status so we can decide to commit only on success
+    return $status
 }
 
 cleanup_cycle() {
@@ -230,13 +232,13 @@ main() {
     echo "======================================================================"
     echo "🚀 Running forever. Press Ctrl+C to stop."
     echo "   Each successful cycle will be committed to Git (and pushed if remote set)."
+    echo "   ⏳ The script will wait indefinitely for the model to respond."
     echo "======================================================================"
 
     while true; do
         ideate
         build
         if test_and_fix; then
-            # Only commit if tests passed
             git_commit
         else
             echo "⚠️  Cycle $CYCLE_COUNT failed – skipping commit."
