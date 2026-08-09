@@ -1,15 +1,15 @@
 # Asset Generation Skill (asset_gen_skill.md)
 This skill processes a single HTML/CSS file or Three.js web application to extract, generate, and package high-quality game assets into a downloadable `.zip` archive. 
-## 🛠️ System Capabilities
+## System Capabilities
 The AI engine analyzes the visual DOM elements, canvas rendering contexts, CSS styles, or Three.js scene graphs to output production-ready game assets. 
 ### 1. Extraction Types* **Three.js Scenes**: Captures 3D mesh projections, procedural textures, and material shaders.* **HTML/CSS Canvas**: Extracts dynamically drawn 2D pixel art, UI frames, and vector elements.* **CSS Sprites**: Segments stylized bounding boxes, buttons, and typography sheets.
 ### 2. Export Specifications* **Format**: Standard ZIP compilation.
 * **Image Assets**: Transparent `.png` sheets, optimized `.svg` vectors.
 * **3D Assets**: Validated `.gltf` or `.obj` formats with embedded textures.
 * **Organization**: Structured subdirectories (`/sprites`, `/ui`, `/textures`).
----## 🚀 Execution Workflow
+---## Execution Workflow
 
-[Input: Code File] ➡️ [Analyze Visual/Scene Tree] ➡️ [Render Elements] ➡️ [Slice & Pack] ➡️ [Output: .zip]
+[Input: Code File] > [Analyze Visual/Scene Tree] > [Render Elements] > [Slice & Pack] > [Output: .zip]
 
 
 ### Step 1: Input Analysis
@@ -50,7 +50,7 @@ Execute the internal compilation pipeline:
 
 ---
 
-## 🎨 Asset Style Profiles
+## Asset Style Profiles
 
 The generator adapts outputs based on code attributes discovered during analysis:
 
@@ -62,7 +62,7 @@ The generator adapts outputs based on code attributes discovered during analysis
 
 ---
 
-## ⚠️ Processing Safeguards
+## Processing Safeguards
 * **No Lost Assets**: Ensure every visual component declared in code is represented in the ZIP file.
 * **Texture Clamping**: Prevent bleed on sprite-sheets by adding a 2-pixel transparent padding buffer around frames.
 * **Color Accuracy**: Maintain exact hex color spaces defined in CSS or material configurations.
