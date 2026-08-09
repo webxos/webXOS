@@ -67,4 +67,4 @@ The generator adapts outputs based on code attributes discovered during analysis
 * **Texture Clamping**: Prevent bleed on sprite-sheets by adding a 2-pixel transparent padding buffer around frames.
 * **Color Accuracy**: Maintain exact hex color spaces defined in CSS or material configurations.
 
-**Produce full asset.zip with all files I requested.**
+**Study Attached HTML File and Produce a full asset.zip with all the files I requested.**
