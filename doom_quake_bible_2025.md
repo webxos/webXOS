@@ -209,7 +209,7 @@ material.uniforms.fogDensity = { value: 0.1 };
 ## Demoscene
 Export to Three.js editor JSON. Load E1M1 WAD → BSP → render.
 
-### QUAKE ENGINE 
+# QUAKE ENGINE 
 
 ### World Structure
 
