@@ -1,42 +1,40 @@
-# 🌀 agent_spin.sh – Autonomous Code Factory
+# 🌀 AGENT SPIN – Autonomous Code Factory  
+**Infinite Loop • No Timeouts • Git Auto‑Commit • Local LLM Driven**
 
-**AGENT SPIN** is a self‑improving, infinite‑loop code generator that uses **Ollama** (local LLMs) to autonomously build, test, fix, and version‑control entire software projects—**completely hands‑off**.
-
-Simply tell it **what to build**, and it will continuously create new iterations, each in its own folder, with source code and unit tests. Every successful build is automatically **committed to Git** and (optionally) **pushed to a remote repository** in real time.
+AGENT SPIN is a **self‑running, continuously building code generator** that uses a local Ollama model to autonomously write, test, fix, and version‑control complete software projects.  
+Just set your preferred model once, give it a goal, and watch it create a new project every cycle – **forever**.
 
 ---
 
 ## ✨ Features
 
-- ✅ **Zero‑interaction** after the initial goal – runs forever until you press Ctrl+C.
-- 🧠 **Uses any Ollama model** – just set the model name once in the script.
-- 🔁 **Infinite loop**: each cycle creates a new project folder with:
-  - Main application (`app.py`, `app.js`, or `app.sh`)
-  - A test file (`test_app.py`, `test_app.js`, or `test_app.sh`)
-- 🛠️ **Automatic test‑and‑fix** – if tests fail, the script asks the LLM to patch the code up to 3 times.
-- 📦 **Git version control** – initializes a local Git repository in the workspace and commits each successful cycle.
-- 🚀 **Optional auto‑push** – uncomment one line to push every commit to a remote (GitHub, GitLab, etc.).
-- 📁 **Unique workspace** – each run creates a new timestamped folder on your Desktop.
+- 🧠 **Uses any Ollama model** – pick your favourite, set it in the script, and go.
+- ♾️ **Infinite loop** – keeps generating new iterations until you press `Ctrl+C`.
+- ⏳ **No timeouts** – waits indefinitely for even the slowest models to respond.
+- 📁 **Each cycle = a fresh project** – all source code and tests in a new folder.
+- 🛠️ **Automatic test‑and‑repair** – if tests fail, the LLM patches the code up to 3 times.
+- 📦 **Git version control out of the box** – every successful cycle is committed.
+- 🚀 **Optional auto‑push** – uncomment one line to push commits to a remote repo.
+- 🧹 **Zero extra commands** – no model picker, no CLI options; edit the script once and run.
 
 ---
 
 ## 📦 Requirements
 
-- [Ollama](https://ollama.com/) running locally with at least one model downloaded (e.g., `qwen2.5:0.5b`, `llama3.2`, etc.).
-- `curl` – to talk to the Ollama API.
-- `git` (optional) – for version control; if not installed, the script skips Git.
-- Bash 3+ (Linux/macOS/WSL).
+- [Ollama](https://ollama.com/) installed and running, with at least one model downloaded (e.g., `llama3.2`, `qwen2.5`, etc.).
+- `curl` (for API communication).
+- `git` (optional – skip if not needed).
+- Bash 3+ (Linux, macOS, WSL).
 
 ---
 
 ## 🚀 Quick Start
 
-1. **Download or copy** the [`agent_spin.sh`](#) script.
+1. **Download** or copy the `agent_spin.sh` script.
 
-2. **Edit the model** (optional):  
-   Open the script and change the `MODEL_NAME` variable (line ~8) to your preferred Ollama model:
+2. **Edit the model** (optional – default is `qwen2.5:0.5b`):
    ```bash
-   MODEL_NAME="qwen2.5:0.5b"
+   MODEL_NAME="llama3.2"      # change to your preferred model
    ```
 
 3. **Run it** (no `chmod` needed):
@@ -44,9 +42,9 @@ Simply tell it **what to build**, and it will continuously create new iterations
    bash agent_spin.sh
    ```
 
-4. **Answer the prompt** – tell AGENT SPIN what to build (e.g., *“a JSON parser in Python”*).
+4. **Answer the goal question** – e.g., *“a REST API in Python”*.
 
-5. **Watch it go** – the script will cycle forever, creating new projects and committing successes.
+5. **Let it run** – the script will cycle indefinitely, creating new projects and committing successes.
 
 6. **Stop** – press `Ctrl+C` at any time.
 
@@ -54,22 +52,22 @@ Simply tell it **what to build**, and it will continuously create new iterations
 
 ## 🔧 Configuration (inside the script)
 
-| Variable | Description |
-|----------|-------------|
-| `OLLAMA_URL` | Ollama API endpoint (default: `http://localhost:11434/api/generate`). |
-| `MODEL_NAME` | The Ollama model to use (edit this to your preferred one). |
-| `MAX_TEST_RETRIES` | Number of repair attempts per cycle (default: 3). |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OLLAMA_URL` | API endpoint for Ollama | `http://localhost:11434/api/generate` |
+| `MODEL_NAME` | Model to use | `qwen2.5:0.5b` |
+| `MAX_TEST_RETRIES` | Repair attempts per cycle | `3` |
 
 ### Enabling Auto‑Push to Remote
 
-By default, commits stay local. To push each successful cycle to a remote repo:
+By default, commits stay local. To push each successful commit to a remote repository:
 
 1. Uncomment this line inside `setup_workspace()` (around line 70):
    ```bash
    # git remote add origin https://github.com/your/repo.git
    ```
-2. Replace the URL with your own (e.g., your GitHub repo).
-3. The script will automatically `git push origin main` (or `master`) after each commit.
+2. Replace the URL with your own.
+3. The script will automatically `git push` after every successful cycle.
 
 ---
 
@@ -86,20 +84,27 @@ A new workspace is created on your Desktop:
 │   └── test_app.py / test_app.js / test_app.sh
 ├── Build_2/
 │   └── ...
-└── .git/                    # Git repository (if Git is installed)
+└── .git/                    # Git repository (if Git installed)
 ```
 
-Each `Build_N` folder is a self‑contained project. The script never modifies previous cycles – it only adds new ones.
+Each `Build_N` is a self‑contained project. The script never overwrites previous cycles – it only adds new ones.
 
 ---
 
 ## ⚙️ How It Works (Cycle)
 
-1. **Ideate**: The LLM decides which runtime to use (`python`, `nodejs`, or `bash`) based on your original goal.
-2. **Build**: The LLM generates an application file and a corresponding test file.
-3. **Test**: The tests are executed. If they fail, the script asks the LLM to fix the code and retries (up to 3 times).
-4. **Commit**: If tests pass, the entire workspace is `git add`ed and committed with a descriptive message (e.g., `Cycle 5: Build_5 (python)`). If a remote is configured, it is pushed.
-5. **Loop**: The cycle repeats indefinitely.
+1. **Ideate** – The LLM chooses a runtime (`python`, `nodejs`, or `bash`) based on your goal.
+2. **Build** – The LLM generates the application and a corresponding test file.
+3. **Test** – The tests are executed. If they fail, the LLM is asked to fix the code (up to 3 attempts).
+4. **Commit** – If tests pass, the entire workspace is `git add`ed and committed with a descriptive message (e.g., `Cycle 5: Build_5 (python)`). If a remote is configured, it is pushed.
+5. **Loop** – The cycle repeats indefinitely.
+
+---
+
+## ⏳ No‑Timeout Design
+
+The script uses `curl --max-time 0` inside `ask_ollama()`, which means it **waits forever** for the model to finish generating.  
+This is ideal for slow or very large models that can take several minutes per response – AGENT SPIN will patiently wait.
 
 ---
 
@@ -107,15 +112,15 @@ Each `Build_N` folder is a self‑contained project. The script never modifies p
 
 | Issue | Solution |
 |-------|----------|
-| **Error: `Cannot reach Ollama`** | Make sure Ollama is running (`ollama serve` or `ollama run <model>`). |
-| **Model not found** | Ensure the model name in the script exists locally (`ollama list`). |
-| **Git commit fails** | The script will warn but continue – no action needed unless you want version control. |
-| **No output / hanging** | The script uses `curl` with a timeout – if the model is slow, be patient. You can also check the log file inside the workspace. |
-| **Permission errors** | Run with `bash` (no `chmod` needed). If you get `./app.sh: Permission denied`, the script already runs `chmod +x` for Bash projects. |
+| **Error: `Cannot reach Ollama`** | Ensure Ollama is running (`ollama serve`). |
+| **Model not found** | Verify the model name in the script exists locally (`ollama list`). |
+| **Git commit fails** | The script warns but continues – version control is optional. |
+| **No output / hanging** | The model may be slow – check the log file (`agent.log`) inside the workspace. |
+| **Permission errors** | Run with `bash` (no `chmod` needed). For Bash projects, the script already sets executable bits. |
 
 ---
 
-*Disclaimer: This app was vibe coded with Gemini + Deepseek*
+*Disclaimer: Vibe coded with Gemini + Deepseek*
 
 ## 📄 License
 
