@@ -25,6 +25,7 @@ COLIGNUM is an experimental collection of high-fidelity, standalone web tools fo
   - Local storage, ZIP export, metadata tracking
 - **`plain_page.html`** — A lightweight and minimal HTML editor (beta)
 - **`FOSSIL.XML`** — Advanced 1-Bit Fossil Generator (1920×1080) Deterministic 1-bit SVG fossil generator with global algorithm switching, custom equation support, interactive UI, pan, zoom, and time-slice control.
+- **`xcopy.html`** - client-side tool that lets you build, store, view, import, and export a simple “repository” of files entirely in the browser using IndexedDB.
 
 ## Features
 
