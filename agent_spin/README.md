@@ -8,13 +8,13 @@ Just set your preferred model once, give it a goal, and watch it create a new pr
 
 ## ✨ Features
 
-- 🧠 **Uses any Ollama model** – pick your favourite, set it in the script, and go.
+- 🧠 **Uses any Ollama model** – pick your favorite, set it in the script, and go.
 - ♾️ **Infinite loop** – keeps generating new iterations until you press `Ctrl+C`.
 - ⏳ **No timeouts** – waits indefinitely for even the slowest models to respond.
 - 📁 **Each cycle = a fresh project** – all source code and tests in a new folder.
 - 🛠️ **Automatic test‑and‑repair** – if tests fail, the LLM patches the code up to 3 times.
 - 📦 **Git version control out of the box** – every successful cycle is committed.
-- 🚀 **Optional auto‑push** – uncomment one line to push commits to a remote repo.
+- 🚀 **Optional auto‑push** – un-comment one line to push commits to a remote repo.
 - 🧹 **Zero extra commands** – no model picker, no CLI options; edit the script once and run.
 
 ---
@@ -62,7 +62,7 @@ Just set your preferred model once, give it a goal, and watch it create a new pr
 
 By default, commits stay local. To push each successful commit to a remote repository:
 
-1. Uncomment this line inside `setup_workspace()` (around line 70):
+1. Un-comment this line inside `setup_workspace()` (around line 70):
    ```bash
    # git remote add origin https://github.com/your/repo.git
    ```
@@ -93,7 +93,7 @@ Each `Build_N` is a self‑contained project. The script never overwrites previo
 
 ## ⚙️ How It Works (Cycle)
 
-1. **Ideate** – The LLM chooses a runtime (`python`, `nodejs`, or `bash`) based on your goal.
+1. **Prompt** – The LLM chooses a runtime (`python`, `nodejs`, or `bash`) based on your goal.
 2. **Build** – The LLM generates the application and a corresponding test file.
 3. **Test** – The tests are executed. If they fail, the LLM is asked to fix the code (up to 3 attempts).
 4. **Commit** – If tests pass, the entire workspace is `git add`ed and committed with a descriptive message (e.g., `Cycle 5: Build_5 (python)`). If a remote is configured, it is pushed.
