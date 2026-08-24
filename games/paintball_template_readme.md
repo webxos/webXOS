@@ -1,9 +1,6 @@
 # webXOS: PAINTBALL  
 **browser based Esport FPS**  
 *Desktop Only Beta Test made to be used as a template for Paintball style games in Three JS*
-
-# [http://webxos.netlify.app/paintball](http://webxos.netlify.app/paintball)
-
 ## Overview
 Team-based core assault. Destroy enemy core (500k HP). Blue vs Red. Player + AI drones. One-hit kills. Wireframe arena.
 
