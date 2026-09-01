@@ -35,8 +35,6 @@
 
 [![Follow on X](https://img.shields.io/badge/Follow_@webxos-1DA1F2?style=for-the-badge&logo=x&logoColor=white)](https://x.com/webxos)
 
-[![Website](https://img.shields.io/badge/character.chat-webXOS Assistant-00d4bb?style=for-the-badge&logo=netlify&logoColor=white)]([[https://webxos.netlify.app](https://character.chat/chat/new/xos-alpha)](https://character.chat/chat/new/xos-alpha))
-
 
 
 </div>
