@@ -35,6 +35,6 @@
 
 [![Follow on X](https://img.shields.io/badge/Follow_@webxos-1DA1F2?style=for-the-badge&logo=x&logoColor=white)](https://x.com/webxos)
 
-
+[![Visit on Itch.io](https://img.shields.io/badge/Visit_on_Itch.io-FA5C5C?style=for-the-badge&logo=itch.io&logoColor=white)](https://webxos.itch.io/)
 
 </div>
