@@ -1,4 +1,4 @@
-# AUTO-CAD PRO KERNEL v14.0.5  
+# AUTO-CAD PRO KERNEL v14.0.5 (BETA TEST ONLY)
 **by webXOS · 2026**
 
 [![Status](https://img.shields.io/badge/status-beta-orange)](https://github.com/webXOS)
