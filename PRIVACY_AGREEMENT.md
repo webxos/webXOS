@@ -2,7 +2,7 @@
 
 **Effective Date: November 19, 2025**
 
-edTV and related techonology (webxos.netlify.app/mirror webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/edTV](https://webxos.netlify.app/edTV.html) + [webxos.netlify.app/anything](webxos.netlify.app/anything) and available under the open-source [MIT License] on GitHub at [github.com/webxos](https://github.com/webxos). 
+webXOS techonology (webxos.netlify.app and any apps that use webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/edTV]
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
@@ -32,7 +32,7 @@ We do **not collect, store, or share any personal data** from users.
 *Since no data is collected:*
 
 - There is **no use** of your information for advertising, profiling, or any other purpose.
-- For research and testing: Developers and contributors (under the MIT License) may access anonymized, aggregated feedback if voluntarily provided via GitHub issues or the developer's X account (@webxos). No raw video or images are requested.
+- For research and testing: Developers and contributors (under the MIT License) may access anonymized, aggregated feedback if voluntarily provided via GitHub issues or the developer's X account (@webxos). 
 
 **The App's purpose is to demonstrate AR capabilities for browser-based research, such as mesh synchronization and facial landmark detection, without compromising user privacy.**
 
