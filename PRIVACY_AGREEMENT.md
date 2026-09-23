@@ -2,21 +2,19 @@
 
 **Effective Date: November 19, 2025**
 
-webXOS technology (webxos.netlify.app and any apps that use webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/edTV]
+webXOS technology (webxos.netlify.app) is a free open sourced experimental browser-based augmented tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
-*By using the App, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration of AR face-tracking technologies (e.g., mesh synchronization via webcam). It is not a production service and should not be used for sensitive or real-world applications.*
+*By using the webXOS Open Sourced and MIT Apps, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration technologies.. It is not a production service and should not be used for sensitive or real-world applications.*
 
 ## 1. No Information Collected:
 
-The App is designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
+webXOS apps are designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
 
 We do **not collect, store, or share any personal data** from users.
 
 - **No Personal Identifiable Information (PII)**: We do not request, collect, or process names, emails, IP addresses, device IDs, or any other identifiers.
-- 
-- **Camera and Media Access**: The App may request permission to access your device's webcam for real-time AR face scanning (e.g., overlaying meshes on detected facial features). For Testing Purposes locally.
 
 # This access is:
 
@@ -53,7 +51,6 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 
 ## Contact Us
 
-- GitHub: [github.com/webxos](https://github.com/webxos) (file issues or pull requests).
 - X (Twitter): [@webxos](https://x.com/webxos).
 
 This policy is provided "as is" under the MIT License. WebXOS and its contributors disclaim liability for misuse. For legal advice, consult a professional.
