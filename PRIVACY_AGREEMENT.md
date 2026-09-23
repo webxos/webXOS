@@ -22,7 +22,8 @@ We do **not collect, store, or share any personal data** from users.
   - Not recorded, saved, or uploaded anywhere.
   - Limited to the duration of your session; data is discarded immediately upon closing the tab or denying/revoking permissions.
     
-**Usage Data**: No analytics, logs, or telemetry are collected. Any "live" indicators (e.g., facing angle) are computed on-device and not retained.
+**Usage Data**: No analytics, logs, or telemetry are collected.
+
 **No Cookies or Tracking**: The App does not use cookies, local storage for tracking, or third-party scripts.
 
 ## 2. How We Use Your Information
@@ -30,7 +31,6 @@ We do **not collect, store, or share any personal data** from users.
 *Since no data is collected:*
 
 - There is **no use** of your information for advertising, profiling, or any other purpose.
-- For research and testing: Developers and contributors (under the MIT License) may access anonymized, aggregated feedback if voluntarily provided via GitHub issues or the developer's X account (@webxos). 
 
 **webXOS purpose is to demonstrate the capabilities for browser-based research, such as mesh synchronization and and embedded LLM models, without compromising user privacy.**
 
@@ -41,13 +41,15 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 ## 4. Data Security
 
 - All processing occurs in your browser, reducing risks from server breaches.
-- We recommend using HTTPS-enabled browsers and revoking camera permissions after use.
+  
+- We recommend using HTTPS-enabled browsers
+  
 - As an open-source project, the code is publicly auditable on GitHub—review it for peace of mind. (github.com/webxos)
 
 
 ## 5. *Changes to This Policy*
 
-*We may update this policy to reflect changes in the App (e.g., new features). Check the GitHub repo for the latest version. Continued use after updates implies acceptance.*
+*Check the GitHub repo for the latest version. Continued use after updates implies acceptance.*
 
 ## Contact Us
 
