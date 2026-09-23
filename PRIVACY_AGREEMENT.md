@@ -32,7 +32,7 @@ We do **not collect, store, or share any personal data** from users.
 - There is **no use** of your information for advertising, profiling, or any other purpose.
 - For research and testing: Developers and contributors (under the MIT License) may access anonymized, aggregated feedback if voluntarily provided via GitHub issues or the developer's X account (@webxos). 
 
-**The App's purpose is to demonstrate AR capabilities for browser-based research, such as mesh synchronization and facial landmark detection, without compromising user privacy.**
+**webXOS purpose is to demonstrate the capabilities for browser-based research, such as mesh synchronization and and embedded LLM models, without compromising user privacy.**
 
 ## 3. Sharing Your Information
 
