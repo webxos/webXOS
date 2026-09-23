@@ -18,7 +18,7 @@ We do **not collect, store, or share any personal data** from users.
 
 # This access is:
 
-  - Processed locally using browser APIs (e.g., WebGL, MediaStream).
+  - Processed locally using  IndexedDB browser APIs (e.g., WebGL, MediaStream).
   - Not recorded, saved, or uploaded anywhere.
   - Limited to the duration of your session; data is discarded immediately upon closing the tab or denying/revoking permissions.
     
