@@ -357,7 +357,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
     <div class="brand">
       <div class="logo" aria-hidden="true">▣</div>
       <div class="name">webXOS <span style="color:var(--accent)">DEV</span></div>
-      <div class="tag" id="versionTag">v1.0.4 · jev clone</div>
+      <div class="tag" id="versionTag">v1.0.5 · jev clone</div>
     </div>
     <div class="top-tabs" role="tablist" aria-label="Primary views">
       <button class="top-tab on" data-tab="workbench" role="tab" aria-selected="true" aria-controls="center" type="button" id="topTab-workbench">workbench</button>
@@ -522,8 +522,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   </div>
 </div>
 
-<!-- Prompt modal is placed last so it always paints above the other modals
-     even without dynamic z-index (belt-and-braces with the NB-1 fix). -->
+<!-- Prompt modal is placed last for readability; stacking order across all
+     modals is enforced dynamically by openModalEl (monotonic z-index). -->
 <div class="modal" id="modalPrompt" role="dialog" aria-modal="true" aria-labelledby="promptTitle">
   <div class="modal-card" style="width:440px;max-height:none">
     <div class="modal-head"><b aria-hidden="true">▣</b> <span id="promptTitle">input</span></div>
@@ -548,16 +548,19 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
    Single-file, offline-first, MIT licensed.
    © 2026 webXOS · github.com/webXOS
 
-   v1.0.4 — final release polish (JGF NB-1..NB-4):
-   - NB-1  dynamic modal z-index (prompt lands above settings)
-   - NB-2  saveProject / openProjects use in-flight flags
-   - NB-3  focus-trap uses a stack; wizard shares the same system
-   - NB-4  closing metrics moves focus to the newly active top tab
+   v1.0.5 — release polish (JGF NB4-ESC-NESTED, NB4-SAVE-OPEN-RACE,
+   NB4-COMMENT):
+   - Prompt keydown handlers now call stopPropagation() so a single
+     Escape resolves the prompt without also dismissing its parent.
+   - openProjects re-checks _activePrompt immediately before opening
+     its modal, closing a narrow Save→Open race.
+   - Header comment for #modalPrompt updated to reflect dynamic
+     z-index assignment.
 
-   Earlier passes retained: E01–E18 hardening, N01–N06 polish.
+   Earlier passes retained: E01–E18, N01–N06, NB-1..NB-4.
    ============================================================ */
 
-const DEV_VERSION = "1.0.4";
+const DEV_VERSION = "1.0.5";
 const DEV_START   = performance.now();
 const DB_NAME = "webxos-dev";
 const DB_VERSION = 1;
@@ -703,7 +706,7 @@ function insertAtCursor(textarea, text){
 }
 
 /* ============================================================
-   2. FOCUS TRAP STACK + MODAL OPEN/CLOSE (NB-1, NB-3)
+   2. FOCUS TRAP STACK + MODAL OPEN/CLOSE
    ============================================================ */
 let _modalZCounter = 500;
 const _focusTrapStack = [];   /* [{el, release}] — topmost is last */
@@ -754,8 +757,6 @@ function focusFirstInside(el){
 function openModalEl(el){
   if (!el) return;
   if (el.classList.contains("on")) return;   /* already open — no double-push */
-  /* NB-1: assign a monotonically-increasing z-index so the most recently
-     opened modal always paints on top, regardless of DOM order. */
   el.style.zIndex = String(++_modalZCounter);
   el._previousFocus = document.activeElement;
   el.classList.add("on");
@@ -767,13 +768,10 @@ function openModalEl(el){
 
 function closeModalEl(el){
   if (!el) return;
-  if (!el.classList.contains("on")) return;   /* N04: no-op when not open */
+  if (!el.classList.contains("on")) return;
   el.classList.remove("on");
   el.setAttribute("aria-hidden", "true");
   releaseTrapFor(el);
-  /* Restore focus to whatever was focused when this modal opened, if still
-     attached to the document. Otherwise fall back to the topmost remaining
-     modal, or leave focus alone. */
   const prev = el._previousFocus;
   el._previousFocus = null;
   if (prev && typeof prev.focus === "function" && document.body.contains(prev)){
@@ -2098,7 +2096,7 @@ const GUIDE_HTML = `
   <li><code>Ctrl+Enter</code> — run all questions</li>
   <li><code>Ctrl+S</code> — save project</li>
   <li><code>Ctrl+K</code> — focus snippet filter</li>
-  <li><code>Esc</code> — close modal / dismiss toast / close wizard</li>
+  <li><code>Esc</code> — close topmost modal / dismiss toast / close wizard</li>
   <li><code>←/→/↑/↓</code> (canvas focus) — orbit</li>
   <li><code>+/-</code> (canvas focus) — zoom</li>
   <li><code>r</code> (canvas focus) — reset view</li>
@@ -2456,7 +2454,6 @@ function setTopTab(name){
 function restorePreviousTopTab(){
   const target = previousTopTab || "workbench";
   setTopTab(target);
-  /* NB-4: keep focus in sync with the newly active tab. */
   const activeTab = document.querySelector('.top-tab[data-tab="' + target + '"]');
   if (activeTab && document.body.contains(activeTab)){
     try { activeTab.focus(); } catch(_){}
@@ -2768,7 +2765,7 @@ function insertSnippetAtCursor(textareaId, code, label){
   }
   el.focus();
   validateEditors();
-  /* N02: notify the app so the debounced editor-change handler re-renders the canvas. */
+  /* Notify the app so the debounced editor-change handler re-renders the canvas. */
   el.dispatchEvent(new Event("input", {bubbles:true}));
   toast(label || "Snippet loaded");
 }
@@ -2897,7 +2894,7 @@ function closeWizard(){
 }
 
 /* ============================================================
-   16. PROMPT MODAL (single-flight + backdrop cancel)
+   16. PROMPT MODAL (single-flight + backdrop cancel + stopPropagation)
    ============================================================ */
 let _activePrompt = null;
 
@@ -2947,13 +2944,16 @@ function showPrompt(opts){
     function onOk(){ done(isConfirm ? true : inputEl.value); }
     function onCancel(){ done(isConfirm ? false : null); }
     function onBackdrop(e){ if (e.target === modal) onCancel(); }
+    /* NB4-ESC-NESTED: stopPropagation so a single Escape resolves the prompt
+       only and does not also bubble up to the global keydown handler that
+       would dismiss the parent modal underneath. */
     function onKey(e){
-      if (e.key === "Enter"){ e.preventDefault(); onOk(); }
-      else if (e.key === "Escape"){ e.preventDefault(); onCancel(); }
+      if (e.key === "Enter"){ e.preventDefault(); e.stopPropagation(); onOk(); }
+      else if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); onCancel(); }
     }
     function onKeyGlobal(e){
-      if (e.key === "Enter" && isConfirm){ e.preventDefault(); onOk(); }
-      else if (e.key === "Escape"){ e.preventDefault(); onCancel(); }
+      if (e.key === "Enter" && isConfirm){ e.preventDefault(); e.stopPropagation(); onOk(); }
+      else if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); onCancel(); }
     }
     okBtn.addEventListener("click", onOk);
     canBtn.addEventListener("click", onCancel);
@@ -3221,6 +3221,8 @@ function wireUI(){
   window.addEventListener("keydown", e => {
     const tag = (e.target && e.target.tagName) || "";
     const inEditor = tag === "TEXTAREA" || tag === "INPUT";
+    /* The prompt modal handles its own Escape (with stopPropagation), so if
+       it is open we don't touch anything else here. */
     const promptOpen = $("#modalPrompt").classList.contains("on");
     if (promptOpen) return;
 
@@ -3243,7 +3245,6 @@ function wireUI(){
       return;
     }
     if (e.key === "Escape"){
-      /* Close any visible modals plus the wizard. */
       ["modalProjects", "modalMetrics", "modalSettings", "modalRestore"].forEach(closeModal);
       if (!$("#wizard").classList.contains("hidden")) closeWizard();
       closeMobileDrawers();
@@ -3269,7 +3270,7 @@ let _saveInFlight = false;
 let _openInFlight = false;
 
 async function saveProject(){
-  if (_activePrompt || _saveInFlight) return;   /* N03 + NB-2 */
+  if (_activePrompt || _saveInFlight) return;
   _saveInFlight = true;
   try {
     const stateText = $("#stateInput").value;
@@ -3302,7 +3303,7 @@ async function saveProject(){
 }
 
 async function openProjects(){
-  if (_activePrompt || _openInFlight) return;   /* N03 + NB-2 */
+  if (_activePrompt || _openInFlight) return;
   _openInFlight = true;
   try {
     const all = await dbAll(STORE_PROJECTS);
@@ -3352,6 +3353,12 @@ async function openProjects(){
           toast("Delete failed: " + describeDbError(e), true);
         }
       }));
+    }
+    /* NB4-SAVE-OPEN-RACE: re-check the prompt guard just before opening.
+       A prompt may have appeared while we awaited dbAll. */
+    if (_activePrompt){
+      _openInFlight = false;
+      return;
     }
     const modal = $("#modalProjects");
     if (!modal.classList.contains("on")){
