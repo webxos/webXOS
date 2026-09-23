@@ -2,15 +2,15 @@
 
 **Effective Date: September 23, 2026**
 
-webXOS technology (webxos.netlify.app and github.com/webxos specific URL and included files) is a free open sourced experimental browser-based software developed in this repo. It is provided for **testing purposes and non-commercial research only**
+WebXOS technology (webxos.netlify.app and github.com/webxos specific URL and included files) is a free open sourced experimental browser-based software developed in this repo. It is provided for **testing purposes and non-commercial research only**
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
-*By using the webXOS Open Sourced and MIT Apps, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration technologies.. It is not a production service and should not be used for sensitive or real-world applications.*
+*By using the WebXOS Open Sourced and MIT Software, you acknowledge that it is a prototype tool intended for educational, testing, and research exploration technologies.. It is not a production service and should not be used for sensitive or real-world applications.*
 
 ## 1. No Information Collected:
 
-webXOS apps are designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
+WebXOS Software is designed to operate **entirely locally** in your web browser, with no server-side data storage or transmission. 
 
 We do **not collect, store, or share any personal data** from users.
 
@@ -18,7 +18,7 @@ We do **not collect, store, or share any personal data** from users.
 
 # This access is:
 
-  - Processed locally using  IndexedDB browser APIs (e.g., WebGL, MediaStream).
+  - Processed locally using IndexedDB browser APIs
   - Not recorded, saved, or uploaded anywhere.
   - Limited to the duration of your session; data is discarded immediately upon closing the tab or denying/revoking permissions.
     
@@ -42,9 +42,9 @@ Use our software at your own risk. We do **not share, sell, or disclose** any da
 
 - All processing occurs in your browser, reducing risks from server breaches.
   
-- We recommend using HTTPS-enabled browsers
+- We recommend using HTTPS-enabled browsers.
   
-- As an open-source project, the code is publicly auditable on GitHub—review it for peace of mind. (github.com/webxos)
+- As an open-source project, the code is publicly auditable on GitHub.
 
 
 ## 5. *Changes to This Policy*
