@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>SUPERPOSITION BLACKBOX · QNN LAB · 1-BIT</title>
+<link rel="icon" href="data:,"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{width:100%;height:100%;overflow:hidden;background:#000}
+    body{font-family:'IBM Plex Mono','Courier New',monospace;color:#fff}
+    ::selection{background:#fff;color:#000}
+    #stage{position:fixed;inset:0;z-index:0}
+    #stage canvas{display:block}
+
+    .panel{position:fixed;background:rgba(0,0,0,.9);border:1px solid #fff;
+           box-shadow:5px 5px 0 rgba(255,255,255,.14);z-index:20}
+
+    /* ---- badge ---- */
+    #badge{top:16px;left:16px;padding:12px 16px;max-width:360px}
+    .badge-title{font-size:14px;font-weight:700;letter-spacing:3px}
+    .badge-sub{font-size:9px;letter-spacing:2px;opacity:.65;margin:4px 0 9px}
+    #badge-sel{font-size:10px;border-top:1px solid #fff;padding-top:7px;line-height:1.6;white-space:pre-wrap}
+    .badge-hint{font-size:9px;opacity:.5;margin-top:6px;letter-spacing:1px}
+
+    /* ---- register panel ---- */
+    #register{left:16px;top:146px;padding:10px 14px;width:288px}
+    .reg-title{font-size:10px;letter-spacing:2px;border-bottom:1px solid #fff;
+               padding-bottom:6px;margin-bottom:8px;display:flex;justify-content:space-between}
+    #reg-mode{font-weight:700}
+    .reg-row{display:flex;font-size:11px;line-height:1.75;gap:9px;align-items:baseline}
+    .reg-name{width:20px;opacity:.8}
+    .reg-bar{flex:1;white-space:pre;font-size:10px}
+    .reg-val{width:42px;text-align:right}
+    #reg-metrics{margin-top:8px;padding-top:7px;border-top:1px dashed rgba(255,255,255,.45);
+                 font-size:10px;line-height:1.65;opacity:.9;white-space:pre-wrap}
+
+    /* ---- buttons ---- */
+    #controls{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:30}
+    .qbtn{font-family:inherit;background:#000;color:#fff;border:1px solid #fff;padding:10px 0;
+          width:176px;font-size:11px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;
+          box-shadow:4px 4px 0 rgba(255,255,255,.14);transition:background .1s,color .1s,transform .1s}
+    .qbtn:hover{background:#fff;color:#000}
+    .qbtn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(255,255,255,.14)}
+
+    /* ---- CLI ---- */
+    #cli{left:16px;right:16px;bottom:16px;padding:12px 16px;z-index:40}
+    #cli-out{height:118px;overflow-y:auto;font-size:12px;line-height:1.55;white-space:pre-wrap;
+             border-bottom:1px dashed rgba(255,255,255,.5);padding-bottom:8px;margin-bottom:10px}
+    #cli-out .dim{opacity:.6}
+    #cli-out .echo{opacity:.85}
+    #cli-out .hi{font-weight:700}
+    #cli-out::-webkit-scrollbar{width:8px}
+    #cli-out::-webkit-scrollbar-thumb{background:#fff;border:2px solid #000}
+    #cli-out::-webkit-scrollbar-track{background:#000}
+    .cli-row{display:flex;align-items:center;gap:10px}
+    .cli-prompt{font-weight:700;font-size:13px;white-space:nowrap}
+    .crt{animation:blink 1.05s steps(1) infinite}
+    @keyframes blink{50%{opacity:0}}
+    #cli-in{flex:1;background:#000;border:1px solid #fff;color:#fff;font-family:inherit;
+            font-size:13px;padding:8px 12px;outline:none;letter-spacing:1px;caret-color:#fff}
+    #cli-in:focus{background:#fff;color:#000}
+
+    /* ---- 3D DOM labels ---- */
+    .qlabel{font-size:10px;letter-spacing:1px;padding:1px 5px;border:1px solid #fff;
+            background:#000;color:#fff;pointer-events:none;white-space:nowrap}
+    .qlabel.sel{background:#fff;color:#000;font-weight:700}
+    .polelabel{font-size:11px;font-weight:700;padding:1px 4px;pointer-events:none}
+    .ketlabel{font-size:13px;font-weight:700;padding:2px 8px;border:1px solid #fff;
+              background:#000;pointer-events:none;white-space:nowrap}
+
+    @media (max-width:900px){
+        #register{display:none}
+        #badge{max-width:250px}
+        .qbtn{width:130px;font-size:9px}
+        #cli-out{height:84px}
+    }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="badge" class="panel">
+    <div class="badge-title">SUPERPOSITION BLACKBOX</div>
+    <div class="badge-sub">QUANTUM NEURAL LAB · 8-QUBIT STATE VECTOR · 1-BIT RENDER</div>
+    <div id="badge-sel"></div>
+    <div class="badge-hint">CLICK: SELECT · DBL-CLICK: MEASURE · [H][M][X] · ←/→: CYCLE · [/]: CMD</div>
+</div>
+
+<div id="register" class="panel">
+    <div class="reg-title"><span>|ψ⟩ REGISTER · P(|1⟩)</span><span id="reg-mode">TRAIN</span></div>
+    <div id="reg-bars"></div>
+    <div id="reg-metrics"></div>
+</div>
+
+<div id="controls">
+    <button class="qbtn" id="btn-measure">Measure All</button>
+    <button class="qbtn" id="btn-h">Hadamard All</button>
+    <button class="qbtn" id="btn-train">Train ▸ On</button>
+    <button class="qbtn" id="btn-invert">Invert Ink</button>
+    <button class="qbtn" id="btn-full">Fullscreen</button>
+</div>
+
+<div id="cli" class="panel">
+    <div id="cli-out"></div>
+    <div class="cli-row">
+        <span class="cli-prompt">BLACKBOX:~$ <span class="crt">▮</span></span>
+        <input id="cli-in" autocomplete="off" spellcheck="false" autocapitalize="off"
+               placeholder="/help — type / for commands">
+    </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+/* ================================================================
+   1. EXACT QUANTUM SIMULATOR — 8 qubits, 256 complex amplitudes
+   ================================================================ */
+const Q = (() => {
+    const NQ = 8, DIM = 256;
+    const re = new Float64Array(DIM), im = new Float64Array(DIM);
+    const cdf = new Float64Array(DIM);
+    let cdfDirty = true, version = 0;
+    const mark = () => { cdfDirty = true; version++; };
+
+    function reset(){ re.fill(0); im.fill(0); re[0] = 1; mark(); }
+    function normSq(){ let s=0; for(let i=0;i<DIM;i++) s += re[i]*re[i]+im[i]*im[i]; return s; }
+    function renorm(){ const s=Math.sqrt(normSq())||1; for(let i=0;i<DIM;i++){re[i]/=s;im[i]/=s;} }
+
+    // apply a general 2x2 complex matrix [m00 m01 / m10 m11] to qubit q
+    function apply1(q, m){
+        const bit = 1<<q, step = bit<<1;
+        for(let i=0;i<DIM;i+=step) for(let j=0;j<bit;j++){
+            const x=i|j, y=x|bit;
+            const xr=re[x], xi=im[x], yr=re[y], yi=im[y];
+            re[x]=m[0]*xr-m[1]*xi + m[2]*yr-m[3]*yi;
+            im[x]=m[1]*xr+m[0]*xi + m[3]*yr+m[2]*yi;
+            re[y]=m[4]*xr-m[5]*xi + m[6]*yr-m[7]*yi;
+            im[y]=m[5]*xr+m[4]*xi + m[7]*yr+m[6]*yi;
+        }
+        mark();
+    }
+    const h  = q => apply1(q,[Math.SQRT1_2,0, Math.SQRT1_2,0, Math.SQRT1_2,0,-Math.SQRT1_2,0]);
+    const x  = q => apply1(q,[0,0,1,0, 1,0,0,0]);
+    const z  = q => apply1(q,[1,0,0,0, 0,0,-1,0]);
+    const t  = q => apply1(q,[1,0,0,0, 0,0,Math.SQRT1_2,Math.SQRT1_2]);
+    const ry = (q,a)=>{ const c=Math.cos(a/2), s=Math.sin(a/2); apply1(q,[c,0,-s,0, s,0,c,0]); };
+
+    function cnot(c,tg){
+        const cb=1<<c, tb=1<<tg;
+        for(let i=0;i<DIM;i++) if((i&cb) && !(i&tb)){
+            const j=i|tb, tr=re[i], ti=im[i];
+            re[i]=re[j]; im[i]=im[j]; re[j]=tr; im[j]=ti;
+        }
+        mark();
+    }
+    function cz(c,tg){
+        const cb=1<<c, tb=1<<tg;
+        for(let i=0;i<DIM;i++) if((i&cb)&&(i&tb)){ re[i]=-re[i]; im[i]=-im[i]; }
+        mark();
+    }
+
+    function probOne(q){
+        const bit=1<<q; let s=0;
+        for(let i=0;i<DIM;i++) if(i&bit) s += re[i]*re[i]+im[i]*im[i];
+        return s;
+    }
+    function probs(out){ for(let q=0;q<NQ;q++) out[q]=probOne(q); return out; }
+
+    // Bloch vector (⟨X⟩,⟨Y⟩,⟨Z⟩) of qubit q
+    function bloch(q){
+        const bit=1<<q; let sx=0, sy=0;
+        for(let a=0;a<DIM;a++) if(!(a&bit)){
+            const b=a|bit;
+            sx += re[a]*re[b] + im[a]*im[b];
+            sy += re[a]*im[b] - im[a]*re[b];
+        }
+        const p1 = probOne(q);
+        return { x:2*sx, y:-2*sy, z:1-2*p1, p1 };
+    }
+
+    function rebuildCDF(){
+        if(!cdfDirty) return;
+        let s=0; for(let i=0;i<DIM;i++){ s+=re[i]*re[i]+im[i]*im[i]; cdf[i]=s; }
+        if(s<=0){ cdf.fill(0); cdf[0]=1; }
+        cdfDirty=false;
+    }
+    function sampleBasis(){
+        rebuildCDF();
+        const r=Math.random()*cdf[DIM-1];
+        let lo=0; while(lo<DIM-1 && cdf[lo]<r) lo++;
+        return lo;
+    }
+
+    // Born-rule measurement with real collapse + renormalization
+    function measure(q){
+        const p1=probOne(q), r=Math.random()<p1?1:0, bit=1<<q;
+        for(let i=0;i<DIM;i++) if(((i&bit)?1:0)!==r){ re[i]=0; im[i]=0; }
+        renorm(); mark(); return r;
+    }
+    function measureAll(){
+        const idx=sampleBasis();
+        for(let i=0;i<DIM;i++) if(i!==idx){ re[i]=0; im[i]=0; }
+        renorm(); mark(); return idx;
+    }
+
+    function fid(tr,ti){
+        let dr=0, di=0;
+        for(let i=0;i<DIM;i++){ dr+=tr[i]*re[i]-ti[i]*im[i]; di+=tr[i]*im[i]+ti[i]*re[i]; }
+        return dr*dr+di*di;
+    }
+    function entropyAvg(){
+        let s=0;
+        for(let q=0;q<NQ;q++){
+            const p=Math.min(1,Math.max(0,probOne(q)));
+            s += (p<=0||p>=1) ? 0 : -(p*Math.log2(p)+(1-p)*Math.log2(1-p));
+        }
+        return s/NQ;
+    }
+    return { NQ, DIM, re, im, reset, h, x, z, t, ry, cnot, cz, probOne, probs,
+             bloch, measure, measureAll, sampleBasis, fid, normSq, entropyAvg, mark,
+             get version(){ return version; } };
+})();
+
+/* ================================================================
+   2. VARIATIONAL QUANTUM CIRCUIT — the "QNN" that trains itself
+   ================================================================ */
+const LAYERS=4, NPARAM=LAYERS*8;
+const CNOTS=[
+    [[0,1],[2,3],[4,5],[6,7]],
+    [[1,2],[3,4],[5,6]],
+    [[0,1],[2,3],[4,5],[6,7]],
+    [[1,2],[3,4],[5,6]]
+];
+function buildTarget(name){
+    const tr=new Float64Array(256), ti=new Float64Array(256);
+    if(name==='ghz'){ tr[0]=Math.SQRT1_2; tr[255]=Math.SQRT1_2; }
+    else if(name==='bell'){ tr[0]=Math.SQRT1_2; tr[3]=Math.SQRT1_2; }
+    else if(name==='w'){ const w=1/Math.sqrt(8); for(let q=0;q<8;q++) tr[1<<q]=w; }
+    else if(name==='uniform'){ tr.fill(1/16); }
+    else { let s=0; for(let i=0;i<256;i++){ const v=Math.random()*2-1; tr[i]=v; s+=v*v; }
+           s=Math.sqrt(s)||1; for(let i=0;i<256;i++) tr[i]/=s; name='random'; }
+    return { re:tr, im:ti, name };
+}
+let target = buildTarget('random');
+
+function simulate(params){                     // rebuild ψ from |0…0⟩
+    Q.reset();
+    for(let l=0;l<LAYERS;l++){
+        for(let q=0;q<8;q++) Q.ry(q, params[l*8+q]);
+        for(const [c,t] of CNOTS[l]) Q.cnot(c,t);
+    }
+}
+function circuitLoss(params, preserve){        // loss = 1 − fidelity, ψ optionally untouched
+    let sr=null, si=null;
+    if(preserve){ sr=Q.re.slice(); si=Q.im.slice(); }
+    simulate(params);
+    const L = 1 - Q.fid(target.re, target.im);
+    if(preserve){ Q.re.set(sr); Q.im.set(si); Q.mark(); }
+    return L;
+}
+
+const train = {
+    on:true, params:new Float32Array(NPARAM), loss:1, epoch:0,
+    since:0, delta:0.5, acc:0, logged:1,
+    fidFlags:[{v:.5,done:false},{v:.8,done:false},{v:.95,done:false}]
+};
+function reseed(){
+    for(let i=0;i<NPARAM;i++) train.params[i]=(Math.random()*2-1)*Math.PI;
+    train.loss=circuitLoss(train.params,false);
+    train.since=0; train.delta=0.5; train.logged=Math.max(train.loss,0.99);
+    train.fidFlags.forEach(f=>f.done=false);
+}
+reseed();
+
+/* ================================================================
+   3. SCENE / RENDERER — 1-bit pipeline: color+depth RT → single
+      fullscreen pass (depth-Sobel edges ⊕ Bayer-8 dither)
+   ================================================================ */
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x000000, 3.4, 10.5);
+const camera=new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(3.4, 2.3, 4.6);
+
+const renderer=new THREE.WebGLRenderer({antialias:false, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.setClearColor(0x000000,1);
+document.getElementById('stage').appendChild(renderer.domElement);
+
+const css2d=new CSS2DRenderer();
+css2d.setSize(innerWidth,innerHeight);
+Object.assign(css2d.domElement.style,{position:'absolute',inset:'0',pointerEvents:'none',zIndex:'10'});
+document.getElementById('stage').appendChild(css2d.domElement);
+
+const controls=new OrbitControls(camera, renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=0.07;
+controls.autoRotate=true; controls.autoRotateSpeed=0.7;
+controls.minDistance=2.4; controls.maxDistance=12;
+let lastPointer=0, rotateWanted=true;
+controls.addEventListener('start',()=>lastPointer=performance.now());
+
+let resScale=0.75, rt=null, lastInfo={calls:0,triangles:0,points:0};
+
+const postMat=new THREE.ShaderMaterial({
+    depthTest:false, depthWrite:false,
+    uniforms:{
+        tDiffuse:{value:null}, tDepth:{value:null},
+        uRes:{value:new THREE.Vector2(1,1)},
+        uNear:{value:camera.near}, uFar:{value:camera.far},
+        uInvert:{value:0}, uFlash:{value:0}, uEdge:{value:1.0},
+        uJitter:{value:new THREE.Vector2(0,0)}
+    },
+    vertexShader:`
+        varying vec2 vUv;
+        void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+    fragmentShader:`
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse, tDepth;
+        uniform vec2 uRes, uJitter;
+        uniform float uNear, uFar, uInvert, uFlash, uEdge;
+
+        float linZ(vec2 uv){
+            float d = texture2D(tDepth, uv).x;
+            return -((uNear*uFar) / ((uFar-uNear)*d - uFar));
+        }
+        float b2(vec2 a){ a=floor(a); return fract(a.x*0.5 + a.y*a.y*0.75); }
+        float b4(vec2 a){ return b2(0.5*a)*0.25 + b2(a); }
+        float b8(vec2 a){ return b4(0.5*a)*0.25 + b2(a); }
+
+        void main(){
+            // --- depth Sobel: restores silhouettes the dither would eat ---
+            vec2 tx = 1.0/uRes;
+            float z0=linZ(vUv+vec2(-tx.x,-tx.y)), z1=linZ(vUv+vec2(0.0,-tx.y)), z2=linZ(vUv+vec2(tx.x,-tx.y));
+            float z3=linZ(vUv+vec2(-tx.x,0.0)),                                        z5=linZ(vUv+vec2(tx.x,0.0));
+            float z6=linZ(vUv+vec2(-tx.x,tx.y)), z7=linZ(vUv+vec2(0.0,tx.y)), z8=linZ(vUv+vec2(tx.x,tx.y));
+            float gx=(z2+2.0*z5+z8)-(z0+2.0*z3+z6);
+            float gy=(z6+2.0*z7+z8)-(z0+2.0*z1+z2);
+            float zC=max(linZ(vUv),0.001);
+            float rel=sqrt(gx*gx+gy*gy)/zC;                       // perspective-correct gradient
+            float fade=clamp(1.35 - zC*0.09, 0.25, 1.0);          // fade edge weight with depth
+            float edge=clamp(rel*2.1*uEdge*fade, 0.0, 1.0);
+
+            vec3 c=texture2D(tDiffuse,vUv).rgb;
+            float lum=dot(c,vec3(0.2126,0.7152,0.0722));
+            float v=max(max(lum,edge),uFlash);                    // edges composite BEFORE dither
+            float thr=b8(vUv*uRes+uJitter)+1.0/128.0;             // animated Bayer-8 threshold
+            float ink=step(thr,v);
+            vec3 inkC=vec3(1.0), paperC=vec3(0.0);
+            if(uInvert>0.5){ inkC=vec3(0.0); paperC=vec3(1.0); }
+            gl_FragColor=vec4(mix(paperC,inkC,ink),1.0);
+        }`
+});
+function rebuildRT(){
+    const dpr=Math.min(devicePixelRatio,2);
+    const w=Math.max(2,Math.round(innerWidth*dpr*resScale));
+    const h=Math.max(2,Math.round(innerHeight*dpr*resScale));
+    if(rt) rt.dispose();
+    const dt=new THREE.DepthTexture(w,h); dt.type=THREE.UnsignedIntType;
+    rt=new THREE.WebGLRenderTarget(w,h,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
+    rt.depthTexture=dt;
+    postMat.uniforms.tDiffuse.value=rt.texture;
+    postMat.uniforms.tDepth.value=dt;
+    postMat.uniforms.uRes.value.set(w,h);
+}
+rebuildRT();
+
+const postScene=new THREE.Scene();
+const postCam=new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
+const postQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2), postMat);
+postQuad.frustumCulled=false;
+postScene.add(postQuad);
+
+/* ================================================================
+   4. GEOMETRY — blackbox cube, graticule, Bloch core, qubit network
+   ================================================================ */
+const lmat=op=>new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:op});
+function ring(r,seg,op){
+    const pts=[]; for(let i=0;i<seg;i++){ const a=i/seg*Math.PI*2;
+        pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(a)*r,0)); }
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), lmat(op));
+}
+function ringXZ(r,seg,op){ const m=ring(r,seg,op); m.rotation.x=Math.PI/2; return m; }
+function dynLine(op){
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
+    const l=new THREE.Line(g,lmat(op)); l.frustumCulled=false; return l;
+}
+function makeLabel(txt,cls){
+    const el=document.createElement('div'); el.className=cls; el.textContent=txt;
+    return { obj:new CSS2DObject(el), el };
+}
+
+const world=new THREE.Group(); scene.add(world);
+
+// blackbox: outer shell + inner shell + tesseract connectors + corner brackets
+world.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3.4,3.4,3.4)),lmat(0.55)));
+world.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2.2,2.2,2.2)),lmat(0.8)));
+{
+    const conn=[];
+    for(const sx of[-1,1])for(const sy of[-1,1])for(const sz of[-1,1])
+        conn.push(new THREE.Vector3(sx*1.7,sy*1.7,sz*1.7), new THREE.Vector3(sx*1.1,sy*1.1,sz*1.1));
+    world.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(conn),lmat(0.22)));
+}
+{
+    const br=[], S=1.7, L=0.3;
+    for(const sx of[-1,1])for(const sy of[-1,1])for(const sz of[-1,1]){
+        br.push(new THREE.Vector3(sx*S,sy*S,sz*S), new THREE.Vector3(sx*(S-L),sy*S,sz*S));
+        br.push(new THREE.Vector3(sx*S,sy*S,sz*S), new THREE.Vector3(sx*S,sy*(S-L),sz*S));
+        br.push(new THREE.Vector3(sx*S,sy*S,sz*S), new THREE.Vector3(sx*S,sy*S,sz*(S-L)));
+    }
+    world.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(br),lmat(0.95)));
+}
+// measurement graticule on the floor of the inner cube
+{
+    const g=new THREE.Group(); g.position.y=-1.1; world.add(g);
+    g.add(ringXZ(0.5,48,0.3), ringXZ(0.9,64,0.22), ringXZ(0.02,12,0.7));
+    const cross=[new THREE.Vector3(-1,0,0),new THREE.Vector3(1,0,0),
+                 new THREE.Vector3(0,0,-1),new THREE.Vector3(0,0,1)];
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(cross),lmat(0.2)));
+    const ticks=[];
+    for(let i=0;i<8;i++){ const a=i/8*Math.PI*2;
+        ticks.push(new THREE.Vector3(Math.cos(a)*0.9,0,Math.sin(a)*0.9),
+                   new THREE.Vector3(Math.cos(a)*1.0,0,Math.sin(a)*1.0)); }
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ticks),lmat(0.3)));
+}
+
+// ---- central Bloch sphere (state inspector for the selected qubit) ----
+const blochG=new THREE.Group(); world.add(blochG);
+blochG.add(new THREE.Mesh(new THREE.SphereGeometry(0.42,20,14),
+    new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true,transparent:true,opacity:0.09})));
+blochG.add(ringXZ(0.42,72,0.8));            // equator
+blochG.add(ring(0.42,72,0.28));             // prime meridian
+{
+    const ax=new THREE.BufferGeometry().setFromPoints(
+        [new THREE.Vector3(0,-0.55,0),new THREE.Vector3(0,0.55,0)]);
+    blochG.add(new THREE.Line(ax,lmat(0.85)));
+    const eqt=[];
+    for(let i=0;i<12;i++){ const a=i/12*Math.PI*2;
+        eqt.push(new THREE.Vector3(Math.cos(a)*0.42,0,Math.sin(a)*0.42),
+                 new THREE.Vector3(Math.cos(a)*0.48,0,Math.sin(a)*0.48)); }
+    blochG.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(eqt),lmat(0.4)));
+}
+const poleLabels=[];
+for(const [txt,y] of [['|0⟩',0.6],['|1⟩',-0.6]]){
+    const l=makeLabel(txt,'polelabel'); l.obj.position.set(0,y,0); blochG.add(l.obj); poleLabels.push(l);
+}
+const arrowLine=dynLine(1.0); blochG.add(arrowLine);
+const arrowCone=new THREE.Mesh(new THREE.ConeGeometry(0.034,0.1,6),
+    new THREE.MeshBasicMaterial({color:0xffffff}));
+arrowCone.frustumCulled=false; blochG.add(arrowCone);
+const zTick=ringXZ(0.05,20,0.85); blochG.add(zTick);   // ⟨Z⟩ needle on the axis
+const dropLine=dynLine(0.3); blochG.add(dropLine);     // tip → axis projection
+
+// ---- qubit network: 4 layers × 2 qubits, entangler links ----
+const NODE_POS=[[-0.9,0.36,0.2],[-0.9,-0.36,-0.2],[-0.3,0.4,-0.18],[-0.3,-0.4,0.18],
+                [0.3,0.4,0.18],[0.3,-0.4,-0.18],[0.9,0.36,-0.2],[0.9,-0.36,0.2]];
+const NP=NODE_POS.map(p=>new THREE.Vector3(...p));
+const LINKS=[]; for(let l=0;l<3;l++) for(let a=0;a<2;a++) for(let b=0;b<2;b++) LINKS.push([l*2+a,l*2+b+2]);
+const SKIP_LINKS=[[0,5],[1,6]];
+
+const nodes=[], hitSpheres=[];
+NODE_POS.forEach((p,q)=>{
+    const g=new THREE.Group(); g.position.set(...p); world.add(g);
+    const octa=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.075,0)),lmat(1));
+    g.add(octa);
+    const hull=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.135,0)),lmat(0));
+    g.add(hull);
+    const tilt=new THREE.Group(); g.add(tilt);
+    const spinA=new THREE.Group(), spinB=new THREE.Group(); tilt.add(spinA,spinB);
+    spinA.add(ring(0.14,40,0.9)); spinB.add(ring(0.175,48,0.3));
+    const axis=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+        [new THREE.Vector3(0,0,-0.17),new THREE.Vector3(0,0,0.17)]),lmat(0.75));
+    tilt.add(axis);
+    const lb=makeLabel('q'+q,'qlabel'); lb.obj.position.set(0,0.2,0); g.add(lb.obj);
+    const hit=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,6),
+        new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
+    hit.userData.q=q; g.add(hit); hitSpheres.push(hit);
+    nodes.push({group:g,octa,hull,tilt,spinA,spinB,axis,fx:0,label:lb});
+});
+LINKS.forEach(([a,b])=>{
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([NP[a],NP[b]]),
+        lmat(0.25+Math.random()*0.55));
+    world.add(line);
+});
+SKIP_LINKS.forEach(([a,b])=>{
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([NP[a],NP[b]]),
+        new THREE.LineDashedMaterial({color:0xffffff,dashSize:0.06,gapSize:0.05,transparent:true,opacity:0.3}));
+    line.computeLineDistances(); world.add(line);
+});
+
+/* ================================================================
+   5. PROBABILITY CLOUD — live-sampled |ψ|² on the basis lattice
+      cell map: |x x x | y y | z z z⟩ = |q7q6q5|q4q3|q2q1q0⟩
+   ================================================================ */
+const CELLS=[];
+for(let i=0;i<256;i++){
+    CELLS.push([ ((i>>5)&7)/7*2-1, ((i>>3)&3)/3*2-1, (i&7)/7*2-1 ]
+        .map((v,j)=>v*(j===1?0.98:1.04)));
+}
+const cloudMat=new THREE.PointsMaterial({size:0.045,sizeAttenuation:true,vertexColors:true,
+    transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
+const cloud={count:0,geo:null,pts:null,arr:[],cursor:0};
+function buildCloud(n){
+    if(cloud.pts){ world.remove(cloud.pts); cloud.geo.dispose(); }
+    cloud.count=n; cloud.arr=[]; cloud.cursor=0;
+    const pos=new Float32Array(n*3), col=new Float32Array(n*3);
+    for(let i=0;i<n;i++){
+        const c=CELLS[Q.sampleBasis()];
+        const p={px:c[0],py:c[1],pz:c[2],tx:c[0],ty:c[1],tz:c[2],
+                 jx:(Math.random()-.5)*.22, jy:(Math.random()-.5)*.4, jz:(Math.random()-.5)*.22,
+                 ease:2+Math.random()*4, w:0.4+Math.random()*1.2, ph:Math.random()*6.28};
+        cloud.arr.push(p);
+        pos.set([p.px,p.py,p.pz],i*3);
+        const b=0.35+Math.random()*0.4; col.set([b,b,b],i*3);
+    }
+    cloud.geo=new THREE.BufferGeometry();
+    cloud.geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    cloud.geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+    cloud.pts=new THREE.Points(cloud.geo,cloudMat);
+    cloud.pts.frustumCulled=false;
+    world.add(cloud.pts);
+}
+let cloudBoost=0;
+function updateCloud(dt,T){
+    const K=Math.min(cloud.count, 80+Math.round(500*cloudBoost));
+    for(let k=0;k<K;k++){
+        const p=cloud.arr[cloud.cursor]; cloud.cursor=(cloud.cursor+1)%cloud.count;
+        const c=CELLS[Q.sampleBasis()];
+        p.tx=c[0]+p.jx; p.ty=c[1]+p.jy; p.tz=c[2]+p.jz;
+    }
+    const pos=cloud.geo.attributes.position.array, boost=1+cloudBoost*3.5;
+    for(let i=0;i<cloud.count;i++){
+        const p=cloud.arr[i], e=1-Math.exp(-dt*p.ease*boost);
+        p.px+=(p.tx-p.px)*e; p.py+=(p.ty-p.py)*e; p.pz+=(p.tz-p.pz)*e;
+        pos[i*3]  =p.px+Math.sin(T*p.w+p.ph)*0.01;
+        pos[i*3+1]=p.py+Math.sin(T*p.w*1.3+p.ph*2)*0.012;
+        pos[i*3+2]=p.pz+Math.cos(T*p.w*0.8+p.ph)*0.01;
+    }
+    cloud.geo.attributes.position.needsUpdate=true;
+    cloudBoost*=Math.exp(-dt*2.2);
+}
+
+/* ================================================================
+   6. FX POOLS — gate pulses + collapse shockwaves (no runtime alloc)
+   ================================================================ */
+const pulses=[];
+for(let i=0;i<20;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.02,6,5),
+        new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1}));
+    m.visible=false; world.add(m);
+    pulses.push({mesh:m,from:new THREE.Vector3(),to:new THREE.Vector3(),t:1,speed:2.4,active:false});
+}
+function spawnPulse(a,b,delay=0){
+    const p=pulses.find(p=>!p.active)||pulses[0];
+    p.active=true; p.t=-delay; p.from.copy(a); p.to.copy(b); p.mesh.visible=true;
+}
+function updatePulses(dt){
+    for(const p of pulses){
+        if(!p.active) continue;
+        p.t+=dt*p.speed*timeScale;
+        if(p.t>=1){ p.active=false; p.mesh.visible=false; continue; }
+        if(p.t>=0){
+            p.mesh.position.lerpVectors(p.from,p.to,p.t);
+            p.mesh.material.opacity=p.t>0.75?(1-p.t)*4:1;
+        }
+    }
+}
+const shocks=[];
+for(let i=0;i<4;i++){
+    const m=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.OctahedronGeometry(1,0)),lmat(0));
+    m.visible=false; world.add(m); shocks.push({mesh:m,t:1});
+}
+function shockAt(v){
+    const s=shocks.find(s=>s.t>=1)||shocks[0];
+    s.t=0; s.mesh.position.copy(v); s.mesh.visible=true;
+}
+function updateShocks(dt){
+    for(const s of shocks){
+        if(s.t>=1) continue;
+        s.t+=dt/0.65;
+        if(s.t>=1){ s.mesh.visible=false; continue; }
+        s.mesh.scale.setScalar(0.06+s.t*0.62);
+        s.mesh.material.opacity=(1-s.t)*0.9;
+    }
+}
+function fxNode(q){ nodes[q].fx=1; }
+function fxGate(q){
+    fxNode(q);
+    LINKS.forEach(([a,b],i)=>{
+        if(a===q||b===q) spawnPulse(NP[a],NP[b],Math.random()*0.15+i*0.01);
+    });
+}
+let lastTrainPulse=0;
+function fireTrainPulse(T){
+    if(T-lastTrainPulse<0.5) return;
+    lastTrainPulse=T;
+    LINKS.forEach((lk,i)=>spawnPulse(NP[lk[0]],NP[lk[1]],i*0.03));
+    nodes.forEach(n=>n.fx=Math.max(n.fx,0.35));
+}
+
+/* ================================================================
+   7. INTERACTION STATE / HUD
+   ================================================================ */
+let sel=2, gateCount=0, measurements=0, timeScale=1, labelsOn=true, flash=0;
+let ketVer=-1;
+const P=new Float64Array(8), BLOCH=new Array(8);
+const UP=new THREE.Vector3(0,1,0), Z_AXIS=new THREE.Vector3(0,0,1);
+const _v1=new THREE.Vector3(), _tv=new THREE.Vector3(), _disp=new THREE.Vector3();
+const blochDir=new THREE.Vector3(0,1,0);
+
+// register panel rows
+const barRows=[];
+{
+    const wrap=document.getElementById('reg-bars');
+    for(let q=0;q<8;q++){
+        const row=document.createElement('div'); row.className='reg-row';
+        row.innerHTML=`<span class="reg-name">q${q}</span><span class="reg-bar"></span><span class="reg-val"></span>`;
+        wrap.appendChild(row);
+        barRows.push({bar:row.children[1],val:row.children[2]});
+    }
+}
+const selEl=document.getElementById('badge-sel'), metricsEl=document.getElementById('reg-metrics'),
+      modeEl=document.getElementById('reg-mode');
+
+// ket label for collapsed basis state
+const ketLb=makeLabel('','ketlabel'); ketLb.obj.visible=false; scene.add(ketLb.obj);
+function ketStr(i){ let s=''; for(let q=7;q>=0;q--) s+=((i>>q)&1); return s; }
+function showKet(idx){
+    ketLb.obj.visible=true;
+    ketLb.obj.position.set(CELLS[idx][0],CELLS[idx][1]+0.18,CELLS[idx][2]);
+    ketLb.el.textContent='|'+ketStr(idx)+'⟩';
+    ketVer=Q.version;
+}
+
+let fpsAvg=60, fpsFrames=0, fpsT=0, hudAcc=0;
+function updateHUD(){
+    Q.probs(P);
+    for(let q=0;q<8;q++){
+        const f=Math.round(P[q]*16);
+        barRows[q].bar.textContent='█'.repeat(f)+'·'.repeat(16-f);
+        barRows[q].val.textContent=P[q].toFixed(2);
+    }
+    let m=`S ${Q.entropyAvg().toFixed(3)} b/qt · MEAS ${measurements} · FPS ${fpsAvg.toFixed(0)}\n`;
+    if(train.on)
+        m+=`TRAIN → ${target.name.toUpperCase()} · EPOCH ${train.epoch}\nLOSS ${train.loss.toFixed(4)} · FID ${(1-train.loss).toFixed(4)}`;
+    else m+=`MANUAL CONTROL · GATES ${gateCount}`;
+    metricsEl.textContent=m;
+    modeEl.textContent=train.on?'TRAIN':'MANUAL';
+    const b=BLOCH[sel]||Q.bloch(sel);
+    selEl.textContent=`SEL q${sel} · θ ${Math.acos(THREE.MathUtils.clamp(b.z,-1,1)).toFixed(2)} · φ ${Math.atan2(b.y,b.x).toFixed(2)} · P(1) ${b.p1.toFixed(3)}`;
+    // dim node labels facing away (cheap occlusion cue)
+    const camLen=camera.position.length();
+    nodes.forEach(n=>{
+        n.group.getWorldPosition(_v1);
+        const behind=camera.position.distanceTo(_v1)>camLen+0.12;
+        n.label.el.style.opacity=labelsOn?(behind?0.15:(sel===nodes.indexOf(n)?1:0.95)):0;
+    });
+}
+function select(q){
+    sel=q;
+    nodes.forEach((n,i)=>{
+        n.hull.material.opacity=i===q?0.9:0;
+        n.label.el.classList.toggle('sel',i===q);
+    });
+}
+
+/* ================================================================
+   8. CLI
+   ================================================================ */
+const cliOut=document.getElementById('cli-out'), cliIn=document.getElementById('cli-in');
+function log(text,cls){
+    const d=document.createElement('div');
+    d.className='line'+(cls?' '+cls:''); d.textContent=text;
+    cliOut.appendChild(d);
+    while(cliOut.children.length>220) cliOut.removeChild(cliOut.firstChild);
+    cliOut.scrollTop=cliOut.scrollHeight;
+}
+const GATE_NOTES={
+    h:'HADAMARD — |0⟩→(|0⟩+|1⟩)/√2. 180° rotation about (x+z)/√2 on the Bloch sphere.',
+    x:'PAULI-X — the quantum NOT: half-turn about X. Swaps P(0) and P(1).',
+    z:'PAULI-Z — phase flip: |1⟩ gains a minus sign. Invisible in P(1), visible in interference.',
+    t:'T-GATE — π/4 phase kick. H + T + CNOT = universal gate set.',
+    cnot:'CNOT — flips the target iff control is |1⟩. The workhorse of entanglement.',
+    cz:'CONTROLLED-Z — entangles through phase alone; hides from computational-basis probabilities.',
+    measure:'BORN RULE — P(outcome)=|α|². The register is renormalized onto the measured result.'
+};
+const notesShown={};
+function noteOnce(k){ if(notesShown[k]) return; notesShown[k]=1;
+    if(GATE_NOTES[k]) log('  NOTE · '+GATE_NOTES[k],'dim'); }
+const FACTS=[
+    'FACT · An n-qubit register holds 2^n amplitudes at once — this one holds 256.',
+    'FACT · The Bloch vector is (⟨X⟩,⟨Y⟩,⟨Z⟩); pure states live on the sphere surface.',
+    'FACT · A Bell pair has ZERO local Bloch vectors — all information lives in correlations.',
+    'FACT · No-cloning theorem: an unknown quantum state cannot be copied.',
+    'FACT · Decoherence = unwanted entanglement with the environment leaking phase.',
+    'FACT · Superposition is not "both at once": amplitudes interfere before measurement.',
+    'FACT · GHZ: (|0…0⟩+|1…1⟩)/√2 — 8-party entanglement in this very register.',
+    'FACT · A QNN (parameterized circuit) is trained by measuring a cost — exactly what /train does.',
+    'FACT · The lattice maps |q7q6q5|q4q3|q2q1q0⟩ → (x,y,z). Watch clusters = probability mass.',
+    'FACT · Measurement is not passive: it rewrites ψ onto the outcome and renormalizes.'
+];
+let factIdx=0;
+
+const GATES={h:q=>Q.h(q), x:q=>Q.x(q), z:q=>Q.z(q), t:q=>Q.t(q)};
+function gateOn(g,qs){
+    for(const q of qs){ GATES[g](q); fxGate(q); gateCount++; }
+    log(`> ${g.toUpperCase()} q${qs.join(' q')}`);
+    noteOnce(g);
+}
+function pauseTrain(reason){
+    train.on=false; updateTrainBtn();
+    log(`  TRAINING HALTED — ${reason}`,'dim');
+}
+function measureQ(q){
+    const b=Q.bloch(q), r=Q.measure(q);
+    flash=Math.max(flash,0.55); shockAt(NP[q]); cloudBoost=1; measurements++;
+    log(`> MEASURE q${q} → |${r}⟩   (P(|1⟩) was ${b.p1.toFixed(3)})`,'hi');
+    noteOnce('measure');
+    if(train.on) pauseTrain('register collapsed by measurement');
+}
+function measureAllFX(){
+    if(train.on) pauseTrain('register collapsed by measurement');
+    const idx=Q.measureAll();
+    flash=0.9; cloudBoost=1; measurements++;
+    shockAt(new THREE.Vector3(...CELLS[idx]));
+    showKet(idx);
+    log(`> MEASURE ALL → |${ketStr(idx)}⟩  ·  REGISTER COLLAPSED`,'hi');
+    noteOnce('measure');
+}
+function superposeAll(){
+    for(let q=0;q<8;q++){ Q.h(q); fxGate(q); gateCount++; }
+    log('> H q0 q1 q2 q3 q4 q5 q6 q7 — MAXIMAL SPREAD','hi'); noteOnce('h');
+}
+function updateTrainBtn(){
+    document.getElementById('btn-train').textContent=`Train ▸ ${train.on?'On':'Off'}`;
+}
+function toggleTrain(){
+    if(train.on){ train.on=false;
+        log('> TRAIN OFF — manual control. register holds current circuit state.','dim');
+    } else {
+        train.on=true;
+        train.loss=circuitLoss(train.params,false);
+        log(`> TRAIN ON — target ${target.name} · LOSS ${train.loss.toFixed(4)} · register is now circuit output`);
+    }
+    updateTrainBtn();
+}
+function trainStep(){
+    const k=(Math.random()*NPARAM)|0, old=train.params[k];
+    train.params[k]=old+(Math.random()*2-1)*train.delta;
+    const nl=circuitLoss(train.params,false);
+    if(nl<=train.loss){
+        if(train.loss-nl>0.002) fireTrainPulse(performance.now()/1000);
+        train.loss=nl; train.since=0;
+        train.delta=Math.min(train.delta*1.05,0.7);
+    } else {
+        train.params[k]=old;
+        train.loss=circuitLoss(train.params,false);   // restore ψ to accepted params
+        train.since++;
+        train.delta=Math.max(train.delta*0.97,0.02);
+        if(train.since>420){
+            reseed();
+            log('  ANNEAL — no descent in 420 evals · parameter space reseeded','dim');
+        }
+    }
+    train.epoch++;
+    if(train.loss<train.logged-0.02){
+        train.logged=train.loss;
+        log(`  EPOCH ${train.epoch} · LOSS ${train.loss.toFixed(4)} · FID ${(1-train.loss).toFixed(4)}`,'dim');
+    }
+    for(const f of train.fidFlags)
+        if(!f.done && 1-train.loss>=f.v){ f.done=true;
+            log(`  FIDELITY ${(f.v*100)|0}% — target partially reconstructed`,'dim'); }
+}
+
+function parseQ(s){ if(s==='*') return [0,1,2,3,4,5,6,7];
+    const n=parseInt(s,10); return (n>=0&&n<=7)?[n]:null; }
+
+const HELP=[
+'COMMANDS',
+'  /gate h|x|z|t <q|*>    single-qubit gate (q 0-7, * = all)',
+'  /h <q|*>               hadamard shortcut',
+'  /cnot <c> <t>          controlled-NOT · entangler',
+'  /cz <c> <t>            controlled-Z · phase entangler',
+'  /measure [q|all]       Born-rule collapse (default: all)',
+'  /superpose             hadamard on the whole register',
+'  /train on|off|reset    variational optimizer (the QNN)',
+'  /target <name>         ghz · bell · w · uniform · random',
+'  /select <q>            focus Bloch sphere on qubit',
+'  /states                dominant amplitudes of |ψ⟩',
+'  /weights               dump ansatz parameters',
+'  /facts                 physics notes',
+'  /rotate on|off         camera orbit',
+'  /speed <0.2-3>         animation rate',
+'  /res <0.3-1>           internal render scale',
+'  /edge <0-3>            Sobel edge strength',
+'  /cloud <200-8000>      sample count',
+'  /labels on|off         node labels',
+'  /invert                swap ink / paper',
+'  /grounding             hardware + sim probe',
+'  /reset                 fresh |0…0⟩ register',
+'  /clear                 wipe console'
+];
+function cpx(r,i){ return `${r.toFixed(3)} ${i<0?'-':'+'} ${Math.abs(i).toFixed(3)}i`; }
+
+function grounding(){
+    const gl=renderer.getContext();
+    let gpu='n/a';
+    const ext=gl.getExtension('WEBGL_debug_renderer_info');
+    if(ext) gpu=gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+    [
+        'GROUNDING PROBE — QNN LAB',
+        `  GL ........ ${gl.getParameter(gl.VERSION)}`,
+        `  GPU ....... ${String(gpu).slice(0,72)}`,
+        `  VIEWPORT .. ${innerWidth}×${innerHeight} @ dpr ${devicePixelRatio.toFixed(2)}`,
+        `  RT ........ ${rt.width}×${rt.height} (scale ${resScale.toFixed(2)}) · DEPTH-TEX OK`,
+        `  LAST FRAME  ${lastInfo.calls} draw calls · ${lastInfo.triangles} tris · ${lastInfo.points} pts`,
+        `  STATE ..... ${Q.DIM} amplitudes · Σ|α|² = ${Q.normSq().toFixed(6)}`,
+        `  TRAIN ..... ${train.on?'ON':'OFF'} · EPOCH ${train.epoch} · LOSS ${train.loss.toFixed(4)} · TGT ${target.name}`,
+        `  FPS ....... ${fpsAvg.toFixed(0)}`
+    ].forEach(l=>log(l,'dim'));
+}
+
+const hist=[]; let hIdx=0;
+function exec(raw){
+    const s=raw.trim(); if(!s) return;
+    log('> '+s,'echo');
+    const [cmd,...args]=s.split(/\s+/);
+    const a0=(args[0]||'').toLowerCase();
+    switch(cmd.toLowerCase()){
+        case '/help': HELP.forEach(l=>log(l,'dim')); break;
+        case '/gate':{
+            const g=a0, qs=parseQ(args[1]||'');
+            if(!GATES[g]||!qs){ log('  usage: /gate h|x|z|t <0-7|*>','dim'); break; }
+            gateOn(g,qs); break;
+        }
+        case '/h':{
+            const qs=parseQ(args[0]||'');
+            if(!qs){ log('  usage: /h <0-7|*>','dim'); break; }
+            gateOn('h',qs); break;
+        }
+        case '/cnot': case '/cz':{
+            const c=parseInt(args[0],10), t=parseInt(args[1],10);
+            if(!(c>=0&&c<=7)||!(t>=0&&t<=7)||c===t){ log('  usage: /cnot <0-7> <0-7> distinct','dim'); break; }
+            (cmd.toLowerCase()==='/cnot'?Q.cnot:Q.cz)(c,t);
+            fxNode(c); fxNode(t); spawnPulse(NP[c],NP[t],0);
+            gateCount++;
+            log(`> ${cmd.toUpperCase()} q${c} → q${t}`); noteOnce(cmd.toLowerCase()==='/cnot'?'cnot':'cz');
+            break;
+        }
+        case '/measure':
+            if(!args[0]||a0==='all'||a0==='*') measureAllFX();
+            else { const qs=parseQ(a0); if(!qs){ log('  usage: /measure [q|all]','dim'); break; } measureQ(qs[0]); }
+            break;
+        case '/superpose': superposeAll(); break;
+        case '/train':
+            if(a0==='on'||a0==='off'){ if((a0==='on')!==train.on) toggleTrain(); }
+            else if(a0==='reset'){ reseed(); train.on=true; updateTrainBtn();
+                log('> TRAIN RESET — parameters reseeded · LOSS '+train.loss.toFixed(4)); }
+            else log('  usage: /train on|off|reset','dim');
+            break;
+        case '/target':
+            if(!['ghz','bell','w','uniform','random'].includes(a0)){ log('  targets: ghz bell w uniform random','dim'); break; }
+            target=buildTarget(a0);
+            train.loss=circuitLoss(train.params,!train.on);
+            train.fidFlags.forEach(f=>f.done=false);
+            log(`> TARGET ← ${target.name.toUpperCase()} · LOSS ${train.loss.toFixed(4)}`);
+            break;
+        case '/select':{
+            const qs=parseQ(a0); if(!qs){ log('  usage: /select <0-7>','dim'); break; }
+            select(qs[0]); log(`> SELECT q${qs[0]} — Bloch sphere locked`);
+            break;
+        }
+        case '/states':{
+            const pr=new Float64Array(256);
+            for(let i=0;i<256;i++) pr[i]=Q.re[i]*Q.re[i]+Q.im[i]*Q.im[i];
+            const idx=[...Array(256).keys()].sort((a,b)=>pr[b]-pr[a]).slice(0,6);
+            log('  TOP AMPLITUDES · KET |q7…q0⟩','dim');
+            for(const i of idx) if(pr[i]>1e-9)
+                log(`  |${ketStr(i)}⟩  ${cpx(Q.re[i],Q.im[i])}  P=${pr[i].toFixed(4)}`);
+            break;
+        }
+        case '/weights':
+            for(let l=0;l<LAYERS;l++)
+                log(`  L${l} RY  `+Array.from({length:8},(_,q)=>`q${q}:${train.params[l*8+q].toFixed(2)}`).join('  '),'dim');
+            log('  CNOT L0:(0,1)(2,3)(4,5)(6,7)  L1:(1,2)(3,4)(5,6)  L2=L0  L3=L1','dim');
+            break;
+        case '/facts': log(FACTS[factIdx++%FACTS.length],'dim'); break;
+        case '/rotate':
+            rotateWanted=a0!=='off';
+            log(`> AUTO-ORBIT ${rotateWanted?'ON':'OFF'}`); break;
+        case '/speed':{
+            const v=parseFloat(a0);
+            if(v>=0.2&&v<=3){ timeScale=v; controls.autoRotateSpeed=0.7*v;
+                log(`> TIME SCALE ×${v.toFixed(2)}`); }
+            else log('  range 0.2 – 3','dim');
+            break;
+        }
+        case '/res':{
+            const v=parseFloat(a0);
+            if(v>=0.3&&v<=1){ resScale=v; rebuildRT(); log(`> RENDER SCALE ${v.toFixed(2)} → ${rt.width}×${rt.height}`); }
+            else log('  range 0.3 – 1','dim');
+            break;
+        }
+        case '/edge':{
+            const v=parseFloat(a0);
+            if(v>=0&&v<=3){ postMat.uniforms.uEdge.value=v; log(`> EDGE STRENGTH ${v.toFixed(2)}`); }
+            else log('  range 0 – 3','dim');
+            break;
+        }
+        case '/cloud':{
+            const v=parseInt(a0,10);
+            if(v>=200&&v<=8000){ buildCloud(v); log(`> CLOUD RESAMPLED — ${v} points`); }
+            else log('  range 200 – 8000','dim');
+            break;
+        }
+        case '/labels':
+            labelsOn=a0!=='off';
+            if(!labelsOn) nodes.forEach(n=>n.label.el.style.opacity=0);
+            log(`> NODE LABELS ${labelsOn?'ON':'OFF'}`); break;
+        case '/invert':
+            postMat.uniforms.uInvert.value=postMat.uniforms.uInvert.value>0.5?0:1;
+            log('> INK/PAPER SWAPPED'); break;
+        case '/grounding': grounding(); break;
+        case '/clear': cliOut.innerHTML=''; break;
+        case '/reset':
+            if(train.on) pauseTrain('manual reset');
+            Q.reset(); ketLb.obj.visible=false; gateCount=0;
+            log('> REGISTER ← |00000000⟩ · fresh vacuum state','hi');
+            break;
+        default:
+            if(cmd.startsWith('/')) log('  unknown command — /help','dim');
+            else log('  commands start with / — try /help','dim');
+    }
+}
+
+cliIn.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){
+        const v=cliIn.value; exec(v);
+        if(v.trim()){ hist.push(v); hIdx=hist.length; }
+        cliIn.value='';
+    } else if(e.key==='ArrowUp'){ e.preventDefault();
+        if(hist.length){ hIdx=Math.max(0,hIdx-1); cliIn.value=hist[hIdx]; }
+    } else if(e.key==='ArrowDown'){ e.preventDefault();
+        hIdx=Math.min(hist.length,hIdx+1); cliIn.value=hist[hIdx]||'';
+    } else if(e.key==='Escape') cliIn.blur();
+});
+document.getElementById('cli').addEventListener('click',()=>cliIn.focus());
+
+/* ---- global keys (ignored while typing) ---- */
+addEventListener('keydown',e=>{
+    if(document.activeElement===cliIn) return;
+    if(e.key==='/'){ e.preventDefault(); cliIn.focus(); return; }
+    const k=e.key.toLowerCase();
+    if(k==='h') gateOn('h',[sel]);
+    else if(k==='m') measureQ(sel);
+    else if(k==='x') gateOn('x',[sel]);
+    else if(k==='t') toggleTrain();
+    else if(k==='i') exec('/invert');
+    else if(k==='r') exec(rotateWanted?'/rotate off':'/rotate on');
+    else if(e.key==='ArrowRight') select((sel+1)%8);
+    else if(e.key==='ArrowLeft') select((sel+7)%8);
+});
+
+/* ---- buttons ---- */
+document.getElementById('btn-measure').onclick=measureAllFX;
+document.getElementById('btn-h').onclick=superposeAll;
+document.getElementById('btn-train').onclick=toggleTrain;
+document.getElementById('btn-invert').onclick=()=>exec('/invert');
+const fullBtn=document.getElementById('btn-full');
+fullBtn.onclick=()=>{
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+    fullBtn.textContent=document.fullscreenElement?'Fullscreen':'Exit Fullscreen';
+};
+document.addEventListener('fullscreenchange',()=>{
+    fullBtn.textContent=document.fullscreenElement?'Exit Fullscreen':'Fullscreen';
+});
+
+/* ---- picking: click = select, double-click = measure ---- */
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
+function pick(ev){
+    ndc.x=(ev.clientX/innerWidth)*2-1;
+    ndc.y=-(ev.clientY/innerHeight)*2+1;
+    ray.setFromCamera(ndc,camera);
+    const hits=ray.intersectObjects(hitSpheres,false);
+    return hits.length?hits[0].object.userData.q:-1;
+}
+let pdX=0,pdY=0,pdT=0;
+renderer.domElement.addEventListener('pointerdown',e=>{ pdX=e.clientX; pdY=e.clientY; pdT=performance.now(); });
+renderer.domElement.addEventListener('pointerup',e=>{
+    if(Math.hypot(e.clientX-pdX,e.clientY-pdY)<6 && performance.now()-pdT<500){
+        const q=pick(e); if(q>=0) select(q);
+    }
+});
+renderer.domElement.addEventListener('dblclick',e=>{
+    const q=pick(e); if(q>=0) measureQ(q);
+});
+
+/* ================================================================
+   9. FRAME LOOP
+   ================================================================ */
+const arrowPos=arrowLine.geometry.attributes.position.array;
+const dropPos=dropLine.geometry.attributes.position.array;
+let prevAz=0,prevPo=0,prevD=0,motionS=0;
+
+function updateNodes(dt,T){
+    for(let q=0;q<8;q++){
+        const b=Q.bloch(q); BLOCH[q]=b;
+        const n=nodes[q];
+        _tv.set(b.x,b.z,b.y);
+        const L=_tv.length();
+        if(L>1e-4) n.tilt.quaternion.setFromUnitVectors(Z_AXIS,_tv.multiplyScalar(1/L));
+        const speed=(1.2+(1-Math.min(L,1))*7+n.fx*9)*timeScale;
+        n.spinA.rotation.z+=dt*speed;
+        n.spinB.rotation.z-=dt*speed*0.62;
+        n.axis.material.opacity=L<0.2?0.12:0.75;   // maximally mixed → axis fades
+        n.fx=Math.max(0,n.fx-dt*3.2);
+        n.octa.scale.setScalar(1+n.fx*0.8);
+    }
+}
+function updateBlochSphere(dt,T){
+    const b=BLOCH[sel];
+    _tv.set(b.x,b.z,b.y);
+    if(_tv.lengthSq()<1e-6) _tv.set(0,1,0);
+    _tv.normalize();
+    blochDir.lerp(_tv,1-Math.exp(-dt*5.5)).normalize();
+    _disp.copy(blochDir).applyAxisAngle(UP,Math.sin(T*1.15)*0.055);  // Larmor wobble
+    const tipX=_disp.x*0.4, tipY=_disp.y*0.4, tipZ=_disp.z*0.4;
+    arrowPos[3]=tipX; arrowPos[4]=tipY; arrowPos[5]=tipZ;
+    arrowLine.geometry.attributes.position.needsUpdate=true;
+    arrowCone.position.set(tipX,tipY,tipZ);
+    arrowCone.quaternion.setFromUnitVectors(UP,_disp);
+    zTick.position.y=THREE.MathUtils.clamp(b.z,-1,1)*0.42;
+    dropPos[3]=0; dropPos[4]=tipY; dropPos[5]=0;
+    dropLine.geometry.attributes.position.needsUpdate=true;
+}
+
+let last=performance.now();
+function animate(now){
+    requestAnimationFrame(animate);
+    const dt=Math.min((now-last)/1000,0.05); last=now;
+    const T=now/1000;
+
+    if(train.on){
+        train.acc+=dt*timeScale;
+        while(train.acc>1/15){ train.acc-=1/15; trainStep(); }
+    }
+
+    controls.update();
+    updateNodes(dt,T);
+    updateBlochSphere(dt,T);
+    updateCloud(dt*timeScale,T);
+    updatePulses(dt);
+    updateShocks(dt);
+
+    if(ketLb.obj.visible && ketVer!==Q.version) ketLb.obj.visible=false;
+
+    // dither jitter follows camera motion + measurement flash
+    const az=controls.getAzimuthalAngle(), po=controls.getPolarAngle(), dd=controls.getDistance();
+    const mv=Math.abs(az-prevAz)+Math.abs(po-prevPo)+Math.abs(dd-prevD)*0.15;
+    prevAz=az; prevPo=po; prevD=dd;
+    motionS=Math.max(Math.min(mv*45,1),motionS*Math.exp(-dt*5));
+    flash*=Math.exp(-dt*7); if(flash<0.02) flash=0;
+    const j=Math.max(motionS,flash)*3.2;
+    postMat.uniforms.uJitter.value.set((Math.random()-.5)*j,(Math.random()-.5)*j);
+    postMat.uniforms.uFlash.value=flash;
+    controls.autoRotate=rotateWanted&&(performance.now()-lastPointer>4000);
+
+    hudAcc+=dt;
+    if(hudAcc>0.12){ hudAcc=0; updateHUD(); }
+    fpsFrames++; fpsT+=dt;
+    if(fpsT>0.5){ fpsAvg=fpsFrames/fpsT; fpsFrames=0; fpsT=0; }
+
+    renderer.setRenderTarget(rt);
+    renderer.render(scene,camera);
+    lastInfo={calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,points:renderer.info.render.points};
+    renderer.setRenderTarget(null);
+    renderer.render(postScene,postCam);
+}
+
+addEventListener('resize',()=>{
+    camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+    css2d.setSize(innerWidth,innerHeight);
+    rebuildRT();
+});
+
+/* ================================================================
+   10. BOOT
+   ================================================================ */
+buildCloud(2600);
+select(2);
+updateTrainBtn();
+const BOOT=[
+    'SUPERPOSITION BLACKBOX // QNN LAB r1.0',
+    'STATE VECTOR ......... 256 COMPLEX AMPLITUDES [OK]',
+    'ANSATZ ............... RY×8 × 4 LAYERS + CNOT LADDER [OK]',
+    'RENDER ............... 1-BIT · BAYER-8 DITHER · DEPTH-SOBEL EDGES [OK]',
+    'TRAINING ............. ON → TARGET RANDOM   (/train off for manual control)',
+    '',
+    'TYPE /FACTS FOR PHYSICS NOTES · /GROUNDING FOR HW PROBE · /HELP FOR ALL',
+    'CLICK NODE = SELECT · DBL-CLICK = MEASURE · LATTICE MAP: |q7q6q5|q4q3|q2q1q0⟩ → x,y,z'
+];
+BOOT.forEach((l,i)=>setTimeout(()=>log(l,i===0?'hi':''),150+i*170));
+setTimeout(()=>fireTrainPulse(1e9),1200);
+updateHUD();
+animate(performance.now());
+</script>
+</body>
+</html>
