@@ -2,7 +2,7 @@
 
 **Effective Date: November 19, 2025**
 
-webXOS techonology (webxos.netlify.app and any apps that use webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/edTV]
+webXOS technology (webxos.netlify.app and any apps that use webcam use and related tech etc) is a free open sourced experimental browser-based augmented reality (AR) tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**, hosted at [webxos.netlify.app/edTV]
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
