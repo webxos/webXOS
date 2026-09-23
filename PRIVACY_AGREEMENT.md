@@ -2,7 +2,7 @@
 
 **Effective Date: September 23, 2026**
 
-webXOS technology (webxos.netlify.app and github.com/webxos specific URL and included files) is a free open sourced experimental browser-based augmented tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**
+webXOS technology (webxos.netlify.app and github.com/webxos specific URL and included files) is a free open sourced experimental browser-based software developed in this repo. It is provided for **testing purposes and non-commercial research only**
 
 **This Privacy Policy explains how we handle your information when you use the App. We are committed to protecting your privacy and ensuring transparency.**
 
