@@ -1,6 +1,6 @@
 # Privacy Policy for webXOS Software 
 
-**Effective Date: November 19, 2025**
+**Effective Date: September 23, 2026**
 
 webXOS technology (webxos.netlify.app) is a free open sourced experimental browser-based augmented tool developed as part of the webXOS software project in this repo. It is provided for **testing purposes and non-commercial research only**
 
