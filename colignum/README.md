@@ -1,5 +1,7 @@
 # COLIGNUM
 
+x.com/colignum 
+
 **A modular graphic design & creative studio suite** 
 
 — part of [webXOS](https://github.com/webxos/webXOS), the web-based operating system.
