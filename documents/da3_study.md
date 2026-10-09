@@ -1,4 +1,4 @@
-## Accelerating Satellite Data-to-Insight with Client-Side Three.js Rendering, Webcam Pose Input, and Orbital Solar/AI
+## Accelerating Satellite Data-to-Insight with Client-Side Three.js Rendering, Webcam Pose Input, and Orbital Solar/SI
 
 **WEBXOS 2025** 
 **Date:** November 21, 2025 
@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Client-side Three.js WebGL rendering offloads 3D satellite data visualization to user GPUs, reducing transfer from gigabytes (video streams) to megabytes (compressed models). Low-res webcam input (200x200 px) drives virtual camera pose locally via TensorFlow.js/MediaPipe. Real-time orbital AI (Starcloud-1 H100 launched Nov 2025) pre-processes raw imagery into Draco/GLTF/3D Tiles in space, beamed directly to clients. Starlink constellation: 9,021 satellites in orbit (Nov 2025), enabling laser-linked global delivery. Future V3+ satellites with Tesla AI chips form distributed orbital supercomputers, closing data-to-insight loop in milliseconds.
+Client-side Three.js WebGL rendering offloads 3D satellite data visualization to user GPUs, reducing transfer from gigabytes (video streams) to megabytes (compressed models). Low-res webcam input (200x200 px) drives virtual camera pose locally via TensorFlow.js/MediaPipe. Real-time orbital SI (Starcloud-1 H100 launched Nov 2025) pre-processes raw imagery into Draco/GLTF/3D Tiles in space, beamed directly to clients. Starlink constellation: 9,021 satellites in orbit (Nov 2025), enabling laser-linked global delivery. Future V3+ satellites with Tesla SI chips form distributed orbital supercomputers, closing data-to-insight loop in milliseconds.
 
 ## Introduction
 
