@@ -22,12 +22,8 @@ COLIGNUM is an experimental collection of high-fidelity, standalone web tools fo
   - Infinite canvas with grid, undo/redo, export powerhouse
 - **`point_cloud.html`** — Point cloud & 3D data visualization studio (beta)
 - **`blackbox.html`** — Mysterium Blackbox Tesseract: interactive 3D wireframe environment with CLI and face terminals
-- **`trashdoctor.html`** — Universal document compiler & IndexedDB archive  
-  - Drag & drop *anything* (images, PDFs, scripts, spreadsheets...)  
-  - Local storage, ZIP export, metadata tracking
 - **`plain_page.html`** — A lightweight and minimal HTML editor (beta)
 - **`fossil.xml`** — Advanced 1-Bit Fossil Generator (1920×1080) Deterministic 1-bit SVG fossil generator with global algorithm switching, custom equation support, interactive UI, pan, zoom, and time-slice control.
-- **`xcopy.html`** - Client-side tool that lets you build, store, view, import, and export a simple “repository” of files entirely in the browser using IndexedDB.
 
 ## Features
 
