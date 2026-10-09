@@ -7,7 +7,7 @@
   ▄▌
 ```
 
-Agent-OEM is a backend scaffolding tool for developing local-first, privacy-focused autonomous agents. It functions as an OEM developer template for embedding or white-labeling AI workflows that operate entirely on local infrastructure. A drop‑in, modular AI agent backend that serves the Agent Grounding frontend and provides a unified API for 10 agent‑to‑agent protocol phases. The backend is built with a hot‑swappable plugin system (Python) so you can toggle the five core use cases (customer support, repo maintenance, document analysis, fintech auditing, and omni‑onboarding) via a single `config.yaml`. The index.html internal handlers have calls to the backend. The backend implements 10 phases and integrates a modular plugin system. You can expand each plugin with actual business logic (e.g., Stripe, GitHub, ChromaDB) by adding dependencies and API calls.
+Agent-OEM is a backend scaffolding tool for developing local-first, privacy-focused autonomous agents. It functions as an OEM developer template for embedding or white-labeling agent workflows that operate entirely on local infrastructure. A drop‑in, modular agent backend that serves the frontend and provides API for 10 agent‑to‑agent protocol phases. The backend is built with a hot‑swappable plugin system (Python) so you can toggle the five core use cases (customer support, repo maintenance, document analysis, fintech auditing, and omni‑onboarding) via a single `config.yaml`. The index.html internal handlers have calls to the backend. The backend implements 10 phases and integrates a modular plugin system. You can expand each plugin with actual business logic (e.g., Stripe, GitHub, ChromaDB) by adding dependencies and API calls.
 
 
 ## Features
