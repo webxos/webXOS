@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COMPACTOR · webXOS</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#000;
+    --fg:#fff;
+    --dim:#7d7d7d;
+    --line:rgba(255,255,255,.14);
+    --line2:rgba(255,255,255,.38);
+  }
+  html{background:var(--bg)}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;
+    padding:34px 20px 90px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1060px;margin:0 auto}
+
+  /* ---------- header ---------- */
+  .top{
+    display:flex;align-items:flex-end;justify-content:space-between;
+    gap:18px;flex-wrap:wrap;margin-bottom:24px;
+  }
+  .brand{font-size:.68rem;letter-spacing:.42em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+  h1{font-size:clamp(1.9rem,5.5vw,2.9rem);font-weight:800;letter-spacing:-.035em;line-height:1}
+  .tag{font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);text-align:right}
+
+  /* ---------- drop zone ---------- */
+  .drop{
+    position:relative;
+    border:2px dashed var(--line2);
+    border-radius:26px;
+    min-height:46vh;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;padding:56px 24px;text-align:center;
+    cursor:pointer;outline:none;user-select:none;
+    transition:background .16s ease,color .16s ease,border-color .16s ease;
+  }
+  .drop:hover,.drop:focus-visible{border-color:#fff}
+  .drop.drag{background:#fff;border-color:#fff}
+  .drop.drag,.drop.drag .title,.drop.drag .sub,.drop.drag .big{color:#000}
+  .drop.drag .ghost{border-color:#000;color:#000}
+
+  .drop .big{font-size:clamp(1.9rem,5vw,3rem);color:#fff;opacity:.9}
+  .drop .title{font-size:clamp(1.45rem,5.5vw,3rem);font-weight:800;letter-spacing:-.02em;line-height:1.05}
+  .drop .sub{font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
+  .dz-btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+
+  .ghost{
+    background:transparent;color:#fff;border:1px solid var(--line2);
+    padding:9px 20px;border-radius:999px;cursor:pointer;
+    font:inherit;font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  .ghost:hover{background:#fff;color:#000;border-color:#fff}
+
+  /* ---------- action row ---------- */
+  .actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
+  .spacer{flex:1 1 auto}
+
+  .btn{
+    background:#000;color:#fff;
+    border:1px solid var(--line2);
+    padding:14px 26px;border-radius:999px;
+    font:inherit;font-size:.78rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    cursor:pointer;display:inline-flex;align-items:center;gap:10px;
+    transition:background .15s,color .15s,border-color .15s,transform .1s;
+  }
+  .btn i{font-size:.9rem}
+  .btn:hover{background:#fff;color:#000;border-color:#fff}
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:#fff;color:#000;border-color:#fff}
+  .btn.primary:hover{background:#000;color:#fff}
+  .btn.quiet{padding:12px 20px;border-color:var(--line);color:var(--dim)}
+  .btn.quiet:hover{color:#000}
+
+  .field{
+    display:flex;align-items:center;gap:10px;
+    border:1px solid var(--line);border-radius:999px;padding:9px 16px;
+  }
+  .field label{font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+  .field input[type=text]{
+    background:transparent;border:none;outline:none;color:#fff;
+    font:inherit;font-size:.85rem;width:132px;
+  }
+  .field input[type=text]::placeholder{color:#444}
+  .check{display:flex;align-items:center;gap:8px;font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+  .check input{accent-color:#fff;width:14px;height:14px;cursor:pointer}
+
+  /* ---------- status ---------- */
+  .status{
+    display:flex;flex-wrap:wrap;align-items:center;gap:12px;
+    margin-top:20px;font-size:.74rem;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  .chip{border:1px solid var(--line);border-radius:999px;padding:5px 13px;letter-spacing:.04em;white-space:nowrap}
+  #status{color:#fff}
+  #status.err{color:#fff;font-weight:700}
+
+  /* ---------- list ---------- */
+  .list-head{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:38px 0 12px;flex-wrap:wrap}
+  .list-head h2{font-size:.66rem;letter-spacing:.34em;text-transform:uppercase;color:var(--dim);font-weight:600}
+
+  table{width:100%;border-collapse:collapse;font-size:.85rem;table-layout:auto}
+  th{
+    text-align:left;font-weight:500;color:var(--dim);
+    font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
+    padding:0 12px 10px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  td{padding:12px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+  tbody tr:hover td{background:rgba(255,255,255,.035)}
+  .ic{width:30px;color:var(--dim);text-align:center;font-size:.95rem}
+  .nm{word-break:break-all;color:#f2f2f2}
+  .sz,.dt{color:var(--dim);white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.76rem}
+  .ac{text-align:right;white-space:nowrap;width:80px}
+  .mini{
+    background:none;border:1px solid transparent;color:var(--dim);
+    width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:.78rem;
+    transition:.15s;
+  }
+  .mini:hover{color:#fff;border-color:var(--line2)}
+  .empty{text-align:center;color:#555;padding:44px 12px;font-style:italic;letter-spacing:.05em}
+
+  footer{
+    margin-top:64px;padding-top:22px;border-top:1px solid var(--line);
+    text-align:center;font-size:.64rem;letter-spacing:.24em;text-transform:uppercase;color:#4a4a4a;
+  }
+
+  @media (max-width:640px){
+    .dt,.th-date{display:none}
+    .drop{min-height:38vh;padding:42px 18px}
+    .tag{text-align:left}
+    .actions .spacer{display:none}
+    .field{flex:1 1 100%}
+    .field input[type=text]{width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ HEADER ============ -->
+  <div class="top">
+    <div>
+      <div class="brand">webXOS</div>
+      <h1>COMPACTOR</h1>
+    </div>
+    <div class="tag">dump anything · compile one zip</div>
+  </div>
+
+  <!-- ============ GIANT DROP / INSERT BOX ============ -->
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop files, folders or zip archives here">
+    <i class="fas fa-arrow-down-long big"></i>
+    <div class="title">DROP&nbsp;EVERYTHING&nbsp;HERE</div>
+    <div class="sub">files · folders · .zip archives</div>
+    <div class="dz-btns">
+      <button class="ghost" id="pickFiles" type="button"><i class="fas fa-file"></i>&nbsp; browse files</button>
+      <button class="ghost" id="pickFolder" type="button"><i class="fas fa-folder"></i>&nbsp; browse folder</button>
+    </div>
+    <input type="file" id="fileInput" multiple hidden>
+    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+  </div>
+
+  <!-- ============ ACTIONS ============ -->
+  <div class="actions">
+    <button class="btn primary" id="createZipBtn" type="button"><i class="fas fa-layer-group"></i> Create ZIP</button>
+    <button class="btn" id="exportZipBtn" type="button"><i class="fas fa-download"></i> Export ZIP</button>
+    <div class="spacer"></div>
+    <div class="field">
+      <label for="basePath">prefix</label>
+      <input type="text" id="basePath" placeholder="myrepo/" spellcheck="false" autocomplete="off">
+    </div>
+    <label class="check" for="unpack"><input type="checkbox" id="unpack" checked> unpack .zip</label>
+  </div>
+
+  <!-- ============ STATUS ============ -->
+  <div class="status">
+    <span id="status">ready</span>
+    <span class="chip" id="chipCount">0 files · 0 B</span>
+    <span class="chip" id="chipZip">zip —</span>
+  </div>
+
+  <!-- ============ ARCHIVE LIST ============ -->
+  <div class="list-head">
+    <h2>Compactor Archive</h2>
+    <button class="btn quiet" id="clearBtn" type="button"><i class="fas fa-trash"></i> Clear all</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px"></th>
+        <th>path</th>
+        <th style="width:90px">size</th>
+        <th class="th-date" style="width:150px">added</th>
+        <th style="width:80px"></th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="5" class="empty">loading archive…</td></tr>
+    </tbody>
+  </table>
+
+  <footer>COMPACTOR · webXOS 2026 · local-only IndexedDB archive</footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     ELEMENTS
+     ========================================================= */
+  const $ = id => document.getElementById(id);
+  const dropEl      = $('drop');
+  const fileInput   = $('fileInput');
+  const folderInput = $('folderInput');
+  const basePathEl  = $('basePath');
+  const unpackEl    = $('unpack');
+  const statusEl    = $('status');
+  const chipCount   = $('chipCount');
+  const chipZip     = $('chipZip');
+  const tbody       = $('tbody');
+
+  /* =========================================================
+     STATE
+     ========================================================= */
+  let records      = [];     // cached list from IndexedDB
+  let archiveBlob  = null;   // compiled zip
+  let archiveDirty = true;   // archive invalidated by a mutation
+  let busy         = false;
+
+  /* =========================================================
+     INDEXEDDB
+     ========================================================= */
+  const DB_NAME = 'compactor';
+  const STORE   = 'files';
+  const VERSION = 1;
+  let dbPromise = null;
+
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('IndexedDB not supported'));
+      const req = indexedDB.open(DB_NAME, VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+          db.createObjectStore(STORE, { keyPath: 'path' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+
+  function allRecords() {
+    return openDB().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const rq = tx.objectStore(STORE).getAll();
+      rq.onsuccess = () => res(rq.result || []);
+      rq.onerror   = () => rej(rq.error);
+    }));
+  }
+
+  function putRecords(recs) {
+    if (!recs.length) return Promise.resolve();
+    return openDB().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const st = tx.objectStore(STORE);
+      recs.forEach(r => st.put(r));
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+      tx.onabort    = () => rej(tx.error);
+    }));
+  }
+
+  function deleteRecord(path) {
+    return openDB().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(path);
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    }));
+  }
+
+  function clearRecords() {
+    return openDB().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    }));
+  }
+
+  /* =========================================================
+     HELPERS
+     ========================================================= */
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('err', !!isErr);
+  }
+
+  function fmtSize(bytes) {
+    bytes = bytes || 0;
+    if (bytes < 1024) return bytes + ' B';
+    const u = ['KB', 'MB', 'GB', 'TB'];
+    let i = -1, n = bytes;
+    do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+    return n.toFixed(n < 10 ? 1 : 0) + ' ' + u[i];
+  }
+
+  function fmtDate(ts) {
+    return new Date(ts).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function cleanPath(p) {
+    return String(p || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .split('/')
+      .filter(Boolean)
+      .join('/');
+  }
+
+  function normalizePrefix(v) {
+    v = cleanPath(v);
+    return v ? v + '/' : '';
+  }
+
+  function iconFor(rec) {
+    const t = (rec.type || '').toLowerCase();
+    const n = (rec.name || rec.path || '').toLowerCase();
+    if (t.includes('pdf') || n.endsWith('.pdf'))            return 'fas fa-file-pdf';
+    if (t.startsWith('image/'))                              return 'fas fa-file-image';
+    if (t.startsWith('video/'))                              return 'fas fa-file-video';
+    if (t.startsWith('audio/'))                              return 'fas fa-file-audio';
+    if (/\.(zip|rar|7z|gz|tar)$/.test(n))                    return 'fas fa-file-zipper';
+    if (/\.(js|ts|html|css|json|py|java|c|cpp|sh|xml|yml)$/.test(n)) return 'fas fa-file-code';
+    if (t.startsWith('text/') || /\.(txt|md|csv)$/.test(n))  return 'fas fa-file-lines';
+    return 'fas fa-file';
+  }
+
+  function makeRecord(path, blob) {
+    return {
+      path:  path,
+      name:  path.split('/').pop() || path,
+      size:  blob.size || 0,
+      type:  blob.type || '',
+      added: Date.now(),
+      blob:  blob
+    };
+  }
+
+  function invalidateArchive() {
+    archiveBlob  = null;
+    archiveDirty = true;
+    updateZipChip();
+  }
+
+  /* =========================================================
+     RENDER
+     ========================================================= */
+  async function refresh() {
+    try {
+      records = await allRecords();
+      records.sort((a, b) => a.path.localeCompare(b.path));
+      render();
+    } catch (err) {
+      setStatus('archive read failed: ' + err.message, true);
+    }
+  }
+
+  function render() {
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">nothing stored — drop files above</td></tr>';
+    } else {
+      tbody.innerHTML = records.map(r => {
+        const enc = encodeURIComponent(r.path);
+        return '<tr>' +
+          '<td class="ic"><i class="' + iconFor(r) + '"></i></td>' +
+          '<td class="nm" title="' + esc(r.path) + '">' + esc(r.path) + '</td>' +
+          '<td class="sz">' + fmtSize(r.size) + '</td>' +
+          '<td class="dt">' + fmtDate(r.added) + '</td>' +
+          '<td class="ac">' +
+            '<button class="mini" data-dl="' + enc + '" title="download"><i class="fas fa-arrow-down"></i></button>' +
+            '<button class="mini" data-del="' + enc + '" title="remove"><i class="fas fa-xmark"></i></button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    const total = records.reduce((a, r) => a + (r.size || 0), 0);
+    chipCount.textContent = records.length + ' file' + (records.length === 1 ? '' : 's') +
+                            ' · ' + fmtSize(total);
+    updateZipChip();
+  }
+
+  function updateZipChip() {
+    if (archiveBlob && !archiveDirty) {
+      chipZip.textContent = 'zip ready · ' + fmtSize(archiveBlob.size);
+    } else if (records.length) {
+      chipZip.textContent = 'zip not compiled';
+    } else {
+      chipZip.textContent = 'zip —';
+    }
+  }
+
+  /* =========================================================
+     INGEST — drop / pick / expand
+     ========================================================= */
+  async function ingest(items) {
+    if (busy) return;
+    if (!items || !items.length) return;
+
+    busy = true;
+    const prefix = normalizePrefix(basePathEl.value);
+    const unpack = unpackEl.checked;
+    const recs   = [];
+    let expanded = 0;
+
+    try {
+      for (const it of items) {
+        const file = it.file;
+        const rel  = cleanPath(it.path || file.name);
+
+        if (unpack && /\.zip$/i.test(file.name)) {
+          setStatus('expanding ' + file.name + '…');
+          const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+          try {
+            const entries = await expandZip(file);
+            for (const e of entries) recs.push(makeRecord(prefix + dir + e.path, e.blob));
+            expanded++;
+          } catch (err) {
+            setStatus('could not expand ' + file.name + ': ' + err.message, true);
+          }
+        } else {
+          recs.push(makeRecord(prefix + rel, file));
+        }
+      }
+
+      if (!recs.length) { setStatus('nothing to store', true); return; }
+
+      setStatus('storing ' + recs.length + ' file' + (recs.length === 1 ? '' : 's') + '…');
+      await putRecords(recs);
+      invalidateArchive();
+      await refresh();
+      setStatus('added ' + recs.length + ' file' + (recs.length === 1 ? '' : 's') +
+                (expanded ? ' · expanded ' + expanded + ' zip' : ''));
+    } catch (err) {
+      setStatus('store failed: ' + err.message, true);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function expandZip(file) {
+    const zip  = await JSZip.loadAsync(file);
+    const out  = [];
+    const keys = Object.keys(zip.files);
+    for (const k of keys) {
+      const entry = zip.files[k];
+      if (entry.dir) continue;
+      const blob = await entry.async('blob');
+      const p = cleanPath(k);
+      if (p) out.push({ path: p, blob: blob });
+    }
+    return out;
+  }
+
+  /* =========================================================
+     DRAG & DROP (files, folders, zips)
+     ========================================================= */
+  let dragDepth = 0;
+
+  function collectEntries(dt) {
+    const list = [];
+    if (dt.items && dt.items.length) {
+      for (let i = 0; i < dt.items.length; i++) {
+        const item = dt.items[i];
+        if (item.kind !== 'file') continue;
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) {
+          list.push(entry);
+        } else {
+          const f = item.getAsFile();
+          if (f) list.push({ isFile: true, name: f.name, _file: f, _path: f.webkitRelativePath || f.name });
+        }
+      }
+    }
+    if (!list.length && dt.files) {
+      for (let i = 0; i < dt.files.length; i++) {
+        const f = dt.files[i];
+        list.push({ isFile: true, name: f.name, _file: f, _path: f.webkitRelativePath || f.name });
+      }
+    }
+    return list;
+  }
+
+  function readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const acc = [];
+      const step = () => reader.readEntries(batch => {
+        if (!batch.length) return resolve(acc);
+        for (const b of batch) acc.push(b);
+        step();
+      }, reject);
+      step();
+    });
+  }
+
+  async function walkEntry(entry, prefix, out) {
+    if (entry._file) {                       // fallback File object
+      out.push({ file: entry._file, path: entry._path || entry.name });
+      return;
+    }
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      out.push({ file: file, path: prefix + entry.name });
+      return;
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const kids = await readAllEntries(reader);
+      for (const k of kids) await walkEntry(k, prefix + entry.name + '/', out);
+    }
+  }
+
+  ['dragenter', 'dragover'].forEach(type => {
+    dropEl.addEventListener(type, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (type === 'dragenter') dragDepth++;
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      dropEl.classList.add('drag');
+    });
+  });
+
+  dropEl.addEventListener('dragleave', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropEl.classList.remove('drag');
+  });
+
+  dropEl.addEventListener('drop', async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth = 0;
+    dropEl.classList.remove('drag');
+
+    const entries = collectEntries(e.dataTransfer);   // must be synchronous
+    if (!entries.length) { setStatus('nothing detected in drop', true); return; }
+
+    const items = [];
+    setStatus('reading drop…');
+    for (const entry of entries) await walkEntry(entry, '', items);
+    await ingest(items);
+  });
+
+  // stop the browser from opening files dropped outside the box
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => e.preventDefault());
+
+  /* =========================================================
+     BROWSE
+     ========================================================= */
+  dropEl.addEventListener('click', () => fileInput.click());
+  dropEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  $('pickFiles').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+  $('pickFolder').addEventListener('click', e => { e.stopPropagation(); folderInput.click(); });
+
+  fileInput.addEventListener('change', async e => {
+    const items = Array.from(e.target.files).map(f => ({
+      file: f, path: f.webkitRelativePath || f.name
+    }));
+    fileInput.value = '';
+    await ingest(items);
+  });
+
+  folderInput.addEventListener('change', async e => {
+    const items = Array.from(e.target.files).map(f => ({
+      file: f, path: f.webkitRelativePath || f.name
+    }));
+    folderInput.value = '';
+    await ingest(items);
+  });
+
+  /* =========================================================
+     ZIP — CREATE / EXPORT
+     ========================================================= */
+  async function createZip() {
+    if (busy) return null;
+    const recs = await allRecords();
+    if (!recs.length) { setStatus('archive empty — nothing to compile', true); return null; }
+
+    busy = true;
+    try {
+      recs.sort((a, b) => a.path.localeCompare(b.path));
+      const zip = new JSZip();
+      recs.forEach(r => zip.file(r.path, r.blob));
+
+      setStatus('compiling…');
+      const blob = await zip.generateAsync(
+        { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+        meta => setStatus('compiling… ' + meta.percent.toFixed(0) + '%')
+      );
+
+      archiveBlob  = blob;
+      archiveDirty = false;
+      updateZipChip();
+      setStatus('zip ready · ' + recs.length + ' file' + (recs.length === 1 ? '' : 's') +
+                ' · ' + fmtSize(blob.size));
+      return blob;
+    } catch (err) {
+      setStatus('compile failed: ' + err.message, true);
+      return null;
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function exportZip() {
+    let blob = archiveBlob;
+    if (!blob || archiveDirty) blob = await createZip();
+    if (!blob) return;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'COMPACTOR_' + new Date().toISOString().slice(0, 10) + '.zip';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setStatus('zip exported · ' + fmtSize(blob.size));
+  }
+
+  $('createZipBtn').addEventListener('click', createZip);
+  $('exportZipBtn').addEventListener('click', exportZip);
+
+  /* =========================================================
+     ROW ACTIONS (download / delete)
+     ========================================================= */
+  tbody.addEventListener('click', async e => {
+    const dlBtn  = e.target.closest('[data-dl]');
+    const delBtn = e.target.closest('[data-del]');
+
+    if (dlBtn) {
+      const path = decodeURIComponent(dlBtn.dataset.dl);
+      const rec  = records.find(r => r.path === path);
+      if (!rec) return;
+      const url = URL.createObjectURL(rec.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = rec.name || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setStatus('downloaded ' + rec.name);
+      return;
+    }
+
+    if (delBtn) {
+      const path = decodeURIComponent(delBtn.dataset.del);
+      if (!confirm('Remove "' + path + '" from the archive?')) return;
+      try {
+        await deleteRecord(path);
+        invalidateArchive();
+        await refresh();
+        setStatus('removed ' + path);
+      } catch (err) {
+        setStatus('remove failed: ' + err.message, true);
+      }
+    }
+  });
+
+  /* =========================================================
+     CLEAR ALL
+     ========================================================= */
+  $('clearBtn').addEventListener('click', async () => {
+    if (!records.length) { setStatus('archive already empty'); return; }
+    if (!confirm('Permanently delete ALL ' + records.length + ' stored files?')) return;
+    try {
+      await clearRecords();
+      invalidateArchive();
+      await refresh();
+      setStatus('archive cleared');
+    } catch (err) {
+      setStatus('clear failed: ' + err.message, true);
+    }
+  });
+
+  /* =========================================================
+     BOOT
+     ========================================================= */
+  openDB()
+    .then(() => refresh())
+    .then(() => setStatus('ready'))
+    .catch(err => setStatus('database unavailable: ' + err.message, true));
+
+})();
+</script>
+</body>
+</html>
