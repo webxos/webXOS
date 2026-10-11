@@ -2,7 +2,7 @@
 
 **A Practical Guide to Megalithic Orchestration for the Agentic Frontier**
 
-This package contains a complete 10-page arXiv-style technical report and supporting materials that reframe classic Bellman-style dynamic programming as a design principle for large, self-contained “megalith” scripts and documents. These megaliths — single-file HTML (MHTML-style), Python bootstraps (MSPYB), Bash agents (UNIXAI-style), and PowerShell modules — serve as living specifications that an LLM or autonomous agent can generate, mutate, and execute end-to-end.
+This package contains a complete 10-page arXiv-style technical report and supporting materials that reframe classic Bellman-style dynamic programming as a design principle for large, self-contained “megalith” scripts and documents. These megaliths — single-file HTML (MHTML-style), Python bootstraps (MSPYB), Bash agents (UNIXSI-style), and PowerShell modules — serve as living specifications that an LLM or autonomous agent can generate, mutate, and execute end-to-end.
 
 
 ## Core Thesis
