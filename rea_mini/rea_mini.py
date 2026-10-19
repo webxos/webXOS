@@ -30,8 +30,9 @@ Onboarding / local-first LLM
   `rea_mini_config.json` and `ollama_cache.json`.
 * After the local model works, it asks ONE optional question:
   "EXPAND LLM? Would you like to also add a cloud model?" Cloud providers
-  are strictly opt-in and layered behind the local fallback. Declining is
-  remembered; re-ask only if `--list-models` explicitly enables them.
+  are strictly opt-in. When `strict_local_llm_skip_cloud` is False (the
+  default), an opted-in cloud provider is used as a fallback if the local
+  model fails. When True, cloud is never tried even if configured.
 * Every dependency check re-uses the self-check framework, then offers a
   single "[A]ll / [N]one / [I]nteractive" install prompt so users don't
   answer ten questions.
@@ -58,16 +59,21 @@ Design notes
 * Ghidra runs write a small Java postScript (`ghidra_scripts/ReaDump.java`)
   that dumps functions + printable strings to JSON; the `-analysisTimeoutPerFile`
   flag is only passed when analyzeHeadless supports it, and that support is
-  cached in `ghidra_cache.json`.
+  cached in `ghidra_cache.json`. Dump filenames include a UUID suffix so
+  parallel runs in the same second never collide.
 * Skeleton generation asks the LLM for a working core and falls back to
   deterministic, runnable templates. Every artifact is syntax-checked
   (safe, no execution) and — only when `--run-generated` is passed — also
-  smoke-tested by running its own `--test` mode.
+  smoke-tested by running its own `--test` mode. Templates themselves are
+  smoke-tested too; the deterministic templates are designed to pass.
 * Fan-out is cached (1h TTL), ranked by keyword overlap with per-source
   weights, then MMR-diversified (O(cap^3) in the head; see inline comment).
-* Evidence misreports are prevented by tracking `used_playwright` explicitly.
-* MCP stdio server exposes the same tools for agents; stdin reads run off
-  the asyncio loop so slow tool calls do not wedge the server.
+* Evidence misreports are prevented by tracking `used_playwright` explicitly
+  and by recording both `initial_provider` and `final_provider` in the
+  quality gate.
+* MCP stdio server exposes the same tools for agents. Tool calls are
+  dispatched as asyncio tasks so slow calls never block receipt of the
+  next request. Non-object JSON-RPC messages are rejected with -32600.
 * LLM model names are configurable via `REA_LLM_*` env vars and config.
 
 Exit codes: 0 ok, 2 py<3.9, 3 missing deps, 4 bad url/input,
@@ -182,7 +188,9 @@ DEFAULT_CONFIG = {
     "cloud_provider": "",
     "cloud_model": "",
     "ollama_probe_timeout_s": 2,
-    "strict_local_llm_skip_cloud": True,
+    # Strict-mode flag: when True, skip cloud entirely in require_local mode.
+    # When False (default), an opted-in cloud provider is used as a fallback.
+    "strict_local_llm_skip_cloud": False,
 }
 
 EXIT_OK, EXIT_PYTHON_OLD, EXIT_MISSING_DEPS = 0, 2, 3
@@ -249,6 +257,25 @@ PROVIDER_KEY_ENV = {
 
 
 # ---------------------------------------------------------------------------
+# Intro banner (used at interactive startup and in the menu)
+# ---------------------------------------------------------------------------
+_REA_ART_LINE_1 = "▄▖▄▖▄▖  ▖  ▖▄▖▖ ▖▄▖"
+_REA_ART_LINE_2 = "▙▘▙▖▌▌  ▛▖▞▌▐ ▛▖▌▐ "
+_REA_ART_LINE_3 = "▌▌▙▖▛▌  ▌▝ ▌▟▖▌▝▌▟▖"
+_REA_TAGLINE = "        by webXOS"
+
+
+def _print_intro():
+    """ASCII intro banner, identical to the requested art with a small tagline."""
+    print()
+    print(_REA_ART_LINE_1)
+    print(_REA_ART_LINE_2)
+    print(_REA_ART_LINE_3)
+    print(_REA_TAGLINE)
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
 class Log:
@@ -267,7 +294,6 @@ class Log:
             if self.path.exists() and self.path.stat().st_size > self.max_bytes:
                 os.replace(self.path, self.path.with_name(self.path.name + ".1"))
         except OSError as e:
-            # Surface one warning; log rotation failures shouldn't abort the run.
             print(f"Warning: log rotation failed for {self.path}: {e}", file=sys.stderr)
 
     def _line(self, level, msg):
@@ -411,8 +437,13 @@ def _cfg_str(cfg, key, default):
     return v if isinstance(v, str) else default
 
 
+def _cfg_bool(cfg, key, default):
+    v = cfg.get(key, default)
+    return bool(v)
+
+
 def _github_headers(accept="application/vnd.github+json"):
-    h = {"User-Agent": "REA_mini.py/1.1", "Accept": accept}
+    h = {"User-Agent": "REA_mini.py/1.2", "Accept": accept}
     t = os.environ.get("GITHUB_TOKEN")
     if t:
         h["Authorization"] = f"Bearer {t}"
@@ -421,7 +452,7 @@ def _github_headers(accept="application/vnd.github+json"):
 
 def http_get_json(url, timeout=20, headers=None):
     req = urllib.request.Request(url, headers=headers or {
-        "User-Agent": "REA_mini.py/1.1",
+        "User-Agent": "REA_mini.py/1.2",
         "Accept": "application/json",
     })
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -673,7 +704,6 @@ def find_ghidra(script_dir: Path):
     if os.environ.get("GHIDRA_HOME"):
         candidates.append(Path(os.environ["GHIDRA_HOME"]))
 
-    # Cached path first — tolerate corrupted cache entries.
     cache = _load_ghidra_cache(script_dir)
     cached = cache.get("path")
     if cached:
@@ -744,7 +774,7 @@ def download_ghidra(dest_dir: Path, log: Log, script_dir: Path = None) -> Path:
     zip_path = dest_dir / "ghidra_release.zip"
     _say(f"Downloading Ghidra (~400 MB) from {zip_url} ...")
     try:
-        req = urllib.request.Request(zip_url, headers={"User-Agent": "REA_mini.py/1.1"})
+        req = urllib.request.Request(zip_url, headers={"User-Agent": "REA_mini.py/1.2"})
         with urllib.request.urlopen(req, timeout=120) as r, open(zip_path, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
             done = 0
@@ -1149,7 +1179,6 @@ def _wikipedia_summary(title, timeout):
 
 
 def _api_wikipedia(q, timeout):
-    # Exact-title first, then the search API.
     hit = _wikipedia_summary(q, timeout)
     if hit:
         return [hit]
@@ -1228,7 +1257,6 @@ def _api_crates(q, timeout):
 
 
 def _api_github_code_search(q, timeout, token=None, log=None):
-    """Use the shared headers helper (auth + Accept + User-Agent) for consistency."""
     headers = _github_headers(accept="application/vnd.github.text-match+json")
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -1605,7 +1633,6 @@ def _llm_ollama(prompt, model=None, log=None):
     host = _ollama_host()
     model = model or _llm_model("ollama")
 
-    # Prefer chat API (newer Ollama), fall back to /api/generate.
     try:
         d = _http_post_json(
             f"{host}/api/chat",
@@ -1654,10 +1681,17 @@ def llm_fan_out(prompt, log=None, cfg=None):
     """Try local-first when require_local_llm, cloud-second if opted in.
 
     Non-required mode keeps the historical chain (free-tier first, ollama last).
+
+    When require_local_llm is enabled:
+      - The local Ollama model is tried first.
+      - If it fails AND `strict_local_llm_skip_cloud` is False (default), a
+        configured cloud provider is tried next.
+      - If `strict_local_llm_skip_cloud` is True, no cloud fallback is
+        attempted even when a cloud provider is configured.
     """
     cfg = cfg or {}
     require_local = bool(cfg.get("require_local_llm", True))
-    strict = bool(cfg.get("strict_local_llm_skip_cloud", True))
+    strict = bool(cfg.get("strict_local_llm_skip_cloud", False))
     local_model = (cfg.get("llm_fallback_model") or "").strip() or _llm_model("ollama", cfg)
     cloud_provider = (cfg.get("cloud_provider") or "").strip()
     cloud_model = (cfg.get("cloud_model") or "").strip()
@@ -1677,23 +1711,14 @@ def llm_fan_out(prompt, log=None, cfg=None):
         if log:
             log.warn("local_llm_call_failed")
 
+        # Strict mode: skip cloud entirely (the flag is now honored).
+        if strict:
+            if log:
+                log.info("llm_cloud_skipped reason=strict_local_llm_skip_cloud")
+            return None, None
+
         # Optional cloud fallback only if user opted in.
-        if cloud_provider and not strict:
-            fn = dict(LLM_CHAIN).get(cloud_provider)
-            if fn:
-                try:
-                    text = fn(prompt, model=cloud_model or None, log=log)
-                except Exception as e:
-                    if log:
-                        log.warn(f"llm_provider_err name={cloud_provider} "
-                                 f"err={type(e).__name__}")
-                    text = None
-                if text and text.strip():
-                    if log:
-                        log.info(f"llm_ok provider={cloud_provider} chars={len(text)}")
-                    return cloud_provider, text
-        elif cloud_provider and strict:
-            # Per strict mode we still try cloud, but only after local failed.
+        if cloud_provider:
             fn = dict(LLM_CHAIN).get(cloud_provider)
             if fn:
                 try:
@@ -1730,23 +1755,28 @@ def llm_fan_out(prompt, log=None, cfg=None):
 
 
 def cmd_list_models(cfg, log):
+    _print_intro()
     require = bool(cfg.get("require_local_llm", True))
+    strict = bool(cfg.get("strict_local_llm_skip_cloud", False))
     local = (cfg.get("llm_fallback_model") or "").strip() or STARTER_MODEL
     cloud = (cfg.get("cloud_provider") or "").strip()
     cloud_model = (cfg.get("cloud_model") or "").strip()
 
     print("LLM configuration:")
-    print(f"  require_local_llm: {require}")
-    print(f"  local model:       {local}")
-    print(f"  cloud provider:    {cloud or '<none>'}")
-    print(f"  cloud model:       {cloud_model or '<none>'}")
+    print(f"  require_local_llm:          {require}")
+    print(f"  strict_local_llm_skip_cloud: {strict}")
+    print(f"  local model:                {local}")
+    print(f"  cloud provider:             {cloud or '<none>'}")
+    print(f"  cloud model:                {cloud_model or '<none>'}")
     print()
 
     if require:
-        print("Chain (local first; optional cloud only if opted in):")
+        print("Chain (local first; optional cloud fallback if opted in and strict is off):")
         print(f"  1. ollama             model={local}")
-        if cloud:
+        if cloud and not strict:
             print(f"  2. {cloud:18s} model={cloud_model or DEFAULT_LLM_MODELS.get(cloud, '?')}")
+        elif cloud and strict:
+            print(f"  2. {cloud:18s} SKIPPED (strict_local_llm_skip_cloud=True)")
     else:
         print("Chain (all providers; ollama last):")
         for i, (name, _fn) in enumerate(LLM_CHAIN, 1):
@@ -1915,6 +1945,9 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
     `strings` is used only as a fallback if the dump is empty. The
     `-analysisTimeoutPerFile` flag is only passed if the installed
     analyzeHeadless advertises support, which is cached in ghidra_cache.json.
+
+    The dump filename includes a UUID suffix so two runs in the same second
+    never collide.
     """
     analyze = _analyze_headless_path(ghidra_path)
     if not analyze:
@@ -1924,8 +1957,9 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
 
     project_dir.mkdir(parents=True, exist_ok=True)
     scripts_dir = _ensure_ghidra_postscript(script_dir, log)
-    dump_path = project_dir / f"rea_dump_{int(time.time())}.json"
-    proj_name = f"rea_{int(time.time())}"
+    run_id = uuid.uuid4().hex[:8]
+    dump_path = project_dir / f"rea_dump_{int(time.time())}_{run_id}.json"
+    proj_name = f"rea_{int(time.time())}_{run_id}"
 
     cache = _load_ghidra_cache(script_dir)
     if "supports_analysis_timeout" in cache:
@@ -1944,7 +1978,8 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
     cmd.append("-deleteProject")
 
     if log:
-        log.info(f"ghidra_run cmd={cmd[0]} binary={binary} timeout_flag={supports_timeout}")
+        log.info(f"ghidra_run cmd={cmd[0]} binary={binary} "
+                 f"timeout_flag={supports_timeout} run_id={run_id}")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s + 180)
     except subprocess.TimeoutExpired:
@@ -1958,7 +1993,8 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
 
     out = {"stdout": (r.stdout or "")[-4000:], "stderr": (r.stderr or "")[-2000:],
            "rc": r.returncode, "postscript_used": True,
-           "timeout_flag_supported": supports_timeout}
+           "timeout_flag_supported": supports_timeout,
+           "run_id": run_id}
 
     structured = None
     if dump_path.exists():
@@ -1979,8 +2015,6 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
 
     out["dump"] = structured
 
-    # Keyword scan: authoritative source is the dump; strings tool is the
-    # fallback. Warn exactly once if `strings` is unavailable and we needed it.
     hits = {}
     if keywords:
         strings_pool = []
@@ -2206,11 +2240,29 @@ _TMPL_HTML = string.Template(r'''<!doctype html>
 ''')
 
 _TMPL_RUST = string.Template(r'''// $meta
-// Build: rustc main.rs -o app
+// Build: rustc --edition 2021 main.rs -o app
 //
 // `length` is the number of Unicode scalar values (chars) in the input.
 use std::env;
 use std::process::ExitCode;
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        match c {
+            '"'  => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
 
 fn run_pipeline(text: &str) -> String {
     if text.is_empty() {
@@ -2221,7 +2273,7 @@ fn run_pipeline(text: &str) -> String {
     format!(
         "{{\"status\":\"ok\",\"length\":{},\"upper\":\"{}\",\"words\":{}}}",
         text.chars().count(),
-        upper.replace('"', "\\\""),
+        json_escape(&upper),
         words
     )
 }
@@ -2229,6 +2281,11 @@ fn run_pipeline(text: &str) -> String {
 fn self_test() {
     assert!(run_pipeline("abc").contains("\"length\":3"));
     assert!(run_pipeline("").contains("no_input"));
+    // JSON validity check for special characters.
+    let weird = run_pipeline("a\"b\\c\nd");
+    assert!(weird.contains("\\\""), "expected escaped quote: {}", weird);
+    assert!(weird.contains("\\\\"), "expected escaped backslash: {}", weird);
+    assert!(weird.contains("\\n"), "expected escaped newline: {}", weird);
     println!("self-tests: ok");
 }
 
@@ -2285,6 +2342,29 @@ static size_t count_utf8_codepoints(const std::string& s) {
     return n;
 }
 
+static std::string json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out.push_back(static_cast<char>(c));
+                }
+        }
+    }
+    return out;
+}
+
 std::string run_pipeline(const std::string& text) {
     if (text.empty()) return "{\"status\":\"no_input\"}";
     std::string upper;
@@ -2295,15 +2375,9 @@ std::string run_pipeline(const std::string& text) {
     std::istringstream iss(text);
     std::string tok;
     while (iss >> tok) ++words;
-    std::string esc;
-    esc.reserve(upper.size() * 2);
-    for (char c : upper) {
-        if (c == '"' || c == '\\') esc.push_back('\\');
-        esc.push_back(c);
-    }
     std::ostringstream oss;
     oss << "{\"status\":\"ok\",\"length\":" << count_utf8_codepoints(text)
-        << ",\"upper\":\"" << esc << "\",\"words\":" << words << "}";
+        << ",\"upper\":\"" << json_escape(upper) << "\",\"words\":" << words << "}";
     return oss.str();
 }
 
@@ -2314,6 +2388,20 @@ int self_test() {
     }
     if (run_pipeline("").find("no_input") == std::string::npos) {
         std::fprintf(stderr, "self-test 2 failed\n");
+        return 1;
+    }
+    // JSON validity check for special characters.
+    auto weird = run_pipeline("a\"b\\c\nd");
+    if (weird.find("\\\"") == std::string::npos) {
+        std::fprintf(stderr, "self-test 3 failed (quote escaping): %s\n", weird.c_str());
+        return 1;
+    }
+    if (weird.find("\\\\") == std::string::npos) {
+        std::fprintf(stderr, "self-test 4 failed (backslash escaping): %s\n", weird.c_str());
+        return 1;
+    }
+    if (weird.find("\\n") == std::string::npos) {
+        std::fprintf(stderr, "self-test 5 failed (newline escaping): %s\n", weird.c_str());
         return 1;
     }
     std::printf("self-tests: ok\n");
@@ -2374,13 +2462,24 @@ GENERATORS = {
     "cpp": (gen_cpp, "cpp"),
 }
 
+# Expanded first-token allowlist: common declaration keywords for each language.
 _FIRST_TOKEN = {
-    "python": ("import ", "from ", '"""', "'''", "# ", "#!/"),
-    "js": ("'use strict'", "//", "const ", "let ", "var ", "function ",
-           "async ", "import ", "export ", "#!/"),
+    "python": ("import ", "from ", '"""', "'''", "# ", "#!/", "def ", "class ",
+               "async def ", "@", "async with ", "if ", "for ", "while ",
+               "try ", "with ", "print(", "return ", "raise ", "pass"),
+    "js": ("'use strict'", '"use strict"', "//", "/*", "const ", "let ", "var ",
+           "function ", "async ", "import ", "export ", "#!/", "class ",
+           "(function", "(()", "if (", "for (", "while (", "new ", "module.exports",
+           "exports.", "require("),
     "html": ("<!doctype", "<!DOCTYPE", "<html", "<!--", "<meta"),
-    "rust": ("//", "fn ", "use ", "#!", "pub ", "mod "),
-    "cpp": ("//", "#include", "#pragma", "/*", "using ", "namespace "),
+    "rust": ("//", "/*", "fn ", "use ", "#!", "pub ", "mod ", "struct ",
+             "enum ", "impl ", "trait ", "type ", "const ", "static ",
+             "extern ", "unsafe ", "async fn ", "#[", "pub(crate) ", "pub(super) "),
+    "cpp": ("//", "/*", "#include", "#pragma", "#define", "#if ", "#ifdef ",
+            "#ifndef ", "using ", "namespace ", "class ", "struct ", "int ",
+            "void ", "auto ", "template", "#", "extern ", "static ",
+            "const ", "unsigned ", "signed ", "long ", "double ", "float ",
+            "char ", "bool "),
 }
 
 
@@ -2803,6 +2902,7 @@ def _llm_status_line(config=None):
     parts = []
     cfg = config or {}
     require = bool(cfg.get("require_local_llm", True))
+    strict = bool(cfg.get("strict_local_llm_skip_cloud", False))
     local = (cfg.get("llm_fallback_model") or "").strip() or STARTER_MODEL
     try:
         ok, _ = _ollama_health(timeout=1)
@@ -2810,7 +2910,11 @@ def _llm_status_line(config=None):
         ok = False
     parts.append(f"local:{'Y' if ok else '-'} ({local})")
     cloud = (cfg.get("cloud_provider") or "").strip()
-    parts.append(f"cloud:{cloud or '-'}")
+    if cloud:
+        suffix = " (strict:skipped)" if strict else ""
+        parts.append(f"cloud:{cloud}{suffix}")
+    else:
+        parts.append("cloud:-")
     if not require:
         parts.append("mode:optional")
     return " ".join(parts)
@@ -2819,6 +2923,7 @@ def _llm_status_line(config=None):
 def _print_startup_banner(script_dir, config):
     local = (config.get("llm_fallback_model") or "").strip() or STARTER_MODEL
     require = bool(config.get("require_local_llm", True))
+    strict = bool(config.get("strict_local_llm_skip_cloud", False))
     cloud = (config.get("cloud_provider") or "").strip()
     cloud_model = (config.get("cloud_model") or "").strip()
     try:
@@ -2836,7 +2941,11 @@ def _print_startup_banner(script_dir, config):
         parts.append(f"local={'ok' if ollama_ok else 'down'}:{local}")
     else:
         parts.append(f"local=optional:{local}")
-    parts.append(f"cloud={cloud + ':' + cloud_model if cloud else 'none'}")
+    if cloud:
+        strict_tag = " (strict:skipped)" if strict else ""
+        parts.append(f"cloud={cloud}:{cloud_model}{strict_tag}")
+    else:
+        parts.append("cloud=none")
     parts.append(f"ghidra={ghidra_status}")
     print("REA_mini ready — " + " | ".join(parts))
 
@@ -2858,7 +2967,11 @@ def _missing_breakdown(report):
 
 
 async def _audit_dependencies_on_startup(script_dir, log, config, args):
-    """Check deps; offer a single "[A]ll / [N]one / [I]nteractive" prompt."""
+    """Check deps; offer a single "[A]ll / [N]one / [I]nteractive" prompt.
+
+    Returns True if all required dependencies are present after the audit,
+    False if some remain missing.
+    """
     report = await _gather_selfcheck(script_dir)
     missing_pips, missing_nonpip = _missing_breakdown(report)
     if not missing_pips and not missing_nonpip:
@@ -2901,8 +3014,11 @@ async def _startup_wizard(script_dir, out_dir, config, log, args):
             return False
         config["require_local_llm"] = False
 
-    # Step 2: dependency audit
-    await _audit_dependencies_on_startup(script_dir, log, config, args)
+    # Step 2: dependency audit (capture result)
+    audit_ok = await _audit_dependencies_on_startup(script_dir, log, config, args)
+    if not audit_ok:
+        _say("Warning: some dependencies are still missing; "
+             "some features may be degraded. Menu option 7 retries the audit.")
 
     # Step 3: cloud expansion (only when local model is in use)
     if config.get("require_local_llm", True):
@@ -2917,7 +3033,7 @@ async def _startup_wizard(script_dir, out_dir, config, log, args):
 # Command implementations
 # ---------------------------------------------------------------------------
 def _print_menu(llm_status_line=None):
-    print()
+    _print_intro()
     print("=" * 60)
     print(" REA_mini.py — reverse-engineer-anything mini harness")
     print("=" * 60)
@@ -3166,15 +3282,17 @@ def cmd_generate(lang, idea, output_dir, log, search_hits=None, cfg=None,
         print(f"Write failed: {e}")
         return EXIT_WRITE_FAIL
 
+    # Capture the provider as it stood before the quality gate may rewrite the
+    # artifact. This is what evidence records as `initial_provider`.
+    initial_provider = provider
+
     # Safe default: syntax check only. Full smoke test only under --run-generated.
     syntax = _syntax_check_skeleton(lang, out, log)
-    smoke = None
-    fallback_needed = bool(syntax.get("executed") and not syntax.get("passed"))
+    smoke = _smoke_test_skeleton(lang, out, log) if run_generated else None
 
-    if not fallback_needed and run_generated and provider not in ("template", "template_fallback"):
-        smoke = _smoke_test_skeleton(lang, out, log)
-        if smoke.get("executed") and not smoke.get("passed"):
-            fallback_needed = True
+    fallback_needed = bool(syntax.get("executed") and not syntax.get("passed"))
+    if smoke is not None and smoke.get("executed") and not smoke.get("passed"):
+        fallback_needed = True
 
     if fallback_needed and provider not in ("template", "template_fallback"):
         if log:
@@ -3189,13 +3307,15 @@ def cmd_generate(lang, idea, output_dir, log, search_hits=None, cfg=None,
             return EXIT_WRITE_FAIL
         provider = "template_fallback"
         syntax = _syntax_check_skeleton(lang, out, log)
-        smoke = _smoke_test_skeleton(lang, out, log) if run_generated else None
+        if run_generated:
+            smoke = _smoke_test_skeleton(lang, out, log)
 
     quality_gate = {
         "syntax_check": syntax,
         "smoke_test": smoke,
         "ran_smoke_test": bool(run_generated),
-        "initial_provider": provider,
+        "initial_provider": initial_provider,
+        "final_provider": provider,
         "fell_back_to_template": provider == "template_fallback",
     }
 
@@ -3203,6 +3323,7 @@ def cmd_generate(lang, idea, output_dir, log, search_hits=None, cfg=None,
         claim=f"Generated {lang} program that reconstructs: {idea[:100]}",
         evidence=[{
             "provider": provider,
+            "initial_provider": initial_provider,
             "artifact": str(out),
             "bytes": out.stat().st_size,
             "search_hits": (search_hits or [])[:30],
@@ -3313,8 +3434,6 @@ async def _gather_selfcheck(script_dir: Path):
     else:
         checks["ghidra"] = {"path": None, "note": "will download on first use"}
 
-    # Lower Ollama probe timeout to 1s (matching the status line) so selfcheck
-    # never blocks for 5s on an unreachable daemon.
     ollama_models = _ollama_list_models(timeout=1)
     if ollama_models:
         checks["ollama"] = f"ok ({len(ollama_models)} models)"
@@ -3360,7 +3479,6 @@ async def cmd_selfcheck(script_dir, log, non_interactive=False, auto_install=Fal
 
     missing_pips = [p for p in ("playwright", "readability-lxml", "html2text")
                     if report["checks"][p] != "ok"]
-    # `_missing_breakdown` already puts chromium first; no need to reshuffle.
     _, missing_nonpip = _missing_breakdown(report)
 
     should_install = False
@@ -3626,85 +3744,116 @@ async def _mcp_dispatch_with_timeout(name, args, script_dir, out_dir,
 
 
 async def run_mcp_server(script_dir, out_dir, config, log):
+    """MCP server over stdio. Tool calls are dispatched as asyncio tasks so a
+    slow call never blocks receipt of the next request.
+    """
     stdin = sys.stdin
     stdout = sys.stdout
     if stdin.isatty():
         print("MCP: reading from TTY — send JSON-RPC lines or press Ctrl+C to exit.",
               file=sys.stderr)
     log.info("mcp_server_start")
-    while True:
+
+    write_lock = asyncio.Lock()
+
+    async def write_response(resp):
+        async with write_lock:
+            try:
+                stdout.write(json.dumps(resp) + "\n")
+                stdout.flush()
+            except Exception as e:
+                log.warn(f"mcp_write_failed err={type(e).__name__}")
+
+    async def handle_tool_call(name, arguments, rid, is_notification):
         try:
-            # Read stdin off the event loop so long-running tool calls don't
-            # block the server from receiving the next request.
-            line = await asyncio.to_thread(stdin.readline)
-        except KeyboardInterrupt:
-            log.info("mcp_server_stop user_interrupt")
-            return EXIT_OK
+            result = await _mcp_dispatch_with_timeout(
+                name, arguments, script_dir, out_dir, config, log)
         except Exception as e:
-            log.warn(f"mcp_stdin_err err={type(e).__name__}")
-            return EXIT_OK
-        if not line:
-            log.info("mcp_server_stop eof")
-            return EXIT_OK
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            resp = {"jsonrpc": "2.0", "id": None,
-                    "error": {"code": -32700, "message": "parse error"}}
-            stdout.write(json.dumps(resp) + "\n")
-            stdout.flush()
-            continue
+            log.error(f"mcp_tool_uncaught name={name} err={type(e).__name__}: {e}")
+            result = _mcp_text(f"Internal error: {type(e).__name__}", True)
+        if is_notification:
+            return
+        await write_response({"jsonrpc": "2.0", "id": rid, "result": result})
 
-        method = msg.get("method")
-        rid = msg.get("id")
-        is_notification = "id" not in msg
+    pending_tasks = set()
 
-        try:
+    try:
+        while True:
+            try:
+                line = await asyncio.to_thread(stdin.readline)
+            except KeyboardInterrupt:
+                log.info("mcp_server_stop user_interrupt")
+                break
+            except Exception as e:
+                log.warn(f"mcp_stdin_err err={type(e).__name__}")
+                break
+            if not line:
+                log.info("mcp_server_stop eof")
+                break
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                await write_response({"jsonrpc": "2.0", "id": None,
+                                      "error": {"code": -32700,
+                                                "message": "parse error"}})
+                continue
+
+            if not isinstance(msg, dict):
+                await write_response({"jsonrpc": "2.0", "id": None,
+                                      "error": {"code": -32600,
+                                                "message":
+                                                "invalid request: not a JSON object"}})
+                continue
+
+            method = msg.get("method")
+            rid = msg.get("id")
+            is_notification = "id" not in msg
+
             if method == "initialize":
-                result = {
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "rea_mini", "version": "1.2.0"},
-                }
+                await write_response({
+                    "jsonrpc": "2.0", "id": rid,
+                    "result": {
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "capabilities": {"tools": {"listChanged": False}},
+                        "serverInfo": {"name": "rea_mini", "version": "1.2.0"},
+                    },
+                })
             elif method == "notifications/initialized":
                 continue
             elif method == "ping":
-                result = {}
+                await write_response({"jsonrpc": "2.0", "id": rid, "result": {}})
             elif method == "tools/list":
-                result = {"tools": _mcp_tools_schema()}
+                await write_response({"jsonrpc": "2.0", "id": rid,
+                                      "result": {"tools": _mcp_tools_schema()}})
             elif method == "tools/call":
                 params = msg.get("params") or {}
                 name = params.get("name")
                 arguments = params.get("arguments") or {}
-                result = await _mcp_dispatch_with_timeout(
-                    name, arguments, script_dir, out_dir, config, log)
+                task = asyncio.create_task(
+                    handle_tool_call(name, arguments, rid, is_notification))
+                pending_tasks.add(task)
+                task.add_done_callback(pending_tasks.discard)
+                # Do NOT await; continue reading next request immediately.
             else:
                 if is_notification:
                     continue
-                resp = {"jsonrpc": "2.0", "id": rid,
-                        "error": {"code": -32601,
-                                  "message": f"method not found: {method}"}}
-                stdout.write(json.dumps(resp) + "\n")
-                stdout.flush()
-                continue
-        except Exception as e:
-            log.error(f"mcp_dispatch_error err={type(e).__name__}: {e}")
-            if is_notification:
-                continue
-            resp = {"jsonrpc": "2.0", "id": rid,
-                    "error": {"code": -32000, "message": f"{type(e).__name__}: {e}"}}
-            stdout.write(json.dumps(resp) + "\n")
-            stdout.flush()
-            continue
-
-        if is_notification:
-            continue
-        resp = {"jsonrpc": "2.0", "id": rid, "result": result}
-        stdout.write(json.dumps(resp) + "\n")
-        stdout.flush()
+                await write_response({"jsonrpc": "2.0", "id": rid,
+                                      "error": {"code": -32601,
+                                                "message":
+                                                f"method not found: {method}"}})
+    finally:
+        if pending_tasks:
+            log.info(f"mcp_draining_pending count={len(pending_tasks)}")
+            try:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+            except Exception:
+                pass
+        log.info("mcp_server_stop")
+    return EXIT_OK
 
 
 # ---------------------------------------------------------------------------
@@ -3850,21 +3999,19 @@ async def async_main(argv):
                                            auto_install=bool(args.yes))
             if args.cmd == "mcp":
                 return await run_mcp_server(script_dir, out_dir, config, log)
-            # Fallthrough safety (unreachable because argparse validates choices)
             print(f"Unknown command: {args.cmd}")
             return EXIT_BAD_URL
 
         # Interactive startup wizard (only for TTY, non --cmd runs).
         if sys.stdin.isatty():
             wizard_ok = await _startup_wizard(script_dir, out_dir, config, log, args)
-            # Persist any wizard decisions so the next run is instant.
             save_config(cfg_path, config, log)
             if not wizard_ok:
                 print("Startup aborted. Re-run interactively to complete onboarding, "
                       "or use --cmd for non-interactive use.", file=sys.stderr)
                 return EXIT_NO_LOCAL_LLM
 
-        # Interactive menu loop
+        # Interactive menu loop.
         while True:
             _print_menu(_llm_status_line(config))
             choice = _ask("Choice: ")
