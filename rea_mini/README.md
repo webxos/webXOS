@@ -9,28 +9,6 @@ A single-file, local-first Python harness for reverse-engineering shipped softwa
 
 REA_mini.py bridges AI coding agents (via Model Context Protocol over stdio) and conventional reverse-engineering workflows. It captures URLs, queries free public APIs in parallel, drives Ghidra headless against local binaries, and generates runnable code skeletons in Python, JavaScript, HTML, Rust, or C++.
 
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Interactive Mode](#interactive-mode)
-- [Non-Interactive CLI Mode](#non-interactive-cli-mode)
-- [Command Reference](#command-reference)
-- [MCP Server](#mcp-server)
-- [LLM Configuration](#llm-configuration)
-- [Evidence Sidecars](#evidence-sidecars)
-- [Configuration File](#configuration-file)
-- [Environment Variables](#environment-variables)
-- [Exit Codes](#exit-codes)
-- [Troubleshooting](#troubleshooting)
-- [Design Notes](#design-notes)
-
----
-
 ## Features
 
 - **URL capture to Markdown** — Renders pages with Playwright, falls back to `urllib`, extracts the main article with `readability-lxml`, and converts it to Markdown with `html2text`. The result is optimized for LLM consumption.
