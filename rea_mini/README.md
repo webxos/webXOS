@@ -8,7 +8,86 @@
 A single-file, local-first Python harness for reverse-engineering shipped software artifacts. Inspired by [morluto/rea](https://github.com/morluto/rea). Free tools and free public APIs are prioritized at every step.
 
 REA_mini.py bridges AI coding agents (via Model Context Protocol over stdio) and conventional reverse-engineering workflows. It captures URLs, queries free public APIs in parallel, drives Ghidra headless against local binaries, and generates runnable code skeletons in Python, JavaScript, HTML, Rust, or C++.
+## Updates 10/19/2026 ~6:30 PM EST
 
+## Update Log
+
+### v1.3.1 — Documentation and MCP hardening pass
+
+This entry records the deltas between README text and shipped behavior in
+`rea_mini.py`. If anything below contradicts a section above, the code and
+this log are authoritative; the README will be corrected in the next
+revision.
+
+**Corrections to prior documentation**
+
+- *Configuration file example*: `strict_local_llm_skip_cloud` defaults to
+  `false` in `DEFAULT_CONFIG`, and no code path sets it to `true`. The
+  prior example showing `true` was inaccurate. Users who want strict
+  local-only behavior must set this key by hand; the wizard never does.
+- *Exit codes*: exit code `11` (`EXIT_LLM_OUTPUT_REJECTED`) was missing
+  from the table. It is returned by `--cmd generate`, `--cmd full`, and
+  the MCP `rea_generate_skeleton` / `rea_full_pipeline` tools when the
+  LLM was reachable and answered, but its output failed the format
+  validator (`_validate_skeleton`) and `require_local_llm` blocked the
+  deterministic template fallback. It is distinct from the "used
+  deterministic template" path, which exits `0`.
+- *Artifact filenames*: every artifact-producing command now appends a
+  short UUID for collision safety within the same second. Actual
+  formats:
+  - capture:  `<host>_<path>_llm_<ts>_<uuid6>.md`
+  - archive:  `<host>_<path>_archive_<ts>_<uuid6>.html`
+  - fanout:   `fanout_x_<query>_fanout_<ts>_<uuid6>.json` (uses a
+    synthetic `https://x/` URL, not the query URL, as the slug source)
+  - ghidra:   `ghidra_<binary>_<ts>_<uuid8>.json`
+  - generate: `skel_x_<idea>_gen_<ts>_<uuid6>.<ext>`
+
+**MCP server behavior now documented**
+
+- Tool work runs on a **dedicated 4-worker thread pool**
+  (`_MCP_TOOL_MAX_WORKERS`), never on the event loop's default executor.
+  Stdin reads therefore cannot be starved by tool calls, regardless of
+  how many concurrent requests arrive.
+- When all 4 worker slots are occupied — including by orphans from
+  timed-out calls — new `tools/call` requests receive an immediate
+  `isError: true` response with the text
+  `Server busy: all 4 tool worker slots in use. Retry shortly.` This is
+  a fast, visible backpressure signal, not a silent queue.
+- Shutdown (EOF / SIGINT) cancels pending tool-call tasks, awaits them
+  with a **2-second** drain timeout (logging `mcp_drain_timeout` on
+  expiry), calls `tool_executor.shutdown(wait=False, cancel_futures=True)`,
+  and — if any worker threads are still running — force-exits via
+  `os._exit(rc)` from a `finally:` block so `atexit`'s join on
+  `concurrent.futures.thread` cannot block the process for minutes.
+- `rea_selfcheck` under MCP caps the Chromium probe at **2 seconds**
+  (versus the 10s CLI default) to avoid a cold-start Chromium launch
+  delaying subsequent stdin reads.
+- Worker exceptions from timed-out calls are logged as
+  `mcp_tool_worker_exception err=<Type>: <msg>` instead of being silently
+  discarded.
+- `ghidra_headless_run` never writes to stdout — it is reachable from
+  the MCP server, where stdout is the JSON-RPC wire. The binutils
+  fallback note is logged, not printed.
+
+**LLM model resolution**
+
+- For the `ollama` provider only, model resolution checks
+  `llm_fallback_model` between `llm_model_ollama` and the built-in
+  default. Full priority: `REA_LLM_OLLAMA_MODEL` → `llm_model_ollama` →
+  `llm_fallback_model` → `qwen2.5:0.5b`.
+
+**Known limitation**
+
+- MCP `rea_ghidra_analyze` runs `ghidra_headless_run` with the default
+  `timeout_s=300`, whose subprocess timeout is `timeout_s + 180 = 480s`.
+  The outer MCP tool timeout is `MCP_TOOL_TIMEOUT_S = 300`. A Ghidra
+  analysis that runs longer than 300s will time out at the MCP layer
+  while the subprocess continues as a background orphan. The R3 slot
+  counter correctly holds that orphan's slot, so subsequent calls see
+  the "Server busy" response until it completes. This is expected
+  backpressure, not a bug — but operators running very large binaries
+  should either raise `MCP_TOOL_TIMEOUT_S` or accept the "server busy"
+  response as the intended signal.
 ## Features
 
 - **URL capture to Markdown** — Renders pages with Playwright, falls back to `urllib`, extracts the main article with `readability-lxml`, and converts it to Markdown with `html2text`. The result is optimized for LLM consumption.
