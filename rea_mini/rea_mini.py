@@ -60,7 +60,10 @@ Design notes
   that dumps functions + printable strings to JSON; the `-analysisTimeoutPerFile`
   flag is only passed when analyzeHeadless supports it, and that support is
   cached in `ghidra_cache.json`. Dump filenames include a UUID suffix so
-  parallel runs in the same second never collide.
+  parallel runs in the same second never collide. A stale/corrupt postScript
+  is unconditionally rewritten before the Ghidra run so compile failures are
+  impossible. `ghidra_headless_run` never writes to stdout because it can
+  run under MCP, where stdout is the JSON-RPC channel.
 * Skeleton generation asks the LLM for a working core and falls back to
   deterministic, runnable templates. Every artifact is syntax-checked
   (safe, no execution) and — only when `--run-generated` is passed — also
@@ -73,17 +76,27 @@ Design notes
   quality gate.
 * MCP stdio server exposes the same tools for agents. Tool calls are
   dispatched as asyncio tasks so slow calls never block receipt of the
-  next request. Non-object JSON-RPC messages are rejected with -32600.
+  next request. Non-object JSON-RPC messages are rejected with -32600 and
+  non-object `params` with -32602. Blocking work runs on a dedicated
+  bounded thread pool (never the loop's default executor) so stdin reads
+  are never starved. A thread-safe occupancy counter rejects new tool
+  calls when all worker slots are held (including orphans from timed-out
+  calls). Shutdown cancels pending tasks with a short drain timeout and
+  force-exits (via a `finally` block, so the force-exit is reached even if
+  `run_mcp_server` raises) if worker threads remain. Worker exceptions
+  from timed-out calls are logged so diagnostics aren't lost.
 * LLM model names are configurable via `REA_LLM_*` env vars and config.
 
 Exit codes: 0 ok, 2 py<3.9, 3 missing deps, 4 bad url/input,
             5 nav fail, 6 extract empty, 7 write fail, 8 archive fail,
-            9 bad evidence file, 10 local LLM required but unavailable.
+            9 bad evidence file, 10 local LLM required but unavailable,
+            11 LLM returned invalid/rejected output.
 """
 
 import argparse
 import asyncio
 import concurrent.futures
+import functools
 import hashlib
 import json
 import os
@@ -95,6 +108,7 @@ import string
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -198,6 +212,7 @@ EXIT_BAD_URL, EXIT_NAV_FAIL, EXIT_EXTRACT_EMPTY = 4, 5, 6
 EXIT_WRITE_FAIL, EXIT_ARCHIVE_FAIL = 7, 8
 EXIT_BAD_EVIDENCE = 9
 EXIT_NO_LOCAL_LLM = 10
+EXIT_LLM_OUTPUT_REJECTED = 11
 
 GHIDRA_RELEASE_API = "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest"
 GHIDRA_CACHE_FILE = "ghidra_cache.json"
@@ -338,6 +353,127 @@ class Log:
 
 
 # ---------------------------------------------------------------------------
+# Threading helpers for MCP tool dispatch (used by _gather_selfcheck and
+# _mcp_dispatch). Defined here so both call sites share one implementation.
+#
+# Design (fixes R1 + R3 + R5_new):
+#   * `_mcp_tool_executor` is a DEDICATED pool; we never touch the event
+#     loop's default executor, so stdin reads (`asyncio.to_thread`) never
+#     compete with tool work.
+#   * `_mcp_active_workers` is a thread-safe counter of THREADS in flight
+#     (running or queued in the pool). Because it is incremented when the
+#     worker entry function starts and decremented in its `finally`, it
+#     correctly tracks ORPHANS from timed-out calls — a coroutine that
+#     times out does not release the slot; only the worker does.
+#   * `_to_tool_thread` uses `asyncio.shield` so the underlying future is
+#     never cancelled by `wait_for`; orphaned threads always release their
+#     slot when they finish.
+#   * When the counter is saturated, `_to_tool_thread` raises
+#     `ToolPoolSaturatedError`, which the MCP dispatcher turns into a
+#     fast, visible "server busy" response — never silent queuing.
+#   * Worker exceptions from orphaned futures are logged (via the `log`
+#     kwarg) rather than silently swallowed, so post-mortem debugging of
+#     timed-out calls is possible (fixes R5_new).
+# ---------------------------------------------------------------------------
+class ToolPoolSaturatedError(Exception):
+    """Raised when all MCP tool worker slots are occupied."""
+
+
+_mcp_tool_executor: "concurrent.futures.Executor | None" = None
+_mcp_active_workers = 0
+_mcp_active_lock = threading.Lock()
+_MCP_TOOL_MAX_WORKERS = 4
+
+
+def _mcp_try_acquire_slot() -> bool:
+    global _mcp_active_workers
+    with _mcp_active_lock:
+        if _mcp_active_workers >= _MCP_TOOL_MAX_WORKERS:
+            return False
+        _mcp_active_workers += 1
+        return True
+
+
+def _mcp_release_slot() -> None:
+    global _mcp_active_workers
+    with _mcp_active_lock:
+        if _mcp_active_workers > 0:
+            _mcp_active_workers -= 1
+
+
+def _mcp_slot_count() -> int:
+    """R3_new: read the active-worker count under the lock so the invariant
+    is explicit for future readers. In CPython the plain read would be atomic
+    anyway; this makes the contract self-documenting."""
+    with _mcp_active_lock:
+        return _mcp_active_workers
+
+
+def _mcp_worker_entry(fn, args):
+    """Runs in a worker thread. Guarantees slot release even on exceptions."""
+    try:
+        return fn(*args)
+    finally:
+        _mcp_release_slot()
+
+
+def _mcp_consume_future(fut, log=None):
+    """Retrieve a future's outcome.
+
+    R5_new: log non-cancelled exceptions so orphaned worker failures
+    aren't silently discarded. Also suppresses the "exception was never
+    retrieved" warning that Python emits for unretrieved futures.
+    """
+    if fut.cancelled():
+        return
+    try:
+        exc = fut.exception()
+    except Exception:
+        return
+    if exc is not None and log is not None:
+        try:
+            log.warn(f"mcp_tool_worker_exception err={type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+
+
+async def _to_tool_thread(fn, *args, log=None):
+    """Run a blocking function on the dedicated MCP tool executor.
+
+    Falls back to `asyncio.to_thread` (default executor) when not inside
+    the MCP server — that path is used by the CLI self-check, which never
+    contends with the MCP pool.
+
+    Raises ToolPoolSaturatedError when all worker slots are held. The
+    counter is held for the LIFETIME OF THE WORKER, so orphans from
+    timed-out calls keep their slot until they actually finish.
+
+    `log` is optional and is only used to report worker exceptions from
+    orphaned futures (R5_new); it is NOT forwarded to `fn`.
+    """
+    if _mcp_tool_executor is None:
+        return await asyncio.to_thread(fn, *args)
+    if not _mcp_try_acquire_slot():
+        raise ToolPoolSaturatedError(
+            f"all {_MCP_TOOL_MAX_WORKERS} tool worker slots in use")
+    loop = asyncio.get_running_loop()
+    try:
+        fut = loop.run_in_executor(
+            _mcp_tool_executor,
+            functools.partial(_mcp_worker_entry, fn, args))
+    except Exception:
+        # Submission failed synchronously; no worker will run → release now.
+        _mcp_release_slot()
+        raise
+    # Consume any exception so orphaned futures do not emit warnings;
+    # log the exception if a logger was supplied (R5_new).
+    fut.add_done_callback(lambda f: _mcp_consume_future(f, log))
+    # Shield so cancellation of the outer coroutine (timeout) does NOT
+    # cancel the worker; the worker always completes and releases the slot.
+    return await asyncio.shield(fut)
+
+
+# ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
 def load_config(path: Path, log):
@@ -399,8 +535,10 @@ def slugify(url, mode, ext=None):
     d = re.sub(r"[^A-Za-z0-9]+", "_", p.netloc or "site")
     s = re.sub(r"[^A-Za-z0-9]+", "_", p.path.strip("/") or "index")
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Append a short UUID so two runs in the same second never collide.
+    uid = uuid.uuid4().hex[:6]
     e = ext or ("md" if mode == "llm" else "html")
-    stem = f"{d}_{s}_{mode}_{ts}"
+    stem = f"{d}_{s}_{mode}_{ts}_{uid}"
     max_stem = max(1, 200 - len(e) - 1)
     if len(stem) > max_stem:
         stem = stem[:max_stem]
@@ -443,7 +581,7 @@ def _cfg_bool(cfg, key, default):
 
 
 def _github_headers(accept="application/vnd.github+json"):
-    h = {"User-Agent": "REA_mini.py/1.2", "Accept": accept}
+    h = {"User-Agent": "REA_mini.py/1.3", "Accept": accept}
     t = os.environ.get("GITHUB_TOKEN")
     if t:
         h["Authorization"] = f"Bearer {t}"
@@ -452,7 +590,7 @@ def _github_headers(accept="application/vnd.github+json"):
 
 def http_get_json(url, timeout=20, headers=None):
     req = urllib.request.Request(url, headers=headers or {
-        "User-Agent": "REA_mini.py/1.2",
+        "User-Agent": "REA_mini.py/1.3",
         "Accept": "application/json",
     })
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -774,7 +912,7 @@ def download_ghidra(dest_dir: Path, log: Log, script_dir: Path = None) -> Path:
     zip_path = dest_dir / "ghidra_release.zip"
     _say(f"Downloading Ghidra (~400 MB) from {zip_url} ...")
     try:
-        req = urllib.request.Request(zip_url, headers={"User-Agent": "REA_mini.py/1.2"})
+        req = urllib.request.Request(zip_url, headers={"User-Agent": "REA_mini.py/1.3"})
         with urllib.request.urlopen(req, timeout=120) as r, open(zip_path, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
             done = 0
@@ -971,23 +1109,50 @@ def _ollama_pull(model, host=None, log=None):
 
 
 def _start_ollama_server():
-    """Best-effort attempt to launch the local Ollama daemon."""
+    """Best-effort attempt to launch the local Ollama daemon.
+
+    Returns False when the spawn clearly failed (missing binary on
+    Linux/Windows, or `open -a Ollama` returning non-zero on macOS) so
+    callers don't waste 9 seconds polling a daemon that was never started.
+    """
     system = platform.system()
     try:
         if system == "Darwin":
-            subprocess.Popen(["open", "-a", "Ollama"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(
+                ["open", "-a", "Ollama"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         elif system == "Windows":
-            subprocess.Popen(["ollama", "serve"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             creationflags=0x00000008)  # DETACHED_PROCESS
+            proc = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=0x00000008,  # DETACHED_PROCESS
+            )
         else:
-            subprocess.Popen(["ollama", "serve"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
-        return True
-    except Exception:
+            proc = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+    except OSError:
+        # FileNotFoundError (missing binary) and other OSErrors both land here.
         return False
+    except subprocess.SubprocessError:
+        return False
+
+    # On macOS `open -a Ollama` exits non-zero if the app was not found.
+    if system == "Darwin":
+        try:
+            rc = proc.wait(timeout=3)
+            if rc != 0:
+                return False
+        except subprocess.TimeoutExpired:
+            # `open` hung — unusual; treat as success since it spawned.
+            pass
+    return True
 
 
 async def _ensure_local_llm(script_dir, config, log, interactive=True, auto_pull=False):
@@ -1019,11 +1184,14 @@ async def _ensure_local_llm(script_dir, config, log, interactive=True, auto_pull
             if log:
                 log.error("ollama_start_failed")
             return False, "ollama_server_down"
-        for _ in range(6):
-            await asyncio.sleep(1.5)
-            ok, info = _ollama_health(host=host, timeout=2)
-            if ok:
-                break
+        await asyncio.sleep(0.5)
+        ok, _ = _ollama_health(host=host, timeout=2)
+        if not ok:
+            for _ in range(6):
+                await asyncio.sleep(1.5)
+                ok, info = _ollama_health(host=host, timeout=2)
+                if ok:
+                    break
         if not ok:
             _say("Ollama server did not come up. Run `ollama serve` and re-run.")
             if log:
@@ -1447,6 +1615,11 @@ def _http_post_json(url, payload, headers, timeout=60):
 
 
 def _llm_model(name: str, cfg: dict = None) -> str:
+    """Resolve a provider's model name.
+
+    Priority: env var > config `llm_model_<name>` > (for ollama only)
+    config `llm_fallback_model` > built-in default.
+    """
     env = os.environ.get(LLM_MODEL_ENV.get(name, ""))
     if env:
         return env
@@ -1454,6 +1627,10 @@ def _llm_model(name: str, cfg: dict = None) -> str:
         v = cfg.get(f"llm_model_{name}")
         if isinstance(v, str) and v.strip():
             return v
+        if name == "ollama":
+            fallback = cfg.get("llm_fallback_model")
+            if isinstance(fallback, str) and fallback.strip():
+                return fallback.strip()
     return DEFAULT_LLM_MODELS[name]
 
 
@@ -1681,13 +1858,6 @@ def llm_fan_out(prompt, log=None, cfg=None):
     """Try local-first when require_local_llm, cloud-second if opted in.
 
     Non-required mode keeps the historical chain (free-tier first, ollama last).
-
-    When require_local_llm is enabled:
-      - The local Ollama model is tried first.
-      - If it fails AND `strict_local_llm_skip_cloud` is False (default), a
-        configured cloud provider is tried next.
-      - If `strict_local_llm_skip_cloud` is True, no cloud fallback is
-        attempted even when a cloud provider is configured.
     """
     cfg = cfg or {}
     require_local = bool(cfg.get("require_local_llm", True))
@@ -1711,7 +1881,7 @@ def llm_fan_out(prompt, log=None, cfg=None):
         if log:
             log.warn("local_llm_call_failed")
 
-        # Strict mode: skip cloud entirely (the flag is now honored).
+        # Strict mode: skip cloud entirely.
         if strict:
             if log:
                 log.info("llm_cloud_skipped reason=strict_local_llm_skip_cloud")
@@ -1925,15 +2095,31 @@ public class ReaDump extends GhidraScript {
 
 
 def _ensure_ghidra_postscript(script_dir: Path, log) -> Path:
+    """Ensure ghidra_scripts/ReaDump.java matches the canonical content.
+
+    R4 (v1.3): a stale/corrupt file is always overwritten, not just logged.
+    Otherwise analyzeHeadless would proceed to compile the corrupt file and
+    fail with a confusing Java compile error.
+    """
     scripts_dir = script_dir / "ghidra_scripts"
     scripts_dir.mkdir(parents=True, exist_ok=True)
     p = scripts_dir / "ReaDump.java"
+    needs_write = False
     try:
-        if not p.exists() or p.read_text(encoding="utf-8") != GHIDRA_POSTSCRIPT_JAVA:
+        if not p.exists():
+            needs_write = True
+        elif p.read_text(encoding="utf-8") != GHIDRA_POSTSCRIPT_JAVA:
+            needs_write = True
+    except (OSError, UnicodeDecodeError) as e:
+        log.warn(f"ghidra_postscript_unreadable path={p} "
+                 f"err={type(e).__name__}: {e} — will rewrite")
+        needs_write = True
+    if needs_write:
+        try:
             atomic_write_text(p, GHIDRA_POSTSCRIPT_JAVA)
             log.info(f"ghidra_postscript_written path={p}")
-    except OSError as e:
-        log.warn(f"ghidra_postscript_write_failed err={e}")
+        except OSError as e:
+            log.error(f"ghidra_postscript_write_failed path={p} err={e}")
     return scripts_dir
 
 
@@ -1941,13 +2127,10 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
                         script_dir: Path, keywords=None, log=None, timeout_s=300):
     """Run analyzeHeadless with our ReaDump postScript; return structured result.
 
-    Strings for keyword scans come from the postScript dump first; external
-    `strings` is used only as a fallback if the dump is empty. The
-    `-analysisTimeoutPerFile` flag is only passed if the installed
-    analyzeHeadless advertises support, which is cached in ghidra_cache.json.
-
-    The dump filename includes a UUID suffix so two runs in the same second
-    never collide.
+    R1_new: this function MUST NOT write to stdout because it can run under
+    the MCP server, where stdout IS the JSON-RPC channel. Any user-facing
+    diagnostics are logged via `log`; CLI users already see the same
+    information via `cmd_selfcheck` and the returned `res['keyword_hits']`.
     """
     analyze = _analyze_headless_path(ghidra_path)
     if not analyze:
@@ -2031,11 +2214,12 @@ def ghidra_headless_run(ghidra_path: Path, binary: Path, project_dir: Path,
                     if log:
                         log.warn(f"strings_failed err={type(e).__name__}")
             else:
+                # R1_new: NEVER print() here — this function can run under
+                # MCP, and stdout is the JSON-RPC wire. CLI users see the
+                # same info via cmd_selfcheck and res['keyword_hits'].
                 if log:
                     log.warn("strings_missing reason=binutils_not_installed "
                              "fallback=dump_only")
-                print("Note: 'strings' (binutils) not found; keyword scan uses the "
-                      "postScript dump only. Install: sudo apt install binutils")
 
         for kw in keywords:
             kws = kw.lower()
@@ -2462,7 +2646,6 @@ GENERATORS = {
     "cpp": (gen_cpp, "cpp"),
 }
 
-# Expanded first-token allowlist: common declaration keywords for each language.
 _FIRST_TOKEN = {
     "python": ("import ", "from ", '"""', "'''", "# ", "#!/", "def ", "class ",
                "async def ", "@", "async with ", "if ", "for ", "while ",
@@ -2511,12 +2694,7 @@ def _extract_code_block(text, lang=None):
 
 # --- Skeleton checks ------------------------------------------------------
 def _syntax_check_skeleton(lang, path: Path, log=None):
-    """Lightweight syntax check — does NOT execute the generated artifact.
-
-    Safe by default; the heavier `_smoke_test_skeleton` (which runs the
-    artifact's own --test mode) is only used when the user passes
-    --run-generated or explicitly opts in at the prompt.
-    """
+    """Lightweight syntax check — does NOT execute the generated artifact."""
     result = {"lang": lang, "path": str(path), "executed": False,
               "passed": False, "stdout": "", "stderr": "", "returncode": None,
               "mode": "syntax"}
@@ -2573,9 +2751,7 @@ def _syntax_check_skeleton(lang, path: Path, log=None):
 
 
 def _smoke_test_skeleton(lang, path: Path, log=None):
-    """Run the generated artifact's own --test mode. Only used under
-    --run-generated or an explicit interactive confirmation, because it
-    actually executes LLM-generated code."""
+    """Run the generated artifact's own --test mode."""
     result = {"lang": lang, "path": str(path), "executed": False,
               "passed": False, "stdout": "", "stderr": "", "returncode": None,
               "mode": "smoke"}
@@ -2656,8 +2832,13 @@ def _smoke_test_skeleton(lang, path: Path, log=None):
 
 def synthesize_skeleton(lang, idea, search_hits=None, log=None, cfg=None):
     """Ask LLM for a working core; fall back to deterministic templates
-    only when require_local_llm is disabled. Returns (provider, code) or
-    (None, None) when the local LLM is required but no LLM is available."""
+    only when require_local_llm is disabled.
+
+    Returns `(provider, code, reason)`.
+      - On success: `(provider, code, None)`.
+      - On failure with require_local_llm=True: `(None, None, reason)` where
+        reason is 'llm_unreachable' or 'llm_output_rejected'.
+    """
     cfg = cfg or {}
     require_local = bool(cfg.get("require_local_llm", True))
 
@@ -2691,21 +2872,23 @@ def synthesize_skeleton(lang, idea, search_hits=None, log=None, cfg=None):
         )
 
     provider, text = llm_fan_out(prompt, log=log, cfg=cfg)
+    llm_status = 'llm_unreachable'
     if text:
         code = _extract_code_block(text, lang)
         if code and _validate_skeleton(lang, code):
-            return provider, code
+            return provider, code, None
         if log:
             log.info(f"llm_output_rejected reason=format_mismatch "
                      f"provider={provider} lang={lang}")
+        llm_status = 'llm_output_rejected'
 
     if require_local:
         if log:
-            log.info("synthesize_skeleton_failed reason=require_local_llm")
-        return None, None
+            log.info(f"synthesize_skeleton_failed reason={llm_status}")
+        return None, None, llm_status
 
     fn, _ = GENERATORS[lang]
-    return "template", fn(idea)
+    return "template", fn(idea), None
 
 
 # ---------------------------------------------------------------------------
@@ -2972,7 +3155,7 @@ async def _audit_dependencies_on_startup(script_dir, log, config, args):
     Returns True if all required dependencies are present after the audit,
     False if some remain missing.
     """
-    report = await _gather_selfcheck(script_dir)
+    report = await _gather_selfcheck(script_dir, log=log)
     missing_pips, missing_nonpip = _missing_breakdown(report)
     if not missing_pips and not missing_nonpip:
         _say("All dependencies present.")
@@ -2987,7 +3170,10 @@ async def _audit_dependencies_on_startup(script_dir, log, config, args):
     if args.yes:
         ans = "a"
     else:
-        ans = _ask("Install all? [A/n/i(nteractive)]: ", "a").lower()
+        # Be honest about what "all" covers.
+        ans = _ask(
+            "Install all pip packages (system deps are only printed as hints)? "
+            "[A/n/i(nteractive)]: ", "a").lower()
     if ans in ("n", "no"):
         _say("Skipping dependency install (some features may be degraded).")
         return False
@@ -3014,7 +3200,7 @@ async def _startup_wizard(script_dir, out_dir, config, log, args):
             return False
         config["require_local_llm"] = False
 
-    # Step 2: dependency audit (capture result)
+    # Step 2: dependency audit
     audit_ok = await _audit_dependencies_on_startup(script_dir, log, config, args)
     if not audit_ok:
         _say("Warning: some dependencies are still missing; "
@@ -3033,7 +3219,8 @@ async def _startup_wizard(script_dir, out_dir, config, log, args):
 # Command implementations
 # ---------------------------------------------------------------------------
 def _print_menu(llm_status_line=None):
-    _print_intro()
+    # The ASCII intro is printed exactly once by async_main; do NOT reprint
+    # it on every menu redraw.
     print("=" * 60)
     print(" REA_mini.py — reverse-engineer-anything mini harness")
     print("=" * 60)
@@ -3221,7 +3408,11 @@ def cmd_ghidra(binary_path, keywords, script_dir, output_dir, log):
     print(f"Analyzing {bp} with Ghidra...")
     res = ghidra_headless_run(gh, bp, script_dir / "ghidra_proj",
                               script_dir, kws, log)
-    out = output_dir / f"ghidra_{bp.stem}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    # Include a UUID suffix so two analyses of the same binary in the same
+    # second never overwrite each other.
+    out = output_dir / (
+        f"ghidra_{bp.stem}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_"
+        f"{uuid.uuid4().hex[:8]}.json")
     payload = evidence_wrap(
         claim=f"Ghidra headless analysis of {bp.name}",
         evidence=[res],
@@ -3266,24 +3457,27 @@ def cmd_generate(lang, idea, output_dir, log, search_hits=None, cfg=None,
         print("No idea provided.")
         return EXIT_BAD_URL
     _say(f"Generating {lang} skeleton (LLM if available, template otherwise)...")
-    provider, code = synthesize_skeleton(lang, idea, search_hits, log, cfg=cfg)
+    provider, code, reason = synthesize_skeleton(lang, idea, search_hits, log, cfg=cfg)
     if provider is None or code is None:
+        if reason == 'llm_output_rejected':
+            print("LLM responded but its output failed the quality gate "
+                  "(format/validation). The LLM is reachable — try rephrasing "
+                  "the idea, or pass --no-require-local-llm to fall back to "
+                  "the deterministic template.")
+            return EXIT_LLM_OUTPUT_REJECTED
         print("No LLM available and require_local_llm is set.")
         print("Run rea_mini.py interactively to install Ollama, "
               "or pass --no-require-local-llm to fall back to deterministic templates.")
         return EXIT_NO_LOCAL_LLM
 
     ext = GENERATORS[lang][1]
-    out = output_dir / f"skel_{uuid.uuid4().hex[:8]}_" \
-                       f"{slugify('https://x/' + idea[:60], 'gen', ext)}"
+    out = output_dir / f"skel_{slugify('https://x/' + idea[:60], 'gen', ext)}"
     try:
         atomic_write_text(out, code)
     except OSError as e:
         print(f"Write failed: {e}")
         return EXIT_WRITE_FAIL
 
-    # Capture the provider as it stood before the quality gate may rewrite the
-    # artifact. This is what evidence records as `initial_provider`.
     initial_provider = provider
 
     # Safe default: syntax check only. Full smoke test only under --run-generated.
@@ -3394,7 +3588,9 @@ def cmd_full_pipeline(url, lang, output_dir, config, log, run_generated=False):
 # ---------------------------------------------------------------------------
 # Self-check
 # ---------------------------------------------------------------------------
-async def _gather_selfcheck(script_dir: Path):
+def _gather_selfcheck_sync(script_dir, chromium_ok, chromium_info):
+    """Synchronous portion of the selfcheck — runs in a worker thread so a
+    slow `java -version` / `ollama list` probe never blocks the event loop."""
     report = {
         "python": sys.version.split()[0],
         "platform": f"{platform.system()} {platform.machine()}",
@@ -3406,13 +3602,6 @@ async def _gather_selfcheck(script_dir: Path):
     checks["playwright"] = "ok" if PLAYWRIGHT_OK else "MISSING"
     checks["readability-lxml"] = "ok" if READABILITY_OK else "MISSING"
     checks["html2text"] = "ok" if HTML2TEXT_OK else "MISSING"
-
-    chromium_ok, chromium_info = False, "playwright_not_installed"
-    if PLAYWRIGHT_OK:
-        try:
-            chromium_ok, chromium_info = await probe_chromium()
-        except Exception as e:
-            chromium_ok, chromium_info = False, f"probe_err={type(e).__name__}"
     checks["chromium"] = {"ok": chromium_ok, "detail": chromium_info}
 
     checks["node/npx"] = "ok" if probe_npx() else "MISSING"
@@ -3448,6 +3637,27 @@ async def _gather_selfcheck(script_dir: Path):
     return report
 
 
+async def _gather_selfcheck(script_dir: Path, log=None, mcp_mode: bool = False):
+    """Async wrapper: chromium probe is genuinely async (Playwright);
+    everything else is sync and runs via _to_tool_thread — which uses the
+    dedicated MCP tool executor inside the MCP server (never competing
+    with stdin) and the default executor on the CLI.
+
+    R4_new: when `mcp_mode=True`, the Playwright probe uses a 2s timeout
+    instead of the default 10s, so a cold Chromium launch cannot dominate
+    the MCP loop and delay subsequent stdin reads.
+    """
+    chromium_ok, chromium_info = False, "playwright_not_installed"
+    if PLAYWRIGHT_OK:
+        try:
+            chromium_timeout = 2.0 if mcp_mode else 10.0
+            chromium_ok, chromium_info = await probe_chromium(timeout=chromium_timeout)
+        except Exception as e:
+            chromium_ok, chromium_info = False, f"probe_err={type(e).__name__}"
+    return await _to_tool_thread(
+        _gather_selfcheck_sync, script_dir, chromium_ok, chromium_info, log=log)
+
+
 def _format_selfcheck_text(report: dict) -> str:
     lines = [f"python: {report['python']}", f"platform: {report['platform']}"]
     checks = report["checks"]
@@ -3474,7 +3684,7 @@ def _format_selfcheck_text(report: dict) -> str:
 
 async def cmd_selfcheck(script_dir, log, non_interactive=False, auto_install=False):
     print("Self-check:")
-    report = await _gather_selfcheck(script_dir)
+    report = await _gather_selfcheck(script_dir, log=log)
     print(_format_selfcheck_text(report))
 
     missing_pips = [p for p in ("playwright", "readability-lxml", "html2text")
@@ -3497,7 +3707,7 @@ async def cmd_selfcheck(script_dir, log, non_interactive=False, auto_install=Fal
             print(f"Installed: {' '.join(missing_pips)}")
             print("Re-detecting optional modules in-process...")
             _try_reimport_optional()
-            report = await _gather_selfcheck(script_dir)
+            report = await _gather_selfcheck(script_dir, log=log)
             print()
             print(_format_selfcheck_text(report))
             missing_pips = [p for p in missing_pips if report["checks"][p] != "ok"]
@@ -3572,7 +3782,9 @@ def _mcp_tools_schema():
         {
             "name": "rea_generate_skeleton",
             "description": "Generate a runnable skeleton in HTML/JS/Python/Rust/C++ "
-                           "for the given idea.",
+                           "for the given idea. Returns raw LLM output; unlike the "
+                           "CLI, no syntax check or template fallback is performed — "
+                           "the caller is responsible for validating the returned code.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -3584,7 +3796,10 @@ def _mcp_tools_schema():
         },
         {
             "name": "rea_full_pipeline",
-            "description": "URL -> keyword derivation -> fan-out -> skeleton.",
+            "description": "URL -> keyword derivation -> fan-out -> skeleton. "
+                           "Returns raw LLM output; unlike the CLI, no syntax check "
+                           "or template fallback is performed — the caller is "
+                           "responsible for validating the returned code.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -3607,6 +3822,11 @@ def _mcp_text(s, is_error=False):
 
 
 async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
+    # Validate that `arguments` is a dict so the first `args.get(...)` cannot
+    # raise AttributeError.
+    if not isinstance(args, dict):
+        return _mcp_text("Invalid arguments: expected JSON object", True)
+
     if name == "rea_capture_markdown":
         url = args.get("url", "")
         norm = normalize_url(url)
@@ -3618,10 +3838,13 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
         if PLAYWRIGHT_OK:
             final_url, page_html = await _capture_with_retry(norm, config, log)
         if page_html is None:
-            final_url, page_html = _urllib_capture(norm, config, log)
+            final_url, page_html = await _to_tool_thread(
+                _urllib_capture, norm, config, log, log=log)
         if page_html is None:
             return _mcp_text("Navigation failed.", True)
-        md = extract_for_llm(page_html, final_url, bool(config.get("ignore_images")), log)
+        md = await _to_tool_thread(
+            extract_for_llm, page_html, final_url,
+            bool(config.get("ignore_images")), log, log=log)
         if md is None:
             return _mcp_text("Extraction returned empty.", True)
         return _mcp_text(md)
@@ -3635,10 +3858,10 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
                        DEFAULT_CONFIG["fanout_cache_ttl_s"], log)
         mmr_lambda = _cfg_float(config, "mmr_lambda", DEFAULT_CONFIG["mmr_lambda"], log)
         mmr_cap = _cfg_int(config, "mmr_cap", DEFAULT_CONFIG["mmr_cap"], log)
-        hits = fan_out_search(q, timeout=timeout, log=log,
-                              extra_token=os.environ.get("GITHUB_TOKEN"),
-                              out_dir=out_dir, cache_ttl_s=ttl,
-                              mmr_lambda=mmr_lambda, mmr_cap=mmr_cap)
+        hits = await _to_tool_thread(
+            fan_out_search, q, timeout, log,
+            os.environ.get("GITHUB_TOKEN"), out_dir, ttl, True,
+            mmr_lambda, mmr_cap, log=log)
         payload = evidence_wrap(
             claim=f"Search fan-out for query: {q}",
             evidence=hits,
@@ -3654,15 +3877,22 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
         bp = Path(binary).expanduser().resolve()
         if not bp.is_file():
             return _mcp_text(f"Not a file: {bp}", True)
-        java_ok, jv = probe_java()
+        java_ok, jv = await _to_tool_thread(probe_java, log=log)
         if not java_ok:
             return _mcp_text(f"Java 21+ required ({jv}).", True)
-        gh = find_ghidra(script_dir)
+        gh = await _to_tool_thread(find_ghidra, script_dir, log=log)
         if not gh:
-            return _mcp_text("Ghidra not found; run the CLI self-check first.", True)
+            return _mcp_text(
+                "Ghidra not found. Remedies: "
+                "(1) set GHIDRA_HOME to a Ghidra installation directory; "
+                "(2) run `python rea_mini.py --cmd ghidra --binary <path>` once "
+                "interactively to auto-download Ghidra; "
+                "(3) run `python rea_mini.py --cmd selfcheck` to verify other "
+                "dependencies and see install hints.", True)
         kws = [k.strip() for k in kws_str.split(",") if k.strip()]
-        res = ghidra_headless_run(gh, bp, script_dir / "ghidra_proj",
-                                  script_dir, kws, log)
+        res = await _to_tool_thread(
+            ghidra_headless_run, gh, bp, script_dir / "ghidra_proj",
+            script_dir, kws, log, log=log)
         payload = evidence_wrap(
             claim=f"Ghidra headless analysis of {bp.name}",
             evidence=[res],
@@ -3679,8 +3909,13 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
             return _mcp_text(f"Unsupported lang: {lang}", True)
         if not idea.strip():
             return _mcp_text("Empty idea.", True)
-        provider, code = synthesize_skeleton(lang, idea, None, log, cfg=config)
+        provider, code, reason = await _to_tool_thread(
+            synthesize_skeleton, lang, idea, None, log, config, log=log)
         if provider is None or code is None:
+            if reason == 'llm_output_rejected':
+                return _mcp_text(
+                    "LLM responded but its output failed validation. Try "
+                    "rephrasing the idea or switch providers.", True)
             return _mcp_text(
                 "No LLM available (require_local_llm is set). Configure Ollama "
                 "or pass --no-require-local-llm.", True)
@@ -3707,13 +3942,18 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
                        DEFAULT_CONFIG["fanout_cache_ttl_s"], log)
         mmr_lambda = _cfg_float(config, "mmr_lambda", DEFAULT_CONFIG["mmr_lambda"], log)
         mmr_cap = _cfg_int(config, "mmr_cap", DEFAULT_CONFIG["mmr_cap"], log)
-        hits = fan_out_search(kw, timeout=timeout, log=log,
-                              extra_token=os.environ.get("GITHUB_TOKEN"),
-                              out_dir=out_dir, cache_ttl_s=ttl,
-                              mmr_lambda=mmr_lambda, mmr_cap=mmr_cap)
+        hits = await _to_tool_thread(
+            fan_out_search, kw, timeout, log,
+            os.environ.get("GITHUB_TOKEN"), out_dir, ttl, True,
+            mmr_lambda, mmr_cap, log=log)
         idea = f"Reimplement capability from {redact_url(norm)} (keywords: {kw})"
-        provider, code = synthesize_skeleton(lang, idea, hits, log, cfg=config)
+        provider, code, reason = await _to_tool_thread(
+            synthesize_skeleton, lang, idea, hits, log, config, log=log)
         if provider is None or code is None:
+            if reason == 'llm_output_rejected':
+                return _mcp_text(
+                    "LLM responded but its output failed validation. Try "
+                    "rephrasing the idea or switch providers.", True)
             return _mcp_text(
                 "No LLM available (require_local_llm is set). Configure Ollama "
                 "or pass --no-require-local-llm.", True)
@@ -3721,7 +3961,8 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
                          f"hits: {len(hits)}\n---\n{code}")
 
     if name == "rea_selfcheck":
-        report = await _gather_selfcheck(script_dir)
+        # R4_new: mcp_mode=True caps the Playwright probe at 2s.
+        report = await _gather_selfcheck(script_dir, log=log, mcp_mode=True)
         return _mcp_text(_format_selfcheck_text(report))
 
     return _mcp_text(f"Unknown tool: {name}", True)
@@ -3729,14 +3970,34 @@ async def _mcp_dispatch(name, args, script_dir, out_dir, config, log):
 
 async def _mcp_dispatch_with_timeout(name, args, script_dir, out_dir,
                                      config, log, timeout_s=MCP_TOOL_TIMEOUT_S):
+    # R3_new: read the counter under the lock via _mcp_slot_count().
+    if (_mcp_tool_executor is not None
+            and _mcp_slot_count() >= _MCP_TOOL_MAX_WORKERS):
+        if log:
+            log.warn(f"mcp_tool_busy name={name} active={_mcp_slot_count()}")
+        return _mcp_text(
+            f"Server busy: all {_MCP_TOOL_MAX_WORKERS} tool worker slots in use. "
+            f"Retry shortly.", True)
     try:
         return await asyncio.wait_for(
             _mcp_dispatch(name, args, script_dir, out_dir, config, log),
             timeout=timeout_s)
+    except ToolPoolSaturatedError:
+        # Race window: another coroutine grabbed the last slot between our
+        # check and the first _to_tool_thread call inside _mcp_dispatch.
+        if log:
+            log.warn(f"mcp_tool_busy_race name={name}")
+        return _mcp_text(
+            f"Server busy: tool worker pool saturated during dispatch. "
+            f"Retry shortly.", True)
     except asyncio.TimeoutError:
         if log:
             log.warn(f"mcp_tool_timeout name={name} timeout_s={timeout_s}")
-        return _mcp_text(f"Tool {name} timed out after {timeout_s}s", True)
+            log.warn(f"mcp_tool_orphan name={name} "
+                     f"note=worker_thread_will_finish_in_background")
+        return _mcp_text(
+            f"Tool {name} timed out after {timeout_s}s "
+            f"(background work may still be running)", True)
     except Exception as e:
         if log:
             log.error(f"mcp_tool_err name={name} err={type(e).__name__}: {e}")
@@ -3746,13 +4007,39 @@ async def _mcp_dispatch_with_timeout(name, args, script_dir, out_dir,
 async def run_mcp_server(script_dir, out_dir, config, log):
     """MCP server over stdio. Tool calls are dispatched as asyncio tasks so a
     slow call never blocks receipt of the next request.
+
+    R1: tool work runs on a DEDICATED pool (`_mcp_tool_executor`), never the
+    loop's default executor — so stdin reads (`asyncio.to_thread` inside the
+    read loop) are never starved by tool work.
+
+    R2: pending tasks are cancelled on shutdown, drained with a short
+    timeout, and the executor uses `cancel_futures=True`. If worker threads
+    are still running afterwards (orphans from timed-out calls), the caller
+    force-exits so we don't wait minutes for a stuck Ghidra analysis.
+
+    R2_new: the global slot counter is reset at startup so leaked slots
+    from a previous run (only possible via cancel_futures racing worker
+    entry) cannot cause spurious "busy" responses.
     """
+    global _mcp_tool_executor, _mcp_active_workers
     stdin = sys.stdin
     stdout = sys.stdout
     if stdin.isatty():
         print("MCP: reading from TTY — send JSON-RPC lines or press Ctrl+C to exit.",
               file=sys.stderr)
     log.info("mcp_server_start")
+
+    # R2_new: reset the counter under the lock.
+    with _mcp_active_lock:
+        _mcp_active_workers = 0
+
+    # Dedicated pool for tool work — NEVER assigned as the loop default
+    # executor (that would starve stdin reads, see R1).
+    tool_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=_MCP_TOOL_MAX_WORKERS,
+        thread_name_prefix="mcp_tool",
+    )
+    _mcp_tool_executor = tool_executor
 
     write_lock = asyncio.Lock()
 
@@ -3780,6 +4067,8 @@ async def run_mcp_server(script_dir, out_dir, config, log):
     try:
         while True:
             try:
+                # R1: stdin reads go through the DEFAULT executor, NOT the
+                # tool pool — so they cannot be starved by tool work.
                 line = await asyncio.to_thread(stdin.readline)
             except KeyboardInterrupt:
                 log.info("mcp_server_stop user_interrupt")
@@ -3813,45 +4102,94 @@ async def run_mcp_server(script_dir, out_dir, config, log):
             rid = msg.get("id")
             is_notification = "id" not in msg
 
-            if method == "initialize":
-                await write_response({
-                    "jsonrpc": "2.0", "id": rid,
-                    "result": {
-                        "protocolVersion": MCP_PROTOCOL_VERSION,
-                        "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "rea_mini", "version": "1.2.0"},
-                    },
-                })
-            elif method == "notifications/initialized":
-                continue
-            elif method == "ping":
-                await write_response({"jsonrpc": "2.0", "id": rid, "result": {}})
-            elif method == "tools/list":
-                await write_response({"jsonrpc": "2.0", "id": rid,
-                                      "result": {"tools": _mcp_tools_schema()}})
-            elif method == "tools/call":
-                params = msg.get("params") or {}
-                name = params.get("name")
-                arguments = params.get("arguments") or {}
-                task = asyncio.create_task(
-                    handle_tool_call(name, arguments, rid, is_notification))
-                pending_tasks.add(task)
-                task.add_done_callback(pending_tasks.discard)
-                # Do NOT await; continue reading next request immediately.
-            else:
-                if is_notification:
+            try:
+                if method == "initialize":
+                    await write_response({
+                        "jsonrpc": "2.0", "id": rid,
+                        "result": {
+                            "protocolVersion": MCP_PROTOCOL_VERSION,
+                            "capabilities": {"tools": {"listChanged": False}},
+                            "serverInfo": {"name": "rea_mini", "version": "1.3.1"},
+                        },
+                    })
+                elif method == "notifications/initialized":
                     continue
-                await write_response({"jsonrpc": "2.0", "id": rid,
-                                      "error": {"code": -32601,
-                                                "message":
-                                                f"method not found: {method}"}})
+                elif method == "ping":
+                    await write_response({"jsonrpc": "2.0", "id": rid, "result": {}})
+                elif method == "tools/list":
+                    await write_response({"jsonrpc": "2.0", "id": rid,
+                                          "result": {"tools": _mcp_tools_schema()}})
+                elif method == "tools/call":
+                    # Validate `params` is a dict before calling .get(); a
+                    # truthy non-dict previously raised AttributeError and
+                    # killed the server.
+                    raw_params = msg.get("params")
+                    if raw_params is None:
+                        raw_params = {}
+                    if not isinstance(raw_params, dict):
+                        if not is_notification:
+                            await write_response({
+                                "jsonrpc": "2.0", "id": rid,
+                                "error": {"code": -32602,
+                                          "message": "invalid params: expected object"},
+                            })
+                        continue
+                    name = raw_params.get("name")
+                    if not isinstance(name, str) or not name:
+                        if not is_notification:
+                            await write_response({
+                                "jsonrpc": "2.0", "id": rid,
+                                "error": {"code": -32602,
+                                          "message": "missing or invalid tool name"},
+                            })
+                        continue
+                    arguments = raw_params.get("arguments")
+                    if arguments is None:
+                        arguments = {}
+                    task = asyncio.create_task(
+                        handle_tool_call(name, arguments, rid, is_notification))
+                    pending_tasks.add(task)
+                    task.add_done_callback(pending_tasks.discard)
+                    # Do NOT await; continue reading next request immediately.
+                else:
+                    if is_notification:
+                        continue
+                    await write_response({"jsonrpc": "2.0", "id": rid,
+                                          "error": {"code": -32601,
+                                                    "message":
+                                                    f"method not found: {method}"}})
+            except Exception as e:
+                # Belt-and-suspenders: never let a dispatch bug kill the loop.
+                log.error(f"mcp_dispatch_err method={method} err={type(e).__name__}: {e}")
+                if not is_notification:
+                    try:
+                        await write_response({
+                            "jsonrpc": "2.0", "id": rid,
+                            "error": {"code": -32603,
+                                      "message": f"internal error: {type(e).__name__}"},
+                        })
+                    except Exception:
+                        pass
     finally:
+        # R2: cancel pending tasks and drain with a short timeout. Without
+        # this, a running Ghidra call (up to ~480s) would block Ctrl+C/EOF
+        # handling for minutes.
         if pending_tasks:
             log.info(f"mcp_draining_pending count={len(pending_tasks)}")
+            for t in pending_tasks:
+                t.cancel()
             try:
-                await asyncio.gather(*pending_tasks, return_exceptions=True)
-            except Exception:
-                pass
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    timeout=2.0)
+            except asyncio.TimeoutError:
+                log.warn(f"mcp_drain_timeout remaining={len(pending_tasks)}")
+        # R2: cancel_futures=True so queued calls do not start after shutdown.
+        try:
+            tool_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        _mcp_tool_executor = None
         log.info("mcp_server_stop")
     return EXIT_OK
 
@@ -3998,9 +4336,36 @@ async def async_main(argv):
                                            non_interactive=True,
                                            auto_install=bool(args.yes))
             if args.cmd == "mcp":
-                return await run_mcp_server(script_dir, out_dir, config, log)
+                # R6_new: force-exit is inside a `finally` block so it is
+                # reached whether run_mcp_server returns or raises.
+                mcp_rc = 1
+                try:
+                    mcp_rc = await run_mcp_server(script_dir, out_dir, config, log)
+                finally:
+                    # If tool worker threads are still running (orphans from
+                    # timed-out calls), force-exit so the interpreter's atexit
+                    # join on concurrent.futures.thread does not block for up
+                    # to 8 minutes.
+                    if _mcp_slot_count() > 0:
+                        try:
+                            log.warn(f"mcp_force_exit active_workers={_mcp_slot_count()}")
+                            log.close()
+                        except Exception:
+                            pass
+                        try:
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
+                        os._exit(mcp_rc)
+                return mcp_rc
             print(f"Unknown command: {args.cmd}")
             return EXIT_BAD_URL
+
+        # Print the ASCII intro for both TTY and non-TTY interactive runs
+        # (--cmd short-circuits above). Printed exactly once here; the menu
+        # loop never reprints it.
+        _print_intro()
 
         # Interactive startup wizard (only for TTY, non --cmd runs).
         if sys.stdin.isatty():
