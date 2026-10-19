@@ -38,20 +38,11 @@ The script always loads and runs even when optional dependencies are missing. In
 
 ## Installation
 
+Download the rea_mini.py file and place it in any folder on your system. Use at your own risk.
+
 ```bash
-# Clone or download the single file
-curl -O https://example.com/rea_mini.py
-chmod +x rea_mini.py
-
-# Minimal install (URL capture + fan-out)
-pip install --user playwright readability-lxml html2text
-python -m playwright install chromium
-
-# For Ghidra analysis
-sudo apt install default-jdk binutils
-
-# For archive mode
-sudo apt install nodejs npm
+cd /(folder you put the file in)/
+python3 rea_mini.py 
 ```
 
 On first interactive run, REA_mini.py checks every dependency and offers a single `[A]ll / [N]one / [I]nteractive` prompt so you do not answer ten questions in a row.
