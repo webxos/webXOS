@@ -12,12 +12,7 @@ REA_mini.py bridges AI coding agents (via Model Context Protocol over stdio) and
 
 ## Update Log
 
-### v1.3.1 — Documentation and MCP hardening pass
-
-This entry records the deltas between README text and shipped behavior in
-`rea_mini.py`. If anything below contradicts a section above, the code and
-this log are authoritative; the README will be corrected in the next
-revision.
+### v1.3.1 
 
 **Corrections to prior documentation**
 
