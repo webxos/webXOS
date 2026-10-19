@@ -506,5 +506,6 @@ Free public APIs sometimes return empty result sets for narrow queries. The cach
 ---
 
 ## Attribution
+MIT by webXOS
 
 Inspired by [morluto/rea](https://github.com/morluto/rea) and the broader reverse-engineer-anything project. This file is a self-contained, single-file implementation intended for local use. See the upstream project for the full-featured MCP server and skill definitions.
