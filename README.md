@@ -1,11 +1,4 @@
-<div align="center" style="margin: 12px 0;">
-  <a href="https://buymeacoffee.com/webxos" target="_blank" rel="noopener noreferrer"
-     style="display:inline-block; transition: transform .2s ease, filter .2s ease;"
-     onmouseover="this.style.transform='translateY(-2px)'; this.style.filter='drop-shadow(0 0 8px #FFDD00)'"
-     onmouseout="this.style.transform='none'; this.style.filter='none'">
-    <img src="https://img.shields.io/badge/Buy_Me_a_Coffee-☕_webxos-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee - webxos">
-  </a>
-</div>
+
 
 ```
 
@@ -45,4 +38,12 @@
 
 [![Visit on Itch.io](https://img.shields.io/badge/Visit_on_Itch.io-FA5C5C?style=for-the-badge&logo=itch.io&logoColor=white)](https://webxos.itch.io/)
 
+<div align="left" style="margin: 12px 0;">
+  <a href="https://buymeacoffee.com/webxos" target="_blank" rel="noopener noreferrer"
+     style="display:inline-block; transition: transform .2s ease, filter .2s ease;"
+     onmouseover="this.style.transform='translateY(-2px)'; this.style.filter='drop-shadow(0 0 8px #FFDD00)'"
+     onmouseout="this.style.transform='none'; this.style.filter='none'">
+    <img src="https://img.shields.io/badge/Buy_Me_a_Coffee-☕_webxos-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee - webxos">
+  </a>
+</div>
 </div>
