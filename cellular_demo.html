@@ -335,12 +335,12 @@
 
     <div class="control-group">
       <label for="pitch-slider">Isometric Pitch <span class="val" id="pitch-val">55°</span></label>
-      <input type="range" id="pitch-slider" min="10" max="90" step="1" value="55" />
+      <input type="range" id="pitch-slider" min="10" max="89" step="1" value="55" />
     </div>
 
     <div class="control-group">
-      <label for="yaw-slider">Isometric Yaw <span class="val" id="yaw-val">-35°</span></label>
-      <input type="range" id="yaw-slider" min="-180" max="180" step="1" value="-35" />
+      <label for="yaw-slider">Isometric Yaw <span class="val" id="yaw-val">325°</span></label>
+      <input type="range" id="yaw-slider" min="0" max="360" step="1" value="325" />
     </div>
 
     <div class="control-group">
@@ -398,9 +398,9 @@
   var DEG = Math.PI / 180;
 
   var NB = 96;                 // depth buckets for painter's algorithm
-  var MAX_COLS = 501;          // hard cap on grid width
+  var MAX_COLS = 501;          // noise-buffer width (grid width is capped by rows*2+1 ≤ 301)
   var MIN_PITCH = 10;          // degrees (avoid degenerate edge-on view)
-  var MAX_PITCH = 90;
+  var MAX_PITCH = 89;          // degrees (90° would collapse pillars to zero length)
 
   /* ------------------------------------------------------------
      Rule descriptions.
@@ -429,24 +429,24 @@
     62:  "Class 3 chaos with a periodic left edge and a turbulent body.",
     73:  "Nested fractal with mirrored triangular voids. The empty neighbourhood also lives, so a single seed briefly floods the background before collapsing back into a sparse symmetric motif.",
     75:  "Chaotic with a strong leftward drift and fractal edges. The empty neighbourhood also lives, so a single seed briefly floods the background before settling into leftward-moving chaos.",
-    86:  "Symmetric fractal — mirrored Sierpinski-like voids.",
+    86:  "The exact mirror image of Rule 30. Class 3 chaos with a fractal fringe; its periodic striped flank sits on the opposite side to Rule 30's.",
     89:  "Chaotic with a left-leaning fractal margin. The empty neighbourhood also lives, so a single seed briefly floods the background before the chaos organises.",
     90:  "The classic Sierpinski triangle: XOR of the left and right neighbours. A perfect self-similar fractal.",
     94:  "Symmetric fractal with chaotic edging. Self-mirror; the pattern stays balanced around the seed.",
     102: "XOR of the centre and right cells — a left-leaning Sierpinski triangle.",
     105: "The logical complement of Rule 150 (XNOR of all three neighbours). Produces an inverted Sierpinski fractal — a live background with a self-similar pattern of dead holes. Symmetric and self-mirror.",
     110: "Class 4 and provably Turing complete — given enough room it can emulate any computer.",
-    122: "Chaotic with a strong leftward drift and a fractal right margin.",
+    122: "Self-mirror, Class 3. Grows a symmetric chaotic skeleton around the seed — no net drift.",
     126: "Class 3 chaos with mirrored fractal flanks.",
     129: "An inverted rule: empty neighbourhoods give birth, so a single seed floods the grid. A central dead notch then grows, splits and oscillates in a smooth wave.",
     137: "An inverted, asymmetric rule: empty neighbourhoods give birth, so a single seed floods the grid. A wandering dead notch forms around the seed and drifts left, leaving a chaotic asymmetric trace.",
     150: "XOR of all three neighbours. A symmetric, additive Sierpinski-like fractal.",
-    151: "The empty neighbourhood and every neighbourhood with at least two live cells give birth, so a single seed fills the grid in one step and stays full.",
-    153: "Nested mirrored fractals punctuated by periodic voids. The empty neighbourhood also lives, so a single seed briefly floods the background before the pattern organises.",
+    151: "Live in every neighbourhood except those with exactly two live cells. A single seed fills the grid in one step and stays full.",
+    153: "Not self-mirror. A near-full grid out of the single seed; a two-cell dead void then marches one step left per generation in a period-2 cycle.",
     160: "Instant extinction from a single seed. Only the 101 and 111 neighbourhoods survive, so the rule preserves patterns where the centre cell has live neighbours on both sides.",
-    164: "A frozen single cell. Only the isolated 010 neighbourhood survives, so the seed is preserved and nothing else ever appears.",
-    169: "Nested fractal — mirrored Sierpinski voids inside a stable outline. The empty neighbourhood also lives, so a single seed briefly floods the background.",
-    182: "Asymmetric fractal. A Class 2 rule used to model surface deposition.",
+    164: "Survives where the centre cell is isolated (010) or flanked on both sides (101, 111). From a single seed it freezes in place; nothing else appears.",
+    169: "Asymmetric (mirror = 225). The empty neighbourhood lives, so a single seed floods the grid; a dead region then opens around the seed and migrates left, leaving an irregular, non-fractal trace.",
+    182: "Self-mirror, Class 2. From a single seed it grows a solid symmetric triangle one cell per generation; with random seeds it settles into smooth drifting domains.",
     184: "Class 2 traffic model. Reproduces highway flow and surface deposition with clean diagonal bands. From a single seed, the cell simply marches one step to the right per generation.",
     190: "Dense asymmetric fractal with chaotic detail. Its mirror image is Rule 246.",
     193: "An inverted rule: the empty neighbourhood is born, so a single seed floods the grid. A three-cell dead notch forms near the seed and evolves chaotically.",
@@ -454,7 +454,7 @@
     218: "Self-mirror. From random seeds, Class 3 chaos with a fractal skeleton. From the default single-cell seed, a symmetric self-similar fractal of scattered cells expands outward.",
     222: "Self-mirror. From random seeds, chaotic. From the default single-cell seed, a solid triangle of live cells expands outward one cell per side per generation.",
     225: "Dense chaotic turbulence with fractal edges. The empty neighbourhood also lives, so a single seed immediately floods the background.",
-    232: "Majority-like rule — smooth uniform regions separated by chaotic boundaries.",
+    232: "Majority-like rule — smooth uniform regions separated by chaotic boundaries. From the default single-cell seed no cell has two live neighbours, so the whole grid dies immediately — switch to Random noise to see the rule.",
     240: "Near-trivial shift behaviour. Class 1.",
     246: "Asymmetric chaotic turbulence. Its mirror image is Rule 190.",
     250: "Dense fractal with mirrored voids.",
@@ -504,7 +504,7 @@
     rule: 30,
     seedMode: 'center',
     pitch: 55,        // degrees, elevation of the camera
-    yaw: -35,         // degrees, azimuth
+    yaw: 325,         // degrees, azimuth ∈ [0, 360)
     extrude: 2.0,     // pillar height in world units (1 unit = 1 cell)
     zoom: 1.0,        // user zoom multiplier on top of auto-fit
     steps: 60,        // number of generations (rows)
@@ -519,6 +519,35 @@
   var isDragging = false;
   var lastPointerX = 0;
   var lastPointerY = 0;
+
+  /* ============================================================
+     DETERMINISTIC NOISE (seeded PRNG)
+
+     Fixes the "random seed re-rolls while dragging Generations"
+     defect: the noise row is generated once per seedSalt and
+     cached, so changing rows/cols no longer re-noises the field.
+     ============================================================ */
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  var noiseCache = { salt: null, row: null };
+
+  function noiseRow(salt) {
+    if (noiseCache.salt !== salt) {
+      var rnd = mulberry32(0x1234567 ^ Math.imul(salt, 0x9E3779B1));
+      var row = new Uint8Array(MAX_COLS);
+      for (var i = 0; i < MAX_COLS; i++) row[i] = rnd() < 0.5 ? 1 : 0;
+      noiseCache = { salt: salt, row: row };
+    }
+    return noiseCache.row;
+  }
 
   /* ============================================================
      CELLULAR AUTOMATON ENGINE
@@ -546,9 +575,12 @@
     var c;
 
     switch (state.seedMode) {
-      case 'random':
-        for (c = 0; c < cols; c++) g[c] = Math.random() < 0.5 ? 1 : 0;
+      case 'random': {
+        var nr  = noiseRow(seedSalt);
+        var off = (MAX_COLS - cols) >> 1;   // keep noise centred on the seed column
+        for (c = 0; c < cols; c++) g[c] = nr[off + c];
         break;
+      }
       case 'alternating':
         for (c = 0; c < cols; c++) g[c] = c & 1;
         break;
@@ -846,8 +878,8 @@
   }
 
   function setYaw(v) {
-    // wrap into [-180, 180)
-    v = ((v + 180) % 360 + 360) % 360 - 180;
+    // wrap into [0, 360)
+    v = ((v % 360) + 360) % 360;
     state.yaw = v;
     yawSlider.value = String(Math.round(v));
     yawVal.textContent = Math.round(v) + '°';
@@ -926,7 +958,7 @@
   });
 
   btnReset.addEventListener('click', function () {
-    setYaw(-35);
+    setYaw(325);
     setPitch(55);
     setExtrude(2);
     setZoom(1);
@@ -1004,10 +1036,8 @@
      ANIMATION LOOP
      ============================================================ */
 
-  var lastFrameTime = 0;
-
-  function loop(now) {
-    if (state.autoRotate) {
+  function loop() {
+    if (state.autoRotate && !isDragging) {
       setYaw(state.yaw + 0.35);
       needsRender = true;
     }
@@ -1017,7 +1047,6 @@
       needsRender = false;
     }
 
-    lastFrameTime = now;
     requestAnimationFrame(loop);
   }
 
@@ -1028,7 +1057,7 @@
   function init() {
     setRule(30);
     setPitch(55);
-    setYaw(-35);
+    setYaw(325);
     setExtrude(2);
     setZoom(1);
     setSteps(60);
