@@ -33,7 +33,7 @@
 
 <br><br>
 
-**A 1999-simple, monochrome, local-first search engine**
+**A simple, and safe, local-first search engine**
 
 [Live Demo](https://agentowl.netlify.app/knoogle) · [OWL Family](https://agentowl.netlify.app)
 
