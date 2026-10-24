@@ -20,7 +20,25 @@
                            
                               
 ```      
-                       
+ <div align="center">
+
+[![knOOgle](https://img.shields.io/badge/knOOgle-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/knoogle)
+
+<br>
+
+<img src="https://img.shields.io/badge/No%20OpenAI-No%20Anthropic-No%20Google-111111?style=flat-square&labelColor=000000&color=f2f2f2" alt="Vendor free">
+<img src="https://img.shields.io/badge/Pure%20JSON%20first-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Pure JSON">
+<img src="https://img.shields.io/badge/Single%20file%20≤%20300%20KB-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Size">
+<img src="https://img.shields.io/badge/IndexedDB%20dropbox-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="IndexedDB">
+<img src="https://img.shields.io/badge/OWL%20family-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="OWL">
+
+<br><br>
+
+**A 1999-simple, monochrome, local-first search engine**
+
+[Live Demo](https://agentowl.netlify.app/knoogle) · [OWL Family](https://agentowl.netlify.app)
+
+</div>                      
                                                             
 
 [![Website](https://img.shields.io/badge/webXOS.netlify.app-Explore_Apps-00d4aa?style=for-the-badge&logo=netlify&logoColor=white)](https://webxos.netlify.app)
@@ -48,16 +66,3 @@
 <br>
 <div align="center">
 
-<img src="https://img.shields.io/badge/knOOgle-try--local%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2" alt="knOOgle">
-<br><br>
-
-<img src="https://img.shields.io/badge/Pure%20JSON%20first-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Pure JSON">
-<img src="https://img.shields.io/badge/Single%20file%20≤%20300%20KB-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Size">
-<img src="https://img.shields.io/badge/IndexedDB%20dropbox-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="IndexedDB">
-<img src="https://img.shields.io/badge/OWL%20family-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="OWL">
-
-<br><br>
-
-**A 1999-simple, monochrome, local-first search engine**
-
-</div>
