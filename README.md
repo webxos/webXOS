@@ -32,8 +32,6 @@
 
 <br><br>
 
-**A simple, and safe, local-first search engine**
-
 </div>                      
                                                             
 
