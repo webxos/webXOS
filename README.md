@@ -24,7 +24,6 @@
 
 [![knOOgle](https://img.shields.io/badge/knOOgle-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/knoogle)
 
-<br>
 </div>                      
                                                             
 
