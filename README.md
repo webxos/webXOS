@@ -25,13 +25,6 @@
 [![knOOgle](https://img.shields.io/badge/knOOgle-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/knoogle)
 
 <br>
-
-<img src="https://img.shields.io/badge/Pure%20JSON%20first-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Pure JSON">
-<img src="https://img.shields.io/badge/IndexedDB%20dropbox-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="IndexedDB">
-<img src="https://img.shields.io/badge/Try%20Free-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="OWL">
-
-<br><br>
-
 </div>                      
                                                             
 
