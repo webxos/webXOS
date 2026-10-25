@@ -28,7 +28,7 @@
 
 <img src="https://img.shields.io/badge/Pure%20JSON%20first-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="Pure JSON">
 <img src="https://img.shields.io/badge/IndexedDB%20dropbox-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="IndexedDB">
-<img src="https://img.shields.io/badge/OWL%20family-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="OWL">
+<img src="https://img.shields.io/badge/Try%20Free-000000?style=flat-square&labelColor=111111&color=f2f2f2" alt="OWL">
 
 <br><br>
 
