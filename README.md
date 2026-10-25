@@ -20,7 +20,7 @@
                            
                               
 ```      
- <div align="center">
+ <div align="left">
 
 [![knOOgle](https://img.shields.io/badge/knOOgle-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/knoogle)
 
@@ -33,8 +33,6 @@
 <br><br>
 
 **A simple, and safe, local-first search engine**
-
-[Live Demo](https://agentowl.netlify.app/knoogle) · [OWL Family](https://agentowl.netlify.app)
 
 </div>                      
                                                             
