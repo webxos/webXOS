@@ -47,7 +47,7 @@ It is built around one reliable purpose: **Diablo II + Battle.net** support for 
 2. Find the folder:
 
    ```bash
-   cd /folder/     <--- the folder you put the .py file in, plus D2+LOD .exe install files. One seamless sandbox folder for the app. 
+   cd /folder/     <--- the folder you put the files in.
    ```
 
 3. Run it:
