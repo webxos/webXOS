@@ -37,16 +37,17 @@ It is built around one reliable purpose: **Diablo II + Battle.net** support for 
 - Python 3.8+
 - X11 (or XWayland)
 - Optional but recommended: `sudo` rights for the auto-installer
+- Legal copies/cd keys for Diablo 2 v1.14d and LOD expansion: https://account.battle.net/
 
 ---
 
 ## Quick Start
 
-1. Place `winebox.py` in an empty folder (or a folder that already contains your Windows `.exe` / `.msi` installers).
-2. Make it executable (optional):
+1. Place `winebox.py` + the .exe files for D2+LOD in an empty folder (or a folder that already contains your Windows `.exe` / `.msi` installers).
+2. Find the folder:
 
    ```bash
-   chmod +x winebox.py
+   cd /folder/     <--- the folder you put the .py file in, plus D2+LOD .exe install files. One seamless sandbox folder for the app. 
    ```
 
 3. Run it:
