@@ -9,7 +9,9 @@
 **Winebox** is a single-file, zero-configuration Wine wrapper that turns any Linux folder into a self-contained Windows sandbox. 
 Drop Windows installers or games next to `winebox.py`, run the script, and everything lives under the same directory — no system-wide Wine pollution, no manual prefix management.
 
-It is built around reliable purpose: **Diablo II + Battle.net** support (1.14d patch, Glide 60 FPS, correct gateways, DLL overrides, crash-reporter disable), but the repair path works for any Win32 application. Other applications might work but have not been tested. Future updates might also include Steam or other windows only platforms. 
+It is built around one reliable purpose: **Diablo II + Battle.net** support for Linux Debian systems. (1.14d patch, Glide 60 FPS, correct gateways, DLL overrides, crash-reporter disable), but the repair path works for any Win32 application. Other applications might work but have not been tested. 
+
+*Future updates might also include Steam or other windows only platforms.*
 
 ---
 
