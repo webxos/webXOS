@@ -242,13 +242,8 @@ If that also fails, check network connectivity and try running option [2].
 
 ---
 
-## License / Credits
-
-This is a single-file utility. Feel free to modify, redistribute, or embed it.  
+## License
+The .py file is MIT by webXOs 2026 - webxos.netlify.app.
 Diablo II / Battle.net are trademarks of Blizzard Entertainment.  
-Wine is copyright of the Wine project.
+Wine copyright belongs to Wine entity. 
 
----
-
-**Enjoy the sandbox.**  
-Drop files → run `winebox.py` → play.
