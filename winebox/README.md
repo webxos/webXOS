@@ -1,4 +1,3 @@
-# WINEBOX – Zero-choice Virtual Windows Sandbox
 ```
  __        _____ _   _ _____ ____   _____  __
  \ \      / /_ _| \ | | ____| __ ) / _ \ \/ /
