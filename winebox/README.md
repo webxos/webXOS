@@ -43,7 +43,7 @@ It is built around one reliable purpose: **Diablo II + Battle.net** support for 
 
 ## Quick Start
 
-1. Place `winebox.py` + the .exe files for D2+LOD in an empty folder (or a folder that already contains your Windows `.exe` / `.msi` installers).
+1. Place `winebox.py` + the .exe files for D2+LOD in an empty folder.
 2. Find the folder:
 
    ```bash
@@ -55,8 +55,6 @@ It is built around one reliable purpose: **Diablo II + Battle.net** support for 
    ```bash
    python3 winebox.py
    ```
-
-4. Follow the menu.
 
 ---
 
