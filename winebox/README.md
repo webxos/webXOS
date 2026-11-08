@@ -38,14 +38,6 @@ It is built around one reliable purpose: **Diablo II + Battle.net** support for 
 - X11 (or XWayland)
 - Optional but recommended: `sudo` rights for the auto-installer
 
-The script will try to install these packages if missing:
-
-```bash
-sudo dpkg --add-architecture i386
-sudo apt update
-sudo apt install -y wine32:i386 wine64 wine winetricks
-```
-
 ---
 
 ## Quick Start
@@ -61,8 +53,6 @@ sudo apt install -y wine32:i386 wine64 wine winetricks
 
    ```bash
    python3 winebox.py
-   # or
-   ./winebox.py
    ```
 
 4. Follow the menu.
