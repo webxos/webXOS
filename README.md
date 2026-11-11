@@ -71,14 +71,14 @@ Free Apps I've made recently:
 
   <div align="left">
 
-[![FEED](https://img.shields.io/badge/FEED-API--News%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/arcr)
+[![FEED](https://img.shields.io/badge/FEED-API--News%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/feed)
 
 
 </div>  
 
   <div align="left">
 
-[![MICROSEEK](https://img.shields.io/badge/MICROSEEK-LocalDB--OS%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/arcr)
+[![MICROSEEK](https://img.shields.io/badge/MICROSEEK-LocalDB--OS%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/microseek)
 
 
 </div>  
