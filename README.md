@@ -46,8 +46,9 @@
 <br>
 <div align="center">
 
-
+ <div align="left">
 Free Apps I've made recently:
+</div>   
 
  <div align="left">
 
@@ -62,6 +63,11 @@ Free Apps I've made recently:
 
   <div align="left">
 
-[![ARCR](https://img.shields.io/badge/ARCR-Prompt--Architect%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/openwiki)
+[![ARCR](https://img.shields.io/badge/ARCR-Prompt--Architect%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/arcr)
+
+</div>     
+  <div align="left">
+
+[![The FEED](https://img.shields.io/badge/The-FEED--API%20News%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/feed)
 
 </div>     
