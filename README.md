@@ -65,9 +65,13 @@ Free Apps I've made recently:
 
 [![ARCR](https://img.shields.io/badge/ARCR-Prompt--Architect%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/arcr)
 
-</div>     
+
+</div>  
+
   <div align="left">
 
-[![FEED](https://img.shields.io/badge/The-FEED-API%20News%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/feed)
+[![FEED](https://img.shields.io/badge/FEED-API--News%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/arcr)
 
-</div>     
+
+</div>  
+
