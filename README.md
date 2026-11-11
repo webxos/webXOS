@@ -25,7 +25,11 @@
 [![knOOgle](https://img.shields.io/badge/knOOgle-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/knoogle)
 
 </div>                      
-                                                            
+  <div align="left">
+
+[![OpenWiki](https://img.shields.io/badge/Openwiki-local--first%20search-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/openwiki)
+
+</div>                                                              
 
 [![Website](https://img.shields.io/badge/webXOS.netlify.app-Explore_Apps-00d4aa?style=for-the-badge&logo=netlify&logoColor=white)](https://webxos.netlify.app)
 
