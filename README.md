@@ -47,7 +47,7 @@
 <div align="center">
 
  <div align="left">
-Free Apps I've made recently:
+Free Apps I've made lately:
    
 </div>   
 <br>
