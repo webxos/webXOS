@@ -75,10 +75,3 @@ Free Apps I've made recently:
 
 
 </div>  
-
-  <div align="left">
-
-[![MICROSEEK](https://img.shields.io/badge/MICROSEEK-LocalDB--OS%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/microseek)
-
-
-</div>  
