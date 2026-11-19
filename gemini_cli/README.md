@@ -12,7 +12,7 @@ A minimal and Single-file, stdlib-only Python harness that serves a chat UI on `
 
 ```bash
 cd /folder/ (The folder the py file is in)
-python3 geminiv3.py                 
+python3 gemini_harness_by_webxos-v1.py             
 ```
 
 If the requested port is busy, the harness falls back through `8420 → 8421 → 8422 → 8423`.
