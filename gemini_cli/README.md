@@ -1,4 +1,6 @@
-# Gemini 4 Hydrogen — Local Harness Chat Wrapper by webXOS
+# Gemini 4 Hydrogen — Local Harness Chat Wrapper 
+
+*by webXOS webxos.netlify.app // github.com/webxos*
 
 A minimal and Single-file, stdlib-only Python harness that serves a chat UI on `127.0.0.1` and proxies prompts to the Gemini REST API.
 
