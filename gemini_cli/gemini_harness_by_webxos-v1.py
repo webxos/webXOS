@@ -395,7 +395,7 @@ HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'">
-<title>Gemini 4 Hydrogen Harness</title>
+<title>Gemini 4 Hydrogen Harness by webXOS</title>
 <script>
 (function () {
   // 4.5: apply saved theme before first paint (no flash).
@@ -548,8 +548,8 @@ HTML = """<!DOCTYPE html>
 
   <aside class="sidebar" id="sidebar" aria-label="Chat list">
     <div class="sidebar-head">
-      <p class="sidebar-title">Hydrogen Harness</p>
-      <p class="sidebar-sub">gemini-4-hydrogen / local</p>
+      <p class="sidebar-title">Gemini Harness</p>
+      <p class="sidebar-sub">Designed for gemini-4-hydrogen / by webOS</p>
     </div>
     <div style="padding:10px 14px 0;">
       <button type="button" id="newchat" class="newchat" style="width:100%;">New chat</button>
