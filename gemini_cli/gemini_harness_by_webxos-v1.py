@@ -1,37 +1,42 @@
 #!/usr/bin/env python3
-"""Gemini 4 Hydrogen // Minimal Harness (v3, production-grade).
+"""Gemini 4 Hydrogen // Minimal Harness (v4, API-key only).
 
 A single-file, stdlib-only local harness serving a DeepSeek-style
 monochrome chat UI on 127.0.0.1 only.
 
-Security model (v3 hardening, all JGF issues resolved):
+Changes in v4 (remake):
+  - Google OAuth / Gemini-CLI capture removed entirely: the harness is
+    API-key based only (x-goog-api-key header). No npx, no /api/cli-auth.
+  - Conversations persist in the browser's IndexedDB and survive reloads.
+    Each conversation in the sidebar has its own Delete button, and the
+    sidebar "Delete All" button wipes the whole IndexedDB database.
+  - The saved API key sticks across every conversation, new chat and page
+    reload (config.json on disk + live masked status in the UI). Saving
+    with a blank key field keeps the existing key (no accidental wipes).
+  - /api/run accepts the conversation history so multi-turn chats keep
+    their context (capped server-side at MAX_HISTORY_TURNS).
+
+Security model (carried over from v3 hardening):
   - Binds 127.0.0.1; strict Origin + Host validation on every request
-    (CSRF / DNS-rebinding defense).                      [v1-C1, v1-H1]
+    (CSRF / DNS-rebinding defense).
   - /sh requests: read-only allowlist auto-runs; anything else needs
     explicit confirmation via a one-time token; deny list refused even
-    after confirmation; multi-line commands NEVER auto-run. [v1-C2, v1-C3, v2-C1]
+    after confirmation; multi-line commands NEVER auto-run.
   - Pending confirmation tokens are FIFO-capped, expiring, single-use.
-                                                        [v2-H1]
   - Request bodies capped (413) for both Content-Length and chunked
     framing; invalid Content-Length is rejected 400, not silently
-    dropped.                                            [v1-H2, v2-H2, v2-M1]
+    dropped.
   - Config: RLock + atomic replace + strict validation; invalid values
     raise 4xx back to the caller instead of silently vanishing.
-                                                        [v1-H3, v1-M4, v2-M2]
   - Gemini API key travels in the x-goog-api-key header, never the URL.
-                                                        [v1-M3]
-  - urlopen has a 60s timeout.                          [v1-H4]
-  - CLI auth: 30s timeout, process-group kill, single-flight guard
-    (no concurrent npx spawns).                        [v1-H5, v1-L3]
+  - urlopen has a 60s timeout.
   - CSP + X-Content-Type-Options: nosniff on every response; the page
-    never injects model output as HTML.                 [v2-M5, 4.7]
+    never injects model output as HTML.
   - Rotating file log; API key redacted everywhere it may appear.
-                                                        [v1-L1, v2-L4]
   - Execution output truncated; allowlist auto-runs are logged.
-                                                        [v1-L2, v2-L3]
-  - Port via --port / HARNESS_PORT with fallback chain. [v1/n9]
+  - Port via --port / HARNESS_PORT with fallback chain.
 
-Run: python3 harness.py [--port N] [--no-browser]
+Run: python3 gemini.py [--port N] [--no-browser]
 """
 
 import argparse
@@ -42,7 +47,6 @@ from logging.handlers import RotatingFileHandler
 import os
 import re
 import secrets
-import signal
 import socketserver
 import subprocess
 import sys
@@ -65,27 +69,28 @@ API_ENDPOINT = (
     "gemini-4-hydrogen:generateContent"
 )
 GEMINI_API_TIMEOUT = 60
-CLI_AUTH_TIMEOUT = 30          # npx may need to download the package first
 MAX_BODY_BYTES = 1024 * 1024   # 1 MiB cap on request bodies
 MAX_OUTPUT_CHARS = 20000       # truncate huge command output in replies
 EXEC_TIMEOUT = 60              # hard cap for confirmed shell executions
 VALID_THINKING = ("low", "medium", "high", "xhigh")
-PENDING_CAP = 64               # v2-H1: hard cap on unconfirmed commands
-PENDING_TTL = 600               # unconfirmed commands expire after 10 min
+PENDING_CAP = 64               # hard cap on unconfirmed commands
+PENDING_TTL = 600              # unconfirmed commands expire after 10 min
+MAX_HISTORY_TURNS = 40         # v4: conversation turns sent to the model
+MAX_HISTORY_MSG_CHARS = 32000  # v4: per-message cap inside that history
 CSP_POLICY = (
     "default-src 'self'; script-src 'unsafe-inline'; "
     "style-src 'unsafe-inline'; connect-src 'self'"
 )
 
-# v1-C3/v2-L1: read-only commands safe to auto-run WITHOUT confirmation.
-# Matched against a NORMALIZED SINGLE LINE only (v2-C1: any newline or
+# Read-only commands safe to auto-run WITHOUT confirmation.
+# Matched against a NORMALIZED SINGLE LINE only (any newline or
 # shell metacharacter disqualifies auto-run entirely).
 AUTO_SAFE_COMMANDS = (
     "uptime", "date", "whoami", "id", "hostname", "uname", "df", "free",
     "ls", "pwd", "cat /etc/os-release", "echo",
 )
 # Absolute blocks: word-boundary regex, so "format" no longer matches
-# inside "information" (v2-L1). Never executed, confirmed or not.
+# inside "information". Never executed, confirmed or not.
 DENIED_PATTERNS = (
     r"\brm\b", r"\bmkfs\b", r"\bdd\b", r"\bshutdown\b", r"\breboot\b",
     r"\bkill\b", r"\bpkill\b", r"\bchmod\b", r"\bchown\b", r"\bcurl\b",
@@ -100,7 +105,7 @@ DENIED_PATTERNS = (
 )
 DENIED_RES = [re.compile(p) for p in DENIED_PATTERNS]
 
-# v1-M2: model replies that are refusals or prose, never shell commands.
+# Model replies that are refusals or prose, never shell commands.
 REFUSAL_PATTERNS = (
     "i cannot", "i can't", "i'm sorry", "i am sorry", "i won't",
     "i will not", "cannot assist", "can't assist", "cannot help",
@@ -110,15 +115,15 @@ REFUSAL_PATTERNS = (
     "i apologize", "apologize, but",
 )
 
-# v1-M1: fenced code blocks (```bash ... ``` etc.) and inline code spans.
+# Fenced code blocks (```bash ... ``` etc.) and inline code spans.
 RE_FENCE = re.compile(r"```(?:[a-zA-Z0-9_+-]*\s*\n)?(.*?)```", re.DOTALL)
 RE_INLINE = re.compile(r"`([^`\n]+)`")
-# Any shell metacharacter disqualifies auto-run (v2-C1 hardening).
+# Any shell metacharacter disqualifies auto-run.
 SHELL_METACHARS = (";", "|", "&", "(", ")", "$", "<", ">", "`", "\\", "\n", "\r")
 
 
 # --------------------------------------------------------------------------
-# Logging (v1-L1): requests go to a rotating harness.log.
+# Logging: requests go to a rotating harness.log.
 # --------------------------------------------------------------------------
 def _build_logger():
     logger = logging.getLogger("harness")
@@ -143,7 +148,7 @@ LOG = _build_logger()
 
 
 def _redact(text):
-    """v2-L4: strip the API key from log/output strings.
+    """Strip the API key from log/output strings.
 
     Catches both `key=...` fragments and the literal configured key
     value, whatever its position, so the key can never reach the log.
@@ -161,9 +166,8 @@ def _redact(text):
 
 
 # --------------------------------------------------------------------------
-# Config (v1-H3, v1-M4, v2-M2, v2-M3): one RLock, atomic writes, strict
-# validation; bad input raises ValueError -> HTTP 400 (no silent drop,
-# no dead cache variable).
+# Config: one RLock, atomic writes, strict validation; bad input raises
+# ValueError -> HTTP 400 (no silent drop, no dead cache variable).
 # --------------------------------------------------------------------------
 _CFG_LOCK = threading.RLock()
 
@@ -213,8 +217,10 @@ def load_cfg():
 def save_cfg(update):
     """Validate + merge `update` into config.json atomically.
 
-    Raises ValueError on any bad key/value (v2-M2), so the HTTP layer can
+    Raises ValueError on any bad key/value, so the HTTP layer can
     answer 400; a failed save never wipes existing data (tmp + replace).
+    Keys absent from `update` are left untouched, so saving with a blank
+    apiKey field keeps the previously stored key.
     """
     if not isinstance(update, dict):
         raise ValueError("config update must be a JSON object")
@@ -234,7 +240,7 @@ def save_cfg(update):
 
 
 # --------------------------------------------------------------------------
-# Pending-execution tokens (v1-C2, v2-H1): one-time, expiring, FIFO-cap.
+# Pending-execution tokens: one-time, expiring, FIFO-capped.
 # --------------------------------------------------------------------------
 _PENDING_LOCK = threading.Lock()
 _PENDING = {}          # token -> {"cmd", "prompt", "expires", "seq"}
@@ -242,7 +248,7 @@ _PENDING_SEQ = [0]     # monotonic insertion counter for FIFO eviction
 
 
 def _register_pending(cmd, prompt):
-    """Register a command awaiting confirmation; FIFO-capped (v2-H1)."""
+    """Register a command awaiting confirmation; FIFO-capped."""
     token = secrets.token_urlsafe(24)
     with _PENDING_LOCK:
         now = time.time()
@@ -280,10 +286,10 @@ def pending_count():
 
 
 # --------------------------------------------------------------------------
-# Command parsing / classification (v1-M1, v1-M2, v2-C1, v2-L1)
+# Command parsing / classification
 # --------------------------------------------------------------------------
 def extract_command(reply):
-    """v1-M1: pull the shell command out of a model reply.
+    """Pull the shell command out of a model reply.
 
     Order: fenced block (```bash / ```sh / ```), then inline backtick
     span, then the raw text if it is command-shaped. Returns None when
@@ -308,7 +314,7 @@ def extract_command(reply):
 
 
 def looks_like_command(text):
-    """v1-M2: heuristic -- does this text plausibly contain a shell command?"""
+    """Heuristic -- does this text plausibly contain a shell command?"""
     if not text:
         return False
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -328,7 +334,7 @@ def looks_like_command(text):
 
 
 def is_refusal(reply):
-    """v1-M2: True if the model refused or answered in prose."""
+    """True if the model refused or answered in prose."""
     low = reply.lower()
     return any(p in low for p in REFUSAL_PATTERNS)
 
@@ -336,14 +342,13 @@ def is_refusal(reply):
 def command_risk(cmd):
     """Classify: 'safe' (auto-run), 'blocked' (never), 'confirm'.
 
-    v2-C1: multi-line commands (newline/CR anywhere in the ORIGINAL
-    string) are classified BEFORE any flattening, and can never be
-    'safe'. v2-L1: deny patterns are word-boundary regexes on the
-    flattened text.
+    Multi-line commands (newline/CR anywhere in the ORIGINAL string)
+    are classified BEFORE any flattening, and can never be 'safe'.
+    Deny patterns are word-boundary regexes on the flattened text.
     """
     if not isinstance(cmd, str) or not cmd.strip():
         return "blocked"
-    # v2-C1: original (un-flattened) newline check comes FIRST.
+    # original (un-flattened) newline check comes FIRST.
     if "\n" in cmd or "\r" in cmd:
         flat = " ".join(cmd.split())
         if any(rx.search(flat) for rx in DENIED_RES):
@@ -377,17 +382,45 @@ def build_system_prompt(shell_mode):
 
 
 def split_prompt(prompt):
-    """v1-M1: detect the /sh prefix; returns (shell_mode, user_text)."""
+    """Detect the /sh prefix; returns (shell_mode, user_text)."""
     if prompt == "/sh" or prompt.startswith("/sh "):
         return True, prompt[3:].strip()
     return False, prompt
 
 
+def sanitize_history(value):
+    """v4: normalize the client-supplied conversation history.
+
+    Accepts a list of {"role": "user"|"model", "text": str}; anything
+    malformed is dropped, the list is capped to the last
+    MAX_HISTORY_TURNS entries and each text to MAX_HISTORY_MSG_CHARS.
+    Returns Gemini-shaped contents entries.
+    """
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[-MAX_HISTORY_TURNS:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        text = item.get("text")
+        if role not in ("user", "model"):
+            continue
+        if not isinstance(text, str) or not text.strip():
+            continue
+        if len(text) > MAX_HISTORY_MSG_CHARS:
+            text = text[:MAX_HISTORY_MSG_CHARS]
+        out.append({"role": role, "parts": [{"text": text}]})
+    return out
+
+
 # --------------------------------------------------------------------------
-# UI: DeepSeek-style full-viewport monochrome chat. Guide 4.1-4.8.
+# UI: DeepSeek-style full-viewport monochrome chat.
 # ASCII only; black/white tokens; Times New Roman chrome, Courier code;
-# invert via CSS variables (no CSS filter inversion); localStorage persistence
-# applied pre-paint; all dynamic text via textContent (XSS-safe).
+# invert via CSS variables (no CSS filter inversion); localStorage theme
+# persistence applied pre-paint; all dynamic text via textContent
+# (XSS-safe). v4: IndexedDB conversation store, per-chat Delete buttons,
+# Delete All wipe, persistent API-key status. OAuth controls removed.
 # --------------------------------------------------------------------------
 HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -395,10 +428,10 @@ HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'">
-<title>Gemini 4 Hydrogen Harness by webXOS</title>
+<title>Gemini 4 Hydrogen Harness</title>
 <script>
 (function () {
-  // 4.5: apply saved theme before first paint (no flash).
+  // apply saved theme before first paint (no flash).
   try {
     var saved = localStorage.getItem("harness-theme");
     var dark = saved ? saved === "dark"
@@ -434,7 +467,7 @@ HTML = """<!DOCTYPE html>
   }
   button:hover { background: var(--surface); }
 
-  /* 4.1 layout skeleton */
+  /* layout skeleton */
   .app { display: flex; height: 100vh; width: 100vw; }
   .sidebar {
     width: 260px; flex: 0 0 260px; display: flex; flex-direction: column;
@@ -445,10 +478,17 @@ HTML = """<!DOCTYPE html>
   .sidebar-sub { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
   .newchat { width: 100%; margin: 10px 14px 0 0; text-align: left; }
   .convs { flex: 1; padding: 8px 14px; overflow-y: auto; }
-  .conv { padding: 7px 8px; border: 1px solid transparent; margin-bottom: 5px; cursor: pointer; }
+  .conv {
+    position: relative; padding: 7px 8px; padding-right: 48px;
+    border: 1px solid transparent; margin-bottom: 5px; cursor: pointer;
+  }
   .conv:hover, .conv.active { border-color: var(--line); background: var(--surface); }
   .conv-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .conv-preview { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-del {
+    position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+    font-size: 11px; padding: 1px 7px; line-height: 1.4;
+  }
   .sidebar-foot { border-top: 1px solid var(--line); padding: 10px 14px; }
   .foot-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -458,13 +498,17 @@ HTML = """<!DOCTYPE html>
     padding: 8px 14px; border-bottom: 1px solid var(--line); gap: 10px;
   }
   .model-name { font-size: 15px; font-weight: bold; }
+  .key-status {
+    font-size: 12px; color: var(--muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 40%;
+  }
   .hamburger { display: none; }
 
   .scroller { flex: 1; overflow-y: auto; padding: 18px 22px 10px; }
   .msg-row { display: flex; margin-bottom: 14px; }
   .msg-row.user { justify-content: flex-end; }
   .msg-row.ai { justify-content: flex-start; }
-  /* 4.2: user right bubble, assistant left plain block */
+  /* user right bubble, assistant left plain block */
   .bubble-user {
     max-width: 72%; background: var(--bubble-user);
     border: 1px solid var(--line); border-radius: 10px;
@@ -489,7 +533,7 @@ HTML = """<!DOCTYPE html>
   .sysmsg a { color: var(--fg); text-decoration: underline; }
   .a11y-vis { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-  /* 4.3 composer */
+  /* composer */
   .composer {
     border-top: 1px solid var(--line); padding: 10px 22px 6px; background: var(--bg);
   }
@@ -509,7 +553,7 @@ HTML = """<!DOCTYPE html>
   .send[disabled] { opacity: 0.55; cursor: default; }
   .disclaimer { font-size: 12px; color: var(--muted); margin: 5px 0 2px; }
 
-  /* 4.7 settings drawer (collapsible) */
+  /* settings drawer (collapsible) */
   .drawer {
     display: none; border-bottom: 1px solid var(--line);
     padding: 10px 14px; background: var(--surface);
@@ -521,7 +565,7 @@ HTML = """<!DOCTYPE html>
   }
   .drawer .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
 
-  /* 4.1 mobile: off-canvas sidebar drawer */
+  /* mobile: off-canvas sidebar drawer */
   @media (max-width: 860px) {
     .sidebar {
       position: fixed; top: 0; left: 0; bottom: 0; z-index: 30;
@@ -548,8 +592,8 @@ HTML = """<!DOCTYPE html>
 
   <aside class="sidebar" id="sidebar" aria-label="Chat list">
     <div class="sidebar-head">
-      <p class="sidebar-title">Gemini Harness</p>
-      <p class="sidebar-sub">Designed for gemini-4-hydrogen / by webOS</p>
+      <p class="sidebar-title">Hydrogen Harness</p>
+      <p class="sidebar-sub">gemini-4-hydrogen / local</p>
     </div>
     <div style="padding:10px 14px 0;">
       <button type="button" id="newchat" class="newchat" style="width:100%;">New chat</button>
@@ -559,12 +603,13 @@ HTML = """<!DOCTYPE html>
       <div class="foot-row">
         <button type="button" id="settings-btn">Settings</button>
         <button type="button" id="invert-side">Invert</button>
-        <button type="button" id="auth-btn">Google OAuth</button>
+        <button type="button" id="wipe-btn">Delete All</button>
       </div>
       <div class="drawer" id="drawer">
         <form onsubmit="return false">
           <label for="apiKey">API key</label>
           <input type="password" id="apiKey" placeholder="GEMINI_API_KEY" autocomplete="off">
+          <p class="note" id="key-status" style="margin:4px 0 0;">No key saved yet.</p>
           <label for="thinking">Thinking level</label>
           <select id="thinking">
             <option value="low">low (fastest)</option>
@@ -577,7 +622,9 @@ HTML = """<!DOCTYPE html>
             <button type="button" id="cancel-cfg">Close</button>
           </div>
           <p class="note">Key is stored locally in config.json and sent only to
-          generativelanguage.googleapis.com. It is never echoed back to the page.</p>
+          generativelanguage.googleapis.com. It is never echoed back to the page.
+          Leave the field blank to keep the saved key; once saved it sticks
+          across all conversations and reloads.</p>
         </form>
       </div>
     </div>
@@ -588,6 +635,7 @@ HTML = """<!DOCTYPE html>
     <div class="topbar">
       <button type="button" class="hamburger" id="hamburger" aria-label="Toggle sidebar">Menu</button>
       <span class="model-name">gemini-4-hydrogen</span>
+      <span class="key-status" id="key-status-top">API key: checking...</span>
       <button type="button" id="invert-top">Invert</button>
     </div>
 
@@ -595,7 +643,7 @@ HTML = """<!DOCTYPE html>
       <div class="sysmsg" id="welcome">Session started. Prompts are proxied to
       gemini-4-hydrogen. Prefix a prompt with /sh to request a local shell
       command; it will ask for confirmation before running. Configure the API
-      key under Settings.</div>
+      key under Settings; it persists across all conversations.</div>
     </div>
 
     <div class="composer">
@@ -619,32 +667,310 @@ HTML = """<!DOCTYPE html>
   var promptEl = document.getElementById("prompt");
   var sendBtn = document.getElementById("send");
   var chip = document.getElementById("shchip");
+  var keyStatusTop = document.getElementById("key-status-top");
+  var keyStatusDrawer = document.getElementById("key-status");
   var pendingBusy = false;
 
-  // ---- conversation list (in-memory, per 4.7: no unbounded storage) ----
-  var convs = [];               // {title, preview}
+  // ---- IndexedDB conversation store (v4) ----
+  // DB "harness-chat", store "convs" keyed by id (autoincrement-free:
+  // we mint our own ids). One record per conversation:
+  //   { id, title, preview, updated, messages: [{role, text, opts}] }
+  var DB_NAME = "harness-chat";
+  var DB_STORE = "convs";
+  var db = null;
+
+  function idbOpen() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error("IndexedDB unavailable")); return; }
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function () {
+        var d = req.result;
+        if (!d.objectStoreNames.contains(DB_STORE)) {
+          d.createObjectStore(DB_STORE, { keyPath: "id" });
+        }
+      };
+      req.onsuccess = function () {
+        var d = req.result;
+        // Etiquette: if another tab wipes (deletes) the database, close
+        // this connection so the delete is not blocked.
+        d.onversionchange = function () { try { d.close(); } catch (e) {} };
+        resolve(d);
+      };
+      req.onerror = function () { reject(req.error || new Error("IndexedDB open failed")); };
+    });
+  }
+  function idbAll() {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(DB_STORE, "readonly");
+      var req = tx.objectStore(DB_STORE).getAll();
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { reject(req.error || new Error("getAll failed")); };
+    });
+  }
+  function idbPut(rec) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).put(rec);
+      tx.oncomplete = function () { resolve(rec); };
+      tx.onerror = function () { reject(tx.error || new Error("put failed")); };
+    });
+  }
+  function idbDelete(id) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).delete(id);
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error || new Error("delete failed")); };
+    });
+  }
+  function idbWipe() {
+    // Full wipe: clear every record, drop the stored metadata key, then
+    // CLOSE our connection and delete the database itself so nothing
+    // lingers. Closing first is essential: an open connection blocks
+    // deleteDatabase, and every later open() would queue behind it.
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).clear();
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error || new Error("clear failed")); };
+    }).then(function () {
+      try { localStorage.removeItem("harness-active-conv"); } catch (e) {}
+      return new Promise(function (resolve) {
+        if (!window.indexedDB) { resolve(); return; }
+        try { db.close(); } catch (e) {}
+        var req;
+        try { req = indexedDB.deleteDatabase(DB_NAME); }
+        catch (e) { resolve(); return; }
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { resolve(); };    // store already cleared
+        req.onblocked = function () { resolve(); };  // safety net
+      });
+    });
+  }
+
+  function newConvRecord() {
+    return {
+      id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      title: "New chat",
+      preview: "No messages yet",
+      updated: Date.now(),
+      messages: []
+    };
+  }
+
+  // ---- conversation state ----
+  var convs = [];          // loaded from IndexedDB, newest first
+  var current = null;      // active conversation record (object)
+
+  function sortConvs() {
+    convs.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); });
+  }
+
   var convList = document.getElementById("convs");
 
   function refreshConvList() {
     convList.textContent = "";
+    if (!convs.length) {
+      var empty = document.createElement("div");
+      empty.className = "conv-preview";
+      empty.textContent = "No conversations stored.";
+      convList.appendChild(empty);
+      return;
+    }
     for (var i = 0; i < convs.length; i++) {
-      var c = convs[i];
-      var div = document.createElement("div");
-      div.className = "conv" + (i === convs.length - 1 ? " active" : "");
-      var t = document.createElement("div");
-      t.className = "conv-title";
-      t.textContent = c.title;
-      var p = document.createElement("div");
-      p.className = "conv-preview";
-      p.textContent = c.preview;
-      div.appendChild(t); div.appendChild(p);
-      convList.appendChild(div);
+      convList.appendChild(renderConvRow(convs[i]));
     }
   }
-  function addConv(title, preview) {
-    convs.push({ title: title, preview: preview });
-    if (convs.length > 40) { convs = convs.slice(-40); }  // bounded
+
+  function renderConvRow(c) {
+    var div = document.createElement("div");
+    div.className = "conv" + (current && c.id === current.id ? " active" : "");
+    div.setAttribute("data-conv-id", c.id);
+    var t = document.createElement("div");
+    t.className = "conv-title";
+    t.textContent = c.title || "New chat";
+    var p = document.createElement("div");
+    p.className = "conv-preview";
+    p.textContent = c.preview || "No messages yet";
+    div.appendChild(t); div.appendChild(p);
+    // per-conversation delete button (v4)
+    var del = document.createElement("button");
+    del.type = "button";
+    del.className = "conv-del";
+    del.textContent = "Del";
+    del.title = "Delete this conversation";
+    del.setAttribute("aria-label", "Delete conversation " + (c.title || "untitled"));
+    del.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      deleteConv(c.id);
+    });
+    div.appendChild(del);
+    div.addEventListener("click", function () { openConv(c.id); });
+    return div;
+  }
+
+  function saveCurrent() {
+    if (!current) { return Promise.resolve(); }
+    current.updated = Date.now();
+    sortConvs();
+    return idbPut(current).then(refreshConvList).catch(function (err) {
+      addSysMsg("Could not save conversation locally: " + err.message);
+    });
+  }
+
+  function persistConvMeta() {
+    if (!current) { return; }
+    try { localStorage.setItem("harness-active-conv", current.id); } catch (e) {}
+  }
+
+  function deleteConv(id) {
+    var c = null;
+    for (var i = 0; i < convs.length; i++) { if (convs[i].id === id) { c = convs[i]; break; } }
+    var label = c && c.title ? c.title : "this conversation";
+    if (!window.confirm("Delete conversation \\"" + label + "\\"? This cannot be undone.")) { return; }
+    idbDelete(id).then(function () {
+      convs = convs.filter(function (x) { return x.id !== id; });
+      try {
+        if (localStorage.getItem("harness-active-conv") === id) {
+          localStorage.removeItem("harness-active-conv");
+        }
+      } catch (e) {}
+      if (current && current.id === id) {
+        current = null;
+        startFreshView("Conversation deleted. New chat started.");
+      }
+      refreshConvList();
+    }).catch(function (err) {
+      addSysMsg("Delete failed: " + err.message);
+    });
+  }
+
+  function wipeAll() {
+    if (!window.confirm("Delete ALL conversations and wipe the stored chat database? This cannot be undone.")) { return; }
+    var oldDb = db;
+    db = null;
+    convs = [];
+    current = null;
+    // UI reflects the wipe immediately; the delete itself settles async.
+    startFreshView("All stored conversations deleted and IndexedDB data wiped.");
     refreshConvList();
+    // Clear records, drop the metadata key, close + delete the DB file.
+    new Promise(function (resolve, reject) {
+      var tx = oldDb.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).clear();
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error || new Error("clear failed")); };
+    }).then(function () {
+      try { localStorage.removeItem("harness-active-conv"); } catch (e) {}
+      return new Promise(function (resolve) {
+        if (!window.indexedDB) { resolve(); return; }
+        try { oldDb.close(); } catch (e) {}
+        var req;
+        try { req = indexedDB.deleteDatabase(DB_NAME); }
+        catch (e) { resolve(); return; }
+        req.onsuccess = function () { resolve(); };
+        req.onerror = function () { resolve(); };
+        req.onblocked = function () { resolve(); };
+        setTimeout(resolve, 5000);                   // never wedge forever
+      });
+    }).then(function () {
+      return idbOpen();                              // fresh, empty DB
+    }).then(function (d) {
+      db = d;
+      // After a wipe the DB stays empty until the first message is
+      // sent (the in-memory record is persisted lazily by recordMsg).
+      current = newConvRecord();
+      convs.unshift(current);
+      persistConvMeta();
+      refreshConvList();
+    }).catch(function (err) {
+      addSysMsg("Wipe failed: " + err.message);
+      refreshConvList();
+    });
+  }
+
+  function startFreshView(note) {
+    scroller.textContent = "";
+    var w = document.createElement("div");
+    w.className = "sysmsg";
+    w.textContent = note || "New chat started.";
+    scroller.appendChild(w);
+    var g = document.createElement("div");
+    g.className = "sysmsg";
+    g.textContent = "Prompts are proxied to gemini-4-hydrogen. /sh requests a local shell command.";
+    scroller.appendChild(g);
+    closeSidebar();
+  }
+
+  function openConv(id) {
+    if (pendingBusy) { return; }
+    var rec = null;
+    for (var i = 0; i < convs.length; i++) { if (convs[i].id === id) { rec = convs[i]; break; } }
+    if (!rec) { return; }
+    current = rec;
+    persistConvMeta();
+    refreshConvList();
+    scroller.textContent = "";
+    var head = document.createElement("div");
+    head.className = "sysmsg";
+    head.textContent = "Conversation restored: " + (rec.title || "New chat");
+    scroller.appendChild(head);
+    var msgs = rec.messages || [];
+    for (var j = 0; j < msgs.length; j++) {
+      replayMsg(msgs[j]);
+    }
+    if (!msgs.length) {
+      var e = document.createElement("div");
+      e.className = "sysmsg";
+      e.textContent = "This conversation has no messages yet.";
+      scroller.appendChild(e);
+    }
+    scrollToBottom(true);
+    closeSidebar();
+  }
+
+  function replayMsg(m) {
+    if (!m || !m.role) { return; }
+    if (m.role === "user") {
+      addUserBubble(m.text || "");
+    } else if (m.role === "model") {
+      if (m.kind === "confirm" && m.text) {
+        addAiMsg(m.text, { label: m.label || "Proposed command", pre: true, copyable: true, replayed: true });
+      } else if (m.kind === "output" && m.text) {
+        addAiMsg(m.text, { label: m.label || "Output", pre: true, replayed: true });
+      } else {
+        addAiMsg(m.text || "", { copyable: !m.kind, replayed: true });
+      }
+    } else if (m.role === "system") {
+      addSysMsg(m.text || "", true);
+    }
+  }
+
+  function newChat() {
+    if (pendingBusy) { return; }
+    var rec = newConvRecord();
+    current = rec;
+    convs.unshift(rec);
+    persistConvMeta();
+    refreshConvList();
+    startFreshView("New chat started.");
+    saveCurrent();
+  }
+
+  function recordMsg(entry) {
+    if (!current) {
+      current = newConvRecord();
+      convs.unshift(current);
+      persistConvMeta();
+      refreshConvList();
+    }
+    current.messages.push(entry);
+    if (entry.role === "user") {
+      current.title = (entry.text || "").slice(0, 34) || "New chat";
+      current.preview = (entry.text || "").slice(0, 60);
+    } else if (entry.role === "model" && entry.text) {
+      current.preview = entry.text.replace(/\\s+/g, " ").slice(0, 60);
+    }
   }
 
   // ---- helpers ----
@@ -660,22 +986,26 @@ HTML = """<!DOCTYPE html>
     scroller.appendChild(row);
     return row;
   }
-  function addUserMsg(text) {
+  function addUserBubble(text) {
     var row = addRow("user");
     var b = document.createElement("div");
     b.className = "bubble-user";
     b.textContent = text;
     row.appendChild(b);
     scrollToBottom(true);
-    addConv(text.slice(0, 34), text.slice(0, 60));
   }
-  function addSysMsg(text) {
+  function addUserMsg(text) {
+    addUserBubble(text);
+    recordMsg({ role: "user", text: text });
+    saveCurrent();
+  }
+  function addSysMsg(text, noScroll) {
     var row = addRow("ai");
     var d = document.createElement("div");
     d.className = "sysmsg";
     d.textContent = text;
     row.appendChild(d);
-    scrollToBottom(false);
+    if (!noScroll) { scrollToBottom(false); }
   }
   function addAiMsg(text, opts) {
     opts = opts || {};
@@ -728,8 +1058,18 @@ HTML = """<!DOCTYPE html>
       b.appendChild(meta);
     }
     row.appendChild(b);
-    scrollToBottom(false);
+    if (!opts.replayed) { scrollToBottom(false); }
     return b;
+  }
+  function recordAiMsg(text, opts) {
+    opts = opts || {};
+    recordMsg({
+      role: "model",
+      text: text,
+      kind: opts.pre ? (opts.kind || "output") : "",
+      label: opts.label || ""
+    });
+    saveCurrent();
   }
   var typingRow = null;
   function showTyping() {
@@ -756,24 +1096,42 @@ HTML = """<!DOCTYPE html>
     });
   }
 
+  function historyForRequest() {
+    // Send the current conversation (minus the just-typed prompt, which
+    // the server appends) so multi-turn chats keep their context.
+    if (!current) { return []; }
+    var msgs = current.messages || [];
+    var out = [];
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      if ((m.role === "user" || m.role === "model") && m.text) {
+        out.push({ role: m.role, text: m.text });
+      }
+    }
+    return out.slice(-30);
+  }
+
   function send() {
     var text = promptEl.value.replace(/\\s+$/, "");
     if (!text || pendingBusy) { return; }
     promptEl.value = "";
     autoResize();
     updateChip();
+    var history = historyForRequest();
     addUserMsg(text);
     showTyping();
     pendingBusy = true;
     sendBtn.disabled = true;
-    post("/api/run", { prompt: text }).then(function (data) {
+    post("/api/run", { prompt: text, history: history }).then(function (data) {
       hideTyping();
       pendingBusy = false;
       sendBtn.disabled = false;
       if (data && data.confirmation) {
         addAiMsg(data.command || "", { token: data.token, label: "Proposed command", pre: true, copyable: true });
+        recordAiMsg(data.command || "", { pre: true, kind: "confirm", label: "Proposed command" });
       } else if (data && typeof data.reply === "string") {
         addAiMsg(data.reply, { copyable: true });
+        recordAiMsg(data.reply, {});
       } else {
         addAiMsg("Empty reply.");
       }
@@ -792,13 +1150,15 @@ HTML = """<!DOCTYPE html>
       out.textContent = data && data.output ? data.output
         : (data && data.error ? "Error: " + data.error : "(no output)");
       bubble.appendChild(out);
+      var text = out.textContent;
+      recordAiMsg(text, { pre: true, kind: "output", label: "Command output" });
       scrollToBottom(false);
     }).catch(function (err) {
       addSysMsg("Execution request failed: " + err.message);
     });
   }
 
-  // ---- composer behavior (4.3) ----
+  // ---- composer behavior ----
   function autoResize() {
     promptEl.style.height = "auto";
     var h = Math.min(promptEl.scrollHeight, 132);
@@ -818,18 +1178,10 @@ HTML = """<!DOCTYPE html>
   });
   sendBtn.addEventListener("click", send);
 
-  document.getElementById("newchat").addEventListener("click", function () {
-    scroller.textContent = "";
-    var w = document.createElement("div");
-    w.className = "sysmsg";
-    w.textContent = "New chat started.";
-    scroller.appendChild(w);
-    convs.forEach(function (c) { /* keep history list */ });
-    addSysMsg("Prompts are proxied to gemini-4-hydrogen. /sh requests a local shell command.");
-    closeSidebar();
-  });
+  document.getElementById("newchat").addEventListener("click", newChat);
+  document.getElementById("wipe-btn").addEventListener("click", wipeAll);
 
-  // ---- 4.5 invert button (CSS variables, persisted) ----
+  // ---- invert button (CSS variables, persisted) ----
   function applyThemeClass() {
     var root = document.documentElement;
     var dark = root.classList.contains("dark");
@@ -847,16 +1199,40 @@ HTML = """<!DOCTYPE html>
   document.getElementById("invert-side").addEventListener("click", invert);
   applyThemeClass();
 
-  // ---- settings drawer + config (4.6) ----
+  // ---- API key status (v4: sticky across conversations) ----
+  function renderKeyStatus(cfg) {
+    var masked = cfg && cfg.apiKey ? cfg.apiKey : "";
+    var line = masked
+      ? "API key: saved (" + masked + ") -- applies to all conversations"
+      : "API key: NOT set -- open Settings to add one";
+    keyStatusTop.textContent = line;
+    keyStatusDrawer.textContent = masked
+      ? "Saved key: " + masked + ". Leave the field blank to keep it."
+      : "No key saved yet.";
+  }
+  function refreshKeyStatus() {
+    fetch("/api/config").then(function (r) { return r.json(); })
+      .then(renderKeyStatus)
+      .catch(function () {
+        keyStatusTop.textContent = "API key: unknown (config unreadable)";
+      });
+  }
+  refreshKeyStatus();
+
+  // ---- settings drawer + config ----
   var drawer = document.getElementById("drawer");
+  function syncThinkingSelect(cfg) {
+    var sel = document.getElementById("thinking");
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === cfg.thinking) { sel.selectedIndex = i; break; }
+    }
+  }
   document.getElementById("settings-btn").addEventListener("click", function () {
     drawer.classList.toggle("open");
     if (drawer.classList.contains("open")) {
       fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
-        var sel = document.getElementById("thinking");
-        for (var i = 0; i < sel.options.length; i++) {
-          if (sel.options[i].value === cfg.thinking) { sel.selectedIndex = i; break; }
-        }
+        syncThinkingSelect(cfg);
+        renderKeyStatus(cfg);
       }).catch(function () {});
     }
   });
@@ -864,41 +1240,22 @@ HTML = """<!DOCTYPE html>
     drawer.classList.remove("open");
   });
   document.getElementById("save-cfg").addEventListener("click", function () {
-    var body = {
-      apiKey: document.getElementById("apiKey").value,
-      thinking: document.getElementById("thinking").value
-    };
+    var keyVal = document.getElementById("apiKey").value;
+    var body = { thinking: document.getElementById("thinking").value };
+    // Blank field = keep the existing key (sticky); a typed value
+    // replaces it. Only send apiKey when the user actually typed one.
+    if (keyVal.trim()) { body.apiKey = keyVal.trim(); }
     post("/api/config", body).then(function (data) {
       document.getElementById("apiKey").value = "";
       drawer.classList.remove("open");
-      addSysMsg("Configuration saved (thinking level: " + (data.thinking || "?") + ").");
+      addSysMsg("Configuration saved (thinking level: " + (data.thinking || "?") + "). API key sticks across all conversations.");
+      refreshKeyStatus();
     }).catch(function (err) {
       addSysMsg("Configuration not saved: " + err.message);
     });
   });
 
-  // ---- OAuth capture (4.6) ----
-  document.getElementById("auth-btn").addEventListener("click", function () {
-    addSysMsg("Spawning Gemini CLI to capture the Google OAuth URL (up to 30 seconds)...");
-    fetch("/api/cli-auth").then(function (r) { return r.json(); }).then(function (data) {
-      if (data && data.url) {
-        var row = addRow("ai");
-        var d = document.createElement("div");
-        d.className = "sysmsg";
-        var a = document.createElement("a");
-        a.href = data.url; a.target = "_blank"; a.rel = "noopener noreferrer";
-        a.textContent = "Open Google login to complete OAuth";
-        d.appendChild(a);
-        row.appendChild(d);
-      } else {
-        addSysMsg(data && data.msg ? data.msg : "No OAuth URL captured.");
-      }
-    }).catch(function (err) {
-      addSysMsg("OAuth capture failed: " + err.message);
-    });
-  });
-
-  // ---- mobile sidebar drawer (4.1) ----
+  // ---- mobile sidebar drawer ----
   var sidebar = document.getElementById("sidebar");
   var backdrop = document.getElementById("backdrop");
   function openSidebar() { sidebar.classList.add("open"); backdrop.classList.add("on"); }
@@ -911,29 +1268,61 @@ HTML = """<!DOCTYPE html>
     if (ev.key === "Escape") { closeSidebar(); drawer.classList.remove("open"); }
   });
 
-  // ---- initial config load (4.6) ----
-  fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
-    var sel = document.getElementById("thinking");
-    for (var i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].value === cfg.thinking) { sel.selectedIndex = i; break; }
-    }
-  }).catch(function () {});
-  promptEl.focus();
+  // ---- boot: open IndexedDB, restore conversations, pick active ----
+  function boot() {
+    idbOpen().then(function (d) {
+      db = d;
+      return idbAll();
+    }).then(function (list) {
+      convs = list || [];
+      sortConvs();
+      var activeId = null;
+      try { activeId = localStorage.getItem("harness-active-conv"); } catch (e) {}
+      var found = null;
+      if (activeId) {
+        for (var i = 0; i < convs.length; i++) {
+          if (convs[i].id === activeId) { found = convs[i]; break; }
+        }
+      }
+      if (found) {
+        current = found;
+        refreshConvList();
+        openConv(found.id);
+      } else {
+        // Fresh session: keep an in-memory conversation but persist
+        // nothing until the first message is actually sent.
+        current = newConvRecord();
+        convs.unshift(current);
+        persistConvMeta();
+        refreshConvList();
+      }
+      promptEl.focus();
+    }).catch(function (err) {
+      // No IndexedDB (private mode / disabled): run fully in-memory.
+      addSysMsg("Local storage unavailable (" + err.message + "); conversations will not persist.");
+      current = newConvRecord();
+      convs.unshift(current);
+      refreshConvList();
+      promptEl.focus();
+    });
+  }
+  boot();
 })();
 </script>
 </body>
 </html>"""
 
-
 # --------------------------------------------------------------------------
-# Gemini client (v1-M3: key in x-goog-api-key header, never in the URL;
-# v1-H4: 60s timeout).
+# Gemini client: key in x-goog-api-key header, never in the URL;
+# 60s timeout. v4: conversation history appended as prior turns.
 # --------------------------------------------------------------------------
-def gemini_request(api_key, user_text, thinking, shell_mode):
+def gemini_request(api_key, user_text, thinking, shell_mode, history):
     """Call the Gemini REST API; returns (reply_text, error_str)."""
+    contents = list(history) if history else []
+    contents.append({"role": "user", "parts": [{"text": user_text}]})
     payload = {
         "systemInstruction": {"parts": [{"text": build_system_prompt(shell_mode)}]},
-        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "contents": contents,
         "generationConfig": {"thinkingConfig": {"thinkingLevel": thinking}},
     }
     req = urllib.request.Request(
@@ -974,7 +1363,7 @@ def gemini_request(api_key, user_text, thinking, shell_mode):
 
 
 # --------------------------------------------------------------------------
-# Execution (v1-L2: output truncated; v2-L3: allowlist runs logged).
+# Execution: output truncated; allowlist runs logged.
 # --------------------------------------------------------------------------
 def run_shell(cmd):
     """Run a confirmed/allowlisted command; returns (output, error)."""
@@ -998,91 +1387,22 @@ def run_shell(cmd):
 
 
 # --------------------------------------------------------------------------
-# CLI auth (v1-H5: 30s timeout + killpg; v1-L3: single-flight guard --
-# only one npx spawn at a time, concurrent callers get a busy message).
-# --------------------------------------------------------------------------
-_CLI_AUTH_LOCK = threading.Lock()
-
-
-def cli_auth_capture():
-    if not _CLI_AUTH_LOCK.acquire(blocking=False):
-        return {"url": None,
-                "msg": "an OAuth capture is already in progress; try again after it finishes"}
-    try:
-        env = os.environ.copy()
-        env["BROWSER"] = "echo"
-        try:
-            proc = subprocess.Popen(
-                ["npx", "-y", "@google/gemini-cli"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=env,
-                start_new_session=True,
-            )
-        except FileNotFoundError:
-            return {"url": None,
-                    "msg": "npx not found. Install Node.js or use the API key method in Settings."}
-        except OSError as e:
-            return {"url": None, "msg": f"could not launch npx: {e}"}
-
-        try:
-            out, _ = proc.communicate(timeout=CLI_AUTH_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                proc.terminate()
-            try:
-                proc.communicate(timeout=5)
-            except (subprocess.TimeoutExpired, OSError):
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):
-                    proc.kill()
-                try:
-                    proc.communicate(timeout=5)
-                except Exception:
-                    pass
-            return {"url": None,
-                    "msg": f"CLI auth timed out after {CLI_AUTH_TIMEOUT}s. Try again or use the API key method."}
-        except Exception as e:            # noqa: BLE001 -- last-resort guard
-            return {"url": None, "msg": f"CLI auth failed: {e}"}
-
-        url = next(
-            (w for w in (out or "").split()
-             if w.startswith("https://accounts.google.com")),
-            None,
-        )
-        if url:
-            LOG.info("captured Gemini CLI OAuth URL")
-            return {"url": url, "msg": "Captured."}
-        return {
-            "url": None,
-            "msg": "No OAuth URL found in CLI output. Install @google/gemini-cli or use the API key method in Settings.",
-        }
-    finally:
-        _CLI_AUTH_LOCK.release()
-
-
-# --------------------------------------------------------------------------
-# HTTP Handler (v1-C1/H1 origin+host; v1-H2/v2-H2/v2-M1 body reads;
-# v2-M5 CSP+nosniff on every response; v2-L2 close only when a body is
-# actually pending).
+# HTTP Handler: origin+host gating; capped body reads for both
+# Content-Length and chunked framing; CSP+nosniff on every response;
+# close only when a body is actually pending. v4: no OAuth/CLI routes.
 # --------------------------------------------------------------------------
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "HydrogenHarness/3.0"
+    server_version = "HydrogenHarness/4.0"
 
     def log_message(self, fmt, *args):
-        # v1-L1: per-request diagnostics to the rotating file log.
+        # per-request diagnostics to the rotating file log.
         try:
             LOG.info("%s %s", self.address_string(), _redact(fmt % args))
         except Exception:
             pass
 
-    # ---------- request gating (v1-C1, v1-H1) ----------
+    # ---------- request gating ----------
     def _origin_ok(self):
         origin = self.headers.get("Origin")
         if origin is None:
@@ -1103,7 +1423,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
         return host in ("", HOST, "localhost", "[::1]", "::1")
 
-    # ---------- responses (v2-M5: CSP + nosniff everywhere) ----------
+    # ---------- responses (CSP + nosniff everywhere) ----------
     def _common_headers(self, content_type, length):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
@@ -1126,7 +1446,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _reject(self, code, reason):
         LOG.warning("rejected %s %s: %s", self.command, self.path, reason)
-        # v2-L2: only close the connection when a body is really pending.
+        # only close the connection when a body is really pending.
         try:
             raw_len = (self.headers.get("Content-Length") or "").strip()
             pending = int(raw_len) if raw_len.isdigit() else 0
@@ -1136,7 +1456,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
         self._send_json({"error": reason}, code=code)
 
-    # ---------- body reads (v1-H2, v2-H2, v2-M1) ----------
+    # ---------- body reads ----------
     def _read_body(self):
         """Read + parse the JSON body; capped; never silently loses input.
 
@@ -1153,7 +1473,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if raw_len == "":
             return {}, None
         if not raw_len.isdigit():
-            # v2-H2: garbage Content-Length is an error, not a silent 0.
+            # garbage Content-Length is an error, not a silent 0.
             return None, "400 invalid Content-Length header"
         length = int(raw_len)
         if length == 0:
@@ -1168,7 +1488,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return (body, None) if isinstance(body, dict) else ({}, None)
 
     def _read_body_chunked(self):
-        """v2-M1: strict chunked framing (CRLF validated, capped)."""
+        """Strict chunked framing (CRLF validated, capped)."""
         chunks = []
         total = 0
         try:
@@ -1217,8 +1537,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             key = cfg.get("apiKey", "")
             masked = ("*" * 8 + key[-4:]) if len(key) > 12 else ("set" if key else "")
             self._send_json({"apiKey": masked, "thinking": cfg.get("thinking", "high")})
-        elif path == "/api/cli-auth":
-            self._send_json(cli_auth_capture())
         else:
             self._reject(404, "not found")
 
@@ -1242,7 +1560,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 cfg = save_cfg(body)               # raises ValueError on bad input
                 self._send_json({"ok": True, "thinking": cfg.get("thinking", "high")})
-            except ValueError as e:                # v2-M2: 400, not silent drop
+            except ValueError as e:                # 400, not silent drop
                 LOG.warning("config rejected: %s", e)
                 self._send_json({"error": f"invalid configuration: {e}"}, code=400)
             except OSError as e:
@@ -1273,13 +1591,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"reply": "Error: no API key configured. Open Settings in the sidebar and save one, or set GEMINI_API_KEY."})
             return
 
-        shell_mode, user_text = split_prompt(prompt)     # v1-M1
+        shell_mode, user_text = split_prompt(prompt)
         if shell_mode and not user_text:
             self._send_json({"reply": "Error: /sh requires a request, e.g. '/sh show disk usage'."})
             return
 
+        history = sanitize_history(body.get("history"))    # v4
         reply, api_err = gemini_request(
-            api_key, user_text, cfg.get("thinking", "high"), shell_mode
+            api_key, user_text, cfg.get("thinking", "high"), shell_mode, history
         )
         if api_err:
             LOG.warning("gemini call failed: %s", api_err)
@@ -1291,17 +1610,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         # ---- shell mode: validate before ANY execution ----
-        if is_refusal(reply):                            # v1-M2
+        if is_refusal(reply):
             LOG.info("refusal detected; not executed")
             self._send_json({"reply": "The model declined to produce a command. Its reply:\n" + reply})
             return
 
-        cmd = extract_command(reply)                     # v1-M1
-        if not cmd or not looks_like_command(cmd):       # v1-M2
+        cmd = extract_command(reply)
+        if not cmd or not looks_like_command(cmd):
             self._send_json({"reply": "The model's reply was not a recognizable shell command. Its reply:\n" + reply})
             return
 
-        risk = command_risk(cmd)                        # v2-C1 + v2-L1 inside
+        risk = command_risk(cmd)
         if risk == "blocked":
             LOG.warning("blocked dangerous command: %r", cmd)
             self._send_json({"reply": "Refused to run (matches the harness deny list):\n" + cmd})
@@ -1313,11 +1632,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if exec_err:
                 self._send_json({"reply": f"Execution Error: {exec_err}\nCommand: {cmd}"})
             else:
-                LOG.info("auto-executed safe command: %r", cmd)   # v2-L3
+                LOG.info("auto-executed safe command: %r", cmd)
                 self._send_json({"reply": f"Command executed (allowlisted, read-only):\n{cmd}\n--- OUTPUT ---\n{out}"})
             return
 
-        # risk == "confirm": one-time token gate (v1-C2)
+        # risk == "confirm": one-time token gate
         token = _register_pending(cmd, user_text)
         LOG.info("awaiting confirmation for command: %r", cmd)
         self._send_json({
@@ -1348,7 +1667,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 # --------------------------------------------------------------------------
-# Server bootstrap (n9): 127.0.0.1 only, port from env/CLI, fallback chain.
+# Server bootstrap: 127.0.0.1 only, port from env/CLI, fallback chain.
 # --------------------------------------------------------------------------
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
@@ -1371,7 +1690,7 @@ def _port_from_env():
 
 
 def _bind_server(port):
-    """Try to bind HOST:port; on OSError fall through the port chain (n9)."""
+    """Try to bind HOST:port; on OSError fall through the port chain."""
     candidates = [port] + [p for p in FALLBACK_PORTS if p != port]
     last_err = None
     for p in candidates:
@@ -1385,8 +1704,8 @@ def _bind_server(port):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        prog="harness.py",
-        description="Gemini 4 Hydrogen // Minimal Harness (serves 127.0.0.1 only).",
+        prog="gemini.py",
+        description="Gemini 4 Hydrogen // Minimal Harness (API-key only, serves 127.0.0.1).",
     )
     parser.add_argument(
         "--port", type=int, default=None, metavar="N",
@@ -1431,3 +1750,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
