@@ -66,6 +66,8 @@ Prefix a prompt with `/sh` to ask the model for a single bash command, e.g.:
 
 This is a local developer tool. Shell commands are not verified by Google. Only run commands you understand, and keep the listener on `127.0.0.1` — do not expose it to a network.
 
+*webXOS has no connection to Gemini or Google software*
+
 ## LICENSE
 
-MIT Open Sourced by github.com/webxos
+MIT and Open Sourced by github.com/webxos
