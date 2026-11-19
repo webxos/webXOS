@@ -607,8 +607,7 @@ HTML = """<!DOCTYPE html>
       <div class="comp-row" style="margin-top:6px;">
         <span class="send"><button type="button" id="send" class="send" style="width:100%;">Send</button></span>
       </div>
-      <p class="disclaimer">Local harness on 127.0.0.1. Shell commands require
-      explicit confirmation. Output is not verified by Google.</p>
+      <p class="disclaimer">Designed by webxos.netlify.app. No Association with GOOGLE or GEMINI Software: Output is not verified by Google.</p>
     </div>
   </main>
 </div>
