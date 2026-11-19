@@ -592,8 +592,8 @@ HTML = """<!DOCTYPE html>
 
   <aside class="sidebar" id="sidebar" aria-label="Chat list">
     <div class="sidebar-head">
-      <p class="sidebar-title">Hydrogen Harness</p>
-      <p class="sidebar-sub">gemini-4-hydrogen / local</p>
+      <p class="sidebar-title">Gemini Harness</p>
+      <p class="sidebar-sub">by webxos.netlify.app</p>
     </div>
     <div style="padding:10px 14px 0;">
       <button type="button" id="newchat" class="newchat" style="width:100%;">New chat</button>
