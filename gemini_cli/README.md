@@ -3,7 +3,7 @@
 A minimal and Single-file, stdlib-only Python harness that serves a chat UI on `127.0.0.1` and proxies prompts to the Gemini REST API.
 
 ## Requirements
-1. -Gemini API Key (For free via https://aistudio.google.com/docs/whats-new-gemini-4-hydrogen)
+1. Get a Gemini API Key (For free via https://aistudio.google.com/docs/whats-new-gemini-4-hydrogen)
 
 2. Python 3.8+
 3. `npx` / Node.js — **only** if you want the optional "Google OAuth" button (`@google/gemini-cli`)
