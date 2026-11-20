@@ -85,7 +85,7 @@ Free Apps I've made lately:
 
   <div align="left">
 
-[![QFM](https://img.shields.io/badge/NEXT-TOKEN--PREDICTION%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/qfm)
+[![QFM](https://img.shields.io/badge/QFM-TOKEN--PREDICTION%20-000000?style=for-the-badge&labelColor=111111&color=f2f2f2)](https://agentowl.netlify.app/qfm)
 
 
 </div>  
