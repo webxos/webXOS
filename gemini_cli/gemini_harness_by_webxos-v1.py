@@ -1,8 +1,26 @@
 #!/usr/bin/env python3
-"""Gemini 4 Hydrogen // Minimal Harness (v4, API-key only).
+"""Gemini 4 Hydrogen // Minimal Harness (v4.1, API-key only).
 
 A single-file, stdlib-only local harness serving a DeepSeek-style
 monochrome chat UI on 127.0.0.1 only.
+
+Changes in v4.1 (audit fixes):
+  - run_shell uses Popen + process-group kill: on timeout the whole
+    tree (shell + any grandchildren) is terminated, then reaped -- no
+    orphaned processes (audit #3).
+  - POST requests now REQUIRE both a same-origin Origin header and
+    Content-Type: application/json; violations get 403/415 (audit #4
+    and #7).
+  - /api/exec reports real status codes: 400 bad/expired token, 403
+    deny-listed command, 500 execution failure (audit #5); the client
+    reads the JSON error body and surfaces it.
+  - Chunked trailer section is bounded (max 16 trailer lines + byte
+    cap), so a hostile peer cannot pin a thread reading endless
+    trailer lines (audit #2 hardening).
+  - Duplicate 'tee' deny-pattern removed (audit #6).
+  - Server socket gets a 120s idle timeout so stuck connections
+    cannot pin threads; _reject only closes when unread body bytes
+    remain.
 
 Changes in v4 (remake):
   - Google OAuth / Gemini-CLI capture removed entirely: the harness is
@@ -16,9 +34,10 @@ Changes in v4 (remake):
   - /api/run accepts the conversation history so multi-turn chats keep
     their context (capped server-side at MAX_HISTORY_TURNS).
 
-Security model (carried over from v3 hardening):
+Security model (carried over from v3 hardening, tightened in v4.1):
   - Binds 127.0.0.1; strict Origin + Host validation on every request
-    (CSRF / DNS-rebinding defense).
+    (CSRF / DNS-rebinding defense). POST additionally requires an
+    exact same-origin Origin header AND Content-Type application/json.
   - /sh requests: read-only allowlist auto-runs; anything else needs
     explicit confirmation via a one-time token; deny list refused even
     after confirmation; multi-line commands NEVER auto-run.
@@ -47,6 +66,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import re
 import secrets
+import signal
 import socketserver
 import subprocess
 import sys
@@ -72,6 +92,9 @@ GEMINI_API_TIMEOUT = 60
 MAX_BODY_BYTES = 1024 * 1024   # 1 MiB cap on request bodies
 MAX_OUTPUT_CHARS = 20000       # truncate huge command output in replies
 EXEC_TIMEOUT = 60              # hard cap for confirmed shell executions
+SOCKET_TIMEOUT = 120           # idle-connection cap so threads cannot pin
+MAX_TRAILER_LINES = 16         # chunked trailer section line cap
+MAX_TRAILER_BYTES = 8192       # chunked trailer section byte cap
 VALID_THINKING = ("low", "medium", "high", "xhigh")
 PENDING_CAP = 64               # hard cap on unconfirmed commands
 PENDING_TTL = 600              # unconfirmed commands expire after 10 min
@@ -100,7 +123,7 @@ DENIED_PATTERNS = (
     r"/dev/sd", r"/dev/nvme", r":\(\)\{", r"\bhistory\b", r"\bmv\b",
     r"\bcp\b", r"\btouch\b", r"\bmkdir\b", r"\brmdir\b", r"\btee\b",
     r"\bcrontab\b", r"\biptables\b", r"\bnpm\b", r"\bpip\b",
-    r"\bgit\b", r"\bgrep\b", r"\bsed\b", r"\bawk\b", r"\btee\b",
+    r"\bgit\b", r"\bgrep\b", r"\bsed\b", r"\bawk\b",
     r"\benv\b", r"\bexport\b", r"\bset\b", r"\bunset\b", r">\s*/dev/",
 )
 DENIED_RES = [re.compile(p) for p in DENIED_PATTERNS]
@@ -1091,7 +1114,13 @@ HTML = """<!DOCTYPE html>
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(obj)
     }).then(function (r) {
-      if (!r.ok) { throw new Error("HTTP " + r.status); }
+      // non-200 responses carry a JSON error body: surface its message
+      // (server reports 400/403/413/415/500 with real status codes).
+      if (!r.ok) {
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          throw new Error(data.error || ("HTTP " + r.status));
+        });
+      }
       return r.json();
     });
   }
@@ -1154,7 +1183,11 @@ HTML = """<!DOCTYPE html>
       recordAiMsg(text, { pre: true, kind: "output", label: "Command output" });
       scrollToBottom(false);
     }).catch(function (err) {
-      addSysMsg("Execution request failed: " + err.message);
+      // server answered 400/403/500 with a JSON error body; err.message
+      // already carries it -- record it as this chat's outcome too.
+      addSysMsg("Execution failed: " + err.message);
+      recordMsg({ role: "system", text: "Execution failed: " + err.message });
+      saveCurrent();
     });
   }
 
@@ -1366,24 +1399,59 @@ def gemini_request(api_key, user_text, thinking, shell_mode, history):
 # Execution: output truncated; allowlist runs logged.
 # --------------------------------------------------------------------------
 def run_shell(cmd):
-    """Run a confirmed/allowlisted command; returns (output, error)."""
+    """Run a confirmed/allowlisted command; returns (output, error).
+
+    Uses Popen with a new process group so that, on timeout, the whole
+    tree (shell + any grandchildren) is terminated and reaped -- no
+    orphaned processes are left behind (audit #3).
+    """
+    proc = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             text=True,
-            timeout=EXEC_TIMEOUT,
+            start_new_session=True,        # own process group -> clean kill
         )
-        out = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
-        out = out.strip()
-        if len(out) > MAX_OUTPUT_CHARS:
-            out = out[:MAX_OUTPUT_CHARS] + "\n... [output truncated]"
-        return out, None
+        out, err = proc.communicate(timeout=EXEC_TIMEOUT)
     except subprocess.TimeoutExpired:
+        if proc is not None:
+            _kill_process_group(proc)
+            try:
+                out, err = proc.communicate(timeout=5)   # reap + collect
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                pass
         return None, f"command timed out after {EXEC_TIMEOUT}s"
     except OSError as e:
+        if proc is not None:
+            _kill_process_group(proc)
         return None, str(e)
+    out = (out or "") + (("\n" + err) if err else "")
+    out = out.strip()
+    if len(out) > MAX_OUTPUT_CHARS:
+        out = out[:MAX_OUTPUT_CHARS] + "\n... [output truncated]"
+    return out, None
+
+
+def _kill_process_group(proc):
+    """Best-effort SIGKILL of the whole process group, then wait()."""
+    try:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()                 # group gone / not ours: direct kill
+    except OSError:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -1446,13 +1514,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _reject(self, code, reason):
         LOG.warning("rejected %s %s: %s", self.command, self.path, reason)
-        # only close the connection when a body is really pending.
+        # A body we refuse to read must not desync keep-alive framing:
+        # close the connection whenever unread bytes can remain (a
+        # positive Content-Length, or chunked framing we stop parsing).
         try:
             raw_len = (self.headers.get("Content-Length") or "").strip()
             pending = int(raw_len) if raw_len.isdigit() else 0
         except ValueError:
             pending = 0
-        if pending > 0:
+        if pending > 0 or "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
             self.close_connection = True
         self._send_json({"error": reason}, code=code)
 
@@ -1501,10 +1571,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except ValueError:
                     return None, "400 invalid chunk size"
                 if size == 0:
-                    while True:                     # trailers until blank line
+                    # trailer section: read until blank line, bounded
+                    # (audit #2: a peer must not be able to pin this
+                    # thread with an endless stream of trailer lines)
+                    trailer_lines = 0
+                    trailer_bytes = 0
+                    while True:
                         line = self.rfile.readline(1024)
                         if not line or line in (b"\r\n", b"\n"):
                             break
+                        trailer_lines += 1
+                        trailer_bytes += len(line)
+                        if trailer_lines > MAX_TRAILER_LINES or trailer_bytes > MAX_TRAILER_BYTES:
+                            return None, "400 oversized chunked trailer section"
                     break
                 total += size
                 if total > MAX_BODY_BYTES:
@@ -1541,9 +1620,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reject(404, "not found")
 
     # ---------- POST ----------
+    def _content_type_is_json(self):
+        """True when the request declares a JSON body.
+
+        CSRF defense-in-depth (audit #4): browsers set Content-Type
+        automatically for real form posts and cannot be forced to send
+        application/json cross-origin without a CORS preflight, so
+        requiring it blocks simple-request CSRF even if the Origin
+        check were ever bypassed.
+        """
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        return ctype == "application/json"
+
     def do_POST(self):
         if not self._origin_ok() or not self._host_ok():
             self._reject(403, "forbidden: origin/host not allowed")
+            return
+        # POST must carry an explicit same-origin Origin header (audit
+        # #7: a missing Origin is not trusted for state changes).
+        if self.headers.get("Origin") is None:
+            self._reject(403, "forbidden: POST requires a same-origin Origin header")
+            return
+        if not self._content_type_is_json():
+            self._reject(415, "unsupported media type: POST requires Content-Type: application/json")
             return
         path = urllib.parse.urlparse(self.path).path
         body, body_err = self._read_body()
@@ -1651,16 +1750,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         token = body.get("token")
         cmd = _pop_pending(token)
         if cmd is None:
-            self._send_json({"error": "invalid or expired confirmation token"}, code=200)
+            # bad or expired one-time token -> 400 (audit #5)
+            self._send_json({"error": "invalid or expired confirmation token"}, code=400)
             return
         risk = command_risk(cmd)
         if risk == "blocked":
             LOG.warning("confirmed command hit deny list: %r", cmd)
-            self._send_json({"error": "refused: command matches the harness deny list"}, code=200)
+            # deny-listed command refused even after confirmation -> 403
+            self._send_json({"error": "refused: command matches the harness deny list"}, code=403)
             return
         out, exec_err = run_shell(cmd)
         if exec_err:
-            self._send_json({"error": f"Execution Error: {exec_err}"}, code=200)
+            LOG.warning("execution failed: %s (cmd=%r)", exec_err, cmd)
+            # the command ran but failed (timeout, etc.) -> 500
+            self._send_json({"error": f"Execution Error: {exec_err}"}, code=500)
             return
         LOG.info("executed confirmed command: %r", cmd)
         self._send_json({"output": out or "(no output)"})
@@ -1672,6 +1775,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def server_bind(self):
+        super().server_bind()
+        # idle-connection cap: a stalled client cannot pin a thread
+        # forever reading a request that never arrives.
+        self.socket.settimeout(SOCKET_TIMEOUT)
+
+    def get_request(self):
+        conn, addr = super().get_request()
+        # refresh the timeout for the whole connection lifetime
+        conn.settimeout(SOCKET_TIMEOUT)
+        return conn, addr
 
 
 def _port_from_env():
